@@ -1,14 +1,22 @@
-plugins {
-    // Firebase Plugin の登録（必要ならここに追加）
-    id("com.google.gms.google-services") version "4.4.3" apply false
+// Firebase プラグインは buildscript で classpath を指定する
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.google.gms:google-services:4.4.3")
+    }
 }
+
+// 不要：plugins { id(...) version ... } は settings.gradle.kts 専用なので削除
+// allprojects の中では plugins は使えない
 
 allprojects {
     repositories {
         google()
         mavenCentral()
     }
-    id("com.google.gms.google-services") version "4.4.3" apply false
 }
 
 val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
@@ -18,6 +26,7 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
+
 subprojects {
     project.evaluationDependsOn(":app")
 }
