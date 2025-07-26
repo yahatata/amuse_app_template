@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "767044015900",
+    "project_id": "amuse-app-template",
+    "storage_bucket": "amuse-app-template.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:767044015900:android:cbb7e86c88e787b9734cd9",
+        "android_client_info": {
+          "package_name": "com.example.amuse_app_template"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB4uReYiG_fVVDkwOmkPteF3roa_sGMHDQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
