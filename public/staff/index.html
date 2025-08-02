@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>スタッフページ - Amuse App</title>
+
+    <!-- LIFF SDK -->
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+    <!-- Firebase初期化スクリプト -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+      import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+      import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+      // Firebase設定
+      const firebaseConfig = {
+        apiKey: "AIzaSyB4uReYiG_fVVDkwOmkPteF3roa_sGMHDQ",
+        authDomain: "amuse-app-template.firebase.com",
+        projectId: "amuse-app-template",
+        storageBucket: "amuse-app-template.appspot.com",
+        appId: "1:767044015900:web:8671d7fe4f677b17734cd9"
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+
+      // グローバルに公開
+      window.Firebase = { app, auth, db };
+      window.FirebaseAuth = { signInWithCustomToken };
+      
+      // LIFFとFirebase認証の初期化関数
+      window.initLiffAndFirebaseAuth = async function(liffId) {
+        if (!window.liff) {
+          alert("LIFF SDKが読み込まれていません。");
+          return;
+        }
+
+        try {
+          await liff.init({ liffId });
+
+          if (!liff.isLoggedIn()) {
+            liff.login();
+            return;
+          }
+
+          const idToken = await liff.getIDToken();
+          if (!idToken) {
+            throw new Error("LIFFのIDトークン取得に失敗しました。");
+          }
+
+          // サーバーからFirebaseカスタムトークンを取得
+          const res = await fetch("https://us-central1-amuse-app-template.cloudfunctions.net/getFirebaseCustomToken", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${idToken}`,
+              "Content-Type": "application/json"
+            }
+          });
+
+          if (!res.ok) {
+            throw new Error("Firebaseカスタムトークンの取得に失敗しました。");
+          }
+
+          const { firebaseToken } = await res.json();
+          if (!firebaseToken) {
+            throw new Error("サーバーからトークンが返却されませんでした。");
+          }
+
+          // Firebase v10 modular SDK対応
+          const { auth } = window.Firebase;
+          const { signInWithCustomToken } = window.FirebaseAuth;
+          await signInWithCustomToken(auth, firebaseToken);
+
+          // 利用者情報をwindowにセット
+          window.LiffFirebase = {
+            idToken,
+            user: auth.currentUser
+          };
+        } catch (e) {
+          alert("認証処理中にエラーが発生しました: " + (e?.message || e));
+          console.error(e);
+        }
+      };
+    </script>
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body { 
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #333; 
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+        min-height: 100vh;
+        line-height: 1.6;
+      }
+      
+      .container { 
+        max-width: 1200px; 
+        margin: 0 auto; 
+        padding: 20px; 
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      
+      .page {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        padding: 40px;
+        margin: 20px 0;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        animation: slideUp 0.6s ease-out;
+      }
+
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      
+      .loading {
+        text-align: center;
+        padding: 80px 20px;
+        color: white;
+      }
+
+      .loading h2 {
+        font-size: 2.5rem;
+        margin-bottom: 20px;
+        font-weight: 300;
+      }
+
+      .loading p {
+        font-size: 1.1rem;
+        opacity: 0.9;
+      }
+
+      .spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top: 4px solid white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 30px;
+      }
+
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      .home-page, .registration-page {
+        display: none;
+      }
+      
+      .home-page.active, .registration-page.active {
+        display: block;
+      }
+
+      .page h1 {
+        font-size: 2.5rem;
+        margin-bottom: 20px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-weight: 700;
+        text-align: center;
+      }
+
+      .page p {
+        font-size: 1.1rem;
+        color: #666;
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      
+      .btn {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        padding: 15px 30px;
+        border: none;
+        border-radius: 50px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: 600;
+        margin: 10px 5px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+      }
+
+      .btn:active {
+        transform: translateY(0);
+      }
+      
+      .btn-secondary {
+        background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+      }
+      
+      .btn-secondary:hover {
+        box-shadow: 0 8px 25px rgba(255, 107, 107, 0.6);
+      }
+      
+      .error {
+        background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+        color: white;
+        padding: 20px;
+        border-radius: 15px;
+        margin: 20px 0;
+        box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        border-left: 5px solid #ff4757;
+      }
+      
+      .success {
+        background: linear-gradient(135deg, #2ed573, #1e90ff);
+        color: white;
+        padding: 20px;
+        border-radius: 15px;
+        margin: 20px 0;
+        box-shadow: 0 4px 15px rgba(46, 213, 115, 0.4);
+        border-left: 5px solid #2ed573;
+      }
+      
+      .form-group {
+        margin: 25px 0;
+      }
+      
+      .form-group label {
+        display: block;
+        margin-bottom: 10px;
+        font-weight: 600;
+        color: #333;
+        font-size: 1rem;
+      }
+      
+      .form-group input, .form-group select {
+        width: 100%;
+        padding: 15px 20px;
+        border: 2px solid #e1e8ed;
+        border-radius: 15px;
+        font-size: 16px;
+        transition: all 0.3s ease;
+        background: rgba(255, 255, 255, 0.9);
+      }
+
+      .form-group input:focus, .form-group select:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        transform: translateY(-2px);
+      }
+      
+      .staff-dashboard {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        gap: 30px;
+        margin: 30px 0;
+      }
+      
+      .dashboard-card {
+        background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+        padding: 30px;
+        border-radius: 20px;
+        border: 1px solid #dee2e6;
+        transition: all 0.3s ease;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .dashboard-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+      }
+      
+      .dashboard-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+      }
+      
+      .dashboard-card h3 {
+        margin-top: 0;
+        color: #667eea;
+        font-size: 1.5rem;
+        margin-bottom: 15px;
+        font-weight: 700;
+      }
+
+      .dashboard-card p {
+        color: #666;
+        margin-bottom: 20px;
+        line-height: 1.6;
+      }
+
+      .staff-info {
+        background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+        padding: 30px;
+        border-radius: 20px;
+        margin: 30px 0;
+        border: 1px solid #dee2e6;
+      }
+
+      .staff-info h3 {
+        color: #667eea;
+        margin-bottom: 20px;
+        font-size: 1.5rem;
+        text-align: center;
+      }
+
+      .staff-info p {
+        background: white;
+        padding: 15px 20px;
+        border-radius: 10px;
+        margin: 10px 0;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        border-left: 4px solid #667eea;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- ローディング画面 -->
+      <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <h2>読み込み中...</h2>
+        <p>スタッフ認証情報を確認しています</p>
+      </div>
+
+      <!-- ホーム画面 -->
+      <div id="home-page" class="page home-page">
+        <h1>スタッフダッシュボード</h1>
+        <p>スタッフ専用の管理画面です。</p>
+        
+        <div id="staff-info" class="staff-info">
+          <p>スタッフ情報を読み込み中...</p>
+        </div>
+        
+        <div class="staff-dashboard">
+          <div class="dashboard-card">
+            <h3>シフト管理</h3>
+            <p>シフトの確認・申請を行えます</p>
+            <button class="btn" onclick="openShiftManagement()">シフト管理</button>
+          </div>
+          
+          <div class="dashboard-card">
+            <h3>勤怠管理</h3>
+            <p>出勤・退勤の記録を行えます</p>
+            <button class="btn" onclick="openAttendanceManagement()">勤怠管理</button>
+          </div>
+          
+          <div class="dashboard-card">
+            <h3>プロフィール</h3>
+            <p>スタッフ情報の編集を行えます</p>
+            <button class="btn" onclick="openProfileManagement()">プロフィール編集</button>
+          </div>
+        </div>
+        
+        <button class="btn btn-secondary" onclick="logout()">ログアウト</button>
+      </div>
+
+      <!-- 登録画面 -->
+      <div id="registration-page" class="page registration-page">
+        <h1>スタッフ登録</h1>
+        <p>初回利用のため、スタッフ情報を登録してください。</p>
+        <form id="registration-form">
+          <div class="form-group">
+            <label for="name">お名前</label>
+            <input type="text" id="name" placeholder="山田太郎" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="email">メールアドレス</label>
+            <input type="email" id="email" placeholder="example@email.com" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="phone">電話番号</label>
+            <input type="tel" id="phone" placeholder="090-1234-5678" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="position">役職</label>
+            <select id="position" required>
+              <option value="">選択してください</option>
+              <option value="staff">スタッフ</option>
+              <option value="senior">シニアスタッフ</option>
+              <option value="manager">マネージャー</option>
+              <option value="admin">管理者</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="department">部署</label>
+            <select id="department" required>
+              <option value="">選択してください</option>
+              <option value="service">サービス</option>
+              <option value="kitchen">キッチン</option>
+              <option value="management">管理</option>
+            </select>
+          </div>
+          
+          <button type="submit" class="btn">登録する</button>
+        </form>
+      </div>
+
+      <!-- エラー表示 -->
+      <div id="error-message" class="error" style="display: none;"></div>
+      
+      <!-- 成功メッセージ -->
+      <div id="success-message" class="success" style="display: none;"></div>
+    </div>
+
+    <script type="module">
+      // ページ要素の取得
+      const loadingEl = document.getElementById('loading');
+      const homePageEl = document.getElementById('home-page');
+      const registrationPageEl = document.getElementById('registration-page');
+      const errorEl = document.getElementById('error-message');
+      const successEl = document.getElementById('success-message');
+      const staffInfoEl = document.getElementById('staff-info');
+      const registrationFormEl = document.getElementById('registration-form');
+
+      // エラー表示関数
+      function showError(message) {
+        errorEl.textContent = message;
+        errorEl.style.display = 'block';
+        successEl.style.display = 'none';
+        loadingEl.style.display = 'none';
+      }
+
+      // 成功メッセージ表示関数
+      function showSuccess(message) {
+        successEl.textContent = message;
+        successEl.style.display = 'block';
+        errorEl.style.display = 'none';
+        setTimeout(() => {
+          successEl.style.display = 'none';
+        }, 3000);
+      }
+
+      // ページ表示関数
+      function showPage(pageElement) {
+        loadingEl.style.display = 'none';
+        homePageEl.classList.remove('active');
+        registrationPageEl.classList.remove('active');
+        pageElement.classList.add('active');
+      }
+
+      // store登録確認関数（スタッフ用）
+      async function checkStaffRegistration() {
+        try {
+          alert('checkStaffRegistration開始');
+          const { db } = window.Firebase;
+          const { doc, getDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          alert('Firebase db取得完了');
+          
+          // LiffFirebaseが存在するかチェック
+          if (!window.LiffFirebase || !window.LiffFirebase.user) {
+            throw new Error('認証が完了していません。再度ログインしてください。');
+          }
+          
+          const { user } = window.LiffFirebase;
+          alert('ユーザー情報: ' + user.uid);
+
+          // Firestoreでスタッフ情報を確認
+          const staffDocRef = doc(db, 'staffs', user.uid);
+          alert('ドキュメント参照作成完了');
+          
+          const staffDoc = await getDoc(staffDocRef);
+          alert('ドキュメント取得完了, exists: ' + staffDoc.exists);
+          
+          if (staffDoc.exists()) {
+            // 登録済みの場合
+            const staffData = staffDoc.data();
+            alert('取得したスタッフデータ: ' + JSON.stringify(staffData));
+            
+            // データの存在確認と安全なアクセス
+            const name = staffData?.name || '未設定';
+            const email = staffData?.email || '未設定';
+            const position = staffData?.position || '未設定';
+            const department = staffData?.department || '未設定';
+            
+            staffInfoEl.innerHTML = `
+              <h3>スタッフ情報</h3>
+              <p>名前: ${name}</p>
+              <p>メール: ${email}</p>
+              <p>役職: ${getPositionLabel(position)}</p>
+              <p>部署: ${getDepartmentLabel(department)}</p>
+            `;
+            showPage(homePageEl);
+          } else {
+            // 未登録の場合
+            alert('スタッフ未登録、登録画面に遷移');
+            showPage(registrationPageEl);
+          }
+        } catch (error) {
+          alert('スタッフ登録確認エラー: ' + error.message);
+          showError('スタッフ情報の確認に失敗しました: ' + error.message);
+        }
+      }
+
+      // 役職ラベル取得
+      function getPositionLabel(position) {
+        const positions = {
+          'staff': 'スタッフ',
+          'senior': 'シニアスタッフ',
+          'manager': 'マネージャー',
+          'admin': '管理者'
+        };
+        return positions[position] || position;
+      }
+
+      // 部署ラベル取得
+      function getDepartmentLabel(department) {
+        const departments = {
+          'service': 'サービス',
+          'kitchen': 'キッチン',
+          'management': '管理'
+        };
+        return departments[department] || department;
+      }
+
+      // 登録フォーム処理
+      registrationFormEl.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        try {
+          const name = document.getElementById('name').value;
+          const email = document.getElementById('email').value;
+          const phone = document.getElementById('phone').value;
+          const position = document.getElementById('position').value;
+          const department = document.getElementById('department').value;
+          
+          const { db } = window.Firebase;
+          
+          // LiffFirebaseが存在するかチェック
+          if (!window.LiffFirebase || !window.LiffFirebase.user) {
+            throw new Error('認証が完了していません。再度ログインしてください。');
+          }
+          
+          const { user } = window.LiffFirebase;
+
+          // Firestoreにスタッフ情報を保存
+          const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          await setDoc(doc(db, 'staffs', user.uid), {
+            name: name,
+            email: email,
+            phone: phone,
+            position: position,
+            department: department,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+
+          showSuccess('スタッフ登録が完了しました！');
+          
+          // ホームページに遷移
+          setTimeout(() => {
+            checkStaffRegistration();
+          }, 1000);
+        } catch (error) {
+          console.error('登録エラー:', error);
+          showError('登録に失敗しました: ' + error.message);
+        }
+      });
+
+      // ダッシュボード機能（グローバルに公開）
+      window.openShiftManagement = () => {
+        alert('シフト管理機能は今後実装予定です');
+      };
+
+      window.openAttendanceManagement = () => {
+        alert('勤怠管理機能は今後実装予定です');
+      };
+
+      window.openProfileManagement = () => {
+        alert('プロフィール編集機能は今後実装予定です');
+      };
+
+      // ログアウト関数（グローバルに公開）
+      window.logout = async () => {
+        try {
+          await window.Firebase.auth.signOut();
+          window.location.reload();
+        } catch (error) {
+          console.error('ログアウトエラー:', error);
+          showError('ログアウトに失敗しました: ' + error.message);
+        }
+      };
+
+      // 初期化処理
+      document.addEventListener('DOMContentLoaded', async () => {
+        try {
+          // LIFF初期化
+          await window.initLiffAndFirebaseAuth("2007806607-1nxokjv8");
+          
+          // スタッフ登録確認
+          await checkStaffRegistration();
+          
+        } catch (error) {
+          console.error('初期化エラー:', error);
+          showError('初期化に失敗しました: ' + error.message);
+        }
+      });
+    </script>
+  </body>
+</html>
