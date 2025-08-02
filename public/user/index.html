@@ -86,218 +86,7 @@
       };
     </script>
 
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-
-      body { 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: #333; 
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-        min-height: 100vh;
-        line-height: 1.6;
-      }
-      
-      .container { 
-        max-width: 900px; 
-        margin: 0 auto; 
-        padding: 20px; 
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-      }
-      
-      .page {
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(10px);
-        border-radius: 20px;
-        padding: 40px;
-        margin: 20px 0;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        animation: slideUp 0.6s ease-out;
-      }
-
-      @keyframes slideUp {
-        from {
-          opacity: 0;
-          transform: translateY(30px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-      
-      .loading {
-        text-align: center;
-        padding: 80px 20px;
-        color: white;
-      }
-
-      .loading h2 {
-        font-size: 2.5rem;
-        margin-bottom: 20px;
-        font-weight: 300;
-      }
-
-      .loading p {
-        font-size: 1.1rem;
-        opacity: 0.9;
-      }
-
-      .spinner {
-        width: 50px;
-        height: 50px;
-        border: 4px solid rgba(255, 255, 255, 0.3);
-        border-top: 4px solid white;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-        margin: 0 auto 30px;
-      }
-
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-      
-      .home-page, .registration-page {
-        display: none;
-      }
-      
-      .home-page.active, .registration-page.active {
-        display: block;
-      }
-
-      .page h1 {
-        font-size: 2.5rem;
-        margin-bottom: 20px;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        font-weight: 700;
-        text-align: center;
-      }
-
-      .page p {
-        font-size: 1.1rem;
-        color: #666;
-        text-align: center;
-        margin-bottom: 30px;
-      }
-      
-      .btn {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: white;
-        padding: 15px 30px;
-        border: none;
-        border-radius: 50px;
-        cursor: pointer;
-        font-size: 16px;
-        font-weight: 600;
-        margin: 10px 5px;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-      }
-      
-      .btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
-      }
-
-      .btn:active {
-        transform: translateY(0);
-      }
-      
-      .error {
-        background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-        color: white;
-        padding: 20px;
-        border-radius: 15px;
-        margin: 20px 0;
-        box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
-        border-left: 5px solid #ff4757;
-      }
-
-      .success {
-        background: linear-gradient(135deg, #2ed573, #1e90ff);
-        color: white;
-        padding: 20px;
-        border-radius: 15px;
-        margin: 20px 0;
-        box-shadow: 0 4px 15px rgba(46, 213, 115, 0.4);
-        border-left: 5px solid #2ed573;
-      }
-
-      .form-group {
-        margin: 25px 0;
-      }
-
-      .form-group label {
-        display: block;
-        margin-bottom: 10px;
-        font-weight: 600;
-        color: #333;
-        font-size: 1rem;
-      }
-
-      .form-group input, .form-group select {
-        width: 100%;
-        padding: 15px 20px;
-        border: 2px solid #e1e8ed;
-        border-radius: 15px;
-        font-size: 16px;
-        transition: all 0.3s ease;
-        background: rgba(255, 255, 255, 0.9);
-      }
-
-      .form-group input:focus, .form-group select:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        transform: translateY(-2px);
-      }
-
-      .user-info {
-        background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-        padding: 30px;
-        border-radius: 20px;
-        margin: 30px 0;
-        border: 1px solid #dee2e6;
-      }
-
-      .user-info h3 {
-        color: #667eea;
-        margin-bottom: 20px;
-        font-size: 1.5rem;
-        text-align: center;
-      }
-
-      .user-info p {
-        background: white;
-        padding: 15px 20px;
-        border-radius: 10px;
-        margin: 10px 0;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        border-left: 4px solid #667eea;
-      }
-
-      .logout-btn {
-        background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-        margin-top: 30px;
-      }
-
-      .logout-btn:hover {
-        box-shadow: 0 8px 25px rgba(255, 107, 107, 0.6);
-      }
-    </style>
+    <link rel="stylesheet" href="../css/common.css">
   </head>
   <body>
     <div class="container">
@@ -324,12 +113,29 @@
         <p>初回利用のため、ユーザー情報を登録してください。</p>
         <form id="registration-form">
           <div class="form-group">
-            <label for="name">お名前</label>
-            <input type="text" id="name" placeholder="山田太郎" required>
+            <label for="pokerName">ポーカー名</label>
+            <input type="text" id="pokerName" placeholder="ポーカー名を入力" required>
           </div>
           <div class="form-group">
             <label for="email">メールアドレス</label>
             <input type="email" id="email" placeholder="example@email.com" required>
+          </div>
+          <div class="form-group">
+            <label for="pin">PIN</label>
+            <input type="password" id="pin" placeholder="4桁のPINを入力" minlength="4" maxlength="4" pattern="[0-9]{4}" required>
+            <small style="color: #666; font-size: 0.9rem; margin-top: 5px; display: block;">4桁の数字で入力してください</small>
+          </div>
+          <div class="form-group">
+            <label for="birthMonthDay">誕生日</label>
+            <div style="display: flex; gap: 10px;">
+              <select id="birthMonth" required style="flex: 1;">
+                <option value="">月</option>
+              </select>
+              <select id="birthDay" required style="flex: 1;">
+                <option value="">日</option>
+              </select>
+            </div>
+            <small style="color: #666; font-size: 0.9rem; margin-top: 5px; display: block;">月と日を選択してください</small>
           </div>
           <button type="submit" class="btn">登録する</button>
         </form>
@@ -392,14 +198,18 @@
             alert('取得したユーザーデータ: ' + JSON.stringify(userData));
             
             // データの存在確認と安全なアクセス
-            const name = userData?.name || '未設定';
+            const pokerName = userData?.pokerName || '未設定';
             const email = userData?.email || '未設定';
             
             userInfoEl.innerHTML = `
               <h3>ユーザー情報</h3>
-              <p>名前: ${name}</p>
+              <p>ポーカー名: ${pokerName}</p>
               <p>メール: ${email}</p>
             `;
+            
+            // ホームページに遷移した際の処理
+            await updateUserLoginStatus(user.uid);
+            
             showPage(homePageEl);
           } else {
             // 未登録の場合
@@ -417,8 +227,11 @@
         e.preventDefault();
         
         try {
-          const name = document.getElementById('name').value;
+          const pokerName = document.getElementById('pokerName').value;
           const email = document.getElementById('email').value;
+          const pin = document.getElementById('pin').value;
+          const birthMonth = document.getElementById('birthMonth').value;
+          const birthDay = document.getElementById('birthDay').value;
           const { db } = window.Firebase;
           
           // LiffFirebaseが存在するかチェック
@@ -428,13 +241,31 @@
           
           const { user } = window.LiffFirebase;
 
+          // PINをハッシュ化
+          const pinHash = await hashPin(pin);
+
+          // birthMonthDayを組み合わせて作成
+          const birthMonthDay = birthMonth + birthDay;
+
+          // loginIDを自動生成（pokerName + birthMonthDay）
+          const loginID = pokerName + birthMonthDay;
+
           // Firestoreにユーザー情報を保存
           const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
           await setDoc(doc(db, 'users', user.uid), {
-            name: name,
+            uid: user.uid,
+            pokerName: pokerName,
             email: email,
-            createdAt: new Date(),
-            updatedAt: new Date()
+            pinHash: pinHash,
+            birthMonthDay: birthMonthDay,
+            loginID: loginID,
+            pointA: 0,
+            pointB: 0,
+            sideGameTip: 0,
+            isStaying: false,
+            lastLogin: null,
+            role: 'user',
+            createdAt: new Date()
           });
 
           // ホームページに遷移
@@ -444,6 +275,33 @@
           showError('登録に失敗しました: ' + error.message);
         }
       });
+
+      // PINハッシュ化関数
+      async function hashPin(pin) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(pin);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return hashHex;
+      }
+
+      // ユーザーログイン状態更新関数
+      async function updateUserLoginStatus(userId) {
+        try {
+          const { db } = window.Firebase;
+          const { doc, updateDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          
+          await updateDoc(doc(db, 'users', userId), {
+            isStaying: true,
+            lastLogin: new Date()
+          });
+          
+          console.log('ユーザーログイン状態を更新しました');
+        } catch (error) {
+          console.error('ログイン状態更新エラー:', error);
+        }
+      }
 
       // ログアウト関数（グローバルに公開）
       window.logout = async () => {
@@ -459,6 +317,9 @@
       // 初期化処理
       document.addEventListener('DOMContentLoaded', async () => {
         try {
+          // 誕生日ドロップダウンを生成
+          generateBirthdayOptions();
+          
           // LIFF初期化
           await window.initLiffAndFirebaseAuth("2007806607-1nxokjv8");
           
@@ -470,6 +331,28 @@
           showError('初期化に失敗しました: ' + error.message);
         }
       });
+
+      // 誕生日ドロップダウン生成関数
+      function generateBirthdayOptions() {
+        const monthSelect = document.getElementById('birthMonth');
+        const daySelect = document.getElementById('birthDay');
+        
+        // 月のオプションを生成
+        for (let i = 1; i <= 12; i++) {
+          const option = document.createElement('option');
+          option.value = i.toString().padStart(2, '0');
+          option.textContent = i + '月';
+          monthSelect.appendChild(option);
+        }
+        
+        // 日のオプションを生成
+        for (let i = 1; i <= 31; i++) {
+          const option = document.createElement('option');
+          option.value = i.toString().padStart(2, '0');
+          option.textContent = i + '日';
+          daySelect.appendChild(option);
+        }
+      }
     </script>
   </body>
 </html>
