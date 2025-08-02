@@ -1,14 +1,15 @@
+import 'package:amuse_app_template/StaffDate/createStaffAccountPage.dart';
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 
-class adminHomePage extends StatefulWidget {
-  const adminHomePage({super.key});
+class AdminHomePage extends StatefulWidget {
+  const AdminHomePage({super.key});
 
   @override
-  State<adminHomePage> createState() => _adminHomePageState();
+  State<AdminHomePage> createState() => _AdminHomePageState();
 }
 
-class _adminHomePageState extends State<adminHomePage> {
+class _AdminHomePageState extends State<AdminHomePage> {
   bool _isTerminalMode = false;
 
   void _toggleMode() {
@@ -28,7 +29,7 @@ class _adminHomePageState extends State<adminHomePage> {
       (label: 'Admin機能 3', destination: const PlaceholderPage(title: 'Admin機能 3')),
       (label: 'Admin機能 4', destination: const PlaceholderPage(title: 'Admin機能 4')),
       (label: 'Admin機能 5', destination: const PlaceholderPage(title: 'Admin機能 5')),
-      (label: 'Admin機能 6', destination: const PlaceholderPage(title: 'Admin機能 6')),
+      (label: 'Staff作成', destination: const CreateStaffAccount()),
     ];
 
     return Scaffold(
