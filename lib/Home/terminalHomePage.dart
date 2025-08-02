@@ -1,3 +1,6 @@
+import 'package:amuse_app_template/OrderView/MenuView/createMenuPage.dart';
+import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
+import 'package:amuse_app_template/UserRegisterView/userCheckInPage.dart';
 import 'package:flutter/material.dart';
 
 class terminalHomePage extends StatefulWidget {
@@ -14,9 +17,9 @@ class _terminalHomePageState extends State<terminalHomePage> {
     final buttonHeight = (screenHeight - kToolbarHeight - 80) / 2.3;
 
     final List<({String label, Widget destination})> buttons = [
-      (label: 'Terminal機能 1', destination: const PlaceholderPage(title: 'Terminal機能 1')),
-      (label: 'Terminal機能 2', destination: const PlaceholderPage(title: 'Terminal機能 2')),
-      (label: 'Terminal機能 3', destination: const PlaceholderPage(title: 'Terminal機能 3')),
+      (label: 'ユーザー作成', destination: const CreateUserAccount()),
+      (label: 'ユーザーログイン', destination: const UserCheckInPage()),
+      (label: 'Terminal機能 3', destination: const CreateMenuPage()),
       (label: 'Terminal機能 4', destination: const PlaceholderPage(title: 'Terminal機能 4')),
       (label: 'Terminal機能 5', destination: const PlaceholderPage(title: 'Terminal機能 5')),
       (label: 'Terminal機能 6', destination: const PlaceholderPage(title: 'Terminal機能 6')),

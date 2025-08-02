@@ -22,7 +22,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const adminHomePage(), // 将来はここで Firebase role を見て分岐
+      home: const AdminHomePage(), // 将来はここで Firebase role を見て分岐
     );
   }
 }
