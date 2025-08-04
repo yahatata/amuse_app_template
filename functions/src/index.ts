@@ -11,6 +11,5 @@ admin.initializeApp();
 
 // 認証関連関数
 export * from "./auth";
-
 // ユーザー関連関数
 export * from "./user";

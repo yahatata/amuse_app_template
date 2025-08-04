@@ -1,14 +1,5 @@
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:bcrypt/bcrypt.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:amuse_app_template/HomeBackAction.dart';
 
 class CreateUserAccount extends StatefulWidget {
@@ -27,21 +18,6 @@ class _CreateUserAccountState extends State<CreateUserAccount> {
 
   bool _isLoading = false;
 
-  String _hashPIN(String pin) {
-    return BCrypt.hashpw(pin, BCrypt.gensalt());
-  }
-
-  Future<bool> _isPokerNameTaken(String pokerName) async {
-    try {
-      final callable = FirebaseFunctions.instance.httpsCallable('checkPokerNameExists');
-      final result = await callable.call({'pokerName': pokerName});
-      return result.data['exists'] as bool;
-    } catch (e) {
-      debugPrint("Error checking PokerName: $e");
-      return false;
-    }
-  }
-
   Future<void> _signUp() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
@@ -50,107 +26,43 @@ class _CreateUserAccountState extends State<CreateUserAccount> {
       final email = _emailController.text.trim();
       final pin = _pinController.text.trim();
       final birthDay = _birthMonthDayController.text.trim();
-      final loginId = "$name$birthDay";
-      final hashedPin = _hashPIN(pin);
-      const password = "YourFixedPassword123";
-
-      if (await _isPokerNameTaken(name)) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("このPokerNameは既に使用されています")),
-        );
-        return;
-      }
 
       try {
-        final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
-
-        final user = userCredential.user;
-        if (user != null) {
-          await user.updateDisplayName(name);
-          await user.reload();
-
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-            'uid': user.uid,
-            'pokerName': name,
-            'email': email,
-            'birthMonthDay': birthDay,
-            'loginId': loginId,
-            'hashedPin': hashedPin,
-            'role': 'user',
-            'createdAt': FieldValue.serverTimestamp(),
-            'PointA': 0,
-            'PointB': 0,
-            'sideGameTip': 0,
-            'lastLogin': FieldValue.serverTimestamp(),
-            'isStaying': false,
-            'currentTable': null,
-            'currentSeat': null,
-          });
-
-          await _generateQRCodeAndSendEmail(user.uid, loginId, email);
-        }
+        final callable = FirebaseFunctions.instance.httpsCallable('createUserByApp');
+        final result = await callable.call({
+          'pokerName': name,
+          'email': email,
+          'pin': pin,
+          'birthMonthDay': birthDay,
+        });
 
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("アカウントが作成されました！")),
         );
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PlaceholderPage(title: "")));
-      } on FirebaseAuthException catch (e) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const PlaceholderPage(title: "")),
+        );
+      } on FirebaseFunctionsException catch (e) {
+        setState(() => _isLoading = false);
+        final message = e.message ?? "登録に失敗しました";
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      } catch (e) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message ?? "登録に失敗しました")),
+          const SnackBar(content: Text("エラーが発生しました")),
         );
       }
-    }
-  }
-
-  Future<void> _generateQRCodeAndSendEmail(String uid, String loginId, String email) async {
-    try {
-      final qrData = jsonEncode({'uid': uid, 'loginId': loginId});
-      final validation = QrValidator.validate(
-        data: qrData,
-        version: QrVersions.auto,
-        errorCorrectionLevel: QrErrorCorrectLevel.L,
-      );
-      if (validation.status != QrValidationStatus.valid) throw Exception("QRコードの生成に失敗");
-
-      final painter = QrPainter.withQr(
-        qr: validation.qrCode!,
-        color: Colors.black,
-        emptyColor: Colors.white,
-        gapless: true,
-      );
-
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/$loginId.png');
-      final imageData = await painter.toImageData(300);
-      await file.writeAsBytes(imageData!.buffer.asUint8List());
-
-      final ref = FirebaseStorage.instance.ref().child('qr_codes/$loginId.png');
-      await ref.putFile(file);
-
-      final url = await ref.getDownloadURL();
-      await FirebaseFirestore.instance.collection('users').doc(uid).update({
-        'qrCodeUrl': url,
-      });
-
-      print("QRコード発行: $url");
-    } catch (e) {
-      print("QRコード処理エラー: $e");
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("新規アカウント作成"),
-          actions: [
-          buildHomeButton(context), // ← 追加
-      ],
+      appBar: AppBar(
+        title: const Text("新規アカウント作成"),
+        actions: [buildHomeButton(context)],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -198,31 +110,23 @@ class _CreateUserAccountState extends State<CreateUserAccount> {
       controller: controller,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(color: Colors.grey), // ← テキストだけ薄くするここ！
+        labelStyle: const TextStyle(color: Colors.grey),
         border: const OutlineInputBorder(),
         prefixIcon: Icon(icon),
       ),
-      keyboardType: isPin
-          ? TextInputType.number
-          : isBirthMonthDay
-          ? TextInputType.number
-          : isEmail
-          ? TextInputType.emailAddress
-          : TextInputType.text,
-
+      keyboardType: isPin || isBirthMonthDay ? TextInputType.number : isEmail ? TextInputType.emailAddress : TextInputType.text,
       validator: (value) {
         if (value == null || value.isEmpty) return "$label を入力してください";
-        if (isPin && (!RegExp(r'^\d{4}$').hasMatch(value))) return "PINは4桁の数字で入力してください";
+        if (isPin && !RegExp(r'^\d{4}$').hasMatch(value)) return "PINは4桁の数字で入力してください";
         return null;
       },
     );
   }
 }
+
 class PlaceholderPage extends StatelessWidget {
   final String title;
-
   const PlaceholderPage({super.key, required this.title});
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
