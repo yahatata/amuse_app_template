@@ -10,7 +10,7 @@
 import {onRequest} from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
-
+import {createUserByApp, checkPokerNameExists} from "./createUserAccountByApp";
 // Firebase Admin SDKの初期化
 admin.initializeApp();
 
@@ -144,3 +144,6 @@ interface LineUserInfo {
 //   logger.info("Hello logs!", {structuredData: true});
 //   response.send("Hello from Firebase!");
 // });
+
+export {createUserByApp};
+export {checkPokerNameExists};
