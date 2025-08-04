@@ -126,7 +126,7 @@
             <small style="color: #666; font-size: 0.9rem; margin-top: 5px; display: block;">4桁の数字で入力してください</small>
           </div>
           <div class="form-group">
-            <label for="birthMonthDay">誕生日</label>
+            <label>誕生日</label>
             <div style="display: flex; gap: 10px;">
               <select id="birthMonth" required style="flex: 1;">
                 <option value="">月</option>
@@ -204,7 +204,7 @@
             userInfoEl.innerHTML = `
               <h3>ユーザー情報</h3>
               <p>ポーカー名: ${pokerName}</p>
-              <p>メール: ${email}</p>
+              <p>メール: <span style="display: inline-block; max-width: 100%;">${formatEmail(email)}</span></p>
             `;
             
             // ホームページに遷移した際の処理
@@ -232,7 +232,6 @@
           const pin = document.getElementById('pin').value;
           const birthMonth = document.getElementById('birthMonth').value;
           const birthDay = document.getElementById('birthDay').value;
-          const { db } = window.Firebase;
           
           // LiffFirebaseが存在するかチェック
           if (!window.LiffFirebase || !window.LiffFirebase.user) {
@@ -241,50 +240,36 @@
           
           const { user } = window.LiffFirebase;
 
-          // PINをハッシュ化
-          const pinHash = await hashPin(pin);
-
-          // birthMonthDayを組み合わせて作成
-          const birthMonthDay = birthMonth + birthDay;
-
-          // loginIDを自動生成（pokerName + birthMonthDay）
-          const loginID = pokerName + birthMonthDay;
-
-          // Firestoreにユーザー情報を保存
-          const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          await setDoc(doc(db, 'users', user.uid), {
-            uid: user.uid,
+          // Firebase Functionsを呼び出してユーザー登録とQRコード生成
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const createUserAccount = httpsCallable(functions, 'createUserAccount');
+          
+          const result = await createUserAccount({
             pokerName: pokerName,
             email: email,
-            pinHash: pinHash,
-            birthMonthDay: birthMonthDay,
-            loginID: loginID,
-            pointA: 0,
-            pointB: 0,
-            sideGameTip: 0,
-            isStaying: false,
-            lastLogin: null,
-            role: 'user',
-            createdAt: new Date()
+            pin: pin,
+            birthMonth: birthMonth,
+            birthDay: birthDay
           });
 
-          // ホームページに遷移
-          checkStoreRegistration();
+          if (result.data.success) {
+            // QRコードを表示（オプション）
+            console.log('QRコード生成完了:', result.data.qrCode);
+            console.log('QRコードStorage URL:', result.data.qrCodeUrl);
+            
+            // ホームページに遷移
+            checkStoreRegistration();
+          } else {
+            throw new Error('ユーザー登録に失敗しました。');
+          }
         } catch (error) {
           console.error('登録エラー:', error);
           showError('登録に失敗しました: ' + error.message);
         }
       });
 
-      // PINハッシュ化関数
-      async function hashPin(pin) {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(pin);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        return hashHex;
-      }
+
 
       // ユーザーログイン状態更新関数
       async function updateUserLoginStatus(userId) {
@@ -352,6 +337,21 @@
           option.textContent = i + '日';
           daySelect.appendChild(option);
         }
+      }
+
+      // メールアドレスフォーマット関数
+      function formatEmail(email) {
+        if (!email || email === '未設定') {
+          return email;
+        }
+        
+        // @の前後で分割して改行を挿入
+        const parts = email.split('@');
+        if (parts.length === 2) {
+          return `${parts[0]}<br>@${parts[1]}`;
+        }
+        
+        return email;
       }
     </script>
   </body>
