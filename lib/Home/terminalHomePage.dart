@@ -1,3 +1,4 @@
+import 'package:amuse_app_template/OrderView/MenuView/categorySelectPage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/createMenuPage.dart';
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
 import 'package:amuse_app_template/UserRegisterView/userCheckInPage.dart';
@@ -19,8 +20,8 @@ class _terminalHomePageState extends State<terminalHomePage> {
     final List<({String label, Widget destination})> buttons = [
       (label: 'ユーザー作成', destination: const CreateUserAccount()),
       (label: 'ユーザーログイン', destination: const UserCheckInPage()),
-      (label: 'Terminal機能 3', destination: const CreateMenuPage()),
-      (label: 'Terminal機能 4', destination: const PlaceholderPage(title: 'Terminal機能 4')),
+      (label: 'メニュー追加', destination: const CreateMenuPage()),
+      (label: '注文画面', destination: const CategorySelectPage()),
       (label: 'Terminal機能 5', destination: const PlaceholderPage(title: 'Terminal機能 5')),
       (label: 'Terminal機能 6', destination: const PlaceholderPage(title: 'Terminal機能 6')),
       (label: 'Terminal機能 7', destination: const PlaceholderPage(title: 'Terminal機能 7')),
