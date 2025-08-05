@@ -4,7 +4,6 @@ import * as admin from "firebase-admin";
 import * as bcrypt from "bcryptjs";
 import * as QRCode from "qrcode";
 
-
 export const createUserByApp = onCall(async (request) => {
   const {pokerName, email, pin, birthMonthDay} = request.data;
 
@@ -48,8 +47,8 @@ export const createUserByApp = onCall(async (request) => {
     hashedPin,
     role: "user",
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    PointA: 0,
-    PointB: 0,
+    pointA: 0,
+    pointB: 0,
     sideGameTip: 0,
     lastLogin: admin.firestore.FieldValue.serverTimestamp(),
     isStaying: false,
@@ -80,32 +79,4 @@ export const createUserByApp = onCall(async (request) => {
   });
 
   return {success: true, uid, qrUrl: url};
-});
-
-export const checkPokerNameExists = onCall(
-  async (request) => {
-    if (!request.auth) {
-      throw new functions.https.HttpsError(
-        "unauthenticated", "Authentication required.");
-    }
-
-    const pokerName = request.data.pokerName;
-
-    if (!pokerName || typeof pokerName !== "string") {
-      throw new functions.https.HttpsError(
-        "invalid-argument", "PokerName is required and must be a string."
-      );
-    }
-
-    try {
-      const usersRef = admin.firestore().collection("users");
-      const snapshot = await usersRef.where(
-        "pokerName", "==", pokerName).limit(1).get();
-      return {exists: !snapshot.empty};
-    } catch (error) {
-      console.error("PokerName チェックエラー:", error);
-      throw new functions.https.HttpsError(
-        "internal", "PokerName チェックに失敗しました。");
-    }
-  }
-);
+}); 

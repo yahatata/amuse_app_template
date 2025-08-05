@@ -84,6 +84,18 @@ export const createUserAccount = onCall(
       // QRコードをStorageに保存
       const qrCodeUrl = await saveQRCodeToStorage(uid, qrCodeImage, "user");
 
+      // QRコード履歴をFirestoreに保存
+      await admin.firestore()
+        .collection("qrCodeHistory")
+        .add({
+          uid,
+          loginId: loginID,
+          type: "user",
+          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          expiresAt: new Date(expiresAt),
+          qrCodeUrl: qrCodeUrl,
+        });
+
       return {
         success: true,
         uid,

@@ -213,6 +213,277 @@ body {
   box-sizing: border-box;
 }
 
+/* メイン機能ボタン */
+.main-functions {
+  margin: 30px 0;
+}
+
+.main-functions h2 {
+  text-align: center;
+  color: #333;
+  margin-bottom: 30px;
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+
+.function-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.function-btn {
+  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+  border: 2px solid #dee2e6;
+  border-radius: 20px;
+  padding: 25px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.function-btn:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+  border-color: #667eea;
+}
+
+.btn-icon {
+  font-size: 2.5rem;
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border-radius: 15px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.btn-text h3 {
+  margin: 0 0 8px 0;
+  color: #333;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.btn-text p {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+/* QRコードページ */
+.qr-container {
+  text-align: center;
+  margin: 30px 0;
+}
+
+.qr-code-display {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  margin-bottom: 20px;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qr-info {
+  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+  padding: 20px;
+  border-radius: 15px;
+  margin-bottom: 20px;
+}
+
+.qr-expiry {
+  font-weight: 600;
+  color: #667eea;
+}
+
+.qr-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* 注文メニューページ */
+.menu-categories {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 30px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.category-btn {
+  background: #f8f9fa;
+  border: 2px solid #dee2e6;
+  padding: 12px 24px;
+  border-radius: 25px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 600;
+}
+
+.category-btn.active,
+.category-btn:hover {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border-color: #667eea;
+}
+
+.menu-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.menu-item {
+  background: white;
+  padding: 25px;
+  border-radius: 15px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+  border: 1px solid #e9ecef;
+}
+
+.menu-item h3 {
+  color: #333;
+  margin-bottom: 10px;
+  font-size: 1.2rem;
+}
+
+.menu-item p {
+  color: #666;
+  margin-bottom: 15px;
+  font-size: 0.9rem;
+}
+
+.price {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #667eea;
+  margin-bottom: 15px;
+}
+
+/* トーナメントページ */
+.tournament-info {
+  margin: 30px 0;
+}
+
+.tournament-info h2 {
+  text-align: center;
+  color: #333;
+  margin-bottom: 30px;
+  font-size: 1.5rem;
+}
+
+.tournament-list {
+  display: grid;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.tournament-item {
+  background: white;
+  padding: 25px;
+  border-radius: 15px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+  border: 1px solid #e9ecef;
+}
+
+.tournament-item h3 {
+  color: #333;
+  margin-bottom: 15px;
+  font-size: 1.3rem;
+}
+
+.tournament-item p {
+  color: #666;
+  margin-bottom: 10px;
+}
+
+.status {
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+}
+
+.status.開催中 {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status.予定 {
+  background: #fff3cd;
+  color: #856404;
+}
+
+/* プロフィールページ */
+.profile-info {
+  margin: 30px 0;
+}
+
+.profile-details {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+}
+
+.profile-details h3 {
+  color: #667eea;
+  margin-bottom: 20px;
+  font-size: 1.5rem;
+  text-align: center;
+}
+
+.profile-details p {
+  background: #f8f9fa;
+  padding: 15px 20px;
+  border-radius: 10px;
+  margin: 10px 0;
+  border-left: 4px solid #667eea;
+  text-align: left;
+}
+
+.profile-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* セカンダリーボタン */
+.secondary-btn {
+  background: linear-gradient(135deg, #6c757d, #495057);
+}
+
+.secondary-btn:hover {
+  box-shadow: 0 8px 25px rgba(108, 117, 125, 0.6);
+}
+
+/* ページ表示制御 */
+.qr-page, .order-page, .tournament-page, .profile-page {
+  display: none;
+}
+
+.qr-page.active, .order-page.active, .tournament-page.active, .profile-page.active {
+  display: block;
+}
+
 /* スタッフダッシュボード */
 .staff-dashboard {
   display: grid;

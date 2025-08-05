@@ -100,10 +100,48 @@
       <!-- ホーム画面 -->
       <div id="home-page" class="page home-page">
         <h1>ようこそ！</h1>
-        <p>ユーザーホームページです。</p>
         <div id="user-info" class="user-info">
           <p>ユーザー情報を読み込み中...</p>
         </div>
+        
+        <!-- メイン機能ボタン -->
+        <div class="main-functions">
+          <h2>メイン機能</h2>
+          <div class="function-grid">
+            <button class="function-btn qr-btn" onclick="showQRCode()">
+              <div class="btn-icon">📱</div>
+              <div class="btn-text">
+                <h3>入店QR</h3>
+                <p>入店・退店用QRコードを表示</p>
+              </div>
+            </button>
+            
+            <button class="function-btn order-btn" onclick="showOrderMenu()">
+              <div class="btn-icon">🍽️</div>
+              <div class="btn-text">
+                <h3>注文</h3>
+                <p>メニューから注文する</p>
+              </div>
+            </button>
+            
+            <button class="function-btn tournament-btn" onclick="showTournament()">
+              <div class="btn-icon">🏆</div>
+              <div class="btn-text">
+                <h3>トーナメント</h3>
+                <p>トーナメント情報・参加</p>
+              </div>
+            </button>
+            
+            <button class="function-btn profile-btn" onclick="showProfile()">
+              <div class="btn-icon">👤</div>
+              <div class="btn-text">
+                <h3>プロフィール</h3>
+                <p>ユーザー情報・設定</p>
+              </div>
+            </button>
+          </div>
+        </div>
+        
         <button class="btn logout-btn" onclick="logout()">ログアウト</button>
       </div>
 
@@ -141,6 +179,66 @@
         </form>
       </div>
 
+      <!-- QRコード表示画面 -->
+      <div id="qr-page" class="page qr-page">
+        <h1>入店QRコード</h1>
+        <div class="qr-container">
+          <div id="qr-code-display" class="qr-code-display">
+            <p>QRコードを生成中...</p>
+          </div>
+          <div class="qr-info">
+            <p>このQRコードを店舗端末で読み取ってください</p>
+            <p class="qr-expiry">有効期限: <span id="qr-expiry-time">-</span></p>
+          </div>
+        </div>
+        <div class="qr-actions">
+          <button class="btn" onclick="generateNewQR()">新しいQRを生成・更新</button>
+          <button class="btn secondary-btn" onclick="showHomePage()">ホームに戻る</button>
+        </div>
+      </div>
+
+      <!-- 注文メニュー画面 -->
+      <div id="order-page" class="page order-page">
+        <h1>注文メニュー</h1>
+        <div class="menu-categories">
+          <button class="category-btn active" onclick="showCategory('food')">食事</button>
+          <button class="category-btn" onclick="showCategory('drink')">ドリンク</button>
+          <button class="category-btn" onclick="showCategory('dessert')">デザート</button>
+        </div>
+        <div id="menu-items" class="menu-items">
+          <p>メニューを読み込み中...</p>
+        </div>
+        <div class="order-actions">
+          <button class="btn" onclick="showHomePage()">ホームに戻る</button>
+        </div>
+      </div>
+
+      <!-- トーナメント画面 -->
+      <div id="tournament-page" class="page tournament-page">
+        <h1>トーナメント</h1>
+        <div class="tournament-info">
+          <h2>開催中・予定のトーナメント</h2>
+          <div id="tournament-list" class="tournament-list">
+            <p>トーナメント情報を読み込み中...</p>
+          </div>
+        </div>
+        <div class="tournament-actions">
+          <button class="btn" onclick="showHomePage()">ホームに戻る</button>
+        </div>
+      </div>
+
+      <!-- プロフィール画面 -->
+      <div id="profile-page" class="page profile-page">
+        <h1>プロフィール</h1>
+        <div id="profile-info" class="profile-info">
+          <p>プロフィール情報を読み込み中...</p>
+        </div>
+        <div class="profile-actions">
+          <button class="btn" onclick="editProfile()">編集</button>
+          <button class="btn secondary-btn" onclick="showHomePage()">ホームに戻る</button>
+        </div>
+      </div>
+
       <!-- エラー表示 -->
       <div id="error-message" class="error" style="display: none;"></div>
     </div>
@@ -150,6 +248,10 @@
       const loadingEl = document.getElementById('loading');
       const homePageEl = document.getElementById('home-page');
       const registrationPageEl = document.getElementById('registration-page');
+      const qrPageEl = document.getElementById('qr-page');
+      const orderPageEl = document.getElementById('order-page');
+      const tournamentPageEl = document.getElementById('tournament-page');
+      const profilePageEl = document.getElementById('profile-page');
       const errorEl = document.getElementById('error-message');
       const userInfoEl = document.getElementById('user-info');
       const registrationFormEl = document.getElementById('registration-form');
@@ -172,30 +274,23 @@
       // store登録確認関数
       async function checkStoreRegistration() {
         try {
-          alert('checkStoreRegistration開始');
           const { db } = window.Firebase;
-          alert('Firebase db取得完了');
-          
           // LiffFirebaseが存在するかチェック
           if (!window.LiffFirebase || !window.LiffFirebase.user) {
             throw new Error('認証が完了していません。再度ログインしてください。');
           }
           
           const { user } = window.LiffFirebase;
-          alert('ユーザー情報: ' + user.uid);
 
           // Firestoreでユーザー情報を確認
           const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
           const userDocRef = doc(db, 'users', user.uid);
-          alert('ドキュメント参照作成完了');
           
           const userDoc = await getDoc(userDocRef);
-          alert('ドキュメント取得完了, exists: ' + userDoc.exists);
           
           if (userDoc.exists()) {
             // 登録済みの場合
             const userData = userDoc.data();
-            alert('取得したユーザーデータ: ' + JSON.stringify(userData));
             
             // データの存在確認と安全なアクセス
             const pokerName = userData?.pokerName || '未設定';
@@ -213,11 +308,9 @@
             showPage(homePageEl);
           } else {
             // 未登録の場合
-            alert('ユーザー未登録、登録画面に遷移');
             showPage(registrationPageEl);
           }
         } catch (error) {
-          alert('store登録確認エラー: ' + error.message);
           showError('ユーザー情報の確認に失敗しました: ' + error.message);
         }
       }
@@ -254,9 +347,11 @@
           });
 
           if (result.data.success) {
-            // QRコードを表示（オプション）
-            console.log('QRコード生成完了:', result.data.qrCode);
-            console.log('QRコードStorage URL:', result.data.qrCodeUrl);
+            // デバッグ情報を画面に表示
+            alert('ユーザー登録成功:\nUID: ' + result.data.uid + 
+                  '\nQRコード: ' + (result.data.qrCode ? 'Base64生成済み' : 'Base64なし') +
+                  '\nStorage URL: ' + (result.data.qrCodeUrl ? '生成済み' : 'なし') +
+                  '\n有効期限: ' + (result.data.expiresAt ? new Date(result.data.expiresAt).toLocaleString('ja-JP') : 'なし'));
             
             // ホームページに遷移
             checkStoreRegistration();
@@ -287,6 +382,271 @@
           console.error('ログイン状態更新エラー:', error);
         }
       }
+
+      // ページ遷移関数
+      window.showHomePage = () => showPage(homePageEl);
+      window.showQRPage = () => showPage(qrPageEl);
+      window.showOrderPage = () => showPage(orderPageEl);
+      window.showTournamentPage = () => showPage(tournamentPageEl);
+      window.showProfilePage = () => showPage(profilePageEl);
+
+      // QRコード関連関数
+      window.showQRCode = async () => {
+        try {
+          showPage(qrPageEl);
+          await displayStoredQRCode();
+        } catch (error) {
+          console.error('QRコード表示エラー:', error);
+          showError('QRコードの表示に失敗しました: ' + error.message);
+        }
+      };
+
+      window.generateNewQR = async () => {
+        try {
+          // 新しいQRコードを生成してStorageに保存
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const generateQRCode = httpsCallable(functions, 'generateQRCode');
+          
+          const result = await generateQRCode({ type: 'user' });
+          
+          if (result.data.qrCode) {
+            // 生成完了後、保存されたQRコードを再表示
+            await displayStoredQRCode();
+          } else {
+            throw new Error('QRコードの生成に失敗しました');
+          }
+        } catch (error) {
+          console.error('QRコード生成エラー:', error);
+          showError('QRコードの生成に失敗しました: ' + error.message);
+        }
+      };
+
+      // QRコード表示関数（Storageから取得）
+      async function displayStoredQRCode() {
+        const qrDisplay = document.getElementById('qr-code-display');
+        const expiryTime = document.getElementById('qr-expiry-time');
+        
+        qrDisplay.innerHTML = '<p>QRコードを読み込み中...</p>';
+        
+        try {
+          // デバッグ情報を画面に表示
+          qrDisplay.innerHTML = '<p>QRコード表示開始 - UID: ' + window.LiffFirebase.user.uid + '</p>';
+          
+          // ユーザーデータからQRコードURLを取得
+          const { db } = window.Firebase;
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const userDoc = await getDoc(doc(db, 'users', window.LiffFirebase.user.uid));
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            qrDisplay.innerHTML = '<p>ユーザーデータ取得成功<br>loginID: ' + (userData.loginID || 'なし') + '</p>';
+            
+            // QRコード履歴から最新のものを取得（安全な方法）
+            const { collection, query, where, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+            const qrHistoryQuery = query(
+              collection(db, 'qrCodeHistory'),
+              where('uid', '==', window.LiffFirebase.user.uid)
+            );
+            
+            qrDisplay.innerHTML = '<p>QRコード履歴クエリ実行中...</p>';
+            const qrHistorySnapshot = await getDocs(qrHistoryQuery);
+            qrDisplay.innerHTML = '<p>QRコード履歴取得結果: ' + qrHistorySnapshot.size + '件</p>';
+            
+                          if (!qrHistorySnapshot.empty) {
+                qrDisplay.innerHTML = '<p>QRコード履歴が見つかりました</p>';
+                
+                // 最新のQRコードを取得（クライアント側でフィルタリングとソート）
+                const userQRDocs = qrHistorySnapshot.docs.filter(doc => doc.data().type === 'user');
+                const qrHistoryDocs = userQRDocs.sort((a, b) => {
+                  const aTime = a.data().generatedAt?.toDate?.() || new Date(0);
+                  const bTime = b.data().generatedAt?.toDate?.() || new Date(0);
+                  return bTime - aTime;
+                });
+                
+                if (qrHistoryDocs.length === 0) {
+                  qrDisplay.innerHTML = '<p>ユーザー用QRコード履歴が見つかりません。新しく生成します...</p>';
+                  await generateNewQRCode();
+                  return;
+                }
+                
+                const latestQR = qrHistoryDocs[0].data();
+                qrDisplay.innerHTML = '<p>最新のQRコードデータ:<br>qrCodeUrl: ' + (latestQR.qrCodeUrl || 'なし') + '</p>';
+                
+                if (latestQR.qrCodeUrl) {
+                  qrDisplay.innerHTML = '<p>QRコードURL取得成功<br>URL: ' + latestQR.qrCodeUrl + '</p>';
+                  qrDisplay.innerHTML = `<img src="${latestQR.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;">`;
+                  
+                  if (latestQR.expiresAt) {
+                    const expiryDate = latestQR.expiresAt.toDate();
+                    expiryTime.textContent = expiryDate.toLocaleString('ja-JP');
+                  } else {
+                    expiryTime.textContent = '有効期限: 不明';
+                  }
+                } else {
+                  qrDisplay.innerHTML = '<p>QRコードURLが見つかりません。新しく生成します...</p>';
+                  await generateNewQRCode();
+                }
+              } else {
+                qrDisplay.innerHTML = '<p>QRコード履歴が見つかりません。新しく生成します...</p>';
+                await generateNewQRCode();
+              }
+          } else {
+            qrDisplay.innerHTML = '<p>ユーザー情報が見つかりません</p>';
+            expiryTime.textContent = '有効期限: -';
+          }
+        } catch (error) {
+          qrDisplay.innerHTML = '<p>QRコードの読み込みに失敗しました<br>エラー: ' + error.message + '<br>UID: ' + (window.LiffFirebase?.user?.uid || '不明') + '<br>エラー詳細: ' + JSON.stringify(error) + '</p>';
+          expiryTime.textContent = '有効期限: -';
+        }
+      }
+
+      // 新しいQRコード生成関数（内部用）
+      async function generateNewQRCode() {
+        try {
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const generateQRCode = httpsCallable(functions, 'generateQRCode');
+          
+          const result = await generateQRCode({ type: 'user' });
+          
+          if (result.data.qrCode) {
+            // 生成完了後、保存されたQRコードを再表示
+            await displayStoredQRCode();
+          } else {
+            throw new Error('QRコードの生成に失敗しました');
+          }
+        } catch (error) {
+          console.error('QRコード生成エラー:', error);
+          const qrDisplay = document.getElementById('qr-code-display');
+          qrDisplay.innerHTML = '<p>QRコードの生成に失敗しました</p>';
+          throw error;
+        }
+      }
+
+      // 注文メニュー関連関数
+      window.showOrderMenu = () => {
+        showPage(orderPageEl);
+        loadMenuItems('food'); // デフォルトで食事カテゴリを表示
+      };
+
+      window.showCategory = (category) => {
+        // カテゴリボタンのアクティブ状態を更新
+        document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+        
+        loadMenuItems(category);
+      };
+
+      async function loadMenuItems(category) {
+        const menuItems = document.getElementById('menu-items');
+        menuItems.innerHTML = '<p>メニューを読み込み中...</p>';
+        
+        // 仮のメニューデータ（後でFirestoreから取得）
+        const menuData = {
+          food: [
+            { name: 'ハンバーガー', price: 800, description: 'ジューシーなハンバーガー' },
+            { name: 'ピザ', price: 1200, description: '本格ピザ' },
+            { name: 'パスタ', price: 900, description: 'イタリアンパスタ' }
+          ],
+          drink: [
+            { name: 'コーラ', price: 300, description: '冷たいコーラ' },
+            { name: 'コーヒー', price: 400, description: 'ホットコーヒー' },
+            { name: 'ジュース', price: 350, description: 'フレッシュジュース' }
+          ],
+          dessert: [
+            { name: 'アイスクリーム', price: 400, description: 'バニラアイス' },
+            { name: 'ケーキ', price: 600, description: 'チョコレートケーキ' },
+            { name: 'プリン', price: 350, description: 'なめらかプリン' }
+          ]
+        };
+        
+        const items = menuData[category] || [];
+        menuItems.innerHTML = items.map(item => `
+          <div class="menu-item">
+            <h3>${item.name}</h3>
+            <p>${item.description}</p>
+            <p class="price">¥${item.price}</p>
+            <button class="btn" onclick="orderItem('${item.name}', ${item.price})">注文</button>
+          </div>
+        `).join('');
+      }
+
+      window.orderItem = (itemName, price) => {
+        alert(`${itemName}を注文しました（¥${price}）`);
+        // 後で注文処理を実装
+      };
+
+      // トーナメント関連関数
+      window.showTournament = () => {
+        showPage(tournamentPageEl);
+        loadTournaments();
+      };
+
+      async function loadTournaments() {
+        const tournamentList = document.getElementById('tournament-list');
+        tournamentList.innerHTML = '<p>トーナメント情報を読み込み中...</p>';
+        
+        // 仮のトーナメントデータ（後でFirestoreから取得）
+        const tournaments = [
+          { name: 'ポーカートーナメント', date: '2024-01-15', time: '19:00', status: '開催中' },
+          { name: 'ブラックジャック大会', date: '2024-01-20', time: '20:00', status: '予定' }
+        ];
+        
+        tournamentList.innerHTML = tournaments.map(tournament => `
+          <div class="tournament-item">
+            <h3>${tournament.name}</h3>
+            <p>日時: ${tournament.date} ${tournament.time}</p>
+            <p>ステータス: <span class="status ${tournament.status}">${tournament.status}</span></p>
+            <button class="btn" onclick="joinTournament('${tournament.name}')">参加</button>
+          </div>
+        `).join('');
+      }
+
+      window.joinTournament = (tournamentName) => {
+        alert(`${tournamentName}に参加しました`);
+        // 後で参加処理を実装
+      };
+
+      // プロフィール関連関数
+      window.showProfile = () => {
+        showPage(profilePageEl);
+        loadProfile();
+      };
+
+      async function loadProfile() {
+        const profileInfo = document.getElementById('profile-info');
+        profileInfo.innerHTML = '<p>プロフィール情報を読み込み中...</p>';
+        
+        try {
+          const { db } = window.Firebase;
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const userDoc = await getDoc(doc(db, 'users', window.LiffFirebase.user.uid));
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            profileInfo.innerHTML = `
+              <div class="profile-details">
+                <h3>基本情報</h3>
+                <p><strong>ポーカー名:</strong> ${userData.pokerName || '未設定'}</p>
+                <p><strong>メール:</strong> ${userData.email || '未設定'}</p>
+                <p><strong>誕生日:</strong> ${userData.birthMonthDay || '未設定'}</p>
+                <p><strong>ポイントA:</strong> ${userData.pointA || 0}</p>
+                <p><strong>ポイントB:</strong> ${userData.pointB || 0}</p>
+                <p><strong>サイドゲームチップ:</strong> ${userData.sideGameTip || 0}</p>
+              </div>
+            `;
+          }
+        } catch (error) {
+          profileInfo.innerHTML = '<p>プロフィール情報の読み込みに失敗しました</p>';
+          console.error('プロフィール読み込みエラー:', error);
+        }
+      }
+
+      window.editProfile = () => {
+        alert('プロフィール編集機能は後で実装予定です');
+        // 後で編集機能を実装
+      };
 
       // ログアウト関数（グローバルに公開）
       window.logout = async () => {

@@ -1,0 +1,22 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ユーザーコレクション
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // QRコード履歴コレクション（一時的に読み取り権限を緩和）
+    match /qrCodeHistory/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && 
+        (resource == null || resource.data.uid == request.auth.uid);
+    }
+    
+    // その他のコレクションは読み書き禁止
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+} 
