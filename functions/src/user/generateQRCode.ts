@@ -43,7 +43,7 @@ export const generateQRCode = onCall(
       }
 
       const userData = userDoc.data();
-      const loginId = userData?.loginId;
+      const loginId = userData?.loginID || userData?.loginId; // loginID（大文字）またはloginId（小文字）に対応
 
       if (!loginId) {
         throw new Error("Login ID not found. Please update your profile.");
@@ -76,7 +76,7 @@ export const generateQRCode = onCall(
         .collection("qrCodeHistory")
         .add({
           uid,
-          loginId,
+          loginId: loginId, // 変数名を明確化
           type,
           generatedAt: admin.firestore.FieldValue.serverTimestamp(),
           expiresAt: new Date(expiresAt),
