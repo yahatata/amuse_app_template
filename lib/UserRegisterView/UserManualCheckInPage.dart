@@ -1,10 +1,9 @@
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
-import 'package:bcrypt/bcrypt.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:amuse_app_template/HomeBackAction.dart';
+import 'package:amuse_app_template/appbarUtils.dart';
 
 
 class UserManualCheckInPage extends StatefulWidget {
@@ -36,57 +35,35 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
       try {
         String loginIdInput = _loginIdController.text.trim();
         String pinInput = _pinController.text.trim();
-        String fixedPassword = "YourFixedPassword123";
 
-        QuerySnapshot querySnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .where('loginId', isEqualTo: loginIdInput)
-            .limit(1)
-            .get();
+        // Cloud Functionを呼び出し
+        final callable = FirebaseFunctions.instance.httpsCallable('manualCheckIn');
+        final result = await callable.call({
+          'loginId': loginIdInput,
+          'pin': pinInput,
+        });
 
-        if (querySnapshot.docs.isNotEmpty) {
-          var userDoc = querySnapshot.docs.first;
-          String storedHashedPin = userDoc['hashedPin'];
-          String? email = userDoc['email'];
-          String uid = userDoc['uid'];
-          String pokerName = userDoc['pokerName'];
+        final data = result.data;
+        
+        if (data['success'] == true) {
+          // カスタムトークンでFirebaseAuthにサインイン
+          await FirebaseAuth.instance.signInWithCustomToken(data['customToken']);
+          
+          // ユーザーUIDを保存
+          await _saveUserUID(data['uid']);
 
-          bool isPinCorrect = BCrypt.checkpw(pinInput, storedHashedPin);
-          if (!isPinCorrect) throw Exception("PINが正しくありません");
-
-          if (email != null) {
-            UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-              email: email,
-              password: fixedPassword,
-            );
-            User? user = userCredential.user;
-
-            if (user != null) {
-              await updateLastLogin(user);
-              await _saveUserUID(uid);
-              await FirebaseFirestore.instance.collection('users').doc(uid).update({
-                'isStaying': true,
-              });
-
-
-              setState(() => _isLoading = false);
-              _showSnackbar(context, "$pokerName様のログイン処理が完了しました");
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const PlaceholderPage(title: '仮ホーム')),
-              );
-            } else {
-              throw Exception("ログインに失敗しました");
-            }
-          } else {
-            throw Exception("メールアドレスが見つかりません");
-          }
+          setState(() => _isLoading = false);
+          _showSnackbar(context, data['message']);
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const PlaceholderPage(title: '仮ホーム')),
+          );
         } else {
-          throw Exception("ログインIDが見つかりません");
+          throw Exception("ログインに失敗しました");
         }
-      } on FirebaseAuthException catch (e) {
+      } on FirebaseFunctionsException catch (e) {
         setState(() => _isLoading = false);
-        _showSnackbar(context, "ログイン失敗: \${e.message ?? '不明なエラー'}");
+        _showSnackbar(context, "ログイン失敗: ${e.message ?? '不明なエラー'}");
       } catch (e) {
         setState(() => _isLoading = false);
         _showSnackbar(context, "ログイン失敗: ${e.toString()}");
@@ -94,13 +71,7 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
     }
   }
 
-  Future<void> updateLastLogin(User user) async {
-    try {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-        'lastLogin': FieldValue.serverTimestamp(),
-      });
-    } catch (_) {}
-  }
+
 
   Future<void> _saveUserUID(String uid) async {
     final prefs = await SharedPreferences.getInstance();

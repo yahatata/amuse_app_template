@@ -35,6 +35,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 16,
+        elevation: 4.0,
         title: Text(
           _isTerminalMode ? 'Terminal' : 'Admin',
           style: const TextStyle(fontSize: 30),

@@ -1,7 +1,7 @@
 import 'package:amuse_app_template/UserRegisterView/UserManualCheckInPage.dart';
 import 'package:amuse_app_template/UserRegisterView/userQRCheckInPage.dart';
 import 'package:flutter/material.dart';
-import 'package:amuse_app_template/HomeBackAction.dart';
+import 'package:amuse_app_template/appbarUtils.dart';
 
 class UserCheckInPage extends StatelessWidget {
   const UserCheckInPage({super.key});
@@ -9,7 +9,7 @@ class UserCheckInPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: defaultStyledAppBar(
         title: const Text('ユーザーログイン'),
         centerTitle: true,
         actions: [

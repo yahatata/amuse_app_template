@@ -1,15 +1,7 @@
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/services.dart';
-import 'package:amuse_app_template/HomeBackAction.dart';
+import 'package:amuse_app_template/appbarUtils.dart';
 
 class CreateStaffAccount extends StatefulWidget {
   const CreateStaffAccount({super.key});
@@ -30,11 +22,11 @@ class _CreateStaffAccountState extends State<CreateStaffAccount> {
 
   Future<bool> _isStaffNameTaken(String fullNameKana) async {
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('checkNameExists');
+      final callable = FirebaseFunctions.instance.httpsCallable('checkStaffNameExists');
       final result = await callable.call({'staffName': fullNameKana});
       return result.data['exists'] as bool;
     } catch (e) {
-      debugPrint("Error checking Name: $e");
+      debugPrint("Error checking StaffName: $e");
       return false;
     }
   }
@@ -48,8 +40,6 @@ class _CreateStaffAccountState extends State<CreateStaffAccount> {
       final email = _emailController.text.trim();
       final birthDay = _birthMonthDayController.text.trim();
       final phoneNumber = _phoneNumberController.text.trim();
-      final loginId = "$fullNameKana$birthDay";
-      const password = "YourFixedPassword123";
 
       if (await _isStaffNameTaken(fullNameKana)) {
         setState(() => _isLoading = false);
@@ -60,82 +50,42 @@ class _CreateStaffAccountState extends State<CreateStaffAccount> {
       }
 
       try {
-        final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
+        // Cloud Functionを呼び出し
+        final callable = FirebaseFunctions.instance.httpsCallable('createStaffByApp');
+        final result = await callable.call({
+          'fullName': fullName,
+          'fullNameKana': fullNameKana,
+          'email': email,
+          'phoneNumber': phoneNumber,
+          'birthMonthDay': birthDay,
+        });
 
-        final staff = userCredential.user;
-        if (staff != null) {
-          await staff.updateDisplayName(fullNameKana);
-          await staff.reload();
-
-          await FirebaseFirestore.instance.collection('staffs').doc(staff.uid).set({
-            'uid': staff.uid,
-            'StaffName': fullNameKana,
-            'StaffFullName': fullName,
-            'email': email,
-            'phoneNumber':phoneNumber,
-            'birthMonthDay': birthDay,
-            'loginId': loginId,
-            'staffRole': 'staff',
-            'createdAt': FieldValue.serverTimestamp(),
-            'lastLogin': FieldValue.serverTimestamp(),
-            'isStaying': false,
-          });
-
-          await _generateQRCodeAndSendEmail(staff.uid, loginId, email);
+        final data = result.data;
+        
+        if (data['success'] == true) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['message'])),
+          );
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PlaceholderPage(title: "")));
+        } else {
+          throw Exception("アカウント作成に失敗しました");
         }
-
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("アカウントが作成されました！")),
-        );
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PlaceholderPage(title: "")));
-      } on FirebaseAuthException catch (e) {
+      } on FirebaseFunctionsException catch (e) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.message ?? "登録に失敗しました")),
+        );
+      } catch (e) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("エラーが発生しました: ${e.toString()}")),
         );
       }
     }
   }
 
-  Future<void> _generateQRCodeAndSendEmail(String uid, String loginId, String email) async {
-    try {
-      final qrData = jsonEncode({'uid': uid, 'loginId': loginId});
-      final validation = QrValidator.validate(
-        data: qrData,
-        version: QrVersions.auto,
-        errorCorrectionLevel: QrErrorCorrectLevel.L,
-      );
-      if (validation.status != QrValidationStatus.valid) throw Exception("QRコードの生成に失敗");
 
-      final painter = QrPainter.withQr(
-        qr: validation.qrCode!,
-        color: Colors.black,
-        emptyColor: Colors.white,
-        gapless: true,
-      );
-
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/$loginId.png');
-      final imageData = await painter.toImageData(300);
-      await file.writeAsBytes(imageData!.buffer.asUint8List());
-
-      final ref = FirebaseStorage.instance.ref().child('qr_codes/$loginId.png');
-      await ref.putFile(file);
-
-      final url = await ref.getDownloadURL();
-      await FirebaseFirestore.instance.collection('users').doc(uid).update({
-        'qrCodeUrl': url,
-      });
-
-      print("QRコード発行: $url");
-    } catch (e) {
-      print("QRコード処理エラー: $e");
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
