@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../Utils/menuItemsManager.dart';
 
 class MenuListPage extends StatefulWidget {
   final String category;
@@ -10,88 +11,71 @@ class MenuListPage extends StatefulWidget {
 }
 
 class _MenuListPageState extends State<MenuListPage> {
-  List<Map<String, dynamic>> menuItems = [];
+  List<MenuItem> menuItems = [];
+  bool _isLoading = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-
-    // TODO: Cloud Functions経由でmenuItemsを取得（カテゴリーでフィルタ）
-    // final callable = FirebaseFunctions.instance.httpsCallable('getMenuItemsByCategory');
-    // final result = await callable({'category': widget.category});
-    // setState(() {
-    //   menuItems = List<Map<String, dynamic>>.from(result.data);
-    // });
-
-    final allMockItems = [
-      {
-        "menuItemId": "1",
-        "name": "Cheeseburger",
-        "price": 850,
-        "isArchived": false,
-        "itemCategory": "Food",
-        "imageUrl": "",
-      },
-      {
-        "menuItemId": "2",
-        "name": "Fried Chicken",
-        "price": 780,
-        "isArchived": false,
-        "itemCategory": "Food",
-        "imageUrl": "",
-      },
-      {
-        "menuItemId": "3",
-        "name": "Cola",
-        "price": 300,
-        "isArchived": false,
-        "itemCategory": "Drink",
-        "imageUrl": "",
-      },
-      {
-        "menuItemId": "4",
-        "name": "Orange Juice",
-        "price": 350,
-        "isArchived": false,
-        "itemCategory": "Drink",
-        "imageUrl": "",
-      },
-      {
-        "menuItemId": "5",
-        "name": "Chocolate Cake",
-        "price": 600,
-        "isArchived": false,
-        "itemCategory": "Dessert",
-        "imageUrl": "",
-      },
-      {
-        "menuItemId": "6",
-        "name": "Ice Cream",
-        "price": 500,
-        "isArchived": false,
-        "itemCategory": "Dessert",
-        "imageUrl": "",
-      },
-    ];
-
-    menuItems = allMockItems
-        .where((item) =>
-    item['itemCategory'].toString().toLowerCase() ==
-        widget.category.toLowerCase())
-        .toList();
+    _loadMenuItems();
   }
 
-  void _showOrderDialog(Map<String, dynamic> item) {
+  // When: メニューアイテム読み込み時
+  // Where: menuListPage
+  // What: 選択されたカテゴリーのメニューアイテムを取得
+  // How: MenuItemsManagerからカテゴリー別データを取得
+  void _loadMenuItems() {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    // When: データ取得時
+    // Where: menuListPage
+    // What: カテゴリー別のメニューアイテムを取得
+    // How: MenuItemsManagerのgetMenuItemsByCategory関数を使用
+    final items = MenuItemsManager.getMenuItemsByCategory(widget.category);
+    
+    setState(() {
+      menuItems = items;
+      _isLoading = false;
+    });
+  }
+
+  // When: 更新ボタン押下時
+  // Where: menuListPage
+  // What: メニューアイテムを再取得
+  // How: MenuItemsManager経由でFireStoreから再取得
+  Future<void> _refreshData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final success = await MenuItemsManager.fetchMenuItems();
+    
+    if (success) {
+      _loadMenuItems();
+    } else {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = MenuItemsManager.lastError;
+      });
+    }
+  }
+
+  void _showOrderDialog(MenuItem item) {
     int quantity = 1;
 
     showDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(builder: (context, setStateDialog) {
-          final total = item['price'] * quantity;
+          final total = item.price * quantity;
 
           return AlertDialog(
-            title: Text(item['name']),
+            title: Text(item.name),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -126,7 +110,7 @@ class _MenuListPageState extends State<MenuListPage> {
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  _showConfirmDialog(item['name'], quantity, total);
+                  _showConfirmDialog(item.name, quantity, total);
                 },
                 child: const Text('注文'),
               ),
@@ -180,7 +164,7 @@ class _MenuListPageState extends State<MenuListPage> {
     );
   }
 
-  Widget _buildMenuItem(Map<String, dynamic> item) {
+  Widget _buildMenuItem(MenuItem item) {
     return Container(
       height: 108, // 高さ1.5倍
       decoration: BoxDecoration(
@@ -197,8 +181,8 @@ class _MenuListPageState extends State<MenuListPage> {
               width: 108,
               height: 108,
               color: Colors.grey.shade200,
-              child: item['imageUrl'] != null && item['imageUrl'].toString().isNotEmpty
-                  ? Image.network(item['imageUrl'], fit: BoxFit.cover)
+              child: item.imageUrl.isNotEmpty
+                  ? Image.network(item.imageUrl, fit: BoxFit.cover)
                   : const Center(child: Icon(Icons.image_not_supported, color: Colors.grey)),
             ),
             // 右側：テキスト情報
@@ -210,11 +194,11 @@ class _MenuListPageState extends State<MenuListPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item['name'],
+                      item.name,
                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 4),
-                    Text('¥${item['price']}', style: const TextStyle(fontSize: 16)),
+                    Text('¥${item.price}', style: const TextStyle(fontSize: 16)),
                   ],
                 ),
               ),
@@ -230,14 +214,65 @@ class _MenuListPageState extends State<MenuListPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text('${widget.category} メニュー'),
+        actions: [
+          // When: 更新ボタン表示時
+          // Where: AppBar
+          // What: 更新ボタンを表示
+          // How: IconButtonで更新アイコンを配置
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _isLoading ? null : _refreshData,
+          ),
+        ],
       ),
-      body: ListView.builder(
-        itemCount: menuItems.length,
-        itemBuilder: (context, index) {
-          final item = menuItems[index];
-          return _buildMenuItem(item);
-        },
-      ),
+      body: _buildBody(),
+    );
+  }
+
+  // When: ボディ部分構築時
+  // Where: menuListPage
+  // What: エラー・ローディング・コンテンツを表示
+  // How: 条件分岐で適切なWidgetを返却
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _errorMessage!,
+              style: const TextStyle(color: Colors.red),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _refreshData,
+              child: const Text('再試行'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (menuItems.isEmpty) {
+      return const Center(
+        child: Text(
+          'このカテゴリーにはメニューがありません',
+          style: TextStyle(fontSize: 16),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: menuItems.length,
+      itemBuilder: (context, index) {
+        final item = menuItems[index];
+        return _buildMenuItem(item);
+      },
     );
   }
 }
