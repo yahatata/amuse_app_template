@@ -1,7 +1,5 @@
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
-import 'package:bcrypt/bcrypt.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:amuse_app_template/HomeBackAction.dart';
@@ -20,6 +18,7 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
   final TextEditingController _loginIdController = TextEditingController();
   final TextEditingController _pinController = TextEditingController();
   bool _isLoading = false;
+  final FirebaseFunctions _functions = FirebaseFunctions.instance;
 
   void _showSnackbar(BuildContext context, String message) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -29,78 +28,54 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
     });
   }
 
-  void _loginWithAuthFirst() async {
+  // When: 手動チェックイン処理時
+  // Where: UserManualCheckInPage
+  // What: Cloud Functionsを呼び出してログイン処理を実行
+  // How: manualCheckIn関数を呼び出し
+  Future<void> _loginWithAuthFirst() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
 
       try {
-        String loginIdInput = _loginIdController.text.trim();
-        String pinInput = _pinController.text.trim();
-        String fixedPassword = "YourFixedPassword123";
+        final loginIdInput = _loginIdController.text.trim();
+        final pinInput = _pinController.text.trim();
 
-        QuerySnapshot querySnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .where('loginId', isEqualTo: loginIdInput)
-            .limit(1)
-            .get();
+        final callable = _functions.httpsCallable('manualCheckIn');
+        final result = await callable.call({
+          'loginId': loginIdInput,
+          'pin': pinInput,
+        });
 
-        if (querySnapshot.docs.isNotEmpty) {
-          var userDoc = querySnapshot.docs.first;
-          String storedHashedPin = userDoc['hashedPin'];
-          String? email = userDoc['email'];
-          String uid = userDoc['uid'];
-          String pokerName = userDoc['pokerName'];
+        final response = result.data;
+        if (response['success'] == true) {
+          final data = response['data'];
+          final uid = data['uid'];
+          final pokerName = data['pokerName'];
+          final message = data['message'];
 
-          bool isPinCorrect = BCrypt.checkpw(pinInput, storedHashedPin);
-          if (!isPinCorrect) throw Exception("PINが正しくありません");
+          // ユーザーUIDを保存
+          await _saveUserUID(uid);
 
-          if (email != null) {
-            UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-              email: email,
-              password: fixedPassword,
-            );
-            User? user = userCredential.user;
-
-            if (user != null) {
-              await updateLastLogin(user);
-              await _saveUserUID(uid);
-              await FirebaseFirestore.instance.collection('users').doc(uid).update({
-                'isStaying': true,
-              });
-
-
-              setState(() => _isLoading = false);
-              _showSnackbar(context, "$pokerName様のログイン処理が完了しました");
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const PlaceholderPage(title: '仮ホーム')),
-              );
-            } else {
-              throw Exception("ログインに失敗しました");
-            }
-          } else {
-            throw Exception("メールアドレスが見つかりません");
-          }
+          setState(() => _isLoading = false);
+          _showSnackbar(context, message);
+          
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const PlaceholderPage(title: '仮ホーム')),
+          );
         } else {
-          throw Exception("ログインIDが見つかりません");
+          final error = response['error'] ?? 'ログイン処理に失敗しました';
+          setState(() => _isLoading = false);
+          _showSnackbar(context, error);
         }
-      } on FirebaseAuthException catch (e) {
-        setState(() => _isLoading = false);
-        _showSnackbar(context, "ログイン失敗: \${e.message ?? '不明なエラー'}");
       } catch (e) {
         setState(() => _isLoading = false);
-        _showSnackbar(context, "ログイン失敗: ${e.toString()}");
+        _showSnackbar(context, 'ログイン処理に失敗しました: $e');
       }
     }
   }
 
-  Future<void> updateLastLogin(User user) async {
-    try {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-        'lastLogin': FieldValue.serverTimestamp(),
-      });
-    } catch (_) {}
-  }
+
 
   Future<void> _saveUserUID(String uid) async {
     final prefs = await SharedPreferences.getInstance();
