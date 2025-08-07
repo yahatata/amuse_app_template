@@ -38,9 +38,30 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
 
   // When: メニューアイテム読み込み時
   // Where: categorySelectPage
-  // What: FireStoreからメニューアイテムを取得
+  // What: 既に取得済みのメニューアイテムデータを確認
+  // How: MenuItemsManagerから既存データを使用
+  void _loadMenuItems() {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    // 既に取得済みのデータを使用（Cloud Functions呼び出しなし）
+    final hasData = MenuItemsManager.allMenuItems.isNotEmpty;
+    
+    setState(() {
+      _isLoading = false;
+      if (!hasData) {
+        _errorMessage = 'データが取得されていません。更新ボタンを押してください。';
+      }
+    });
+  }
+
+  // When: 更新ボタン押下時
+  // Where: categorySelectPage
+  // What: メニューアイテムを再取得
   // How: MenuItemsManager経由でCloud Functionsを呼び出し
-  Future<void> _loadMenuItems() async {
+  Future<void> _refreshData() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -54,14 +75,6 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
         _errorMessage = MenuItemsManager.lastError;
       }
     });
-  }
-
-  // When: 更新ボタン押下時
-  // Where: categorySelectPage
-  // What: メニューアイテムを再取得
-  // How: _loadMenuItems関数を呼び出し
-  Future<void> _refreshData() async {
-    await _loadMenuItems();
   }
 
   Icon _getCategoryIcon(String category) {

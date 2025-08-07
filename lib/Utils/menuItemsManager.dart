@@ -118,7 +118,9 @@ class MenuItemsManager {
         if (data is List) {
           _allMenuItems = data.map((item) {
             if (item is Map) {
-              return MenuItem.fromMap(Map<String, dynamic>.from(item));
+              final menuItem = MenuItem.fromMap(Map<String, dynamic>.from(item));
+              print('Loaded menu item: ${menuItem.name}, imageUrl: ${menuItem.imageUrl}');
+              return menuItem;
             } else {
               throw Exception('Invalid item format');
             }

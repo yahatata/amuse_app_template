@@ -182,7 +182,19 @@ class _MenuListPageState extends State<MenuListPage> {
               height: 108,
               color: Colors.grey.shade200,
               child: item.imageUrl.isNotEmpty
-                  ? Image.network(item.imageUrl, fit: BoxFit.cover)
+                  ? Image.network(
+                      item.imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        print('Image error for ${item.name}: $error');
+                        print('Image URL: ${item.imageUrl}');
+                        return const Center(child: Icon(Icons.image_not_supported, color: Colors.grey));
+                      },
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return const Center(child: CircularProgressIndicator());
+                      },
+                    )
                   : const Center(child: Icon(Icons.image_not_supported, color: Colors.grey)),
             ),
             // 右側：テキスト情報
