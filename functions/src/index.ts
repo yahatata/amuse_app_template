@@ -13,5 +13,3 @@ admin.initializeApp();
 export * from "./auth";
 // ユーザー関連関数
 export * from "./user";
-// スタッフ関連関数
-export * from "./staff";

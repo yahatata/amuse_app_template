@@ -1,23 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/Home/adminHomePage.dart';
-
-AppBar defaultStyledAppBar({
-  Widget? title,
-  Widget? leading,
-  List<Widget>? actions,
-  bool centerTitle = false,
-  Color? backgroundColor,
-}) {
-  return AppBar(
-    title: title,
-    leading: leading,
-    actions: actions,
-    centerTitle: centerTitle,
-    backgroundColor: backgroundColor,
-    elevation: 4.0,         // 固定
-    shadowColor: Colors.grey, // 固定
-  );
-}
+import 'package:amuse_app_template/Home/terminalHomePage.dart';
 
 /// AppBar右上に表示するHomeボタン（遷移ロジック含む）
 ///

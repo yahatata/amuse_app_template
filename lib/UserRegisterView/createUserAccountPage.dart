@@ -1,6 +1,6 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
-import 'package:amuse_app_template/appbarUtils.dart';
+import 'package:amuse_app_template/HomeBackAction.dart';
 
 class CreateUserAccount extends StatefulWidget {
   const CreateUserAccount({super.key});
@@ -29,7 +29,7 @@ class _CreateUserAccountState extends State<CreateUserAccount> {
 
       try {
         final callable = FirebaseFunctions.instance.httpsCallable('createUserByApp');
-        await callable.call({
+        final result = await callable.call({
           'pokerName': name,
           'email': email,
           'pin': pin,
@@ -130,7 +130,7 @@ class PlaceholderPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: defaultStyledAppBar(title: Text(title)),
+      appBar: AppBar(title: Text(title)),
       body: Center(child: Text('$title の遷移先（未実装）')),
     );
   }
