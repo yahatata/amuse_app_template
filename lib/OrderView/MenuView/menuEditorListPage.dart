@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../../Utils/menuItemsManager.dart';
 import '../../globalConstant.dart';
 import 'createMenuPage.dart';
@@ -18,6 +19,7 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
   String? _errorMessage;
   final ScrollController _scrollController = ScrollController();
   bool _showFloatingButton = true;
+  final FirebaseFunctions _functions = FirebaseFunctions.instance;
 
   @override
   void initState() {
@@ -130,6 +132,44 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
     }
   }
 
+  // When: 売り切れ状態切り替え時
+  // Where: MenuEditorListPage
+  // What: Cloud Functionsを呼び出して売り切れ状態を更新
+  // How: toggleSoldOutForMenuItem関数を呼び出し
+  Future<void> _toggleSoldOut(String menuItemId, bool isSoldOut) async {
+    try {
+      final callable = _functions.httpsCallable('toggleSoldOutForMenuItem');
+      final result = await callable.call({
+        'menuItemId': menuItemId,
+        'isSoldOut': isSoldOut,
+      });
+
+      final response = result.data;
+      if (response['success'] == true) {
+        // MenuItemsManagerを更新
+        await MenuItemsManager.fetchMenuItems();
+        
+        // ローカルデータも更新
+        _loadMenuItems();
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isSoldOut ? '売り切れに設定しました' : '販売中に設定しました'),
+          ),
+        );
+      } else {
+        final error = response['error'] ?? '売り切れ状態の切り替えに失敗しました';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error)),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('売り切れ状態の切り替えに失敗しました: $e')),
+      );
+    }
+  }
+
   // When: メニューアイテム表示時
   // Where: MenuEditorListPage
   // What: メニューアイテムのUIを構築
@@ -200,10 +240,12 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
                 });
               },
             ),
-            IconButton(
-              icon: const Icon(Icons.delete),
-              onPressed: () {
-                // TODO: 削除確認ダイアログ
+            const SizedBox(width: 8),
+            // 売り切れ状態切り替えスイッチ
+            Switch(
+              value: item.isSoldOut,
+              onChanged: (value) {
+                _toggleSoldOut(item.id, value);
               },
             ),
           ],
