@@ -2,6 +2,7 @@ import 'package:amuse_app_template/Home/adminHomePage.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'firebase_options.dart';
+import 'Utils/menuItemsManager.dart';
 
 
 
@@ -10,6 +11,13 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform, // ⬅️ 必須！
   );
+  
+  // When: アプリ起動時
+  // Where: main.dart
+  // What: メニューアイテムを初期取得
+  // How: MenuItemsManager経由でFireStoreからデータを取得
+  await MenuItemsManager.fetchMenuItems();
+  
   runApp(MyApp());
 }
 

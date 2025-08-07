@@ -1,11 +1,15 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import '../../globalConstant.dart';
+import '../../Utils/menuItemsManager.dart';
 
 class CreateMenuPage extends StatefulWidget {
-  const CreateMenuPage({super.key});
+  final MenuItem? menuItem; // 編集時のみ使用
+
+  const CreateMenuPage({super.key, this.menuItem});
 
   @override
   State<CreateMenuPage> createState() => _CreateMenuPageState();
@@ -16,14 +20,35 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
   final _priceController = TextEditingController();
   final _descriptionController = TextEditingController();
 
-  String _selectedCategory = 'ドリンク';
-  bool _isAvailable = true;
+  String _selectedCategory = 'フード';
+  bool _isArchive = false;
+  bool _isSoldOut = false;
   File? _selectedImage;
-  String? _uploadedImageUrl;
+  String? _existingImageUrl; // 既存の画像URL
 
-  final List<String> _categories = ['ドリンク', 'フード', 'その他'];
+  // globalConstant.dartからカテゴリーを取得
+  final List<String> _categories = GlobalConstants.menuCategories;
 
   final ImagePicker _picker = ImagePicker();
+  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    // When: ページ初期化時
+    // Where: CreateMenuPage
+    // What: 編集時は既存データを入力フィールドに設定
+    // How: widget.menuItemからデータを取得して各コントローラーに設定
+    if (widget.menuItem != null) {
+      _nameController.text = widget.menuItem!.name;
+      _priceController.text = widget.menuItem!.price.toString();
+      _descriptionController.text = widget.menuItem!.description;
+      _selectedCategory = widget.menuItem!.category;
+      _isArchive = widget.menuItem!.isArchive;
+      _isSoldOut = widget.menuItem!.isSoldOut;
+      _existingImageUrl = widget.menuItem!.imageUrl;
+    }
+  }
 
   Future<void> _pickImage() async {
     final picked = await _picker.pickImage(source: ImageSource.gallery);
@@ -34,23 +59,22 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
     }
   }
 
-  Future<String?> _uploadImage(File imageFile) async {
+  Future<String?> _imageToBase64(File imageFile) async {
     try {
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final ref = FirebaseStorage.instance.ref().child('menuImages/$fileName');
-      await ref.putFile(imageFile);
-      return await ref.getDownloadURL();
+      final bytes = await imageFile.readAsBytes();
+      return base64Encode(bytes);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('画像のアップロードに失敗しました: $e')),
+        SnackBar(content: Text('画像の変換に失敗しました: $e')),
       );
       return null;
     }
   }
 
-  Future<void> _addMenuItem() async {
+  Future<void> _saveMenuItem() async {
     final name = _nameController.text.trim();
     final price = int.tryParse(_priceController.text.trim()) ?? 0;
+    final description = _descriptionController.text.trim();
 
     if (name.isEmpty || price <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -60,40 +84,59 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
     }
 
     try {
-      String? imageUrl;
+      // When: メニュー保存時
+      // Where: CreateMenuPage
+      // What: Cloud Functionsを呼び出してメニューを保存
+      // How: 新規作成か更新かを判定して適切な関数を呼び出し
+      
+      String? imageBase64;
       if (_selectedImage != null) {
-        imageUrl = await _uploadImage(_selectedImage!);
-        if (imageUrl == null) return;
+        imageBase64 = await _imageToBase64(_selectedImage!);
+        if (imageBase64 == null) return;
       }
 
-      final docRef = await FirebaseFirestore.instance.collection('menuItems').add({
-        'name': name,                                      // ← OK
-        'price': price,                                    // ← OK
-        'itemCategory': _selectedCategory,                 // ← 修正①: category → itemCategory
-        'isArchived': false,                               // ← 修正③: 明示的に追加（仕様に必須）
-        'archivedAt': null,                                // ← 修正④: 初期は null を保存（任意）
-        'isAvailable': _isAvailable,                       // ← 補足：仕様外。使用するなら仕様に追記必要
-        'imageUrl': imageUrl,                              // ← 同上
-      });
+      final data = {
+        'name': name,
+        'price': price.toString(),
+        'category': _selectedCategory,
+        'description': description,
+        'imageBase64': imageBase64,
+        'isArchive': _isArchive,
+        'isSoldOut': _isSoldOut,
+      };
 
-      // 修正②: menuItemId を明示的に追加
-      await docRef.update({'menuItemId': docRef.id});
+      HttpsCallable callable;
+      if (widget.menuItem != null) {
+        // 更新処理
+        data['originalId'] = widget.menuItem!.id;
+        callable = _functions.httpsCallable('updateMenuItem');
+      } else {
+        // 新規作成処理
+        callable = _functions.httpsCallable('createMenuItem');
+      }
 
-      _nameController.clear();
-      _priceController.clear();
-      _descriptionController.clear();
-      setState(() {
-        _selectedCategory = 'ドリンク';
-        _isAvailable = true;
-        _selectedImage = null;
-      });
+      final result = await callable.call(data);
+      final response = result.data;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('メニューが登録されました')),
-      );
+      if (response['success'] == true) {
+        // MenuItemsManagerを更新
+        await MenuItemsManager.fetchMenuItems();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(widget.menuItem != null ? 'メニューが更新されました' : 'メニューが登録されました')),
+        );
+
+        // 前の画面に戻る
+        Navigator.pop(context);
+      } else {
+        final error = response['error'] ?? 'メニューの保存に失敗しました';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error)),
+        );
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('メニューの登録に失敗しました: $e')),
+        SnackBar(content: Text('メニューの保存に失敗しました: $e')),
       );
     }
   }
@@ -102,100 +145,157 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('メニュー登録')),
+      appBar: AppBar(title: Text(widget.menuItem != null ? 'メニュー編集' : 'メニュー登録')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ① 正方形画像アップロード
+            // 画像アップロード（コンパクトサイズ）
             Center(
               child: GestureDetector(
                 onTap: _pickImage,
                 child: Builder(
                   builder: (context) {
-                    final imageSize = MediaQuery.of(context).size.width * 0.15; // ← 画面の50%サイズ
-                    return _selectedImage != null
-                        ? Image.file(_selectedImage!, width: imageSize, height: imageSize, fit: BoxFit.cover)
-                        : Container(
-                      width: imageSize,
-                      height: imageSize,
-                      color: Colors.grey[200],
-                      child: const Icon(Icons.add_a_photo, size: 50, color: Colors.grey),
-                    );
+                    final imageSize = MediaQuery.of(context).size.width * 0.2; // 画面の20%サイズに縮小
+                    if (_selectedImage != null) {
+                      return Image.file(_selectedImage!, width: imageSize, height: imageSize, fit: BoxFit.cover);
+                    } else if (_existingImageUrl != null && _existingImageUrl!.isNotEmpty) {
+                      return Image.network(
+                        _existingImageUrl!,
+                        width: imageSize,
+                        height: imageSize,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: imageSize,
+                            height: imageSize,
+                            color: Colors.grey[200],
+                            child: const Icon(Icons.image_not_supported, size: 30, color: Colors.grey),
+                          );
+                        },
+                      );
+                    } else {
+                      return Container(
+                        width: imageSize,
+                        height: imageSize,
+                        color: Colors.grey[200],
+                        child: const Icon(Icons.add_a_photo, size: 30, color: Colors.grey),
+                      );
+                    }
                   },
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
-            // 商品名入力
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: '商品名'),
-            ),
 
-            // 価格入力
-            TextField(
-              controller: _priceController,
-              decoration: const InputDecoration(labelText: '価格（円）'),
-              keyboardType: TextInputType.number,
-            ),
 
-            const SizedBox(height: 10),
-
-            // ② カテゴリ選択（表形式に合わせた表示）
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  const SizedBox(
-                    width: 100, // 他フィールドとラベル幅を揃える
-                    child: Text('カテゴリー', style: TextStyle(fontSize: 16)),
-                  ),
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    width: 200,
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedCategory,
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            // 左側：基本情報、右側：設定
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 左側：基本情報（画面の半分）
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    children: [
+                      // 商品名入力
+                      TextField(
+                        controller: _nameController,
+                        decoration: const InputDecoration(
+                          labelText: '商品名',
+                          border: OutlineInputBorder(),
+                        ),
                       ),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() {
-                            _selectedCategory = value;
-                          });
-                        }
-                      },
-                      items: _categories.map((cat) {
-                        return DropdownMenuItem(value: cat, child: Text(cat));
-                      }).toList(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+                      const SizedBox(height: 12),
 
-            // 提供可能スイッチ
-            SwitchListTile(
-              title: const Text('提供可能'),
-              value: _isAvailable,
-              onChanged: (val) {
-                setState(() {
-                  _isAvailable = val;
-                });
-              },
+                      // 価格入力
+                      TextField(
+                        controller: _priceController,
+                        decoration: const InputDecoration(
+                          labelText: '価格（円）',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 12),
+
+                      // カテゴリー選択
+                      DropdownButtonFormField<String>(
+                        value: _selectedCategory,
+                        decoration: const InputDecoration(
+                          labelText: 'カテゴリー',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() {
+                              _selectedCategory = value;
+                            });
+                          }
+                        },
+                        items: _categories.map((cat) {
+                          return DropdownMenuItem(value: cat, child: Text(cat));
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 16),
+
+                // 右側：設定
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    children: [
+                      // アーカイブ状態
+                      SwitchListTile(
+                        title: const Text('アーカイブ'),
+                        subtitle: const Text('アーカイブすると通常のメニュー一覧に表示されません'),
+                        value: _isArchive,
+                        onChanged: (val) {
+                          setState(() {
+                            _isArchive = val;
+                          });
+                        },
+                      ),
+
+                      // 売り切れ状態
+                      SwitchListTile(
+                        title: const Text('売り切れ'),
+                        subtitle: const Text('売り切れにすると注文時に表示されません'),
+                        value: _isSoldOut,
+                        onChanged: (val) {
+                          setState(() {
+                            _isSoldOut = val;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+
+            // 説明入力（画面全体幅）
+            TextField(
+              controller: _descriptionController,
+              decoration: const InputDecoration(
+                labelText: '説明',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 1,
+            ),
+            const SizedBox(height: 12),
 
             // 登録ボタン
             Center(
               child: ElevatedButton(
-                onPressed: _addMenuItem,
-                child: const Text('登録する'),
+                onPressed: _saveMenuItem,
+                child: Text(widget.menuItem != null ? '更新する' : '登録する'),
               ),
             ),
           ],
