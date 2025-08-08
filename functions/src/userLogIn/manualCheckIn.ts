@@ -4,7 +4,7 @@ import * as bcrypt from "bcrypt";
 
 export const manualCheckIn = onCall(async (request) => {
   try {
-    const { loginId, pin } = request.data;
+    const { loginId, pin, entranceFee, entranceFeeDescription } = request.data;
 
     // バリデーション
     if (!loginId || !pin) {
@@ -83,7 +83,13 @@ export const manualCheckIn = onCall(async (request) => {
       lastLogin: now,
     });
 
-    // 5. todaysBillsドキュメントを作成
+    // 5. todaysBillsドキュメントを作成（入店料を含む）
+    const extraCost = entranceFee > 0 ? [{
+      name: entranceFeeDescription || "入店料",
+      price: entranceFee,
+      createdAt: now
+    }] : [];
+
     const todaysBillsData = {
       createdAt: now,
       pokerName: pokerName,
@@ -92,8 +98,11 @@ export const manualCheckIn = onCall(async (request) => {
       items: [],
       sideGameTip: [],
       tournaments: [],
-      totalPrice: 0,
+      extraCost: extraCost,
+      totalPrice: entranceFee > 0 ? entranceFee : 0, // 入店料を初期値として設定（0円の場合は0）
       settledAt: null,
+      currentTable: null,
+      currentSeat: null,
     };
 
     const todaysBillsRef = await db.collection('todaysBills').add(todaysBillsData);

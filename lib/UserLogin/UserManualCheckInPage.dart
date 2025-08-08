@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:amuse_app_template/HomeBackAction.dart';
+import 'package:amuse_app_template/globalConstant.dart';
 
 
 class UserManualCheckInPage extends StatefulWidget {
@@ -44,6 +45,8 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
         final result = await callable.call({
           'loginId': loginIdInput,
           'pin': pinInput,
+          'entranceFee': GlobalConstants.entranceFee,
+          'entranceFeeDescription': GlobalConstants.entranceFeeDescription,
         });
 
         final response = result.data;
