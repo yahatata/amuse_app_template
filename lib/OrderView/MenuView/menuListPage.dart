@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../../Utils/menuItemsManager.dart';
 
 class MenuListPage extends StatefulWidget {
@@ -14,6 +15,7 @@ class _MenuListPageState extends State<MenuListPage> {
   List<MenuItem> menuItems = [];
   bool _isLoading = false;
   String? _errorMessage;
+  final FirebaseFunctions _functions = FirebaseFunctions.instance;
 
   @override
   void initState() {
@@ -65,42 +67,99 @@ class _MenuListPageState extends State<MenuListPage> {
     }
   }
 
+  // When: 注文ダイアログ表示時
+  // Where: menuListPage
+  // What: 入店中ユーザー一覧の取得と数量選択、合計表示
+  // How: Cloud Functions(getOpenBills)でユーザー取得し、ダイアログで選択
   void _showOrderDialog(MenuItem item) {
     int quantity = 1;
+    String? selectedUserId;
+    String? selectedUserName;
 
     showDialog(
       context: context,
       builder: (context) {
+        final Future<HttpsCallableResult> future =
+            _functions.httpsCallable('getOpenBills').call();
+
         return StatefulBuilder(builder: (context, setStateDialog) {
           final total = item.price * quantity;
 
           return AlertDialog(
             title: Text(item.name),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
+            content: FutureBuilder<HttpsCallableResult>(
+              future: future,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                      height: 120, child: Center(child: CircularProgressIndicator()));
+                }
+                if (snapshot.hasError || snapshot.data == null) {
+                  return const Text('入店中のユーザー取得に失敗しました');
+                }
+                final response = snapshot.data!.data;
+                if (response is! Map || response['success'] != true) {
+                  return const Text('入店中のユーザーが取得できません');
+                }
+                final List users = response['data'] as List;
+                if (users.isEmpty) {
+                  return const Text('入店中のユーザーがいません');
+                }
+
+                // 初期選択
+                selectedUserId ??= users.first['userId'] as String?;
+                selectedUserName = users
+                    .firstWhere((u) => u['userId'] == selectedUserId)['pokerName'] as String?;
+
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    IconButton(
-                      onPressed: () {
-                        if (quantity > 1) {
-                          setStateDialog(() => quantity--);
-                        }
+                    // 注文者選択
+                    const Text('注文者'),
+                    const SizedBox(height: 8),
+                    DropdownButton<String>(
+                      isExpanded: true,
+                      value: selectedUserId,
+                      items: users.map<DropdownMenuItem<String>>((u) {
+                        return DropdownMenuItem<String>(
+                          value: u['userId'] as String,
+                          child: Text(u['pokerName'] as String? ?? ''),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setStateDialog(() {
+                          selectedUserId = val;
+                          selectedUserName = users
+                              .firstWhere((u) => u['userId'] == val)['pokerName'] as String?;
+                        });
                       },
-                      icon: const Icon(Icons.remove),
                     ),
-                    Text(quantity.toString()),
-                    IconButton(
-                      onPressed: () {
-                        setStateDialog(() => quantity++);
-                      },
-                      icon: const Icon(Icons.add),
+                    const SizedBox(height: 16),
+
+                    // 個数選択
+                    Row(
+                      children: [
+                        IconButton(
+                          onPressed: () {
+                            if (quantity > 1) setStateDialog(() => quantity--);
+                          },
+                          icon: const Icon(Icons.remove),
+                        ),
+                        Text(quantity.toString()),
+                        IconButton(
+                          onPressed: () {
+                            setStateDialog(() => quantity++);
+                          },
+                          icon: const Icon(Icons.add),
+                        ),
+                        const Spacer(),
+                        Text('合計: ¥$total'),
+                      ],
                     ),
                   ],
-                ),
-                const SizedBox(height: 8),
-                Text('合計金額: ¥$total'),
-              ],
+                );
+              },
             ),
             actions: [
               TextButton(
@@ -109,8 +168,15 @@ class _MenuListPageState extends State<MenuListPage> {
               ),
               TextButton(
                 onPressed: () {
+                  if (selectedUserId == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('注文者を選択してください')),
+                    );
+                    return;
+                  }
                   Navigator.pop(context);
-                  _showConfirmDialog(item.name, quantity, total);
+                  _showConfirmDialog(item, selectedUserId!, selectedUserName ?? '', quantity,
+                      item.price * quantity);
                 },
                 child: const Text('注文'),
               ),
@@ -121,7 +187,17 @@ class _MenuListPageState extends State<MenuListPage> {
     );
   }
 
-  void _showConfirmDialog(String name, int quantity, int total) {
+  // When: 注文確認時
+  // Where: menuListPage
+  // What: 内容確認とCloud Functions呼び出し
+  // How: placeOrder を呼んでサーバーで登録
+  void _showConfirmDialog(
+      MenuItem item, String userId, String userName, int quantity, int total) {
+    // When: SnackBar表示時に破棄されたcontextを参照しないようにする
+    // Where: 親画面のcontextを事前に保持
+    // What: SnackBar表示で利用
+    // How: this.contextをローカルへ保持
+    final BuildContext pageContext = context;
     showDialog(
       context: context,
       builder: (context) {
@@ -130,7 +206,8 @@ class _MenuListPageState extends State<MenuListPage> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('メニュー: $name'),
+              Text('注文者: $userName'),
+              Text('メニュー: ${item.name}'),
               Text('個数: $quantity'),
               Text('合計: ¥$total'),
             ],
@@ -143,18 +220,37 @@ class _MenuListPageState extends State<MenuListPage> {
             TextButton(
               onPressed: () async {
                 Navigator.pop(context);
-
-                // TODO: Cloud Functionsを使ってOrderを登録
-                // final callable = FirebaseFunctions.instance.httpsCallable('createOrder');
-                // await callable.call({
-                //   'menuName': name,
-                //   'quantity': quantity,
-                //   'totalPrice': total,
-                // });
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('注文を送信しました')),
-                );
+                try {
+                  final callable = _functions.httpsCallable('placeOrder');
+                  final payload = {
+                    'userId': userId,
+                    'item': {
+                      'menuItemId': item.id,
+                      'category': item.category,
+                      'name': item.name,
+                      'price': item.price,
+                      'quantity': quantity,
+                    }
+                  };
+                  final result = await callable.call(payload);
+                  if (!mounted) return; // 非同期後の安全確認
+                  final res = result.data;
+                  if (res is Map && res['success'] == true) {
+                    ScaffoldMessenger.of(pageContext).showSnackBar(
+                      const SnackBar(content: Text('注文を送信しました')),
+                    );
+                  } else {
+                    final msg = (res is Map ? res['error'] : null) ?? '注文に失敗しました';
+                    ScaffoldMessenger.of(pageContext).showSnackBar(
+                      SnackBar(content: Text(msg)),
+                    );
+                  }
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(pageContext).showSnackBar(
+                    SnackBar(content: Text('注文に失敗しました: $e')),
+                  );
+                }
               },
               child: const Text('注文確定'),
             ),

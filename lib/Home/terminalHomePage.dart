@@ -2,7 +2,7 @@ import 'package:amuse_app_template/OrderView/MenuView/categorySelectPage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/createMenuPage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/menuEditorListPage.dart';
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
-import 'package:amuse_app_template/UserRegisterView/userCheckInPage.dart';
+import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
 import 'package:flutter/material.dart';
 
 class terminalHomePage extends StatefulWidget {
