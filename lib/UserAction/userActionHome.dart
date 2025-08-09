@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'orderFromUserActionPop.dart';
 
 /// When: ユーザー行をタップしてアクションを選択したいとき
 /// Where: StayingUsersListPage などユーザー一覧系の画面
@@ -16,6 +17,8 @@ Future<void> showUserActionHome({
   final actions = _buildActionsForSource(sourcePage: sourcePage, user: user);
 
   final size = MediaQuery.of(context).size;
+  // 次のポップを開くために親コンテキストを退避
+  final BuildContext rootContext = context;
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -78,8 +81,12 @@ Future<void> showUserActionHome({
                         iconData: a.icon,
                         color: a.color,
                         onTap: () {
+                          // 先にこのダイアログを閉じる
                           Navigator.of(ctx).pop();
-                          a.onSelected?.call(context, user);
+                          // 閉じた直後に安全な親コンテキストで次の処理を起動
+                          Future.microtask(() {
+                            a.onSelected?.call(rootContext, user);
+                          });
                         },
                       );
                     },
@@ -136,8 +143,16 @@ _UserActionItem _buildBlockA(Map<String, dynamic> user) => _UserActionItem(
       icon: Icons.shopping_bag_outlined,
       color: Colors.blue,
       onSelected: (ctx, u) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('注文（仮）')),
+        // When: 「注文」ブロック選択時
+        // Where: userActionHome（ダイアログ内）
+        // What: 選択ユーザー向けの注文フローを表示
+        // How: カテゴリー→メニュー選択→数量指定→placeOrder 呼び出し
+        showOrderFromUserDialog(
+          pageContext: ctx,
+          user: u,
+          onBackToUserActionHome: () {
+            showUserActionHome(context: ctx, sourcePage: 'StayingUsersListPage', user: u);
+          },
         );
       },
     );
