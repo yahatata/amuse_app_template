@@ -21,7 +21,7 @@ export const createUserByApp = onCall(async (request) => {
 
   if (!existing.empty) {
     throw new functions.https.HttpsError(
-      "already-exists", "このPokerNameは既に使用されています");
+      "already-exists", "このpokerNameは既に使用されています。別のpokerNameに変更してください。");
   }
 
   const fixedPassword = "YourFixedPassword123";

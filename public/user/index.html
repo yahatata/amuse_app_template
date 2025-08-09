@@ -4,24 +4,21 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ユーザーページ - Amuse App</title>
-
     <!-- LIFF SDK -->
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-
+    <!-- 店舗別設定ファイル（デプロイ時に差し替え） -->
+    <script src="./config.amuse-app-template.js"></script>
     <!-- Firebase初期化スクリプト -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
       import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
       import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-      // Firebase設定
-      const firebaseConfig = {
-        apiKey: "AIzaSyB4uReYiG_fVVDkwOmkPteF3roa_sGMHDQ",
-        authDomain: "amuse-app-template.firebase.com",
-        projectId: "amuse-app-template",
-        storageBucket: "amuse-app-template.appspot.com",
-        appId: "1:767044015900:web:8671d7fe4f677b17734cd9"
-      };
+      // 設定ファイルから設定を取得
+      const { firebaseConfig, liffId } = window.__CONFIG__;
+      
+      // Cloud Functions URLを動的に生成
+      const functionsUrl = `https://us-central1-${firebaseConfig.projectId}.cloudfunctions.net`;
 
       const app = initializeApp(firebaseConfig);
       const auth = getAuth(app);
@@ -30,9 +27,9 @@
       // グローバルに公開
       window.Firebase = { app, auth, db };
       window.FirebaseAuth = { signInWithCustomToken };
-      
+
       // LIFFとFirebase認証の初期化関数
-      window.initLiffAndFirebaseAuth = async function(liffId) {
+      window.initLiffAndFirebaseAuth = async function() {
         if (!window.liff) {
           alert("LIFF SDKが読み込まれていません。");
           return;
@@ -52,7 +49,7 @@
           }
 
           // サーバーからFirebaseカスタムトークンを取得
-          const res = await fetch("https://us-central1-amuse-app-template.cloudfunctions.net/getFirebaseCustomToken", {
+          const res = await fetch(`${functionsUrl}/getFirebaseCustomToken`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${idToken}`,
@@ -74,22 +71,54 @@
           const { signInWithCustomToken } = window.FirebaseAuth;
           await signInWithCustomToken(auth, firebaseToken);
 
-          // 利用者情報をwindowにセット
-          window.LiffFirebase = {
-            idToken,
-            user: auth.currentUser
-          };
-        } catch (e) {
-          alert("認証処理中にエラーが発生しました: " + (e?.message || e));
-          console.error(e);
-        }
+                // 利用者情報をwindowにセット
+      window.LiffFirebase = {
+        idToken,
+        user: auth.currentUser
       };
+      
+      // デバッグ表示を更新
+      updateDebugDisplay();
+    } catch (e) {
+      alert("認証処理中にエラーが発生しました: " + (e?.message || e));
+      console.error(e);
+    }
+  };
+  
+  // デバッグ表示更新関数
+  function updateDebugDisplay() {
+    const config = window.__CONFIG__;
+    if (config) {
+      document.getElementById('debug-liff-id').textContent = config.liffId;
+      document.getElementById('debug-project-id').textContent = config.firebaseConfig.projectId;
+      document.getElementById('debug-store-name').textContent = config.storeInfo.name;
+    }
+  }
+  
+  // 長押しでデバッグ表示切り替え（スマホ用）
+  let longPressTimer;
+  document.addEventListener('touchstart', function(e) {
+    longPressTimer = setTimeout(() => {
+      const debugEl = document.getElementById('debug-config');
+      debugEl.style.display = debugEl.style.display === 'none' ? 'block' : 'none';
+    }, 3000); // 3秒長押し
+  });
+  
+  document.addEventListener('touchend', function() {
+    clearTimeout(longPressTimer);
+  });
     </script>
-
     <link rel="stylesheet" href="../css/common.css">
   </head>
   <body>
     <div class="container">
+      <!-- デバッグ表示（設定確認用） -->
+      <div id="debug-config" style="display:none; position:fixed; top:10px; right:10px; background:rgba(0,0,0,0.8); color:white; padding:10px; border-radius:5px; font-size:12px; z-index:9999;">
+        <div>LIFF ID: <span id="debug-liff-id"></span></div>
+        <div>Project ID: <span id="debug-project-id"></span></div>
+        <div>Store: <span id="debug-store-name"></span></div>
+      </div>
+      
       <!-- ローディング画面 -->
       <div id="loading" class="loading">
         <div class="spinner"></div>
@@ -151,8 +180,8 @@
         <p>初回利用のため、ユーザー情報を登録してください。</p>
         <form id="registration-form">
           <div class="form-group">
-            <label for="pokerName">ポーカー名</label>
-            <input type="text" id="pokerName" placeholder="ポーカー名を入力" required>
+            <label for="pokerName">pokerName</label>
+            <input type="text" id="pokerName" placeholder="pokerNameを入力" required>
           </div>
           <div class="form-group">
             <label for="email">メールアドレス</label>
@@ -298,7 +327,7 @@
             
             userInfoEl.innerHTML = `
               <h3>ユーザー情報</h3>
-              <p>ポーカー名: ${pokerName}</p>
+              <p>pokerName: ${pokerName}</p>
               <p>メール: <span style="display: inline-block; max-width: 100%;">${formatEmail(email)}</span></p>
             `;
             
@@ -318,7 +347,6 @@
       // 登録フォーム処理
       registrationFormEl.addEventListener('submit', async (e) => {
         e.preventDefault();
-        
         try {
           const pokerName = document.getElementById('pokerName').value;
           const email = document.getElementById('email').value;
@@ -360,24 +388,46 @@
           }
         } catch (error) {
           console.error('登録エラー:', error);
-          showError('登録に失敗しました: ' + error.message);
+          
+          // エラーメッセージの詳細化
+          let errorMessage = '登録に失敗しました。';
+          
+          if (error.message) {
+            // エラーメッセージをユーザーフレンドリーに変換
+            if (error.message.includes('pokerName') && error.message.includes('既に使用されています')) {
+              errorMessage = 'このpokerNameは既に使用されています。別のpokerNameに変更してください。';
+            } else if (error.message.includes('PIN') && error.message.includes('4桁')) {
+              errorMessage = 'PINは4桁の数字で入力してください。';
+            } else if (error.message.includes('入力情報が不足')) {
+              errorMessage = '入力情報が不足しています。全ての項目を入力してください。';
+            } else if (error.message.includes('認証が必要')) {
+              errorMessage = '認証が必要です。再度ログインしてください。';
+            } else if (error.message.includes('ユーザーアカウントの作成に失敗')) {
+              errorMessage = 'ユーザーアカウントの作成に失敗しました。しばらく時間をおいて再度お試しください。';
+            } else if (error.message.includes('INTERNAL')) {
+              errorMessage = 'サーバーエラーが発生しました。しばらく時間をおいて再度お試しください。';
+            } else if (error.message.includes('UNAUTHENTICATED')) {
+              errorMessage = '認証に失敗しました。再度ログインしてください。';
+            } else if (error.message.includes('INVALID_ARGUMENT')) {
+              errorMessage = '入力内容に問題があります。入力内容を確認してください。';
+            } else if (error.message.includes('ALREADY_EXISTS')) {
+              errorMessage = 'このpokerNameは既に使用されています。別のpokerNameに変更してください。';
+            } else {
+              errorMessage = '登録に失敗しました。入力内容を確認して再度お試しください。';
+            }
+          }
+          
+          // ユーザーフレンドリーなアラート表示
+          alert(errorMessage);
         }
       });
-
-
 
       // ユーザーログイン状態更新関数
       async function updateUserLoginStatus(userId) {
         try {
-          const { db } = window.Firebase;
-          const { doc, updateDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          
-          await updateDoc(doc(db, 'users', userId), {
-            isStaying: true,
-            lastLogin: new Date()
-          });
-          
-          console.log('ユーザーログイン状態を更新しました');
+          // ログイン時には特に何も更新しない
+          // isStayingとlastLoginはhandleAttendance関数で管理される
+          console.log('ユーザーログイン完了');
         } catch (error) {
           console.error('ログイン状態更新エラー:', error);
         }
@@ -431,66 +481,47 @@
         
         try {
           // デバッグ情報を画面に表示
-          qrDisplay.innerHTML = '<p>QRコード表示開始 - UID: ' + window.LiffFirebase.user.uid + '</p>';
+          qrDisplay.innerHTML = '<p>QRコード表示開始 - UID: ' + window.LiffFirebase.user.uid + '<br>認証状態: ' + (window.LiffFirebase.user ? '認証済み' : '未認証') + '<br>Firebase認証: ' + (window.Firebase.auth.currentUser ? '認証済み' : '未認証') + '</p>';
+          
+          // Firebase認証の状態を確認
+          const { auth } = window.Firebase;
+          const currentUser = auth.currentUser;
+          
+          if (!currentUser) {
+            qrDisplay.innerHTML = '<p>Firebase認証が完了していません。<br>UID: ' + window.LiffFirebase.user.uid + '<br>Firebase認証: 未認証</p>';
+            return;
+          }
+          
+          qrDisplay.innerHTML = '<p>Firebase認証確認済み<br>UID: ' + currentUser.uid + '<br>LiffFirebase UID: ' + window.LiffFirebase.user.uid + '</p>';
           
           // ユーザーデータからQRコードURLを取得
           const { db } = window.Firebase;
           const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          const userDoc = await getDoc(doc(db, 'users', window.LiffFirebase.user.uid));
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
           
           if (userDoc.exists()) {
             const userData = userDoc.data();
             qrDisplay.innerHTML = '<p>ユーザーデータ取得成功<br>loginID: ' + (userData.loginID || 'なし') + '</p>';
             
-            // QRコード履歴から最新のものを取得（安全な方法）
-            const { collection, query, where, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-            const qrHistoryQuery = query(
-              collection(db, 'qrCodeHistory'),
-              where('uid', '==', window.LiffFirebase.user.uid)
-            );
-            
-            qrDisplay.innerHTML = '<p>QRコード履歴クエリ実行中...</p>';
-            const qrHistorySnapshot = await getDocs(qrHistoryQuery);
-            qrDisplay.innerHTML = '<p>QRコード履歴取得結果: ' + qrHistorySnapshot.size + '件</p>';
-            
-                          if (!qrHistorySnapshot.empty) {
-                qrDisplay.innerHTML = '<p>QRコード履歴が見つかりました</p>';
-                
-                // 最新のQRコードを取得（クライアント側でフィルタリングとソート）
-                const userQRDocs = qrHistorySnapshot.docs.filter(doc => doc.data().type === 'user');
-                const qrHistoryDocs = userQRDocs.sort((a, b) => {
-                  const aTime = a.data().generatedAt?.toDate?.() || new Date(0);
-                  const bTime = b.data().generatedAt?.toDate?.() || new Date(0);
-                  return bTime - aTime;
-                });
-                
-                if (qrHistoryDocs.length === 0) {
-                  qrDisplay.innerHTML = '<p>ユーザー用QRコード履歴が見つかりません。新しく生成します...</p>';
-                  await generateNewQRCode();
-                  return;
-                }
-                
-                const latestQR = qrHistoryDocs[0].data();
-                qrDisplay.innerHTML = '<p>最新のQRコードデータ:<br>qrCodeUrl: ' + (latestQR.qrCodeUrl || 'なし') + '</p>';
-                
-                if (latestQR.qrCodeUrl) {
-                  qrDisplay.innerHTML = '<p>QRコードURL取得成功<br>URL: ' + latestQR.qrCodeUrl + '</p>';
-                  qrDisplay.innerHTML = `<img src="${latestQR.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;">`;
-                  
-                  if (latestQR.expiresAt) {
-                    const expiryDate = latestQR.expiresAt.toDate();
-                    expiryTime.textContent = expiryDate.toLocaleString('ja-JP');
-                  } else {
-                    expiryTime.textContent = '有効期限: 不明';
-                  }
-                } else {
-                  qrDisplay.innerHTML = '<p>QRコードURLが見つかりません。新しく生成します...</p>';
-                  await generateNewQRCode();
-                }
-              } else {
-                qrDisplay.innerHTML = '<p>QRコード履歴が見つかりません。新しく生成します...</p>';
+            if (userData.qrCodeUrl && userData.qrExpiresAt) {
+              const now = new Date();
+              const expiryDate = userData.qrExpiresAt.toDate();
+              const isExpired = now > expiryDate;
+              
+              if (isExpired) {
+                qrDisplay.innerHTML = '<p>QRコードの有効期限が切れています。新しく生成します...</p>';
                 await generateNewQRCode();
+                return;
               }
+              
+              qrDisplay.innerHTML = '<p>QRコード情報取得成功</p>';
+              qrDisplay.innerHTML = `<img src="${userData.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;">`;
+              
+              expiryTime.textContent = expiryDate.toLocaleString('ja-JP');
+            } else {
+              qrDisplay.innerHTML = '<p>QRコード情報が見つかりません。新しく生成します...</p>';
+              await generateNewQRCode();
+            }
           } else {
             qrDisplay.innerHTML = '<p>ユーザー情報が見つかりません</p>';
             expiryTime.textContent = '有効期限: -';
@@ -628,7 +659,7 @@
             profileInfo.innerHTML = `
               <div class="profile-details">
                 <h3>基本情報</h3>
-                <p><strong>ポーカー名:</strong> ${userData.pokerName || '未設定'}</p>
+                <p><strong>pokerName:</strong> ${userData.pokerName || '未設定'}</p>
                 <p><strong>メール:</strong> ${userData.email || '未設定'}</p>
                 <p><strong>誕生日:</strong> ${userData.birthMonthDay || '未設定'}</p>
                 <p><strong>ポイントA:</strong> ${userData.pointA || 0}</p>
@@ -666,7 +697,7 @@
           generateBirthdayOptions();
           
           // LIFF初期化
-          await window.initLiffAndFirebaseAuth("2007806607-1nxokjv8");
+          await window.initLiffAndFirebaseAuth();
           
           // store登録確認
           await checkStoreRegistration();
@@ -715,4 +746,4 @@
       }
     </script>
   </body>
-</html>
+</html> 

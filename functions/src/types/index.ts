@@ -9,14 +9,14 @@ export interface LineUserInfo {
 }
 
 /**
- * ポーカー名チェック用のデータ型
+ * pokerNameチェック用のデータ型
  */
 export interface CheckPokerNameData {
   pokerName: string;
 }
 
 /**
- * ポーカー名チェック結果の型
+ * pokerNameチェック結果の型
  */
 export interface CheckPokerNameResult {
   exists: boolean;
@@ -50,4 +50,17 @@ export interface VerifyQRResponse {
   valid: boolean;
   data?: QRCodeData;
   message: string;
+}
+
+/**
+ * 入退店処理レスポンスの型
+ */
+export interface ProcessVisitByQRResponse {
+  success: boolean;
+  action: "checkin" | "checkout" | null;
+  message: string;
+  user?: {
+    uid: string;
+    loginId: string;
+  };
 }

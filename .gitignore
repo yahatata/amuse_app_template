@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# 環境変数・設定ファイル
+.env
+.env.*
+config.*.js
+!config.sample.js

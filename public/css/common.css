@@ -184,6 +184,8 @@ body {
   transform: translateY(-2px);
 }
 
+
+
 /* ユーザー情報表示 */
 .user-info, .staff-info {
   background: linear-gradient(135deg, #f8f9fa, #e9ecef);
