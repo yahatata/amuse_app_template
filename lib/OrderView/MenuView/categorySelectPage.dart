@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'menuListPage.dart';
+import '../../globalConstant.dart';
+import '../../Utils/menuItemsManager.dart';
 
 class CategorySelectPage extends StatefulWidget {
   const CategorySelectPage({Key? key}) : super(key: key);
@@ -10,31 +12,81 @@ class CategorySelectPage extends StatefulWidget {
 
 class _CategorySelectPageState extends State<CategorySelectPage> {
   List<String> _categories = [];
+  bool _isLoading = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
+    _loadCategories(); // 即座に実行（カテゴリー一覧表示）
+    
+    // 画面構築完了後にメニューアイテムを読み込み
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadMenuItems(); // 遅延実行
+    });
+  }
 
-    // TODO: Cloud Functions経由でFireStoreからカテゴリー一覧を取得
-    // 例:
-    // final callable = FirebaseFunctions.instance.httpsCallable('getCategories');
-    // final result = await callable();
-    // setState(() {
-    //   _categories = List<String>.from(result.data);
-    // });
+  // When: カテゴリー一覧読み込み時
+  // Where: categorySelectPage
+  // What: globalConstant.dartからカテゴリー一覧を取得
+  // How: GlobalConstantsクラスから静的リストを取得
+  void _loadCategories() {
+    setState(() {
+      _categories = GlobalConstants.menuCategories;
+    });
+  }
 
-    // 一時的な仮データ
-    _categories = ['Food', 'Drink', 'Dessert'];
+  // When: メニューアイテム読み込み時
+  // Where: categorySelectPage
+  // What: 既に取得済みのメニューアイテムデータを確認
+  // How: MenuItemsManagerから既存データを使用
+  void _loadMenuItems() {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    // 既に取得済みのデータを使用（Cloud Functions呼び出しなし）
+    final hasData = MenuItemsManager.allMenuItems.isNotEmpty;
+    
+    setState(() {
+      _isLoading = false;
+      if (!hasData) {
+        _errorMessage = 'データが取得されていません。更新ボタンを押してください。';
+      }
+    });
+  }
+
+  // When: 更新ボタン押下時
+  // Where: categorySelectPage
+  // What: メニューアイテムを再取得
+  // How: MenuItemsManager経由でCloud Functionsを呼び出し
+  Future<void> _refreshData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final success = await MenuItemsManager.fetchMenuItems();
+    
+    setState(() {
+      _isLoading = false;
+      if (!success) {
+        _errorMessage = MenuItemsManager.lastError;
+      }
+    });
   }
 
   Icon _getCategoryIcon(String category) {
-    switch (category.toLowerCase()) {
-      case 'food':
+    switch (category) {
+      case 'フード':
         return const Icon(Icons.restaurant, color: Colors.brown);
-      case 'drink':
+      case 'ノンアルコール':
         return const Icon(Icons.local_drink, color: Colors.blue);
-      case 'dessert':
-        return const Icon(Icons.cake, color: Colors.pink);
+      case 'アルコール':
+        return const Icon(Icons.local_bar, color: Colors.amber);
+      case 'その他':
+        return const Icon(Icons.category, color: Colors.grey);
       default:
         return const Icon(Icons.category, color: Colors.grey);
     }
@@ -43,53 +95,97 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('メニューカテゴリー')),
-      body: ListView.builder(
-        itemCount: _categories.length,
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        itemBuilder: (context, index) {
-          final category = _categories[index];
+      appBar: AppBar(
+        title: const Text('メニューカテゴリー'),
+        actions: [
+          // When: 更新ボタン表示時
+          // Where: AppBar
+          // What: 更新ボタンを表示
+          // How: IconButtonで更新アイコンを配置
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _isLoading ? null : _refreshData,
+          ),
+        ],
+      ),
+      body: _buildBody(),
+    );
+  }
 
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: InkWell(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => MenuListPage(category: category),
-                  ),
-                );
-              },
-              child: Container(
-                height: 100, // 通常のListTileの2倍相当
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300, width: 1),
-                  borderRadius: BorderRadius.circular(12),
-                  color: Colors.white,
+  // When: ボディ部分構築時
+  // Where: categorySelectPage
+  // What: エラー・ローディング・コンテンツを表示
+  // How: 条件分岐で適切なWidgetを返却
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _errorMessage!,
+              style: const TextStyle(color: Colors.red),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _refreshData,
+              child: const Text('再試行'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: _categories.length,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      itemBuilder: (context, index) {
+        final category = _categories[index];
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: InkWell(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MenuListPage(category: category),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    _getCategoryIcon(category),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Text(
-                        category,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w500,
-                        ),
+              );
+            },
+            child: Container(
+              height: 100, // 通常のListTileの2倍相当
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300, width: 1),
+                borderRadius: BorderRadius.circular(12),
+                color: Colors.white,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  _getCategoryIcon(category),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      category,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const Icon(Icons.arrow_forward_ios, size: 18),
-                  ],
-                ),
+                  ),
+                  const Icon(Icons.arrow_forward_ios, size: 18),
+                ],
               ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }

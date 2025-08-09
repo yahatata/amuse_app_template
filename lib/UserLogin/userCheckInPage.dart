@@ -1,4 +1,4 @@
-import 'package:amuse_app_template/UserRegisterView/UserManualCheckInPage.dart';
+import 'package:amuse_app_template/UserLogin/UserManualCheckInPage.dart';
 import 'package:amuse_app_template/UserRegisterView/userQRCheckInPage.dart';
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/HomeBackAction.dart';
