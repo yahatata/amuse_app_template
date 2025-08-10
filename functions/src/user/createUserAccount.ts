@@ -1,6 +1,7 @@
 import {onCall} from "firebase-functions/v2/https";
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import * as bcrypt from "bcryptjs";
 
 /**
  * ユーザーアカウント作成関数
@@ -54,12 +55,8 @@ export const createUserAccount = onCall(
     try {
       const uid = request.auth.uid;
 
-      // PINをハッシュ化
-      const crypto = await import("crypto");
-      const hashedPin = crypto.default
-        .createHash("sha256")
-        .update(pin)
-        .digest("hex");
+      // PINをハッシュ化（bcryptで統一）
+      const hashedPin = bcrypt.hashSync(pin, 10);
 
       // birthMonthDayを組み合わせて作成
       const birthMonthDay = birthMonth + birthDay;

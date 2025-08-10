@@ -1,7 +1,15 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
-import * as bcrypt from "bcrypt";
+import * as bcrypt from "bcryptjs";
 
+/**
+ * 手動チェックイン（店舗端末でのログインID + PIN 認証）
+ *
+ * When: 店舗端末から手動で入店処理を行うとき
+ * Where: Cloud Functions (Callable)
+ * What: loginId と PIN を認証し、ユーザーを入店状態にし、必要であれば入店料を todaysBills に追加
+ * How: Firestore 検索 → PIN 検証 → users 更新 → todaysBills 作成
+ */
 export const manualCheckIn = onCall(async (request) => {
   try {
     const { loginId, pin, entranceFee, entranceFeeDescription } = request.data;
@@ -14,7 +22,7 @@ export const manualCheckIn = onCall(async (request) => {
       };
     }
 
-    if (pin.length !== 4) {
+    if ((pin as string).length !== 4) {
       return {
         success: false,
         error: 'PINは4桁で入力してください'
@@ -103,7 +111,7 @@ export const manualCheckIn = onCall(async (request) => {
       settledAt: null,
       currentTable: null,
       currentSeat: null,
-    };
+    } as Record<string, unknown>;
 
     const todaysBillsRef = await db.collection('todaysBills').add(todaysBillsData);
 
@@ -125,3 +133,5 @@ export const manualCheckIn = onCall(async (request) => {
     };
   }
 });
+
+ 

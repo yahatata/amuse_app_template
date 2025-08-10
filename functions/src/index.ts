@@ -20,5 +20,5 @@ export * from "./auth";
 export * from "./user";
 // メニューアイテム関連関数
 export * from "./itemOrder";
-export * from "./userLogIn";
+export * from "./userLogin";
 export * from "./utils";

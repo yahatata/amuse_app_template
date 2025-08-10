@@ -1,5 +1,4 @@
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -42,20 +41,7 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
       _isProcessing = true;
     });
 
-    // 端末がFirebase Authでログイン済みかチェック
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) {
-      setState(() {
-        _isProcessing = false;
-        _lastMessage = '端末が未ログインのため実行できません。スタッフ/端末用アカウントで先にログインしてください。';
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('端末未ログインです。先にスタッフとしてログインしてください。')),
-        );
-      }
-      return;
-    }
+    // 認証チェックを削除（注文処理と同様に認証なしで動作）
 
     try {
       // When: QRを読み取った直後
