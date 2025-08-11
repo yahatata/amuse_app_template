@@ -109,6 +109,54 @@
   });
     </script>
     <link rel="stylesheet" href="../css/common.css">
+    <style>
+      /* 入店状態表示のスタイル */
+      .checkin-status {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border: 2px solid #dee2e6;
+        border-radius: 12px;
+        padding: 20px;
+        margin: 20px 0;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      
+      .status-message {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      
+      .status-message span:first-child {
+        font-size: 24px;
+      }
+      
+      .status-message span:last-child {
+        font-size: 18px;
+        font-weight: bold;
+        color: #495057;
+      }
+      
+      .status-description {
+        color: #6c757d;
+        font-size: 14px;
+        margin: 0;
+      }
+      
+      /* 入店中の場合のスタイル */
+      .checkin-status.checked-in {
+        background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+        border-color: #28a745;
+      }
+      
+      /* 入店していない場合のスタイル */
+      .checkin-status.not-checked-in {
+        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+        border-color: #ffc107;
+      }
+    </style>
   </head>
   <body>
     <div class="container">
@@ -133,6 +181,15 @@
           <p>ユーザー情報を読み込み中...</p>
         </div>
         
+        <!-- 入店状態表示 -->
+        <div id="checkin-status" class="checkin-status" style="display: none;">
+          <div class="status-message">
+            <span id="status-icon">🚫</span>
+            <span id="status-text">入店していません</span>
+          </div>
+          <p class="status-description">店舗端末でQRコードを読み取って入店してください</p>
+        </div>
+        
         <!-- メイン機能ボタン -->
         <div class="main-functions">
           <h2>メイン機能</h2>
@@ -145,7 +202,7 @@
               </div>
             </button>
             
-            <button class="function-btn order-btn" onclick="showOrderMenu()">
+            <button id="order-btn" class="function-btn order-btn" onclick="showOrderMenu()" style="display: none !important;">
               <div class="btn-icon">🍽️</div>
               <div class="btn-text">
                 <h3>注文</h3>
@@ -153,7 +210,7 @@
               </div>
             </button>
             
-            <button class="function-btn tournament-btn" onclick="showTournament()">
+            <button id="tournament-btn" class="function-btn tournament-btn" onclick="showTournament()" style="display: none !important;">
               <div class="btn-icon">🏆</div>
               <div class="btn-text">
                 <h3>トーナメント</h3>
@@ -285,6 +342,15 @@
       const userInfoEl = document.getElementById('user-info');
       const registrationFormEl = document.getElementById('registration-form');
 
+      // ページ読み込み完了時の初期化処理
+      document.addEventListener('DOMContentLoaded', function() {
+        // 注文・トーナメントボタンを確実に非表示にする
+        const orderBtn = document.getElementById('order-btn');
+        const tournamentBtn = document.getElementById('tournament-btn');
+        if (orderBtn) orderBtn.style.display = 'none';
+        if (tournamentBtn) tournamentBtn.style.display = 'none';
+      });
+
       // エラー表示関数
       function showError(message) {
         errorEl.textContent = message;
@@ -331,10 +397,21 @@
               <p>メール: <span style="display: inline-block; max-width: 100%;">${formatEmail(email)}</span></p>
             `;
             
-            // ホームページに遷移した際の処理
+                      // ホームページに遷移した際の処理
+            // 注文・トーナメントボタンを確実に非表示にする
+            const orderBtn = document.getElementById('order-btn');
+            const tournamentBtn = document.getElementById('tournament-btn');
+            if (orderBtn) orderBtn.style.display = 'none';
+            if (tournamentBtn) tournamentBtn.style.display = 'none';
+            
             await updateUserLoginStatus(user.uid);
             
             showPage(homePageEl);
+            
+            // 入店状態を定期的に更新（永続化のため）
+            setInterval(() => {
+              updateCheckinStatusUI(user.uid);
+            }, 30000); // 30秒ごとに更新
           } else {
             // 未登録の場合
             showPage(registrationPageEl);
@@ -428,8 +505,66 @@
           // ログイン時には特に何も更新しない
           // isStayingとlastLoginはhandleAttendance関数で管理される
           console.log('ユーザーログイン完了');
+          
+          // 入店状態を確認してUIを更新
+          await updateCheckinStatusUI(userId);
         } catch (error) {
           console.error('ログイン状態更新エラー:', error);
+        }
+      }
+
+      // 入店状態に応じてUIを更新する関数
+      async function updateCheckinStatusUI(userId) {
+        try {
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getUserStatus = httpsCallable(functions, 'getUserStatus');
+          
+          const result = await getUserStatus({ uid: userId });
+          
+          if (result.data.success) {
+            const userData = result.data.user;
+            const isStaying = userData.isStaying;
+            
+            // 入店状態表示の更新
+            const checkinStatusEl = document.getElementById('checkin-status');
+            const statusIconEl = document.getElementById('status-icon');
+            const statusTextEl = document.getElementById('status-text');
+            const statusDescEl = document.querySelector('.status-description');
+            
+            // 注文・トーナメントボタンの表示制御
+            const orderBtn = document.getElementById('order-btn');
+            const tournamentBtn = document.getElementById('tournament-btn');
+            
+            if (isStaying) {
+              // 入店中の場合
+              statusIconEl.textContent = '✅';
+              statusTextEl.textContent = '入店中';
+              statusDescEl.textContent = '注文やトーナメントに参加できます';
+              
+              // 注文・トーナメントボタンを表示
+              orderBtn.style.display = 'block';
+              tournamentBtn.style.display = 'block';
+            } else {
+              // 入店していない場合
+              statusIconEl.textContent = '🚫';
+              statusTextEl.textContent = '入店していません';
+              statusDescEl.textContent = '店舗端末でQRコードを読み取って入店してください';
+              
+              // 注文・トーナメントボタンを非表示
+              orderBtn.style.display = 'none';
+              tournamentBtn.style.display = 'none';
+            }
+            
+            // 入店状態表示を表示
+            checkinStatusEl.style.display = 'block';
+            
+            console.log('入店状態UI更新完了:', { isStaying, userId });
+          } else {
+            console.error('入店状態の取得に失敗:', result.data.error);
+          }
+        } catch (error) {
+          console.error('入店状態UI更新エラー:', error);
         }
       }
 

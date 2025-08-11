@@ -106,20 +106,17 @@ export const processVisitByQR = onCall(async (request) => {
         lastCheckInAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      const visitRef = userRef.collection("visitHistory").doc();
-      tx.set(visitRef, {
-        visitedAt: admin.firestore.FieldValue.serverTimestamp(),
+      // visitLogsに詳細な入店ログを記録
+      const logRef = userRef.collection("visitLogs").doc();
+      tx.set(logRef, {
+        action: "checkin",
+        checkInAt: admin.firestore.FieldValue.serverTimestamp(),
+        checkOutAt: null,
+        stayMinutes: null,
+        authMethod: "qr",
         note: "",
-        source: "qr",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-
-                                const logRef = userRef.collection("visitLogs").doc();
-             tx.set(logRef, {
-               action: "checkin",
-               at: admin.firestore.FieldValue.serverTimestamp(),
-               scannedByUid: null, // 認証なしのためnull
-               source: "qr",
-             });
 
              // todaysBillsドキュメントを作成（入店料あり、manualCheckInと同様のフィールド）
              const extraCost = entranceFee > 0 ? [{
