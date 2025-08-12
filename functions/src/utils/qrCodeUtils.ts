@@ -6,7 +6,7 @@ import {QRCodeData} from "../types";
 /**
  * QRコードの有効期限（分）
  */
-const QR_EXPIRY_MINUTES = 5;
+const QR_EXPIRY_MINUTES = 10;
 
 /**
  * セキュリティトークンを生成する
@@ -91,6 +91,9 @@ export async function saveQRCodeToStorage(
 
     console.log(`Buffer作成完了: サイズ=${buffer.length} bytes`);
 
+    // 古いQRコードファイルを削除
+    await deleteOldQRCodeFiles(uid, type);
+
     // Storageのファイルパスを生成
     const fileName = `qr-codes/${type}/${uid}_${Date.now()}.png`;
     console.log(`ファイルパス: ${fileName}`);
@@ -134,6 +137,36 @@ export async function saveQRCodeToStorage(
     const errorMessage = error instanceof Error ?
       error.message : "Unknown error";
     throw new Error(`QRコードの保存に失敗しました: ${errorMessage}`);
+  }
+}
+
+/**
+ * 古いQRコードファイルを削除する
+ * @param {string} uid ユーザーID
+ * @param {"user" | "staff"} type QRコードの種類
+ */
+async function deleteOldQRCodeFiles(uid: string, type: "user" | "staff"): Promise<void> {
+  try {
+    const bucket = admin.storage().bucket();
+    const prefix = `qr-codes/${type}/${uid}_`;
+    
+    console.log(`古いQRコードファイル削除開始: prefix=${prefix}`);
+    
+    const [files] = await bucket.getFiles({ prefix });
+    
+    if (files.length > 0) {
+      console.log(`${files.length}個の古いファイルを削除します`);
+      
+      const deletePromises = files.map(file => file.delete());
+      await Promise.all(deletePromises);
+      
+      console.log(`古いQRコードファイル削除完了: ${files.length}個`);
+    } else {
+      console.log('削除する古いファイルはありません');
+    }
+  } catch (error) {
+    console.error('古いQRコードファイル削除エラー:', error);
+    // 削除に失敗しても処理を続行
   }
 }
 

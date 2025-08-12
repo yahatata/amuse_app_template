@@ -184,6 +184,8 @@ body {
   transform: translateY(-2px);
 }
 
+
+
 /* ユーザー情報表示 */
 .user-info, .staff-info {
   background: linear-gradient(135deg, #f8f9fa, #e9ecef);
@@ -241,9 +243,9 @@ body {
   cursor: pointer;
   transition: all 0.3s ease;
   text-align: left;
-  display: flex;
-  align-items: center;
-  gap: 20px;
+  display: flex !important;
+  align-items: center !important;
+  gap: 20px !important;
   box-shadow: 0 4px 15px rgba(0,0,0,0.1);
 }
 
@@ -251,6 +253,15 @@ body {
   transform: translateY(-5px);
   box-shadow: 0 10px 25px rgba(0,0,0,0.15);
   border-color: #667eea;
+}
+
+/* 注文ボタンの背景色とレイアウトを統一（白い背景、横並び） */
+.function-btn.order-btn {
+  background: linear-gradient(135deg, #f8f9fa, #e9ecef) !important;
+  border: 2px solid #dee2e6 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 20px !important;
 }
 
 .btn-icon {

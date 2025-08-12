@@ -4,24 +4,21 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ユーザーページ - Amuse App</title>
-
     <!-- LIFF SDK -->
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-
+    <!-- 店舗別設定ファイル（デプロイ時に差し替え） -->
+    <script src="./config.amuse-app-template.js"></script>
     <!-- Firebase初期化スクリプト -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
       import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
       import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-      // Firebase設定
-      const firebaseConfig = {
-        apiKey: "AIzaSyB4uReYiG_fVVDkwOmkPteF3roa_sGMHDQ",
-        authDomain: "amuse-app-template.firebase.com",
-        projectId: "amuse-app-template",
-        storageBucket: "amuse-app-template.appspot.com",
-        appId: "1:767044015900:web:8671d7fe4f677b17734cd9"
-      };
+      // 設定ファイルから設定を取得
+      const { firebaseConfig, liffId } = window.__CONFIG__;
+      
+      // Cloud Functions URLを動的に生成
+      const functionsUrl = `https://us-central1-${firebaseConfig.projectId}.cloudfunctions.net`;
 
       const app = initializeApp(firebaseConfig);
       const auth = getAuth(app);
@@ -30,9 +27,10 @@
       // グローバルに公開
       window.Firebase = { app, auth, db };
       window.FirebaseAuth = { signInWithCustomToken };
-      
+      window.FunctionsUrl = functionsUrl; // グローバルに公開
+
       // LIFFとFirebase認証の初期化関数
-      window.initLiffAndFirebaseAuth = async function(liffId) {
+      window.initLiffAndFirebaseAuth = async function() {
         if (!window.liff) {
           alert("LIFF SDKが読み込まれていません。");
           return;
@@ -52,7 +50,7 @@
           }
 
           // サーバーからFirebaseカスタムトークンを取得
-          const res = await fetch("https://us-central1-amuse-app-template.cloudfunctions.net/getFirebaseCustomToken", {
+          const res = await fetch(`${functionsUrl}/getFirebaseCustomToken`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${idToken}`,
@@ -74,22 +72,55 @@
           const { signInWithCustomToken } = window.FirebaseAuth;
           await signInWithCustomToken(auth, firebaseToken);
 
-          // 利用者情報をwindowにセット
-          window.LiffFirebase = {
-            idToken,
-            user: auth.currentUser
-          };
-        } catch (e) {
-          alert("認証処理中にエラーが発生しました: " + (e?.message || e));
-          console.error(e);
-        }
+                // 利用者情報をwindowにセット
+      window.LiffFirebase = {
+        idToken,
+        user: auth.currentUser
       };
+      
+      // デバッグ表示を更新
+      updateDebugDisplay();
+    } catch (e) {
+      alert("認証処理中にエラーが発生しました: " + (e?.message || e));
+      console.error(e);
+    }
+  };
+  
+  // デバッグ表示更新関数
+  function updateDebugDisplay() {
+    const config = window.__CONFIG__;
+    if (config) {
+      document.getElementById('debug-liff-id').textContent = config.liffId;
+      document.getElementById('debug-project-id').textContent = config.firebaseConfig.projectId;
+      document.getElementById('debug-store-name').textContent = config.storeInfo.name;
+    }
+  }
+  
+  // 長押しでデバッグ表示切り替え（スマホ用）
+  let longPressTimer;
+  document.addEventListener('touchstart', function(e) {
+    longPressTimer = setTimeout(() => {
+      const debugEl = document.getElementById('debug-config');
+      debugEl.style.display = debugEl.style.display === 'none' ? 'block' : 'none';
+    }, 3000); // 3秒長押し
+  });
+  
+  document.addEventListener('touchend', function() {
+    clearTimeout(longPressTimer);
+  });
     </script>
-
     <link rel="stylesheet" href="../css/common.css">
+    <link rel="stylesheet" href="../css/user.css">
   </head>
   <body>
     <div class="container">
+      <!-- デバッグ表示（設定確認用） -->
+      <div id="debug-config" style="display:none; position:fixed; top:10px; right:10px; background:rgba(0,0,0,0.8); color:white; padding:10px; border-radius:5px; font-size:12px; z-index:9999;">
+        <div>LIFF ID: <span id="debug-liff-id"></span></div>
+        <div>Project ID: <span id="debug-project-id"></span></div>
+        <div>Store: <span id="debug-store-name"></span></div>
+      </div>
+      
       <!-- ローディング画面 -->
       <div id="loading" class="loading">
         <div class="spinner"></div>
@@ -104,6 +135,15 @@
           <p>ユーザー情報を読み込み中...</p>
         </div>
         
+        <!-- 入店状態表示 -->
+        <div id="checkin-status" class="checkin-status" style="display: none;">
+          <div class="status-message">
+            <span id="status-icon">🚫</span>
+            <span id="status-text">入店していません</span>
+          </div>
+          <p class="status-description">店舗端末でQRコードを読み取って入店してください</p>
+        </div>
+        
         <!-- メイン機能ボタン -->
         <div class="main-functions">
           <h2>メイン機能</h2>
@@ -116,7 +156,7 @@
               </div>
             </button>
             
-            <button class="function-btn order-btn" onclick="showOrderMenu()">
+            <button id="order-btn" class="function-btn order-btn" onclick="showOrderMenu()">
               <div class="btn-icon">🍽️</div>
               <div class="btn-text">
                 <h3>注文</h3>
@@ -124,7 +164,7 @@
               </div>
             </button>
             
-            <button class="function-btn tournament-btn" onclick="showTournament()">
+            <button id="tournament-btn" class="function-btn tournament-btn" onclick="showTournament()">
               <div class="btn-icon">🏆</div>
               <div class="btn-text">
                 <h3>トーナメント</h3>
@@ -146,13 +186,13 @@
       </div>
 
       <!-- 登録画面 -->
-      <div id="registration-page" class="page registration-page">
+      <div id="registration-page" class="page registration-page" style="display: none;">
         <h1>ユーザー登録</h1>
         <p>初回利用のため、ユーザー情報を登録してください。</p>
         <form id="registration-form">
           <div class="form-group">
-            <label for="pokerName">ポーカー名</label>
-            <input type="text" id="pokerName" placeholder="ポーカー名を入力" required>
+            <label for="pokerName">pokerName</label>
+            <input type="text" id="pokerName" placeholder="pokerNameを入力" required>
           </div>
           <div class="form-group">
             <label for="email">メールアドレス</label>
@@ -180,7 +220,7 @@
       </div>
 
       <!-- QRコード表示画面 -->
-      <div id="qr-page" class="page qr-page">
+      <div id="qr-page" class="page qr-page" style="display: none;">
         <h1>入店QRコード</h1>
         <div class="qr-container">
           <div id="qr-code-display" class="qr-code-display">
@@ -198,8 +238,28 @@
       </div>
 
       <!-- 注文メニュー画面 -->
-      <div id="order-page" class="page order-page">
+      <div id="order-page" class="page order-page" style="display: none;">
         <h1>注文メニュー</h1>
+        
+        <!-- カート表示エリア -->
+        <div id="cart-container" class="cart-container" style="display: none;">
+          <div class="cart-header">
+            <h3>🛒 カート (<span id="cart-item-count">0</span>個)</h3>
+            <button class="btn secondary-btn" onclick="clearCart()">カートを空にする</button>
+          </div>
+          <div id="cart-items" class="cart-items">
+            <!-- カートアイテムがここに表示される -->
+          </div>
+          <div class="cart-footer">
+            <div class="cart-total">
+              <strong>合計: ¥<span id="cart-total-price">0</span></strong>
+            </div>
+            <button id="order-all-btn" class="btn order-all-btn" onclick="orderAllItems()" disabled>
+              全て注文する
+            </button>
+          </div>
+        </div>
+        
         <div class="menu-categories">
           <button class="category-btn active" onclick="showCategory('food')">食事</button>
           <button class="category-btn" onclick="showCategory('drink')">ドリンク</button>
@@ -209,12 +269,44 @@
           <p>メニューを読み込み中...</p>
         </div>
         <div class="order-actions">
+          <button class="btn" onclick="showOrderHistory()">📋 注文履歴</button>
           <button class="btn" onclick="showHomePage()">ホームに戻る</button>
         </div>
       </div>
 
+      <!-- 注文履歴画面 -->
+      <div id="order-history-page" class="page order-history-page" style="display: none;">
+        <h1>📋 注文履歴</h1>
+        
+        <!-- 更新ボタン -->
+        <div class="history-actions-top">
+          <button class="btn secondary-btn" onclick="refreshOrderHistory()">🔄 更新</button>
+        </div>
+        
+        <!-- 統計情報 -->
+        <div id="history-stats" class="history-stats" style="display: none;">
+          <div class="stat-item">
+            <span class="stat-label">総注文数:</span>
+            <span id="total-orders" class="stat-value">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">総利用金額:</span>
+            <span id="total-amount" class="stat-value">¥0</span>
+          </div>
+        </div>
+        
+        <!-- 注文履歴リスト -->
+        <div id="order-history-list" class="order-history-list">
+          <p>注文履歴を読み込み中...</p>
+        </div>
+        
+        <div class="history-actions">
+          <button class="btn" onclick="showOrderPage()">注文メニューに戻る</button>
+        </div>
+      </div>
+
       <!-- トーナメント画面 -->
-      <div id="tournament-page" class="page tournament-page">
+      <div id="tournament-page" class="page tournament-page" style="display: none;">
         <h1>トーナメント</h1>
         <div class="tournament-info">
           <h2>開催中・予定のトーナメント</h2>
@@ -228,7 +320,7 @@
       </div>
 
       <!-- プロフィール画面 -->
-      <div id="profile-page" class="page profile-page">
+      <div id="profile-page" class="page profile-page" style="display: none;">
         <h1>プロフィール</h1>
         <div id="profile-info" class="profile-info">
           <p>プロフィール情報を読み込み中...</p>
@@ -250,11 +342,21 @@
       const registrationPageEl = document.getElementById('registration-page');
       const qrPageEl = document.getElementById('qr-page');
       const orderPageEl = document.getElementById('order-page');
+      const orderHistoryPageEl = document.getElementById('order-history-page');
       const tournamentPageEl = document.getElementById('tournament-page');
       const profilePageEl = document.getElementById('profile-page');
       const errorEl = document.getElementById('error-message');
       const userInfoEl = document.getElementById('user-info');
       const registrationFormEl = document.getElementById('registration-form');
+
+      // ページ読み込み完了時の初期化処理
+      document.addEventListener('DOMContentLoaded', function() {
+        // 注文・トーナメントボタンを確実に非表示にする
+        const orderBtn = document.getElementById('order-btn');
+        const tournamentBtn = document.getElementById('tournament-btn');
+        if (orderBtn) orderBtn.style.display = 'none';
+        if (tournamentBtn) tournamentBtn.style.display = 'none';
+      });
 
       // エラー表示関数
       function showError(message) {
@@ -266,8 +368,27 @@
       // ページ表示関数
       function showPage(pageElement) {
         loadingEl.style.display = 'none';
+        
+        // 全てのページを明示的に非表示
+        homePageEl.style.display = 'none';
+        registrationPageEl.style.display = 'none';
+        qrPageEl.style.display = 'none';
+        orderPageEl.style.display = 'none';
+        orderHistoryPageEl.style.display = 'none';
+        tournamentPageEl.classList.remove('active');
+        profilePageEl.style.display = 'none';
+        
+        // 全てのページのactiveクラスを確実に削除
         homePageEl.classList.remove('active');
         registrationPageEl.classList.remove('active');
+        qrPageEl.classList.remove('active');
+        orderPageEl.classList.remove('active');
+        orderHistoryPageEl.classList.remove('active');
+        tournamentPageEl.classList.remove('active');
+        profilePageEl.classList.remove('active');
+        
+        // 対象ページのみ表示してactiveクラスを追加
+        pageElement.style.display = 'block';
         pageElement.classList.add('active');
       }
 
@@ -298,14 +419,25 @@
             
             userInfoEl.innerHTML = `
               <h3>ユーザー情報</h3>
-              <p>ポーカー名: ${pokerName}</p>
+              <p>pokerName: ${pokerName}</p>
               <p>メール: <span style="display: inline-block; max-width: 100%;">${formatEmail(email)}</span></p>
             `;
             
-            // ホームページに遷移した際の処理
+                      // ホームページに遷移した際の処理
+            // 注文・トーナメントボタンを確実に非表示にする
+            const orderBtn = document.getElementById('order-btn');
+            const tournamentBtn = document.getElementById('tournament-btn');
+            if (orderBtn) orderBtn.style.display = 'none';
+            if (tournamentBtn) tournamentBtn.style.display = 'none';
+            
             await updateUserLoginStatus(user.uid);
             
             showPage(homePageEl);
+            
+            // 入店状態を定期的に更新（永続化のため）
+            setInterval(() => {
+              updateCheckinStatusUI(user.uid);
+            }, 30000); // 30秒ごとに更新
           } else {
             // 未登録の場合
             showPage(registrationPageEl);
@@ -318,7 +450,6 @@
       // 登録フォーム処理
       registrationFormEl.addEventListener('submit', async (e) => {
         e.preventDefault();
-        
         try {
           const pokerName = document.getElementById('pokerName').value;
           const email = document.getElementById('email').value;
@@ -360,26 +491,106 @@
           }
         } catch (error) {
           console.error('登録エラー:', error);
-          showError('登録に失敗しました: ' + error.message);
+          
+          // エラーメッセージの詳細化
+          let errorMessage = '登録に失敗しました。';
+          
+          if (error.message) {
+            // エラーメッセージをユーザーフレンドリーに変換
+            if (error.message.includes('pokerName') && error.message.includes('既に使用されています')) {
+              errorMessage = 'このpokerNameは既に使用されています。別のpokerNameに変更してください。';
+            } else if (error.message.includes('PIN') && error.message.includes('4桁')) {
+              errorMessage = 'PINは4桁の数字で入力してください。';
+            } else if (error.message.includes('入力情報が不足')) {
+              errorMessage = '入力情報が不足しています。全ての項目を入力してください。';
+            } else if (error.message.includes('認証が必要')) {
+              errorMessage = '認証が必要です。再度ログインしてください。';
+            } else if (error.message.includes('ユーザーアカウントの作成に失敗')) {
+              errorMessage = 'ユーザーアカウントの作成に失敗しました。しばらく時間をおいて再度お試しください。';
+            } else if (error.message.includes('INTERNAL')) {
+              errorMessage = 'サーバーエラーが発生しました。しばらく時間をおいて再度お試しください。';
+            } else if (error.message.includes('UNAUTHENTICATED')) {
+              errorMessage = '認証に失敗しました。再度ログインしてください。';
+            } else if (error.message.includes('INVALID_ARGUMENT')) {
+              errorMessage = '入力内容に問題があります。入力内容を確認してください。';
+            } else if (error.message.includes('ALREADY_EXISTS')) {
+              errorMessage = 'このpokerNameは既に使用されています。別のpokerNameに変更してください。';
+            } else {
+              errorMessage = '登録に失敗しました。入力内容を確認して再度お試しください。';
+            }
+          }
+          
+          // ユーザーフレンドリーなアラート表示
+          alert(errorMessage);
         }
       });
-
-
 
       // ユーザーログイン状態更新関数
       async function updateUserLoginStatus(userId) {
         try {
-          const { db } = window.Firebase;
-          const { doc, updateDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          // ログイン時には特に何も更新しない
+          // isStayingとlastLoginはhandleAttendance関数で管理される
+          console.log('ユーザーログイン完了');
           
-          await updateDoc(doc(db, 'users', userId), {
-            isStaying: true,
-            lastLogin: new Date()
-          });
-          
-          console.log('ユーザーログイン状態を更新しました');
+          // 入店状態を確認してUIを更新
+          await updateCheckinStatusUI(userId);
         } catch (error) {
           console.error('ログイン状態更新エラー:', error);
+        }
+      }
+
+      // 入店状態に応じてUIを更新する関数
+      async function updateCheckinStatusUI(userId) {
+        try {
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getUserStatus = httpsCallable(functions, 'getUserStatus');
+          
+          const result = await getUserStatus({ uid: userId });
+          
+          if (result.data.success) {
+            const userData = result.data.user;
+            const isStaying = userData.isStaying;
+            
+            // 入店状態表示の更新
+            const checkinStatusEl = document.getElementById('checkin-status');
+            const statusIconEl = document.getElementById('status-icon');
+            const statusTextEl = document.getElementById('status-text');
+            const statusDescEl = document.querySelector('.status-description');
+            
+            // 注文・トーナメントボタンの表示制御
+            const orderBtn = document.getElementById('order-btn');
+            const tournamentBtn = document.getElementById('tournament-btn');
+            
+            if (isStaying) {
+              // 入店中の場合
+              statusIconEl.textContent = '✅';
+              statusTextEl.textContent = '入店中';
+              statusDescEl.textContent = '注文やトーナメントに参加できます';
+              
+              // 注文・トーナメントボタンを表示
+              orderBtn.style.display = 'block';
+              tournamentBtn.style.display = 'block';
+            } else {
+              // 入店していない場合
+              statusIconEl.textContent = '🚫';
+              statusTextEl.textContent = '入店していません';
+              statusDescEl.textContent = '店舗端末でQRコードを読み取って入店してください';
+              
+              // 注文・トーナメントボタンを非表示
+              orderBtn.style.display = 'none';
+              tournamentBtn.style.display = 'none';
+            }
+            
+            // 入店状態表示を表示
+            checkinStatusEl.style.display = 'block';
+            
+            console.log('入店状態UI更新完了:', { isStaying, userId });
+          } else {
+            console.error('入店状態の取得に失敗:', result.data.error);
+          }
+        } catch (error) {
+          console.error('入店状態UI更新エラー:', error);
         }
       }
 
@@ -387,6 +598,10 @@
       window.showHomePage = () => showPage(homePageEl);
       window.showQRPage = () => showPage(qrPageEl);
       window.showOrderPage = () => showPage(orderPageEl);
+      window.showOrderHistory = () => {
+        showPage(orderHistoryPageEl);
+        loadOrderHistory();
+      };
       window.showTournamentPage = () => showPage(tournamentPageEl);
       window.showProfilePage = () => showPage(profilePageEl);
 
@@ -431,66 +646,47 @@
         
         try {
           // デバッグ情報を画面に表示
-          qrDisplay.innerHTML = '<p>QRコード表示開始 - UID: ' + window.LiffFirebase.user.uid + '</p>';
+          qrDisplay.innerHTML = '<p>QRコード表示開始 - UID: ' + window.LiffFirebase.user.uid + '<br>認証状態: ' + (window.LiffFirebase.user ? '認証済み' : '未認証') + '<br>Firebase認証: ' + (window.Firebase.auth.currentUser ? '認証済み' : '未認証') + '</p>';
+          
+          // Firebase認証の状態を確認
+          const { auth } = window.Firebase;
+          const currentUser = auth.currentUser;
+          
+          if (!currentUser) {
+            qrDisplay.innerHTML = '<p>Firebase認証が完了していません。<br>UID: ' + window.LiffFirebase.user.uid + '<br>Firebase認証: 未認証</p>';
+            return;
+          }
+          
+          qrDisplay.innerHTML = '<p>Firebase認証確認済み<br>UID: ' + currentUser.uid + '<br>LiffFirebase UID: ' + window.LiffFirebase.user.uid + '</p>';
           
           // ユーザーデータからQRコードURLを取得
           const { db } = window.Firebase;
           const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          const userDoc = await getDoc(doc(db, 'users', window.LiffFirebase.user.uid));
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
           
           if (userDoc.exists()) {
             const userData = userDoc.data();
             qrDisplay.innerHTML = '<p>ユーザーデータ取得成功<br>loginID: ' + (userData.loginID || 'なし') + '</p>';
             
-            // QRコード履歴から最新のものを取得（安全な方法）
-            const { collection, query, where, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-            const qrHistoryQuery = query(
-              collection(db, 'qrCodeHistory'),
-              where('uid', '==', window.LiffFirebase.user.uid)
-            );
-            
-            qrDisplay.innerHTML = '<p>QRコード履歴クエリ実行中...</p>';
-            const qrHistorySnapshot = await getDocs(qrHistoryQuery);
-            qrDisplay.innerHTML = '<p>QRコード履歴取得結果: ' + qrHistorySnapshot.size + '件</p>';
-            
-                          if (!qrHistorySnapshot.empty) {
-                qrDisplay.innerHTML = '<p>QRコード履歴が見つかりました</p>';
-                
-                // 最新のQRコードを取得（クライアント側でフィルタリングとソート）
-                const userQRDocs = qrHistorySnapshot.docs.filter(doc => doc.data().type === 'user');
-                const qrHistoryDocs = userQRDocs.sort((a, b) => {
-                  const aTime = a.data().generatedAt?.toDate?.() || new Date(0);
-                  const bTime = b.data().generatedAt?.toDate?.() || new Date(0);
-                  return bTime - aTime;
-                });
-                
-                if (qrHistoryDocs.length === 0) {
-                  qrDisplay.innerHTML = '<p>ユーザー用QRコード履歴が見つかりません。新しく生成します...</p>';
-                  await generateNewQRCode();
-                  return;
-                }
-                
-                const latestQR = qrHistoryDocs[0].data();
-                qrDisplay.innerHTML = '<p>最新のQRコードデータ:<br>qrCodeUrl: ' + (latestQR.qrCodeUrl || 'なし') + '</p>';
-                
-                if (latestQR.qrCodeUrl) {
-                  qrDisplay.innerHTML = '<p>QRコードURL取得成功<br>URL: ' + latestQR.qrCodeUrl + '</p>';
-                  qrDisplay.innerHTML = `<img src="${latestQR.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;">`;
-                  
-                  if (latestQR.expiresAt) {
-                    const expiryDate = latestQR.expiresAt.toDate();
-                    expiryTime.textContent = expiryDate.toLocaleString('ja-JP');
-                  } else {
-                    expiryTime.textContent = '有効期限: 不明';
-                  }
-                } else {
-                  qrDisplay.innerHTML = '<p>QRコードURLが見つかりません。新しく生成します...</p>';
-                  await generateNewQRCode();
-                }
-              } else {
-                qrDisplay.innerHTML = '<p>QRコード履歴が見つかりません。新しく生成します...</p>';
+            if (userData.qrCodeUrl && userData.qrExpiresAt) {
+              const now = new Date();
+              const expiryDate = userData.qrExpiresAt.toDate();
+              const isExpired = now > expiryDate;
+              
+              if (isExpired) {
+                qrDisplay.innerHTML = '<p>QRコードの有効期限が切れています。新しく生成します...</p>';
                 await generateNewQRCode();
+                return;
               }
+              
+              qrDisplay.innerHTML = '<p>QRコード情報取得成功</p>';
+              qrDisplay.innerHTML = `<img src="${userData.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;">`;
+              
+              expiryTime.textContent = expiryDate.toLocaleString('ja-JP');
+            } else {
+              qrDisplay.innerHTML = '<p>QRコード情報が見つかりません。新しく生成します...</p>';
+              await generateNewQRCode();
+            }
           } else {
             qrDisplay.innerHTML = '<p>ユーザー情報が見つかりません</p>';
             expiryTime.textContent = '有効期限: -';
@@ -525,57 +721,531 @@
       }
 
       // 注文メニュー関連関数
-      window.showOrderMenu = () => {
+      window.showOrderMenu = async () => {
         showPage(orderPageEl);
-        loadMenuItems('food'); // デフォルトで食事カテゴリを表示
+        
+        // カテゴリー情報とメニューデータを動的に取得
+        const menuData = await loadCategoriesAndMenuData();
+        
+        if (menuData && menuData.categories.length > 0) {
+          // デフォルトで最初のカテゴリを表示
+          const defaultCategory = menuData.categories[0];
+          loadMenuItems(defaultCategory, menuData.allMenuItems);
+        }
       };
 
-      window.showCategory = (category) => {
+      // カテゴリー情報とメニューデータを動的に取得・表示
+      async function loadCategoriesAndMenuData() {
+        try {
+          const response = await fetch(`${window.FunctionsUrl}/getMenuItems`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              data: {}
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error('カテゴリー情報の取得に失敗しました');
+          }
+
+          const result = await response.json();
+          
+          if (!result.result || !result.result.success) {
+            throw new Error(result.result?.error || 'カテゴリー情報の取得に失敗しました');
+          }
+
+          const allMenuItems = result.result.data || [];
+          
+          // ユニークなカテゴリーを抽出
+          const categories = [...new Set(allMenuItems.map(item => item.category))].filter(cat => cat);
+          
+          // カテゴリーボタンを動的に生成
+          const categoryContainer = document.querySelector('.menu-categories');
+          if (categoryContainer) {
+            categoryContainer.innerHTML = categories.map((category, index) => `
+              <button class="category-btn ${index === 0 ? 'active' : ''}" onclick="showCategory('${category}', this)">
+                ${getCategoryDisplayName(category)}
+              </button>
+            `).join('');
+          }
+
+          // メニューデータをグローバルにキャッシュ
+          window.cachedMenuData = allMenuItems;
+          
+          // メニューデータを返す
+          return { categories, allMenuItems };
+
+        } catch (error) {
+          console.error('カテゴリー読み込みエラー:', error);
+          // エラー時はデフォルトカテゴリーを使用
+          return null;
+        }
+      }
+
+      // カテゴリー表示名を取得
+      function getCategoryDisplayName(category) {
+        const categoryNames = {
+          'food': '食事',
+          'drink': 'ドリンク',
+          'dessert': 'デザート',
+          'alcohol': 'アルコール',
+          'snack': 'スナック'
+        };
+        return categoryNames[category] || category;
+      }
+
+      window.showCategory = (category, buttonElement) => {
         // カテゴリボタンのアクティブ状態を更新
         document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
-        event.target.classList.add('active');
+        buttonElement.classList.add('active');
         
-        loadMenuItems(category);
+        // キャッシュされたメニューデータがある場合は使用
+        const cachedData = window.cachedMenuData;
+        loadMenuItems(category, cachedData);
       };
 
-      async function loadMenuItems(category) {
+      async function loadMenuItems(category, cachedMenuItems = null) {
         const menuItems = document.getElementById('menu-items');
         menuItems.innerHTML = '<p>メニューを読み込み中...</p>';
         
-        // 仮のメニューデータ（後でFirestoreから取得）
-        const menuData = {
-          food: [
-            { name: 'ハンバーガー', price: 800, description: 'ジューシーなハンバーガー' },
-            { name: 'ピザ', price: 1200, description: '本格ピザ' },
-            { name: 'パスタ', price: 900, description: 'イタリアンパスタ' }
-          ],
-          drink: [
-            { name: 'コーラ', price: 300, description: '冷たいコーラ' },
-            { name: 'コーヒー', price: 400, description: 'ホットコーヒー' },
-            { name: 'ジュース', price: 350, description: 'フレッシュジュース' }
-          ],
-          dessert: [
-            { name: 'アイスクリーム', price: 400, description: 'バニラアイス' },
-            { name: 'ケーキ', price: 600, description: 'チョコレートケーキ' },
-            { name: 'プリン', price: 350, description: 'なめらかプリン' }
-          ]
-        };
-        
-        const items = menuData[category] || [];
-        menuItems.innerHTML = items.map(item => `
-          <div class="menu-item">
-            <h3>${item.name}</h3>
-            <p>${item.description}</p>
-            <p class="price">¥${item.price}</p>
-            <button class="btn" onclick="orderItem('${item.name}', ${item.price})">注文</button>
-          </div>
-        `).join('');
+        try {
+          let allMenuItems;
+          
+          if (cachedMenuItems) {
+            // キャッシュされたメニューデータを使用
+            allMenuItems = cachedMenuItems;
+          } else {
+            // キャッシュがない場合は新しく取得
+            const response = await fetch(`${window.FunctionsUrl}/getMenuItems`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                data: {} // Callable Functions用の空データ
+              })
+            });
+
+            if (!response.ok) {
+              throw new Error('メニューの取得に失敗しました');
+            }
+
+            const result = await response.json();
+            
+            if (!result.result || !result.result.success) {
+              throw new Error(result.result?.error || 'メニューの取得に失敗しました');
+            }
+
+            allMenuItems = result.result.data || [];
+          }
+          
+          // カテゴリーでフィルタリング
+          const filteredItems = allMenuItems.filter(item => 
+            item.category === category && 
+            !item.isArchive && 
+            !item.isSoldOut
+          );
+
+          if (filteredItems.length === 0) {
+            menuItems.innerHTML = '<p>このカテゴリーにはメニューがありません</p>';
+            return;
+          }
+
+          // メニューアイテムを表示
+          menuItems.innerHTML = filteredItems.map(item => `
+            <div class="menu-item">
+              <div class="menu-item-image">
+                ${item.imageUrl ? `<img src="${item.imageUrl}" alt="${item.name}" onerror="this.style.display='none'">` : ''}
+              </div>
+              <div class="menu-item-content">
+                <h3>${item.name}</h3>
+                <p class="description">${item.description || ''}</p>
+                <p class="price">¥${item.price}</p>
+                <div class="quantity-selector">
+                  <button class="btn-quantity" onclick="changeQuantity('${item.id}', -1)">-</button>
+                  <span id="quantity-${item.id}">1</span>
+                  <button class="btn-quantity" onclick="changeQuantity('${item.id}', 1)">+</button>
+                </div>
+                <button class="btn add-to-cart-btn" onclick="addToCart('${item.id}', '${item.name}', ${item.price}, '${item.category}')">
+                  🛒 カートに追加
+                </button>
+              </div>
+            </div>
+          `).join('');
+
+        } catch (error) {
+          console.error('メニュー読み込みエラー:', error);
+          menuItems.innerHTML = `<p>メニューの読み込みに失敗しました: ${error.message}</p>`;
+        }
       }
 
-      window.orderItem = (itemName, price) => {
-        alert(`${itemName}を注文しました（¥${price}）`);
-        // 後で注文処理を実装
+      // カート管理用のグローバル変数
+      let cart = [];
+      
+      // 数量変更機能
+      window.changeQuantity = (itemId, change) => {
+        const quantityElement = document.getElementById(`quantity-${itemId}`);
+        if (quantityElement) {
+          let currentQuantity = parseInt(quantityElement.textContent) || 1;
+          currentQuantity = Math.max(1, currentQuantity + change); // 最小値は1
+          quantityElement.textContent = currentQuantity;
+        }
       };
+      
+      // カートにアイテムを追加
+      window.addToCart = (itemId, itemName, price, category) => {
+        const quantityElement = document.getElementById(`quantity-${itemId}`);
+        const quantity = parseInt(quantityElement?.textContent) || 1;
+        
+        // 既存のアイテムがあるかチェック
+        const existingItemIndex = cart.findIndex(item => item.menuItemId === itemId);
+        
+        if (existingItemIndex !== -1) {
+          // 既存アイテムの数量を更新
+          cart[existingItemIndex].quantity += quantity;
+        } else {
+          // 新しいアイテムを追加
+          cart.push({
+            menuItemId: itemId,
+            name: itemName,
+            price: price,
+            category: category,
+            quantity: quantity
+          });
+        }
+        
+        // 数量をリセット
+        if (quantityElement) {
+          quantityElement.textContent = '1';
+        }
+        
+        // カート表示を更新
+        updateCartDisplay();
+        
+        // カート表示エリアを表示
+        document.getElementById('cart-container').style.display = 'block';
+        
+        // 成功メッセージ
+        alert(`${itemName} × ${quantity}個をカートに追加しました！`);
+      };
+      
+      // カート表示を更新
+      function updateCartDisplay() {
+        const cartItemsEl = document.getElementById('cart-items');
+        const cartItemCountEl = document.getElementById('cart-item-count');
+        const cartTotalPriceEl = document.getElementById('cart-total-price');
+        const orderAllBtn = document.getElementById('order-all-btn');
+        
+        if (cart.length === 0) {
+          cartItemsEl.innerHTML = '<p class="empty-cart">カートは空です</p>';
+          cartItemCountEl.textContent = '0';
+          cartTotalPriceEl.textContent = '0';
+          orderAllBtn.disabled = true;
+          document.getElementById('cart-container').style.display = 'none';
+          return;
+        }
+        
+        // カートアイテムを表示
+        cartItemsEl.innerHTML = cart.map((item, index) => `
+          <div class="cart-item">
+            <div class="cart-item-info">
+              <h4>${item.name}</h4>
+              <p class="cart-item-category">${getCategoryDisplayName(item.category)}</p>
+              <p class="cart-item-price">¥${item.price} × ${item.quantity}個</p>
+            </div>
+            <div class="cart-item-actions">
+              <button class="btn-quantity" onclick="updateCartItemQuantity(${index}, -1)">-</button>
+              <span class="cart-item-quantity">${item.quantity}</span>
+              <button class="btn-quantity" onclick="updateCartItemQuantity(${index}, 1)">+</button>
+              <button class="btn remove-btn" onclick="removeFromCart(${index})">削除</button>
+            </div>
+          </div>
+        `).join('');
+        
+        // 合計金額を計算
+        const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+        
+        cartItemCountEl.textContent = totalItems;
+        cartTotalPriceEl.textContent = totalPrice.toLocaleString();
+        orderAllBtn.disabled = false;
+      }
+      
+      // カートアイテムの数量を更新
+      window.updateCartItemQuantity = (index, change) => {
+        if (index >= 0 && index < cart.length) {
+          cart[index].quantity = Math.max(1, cart[index].quantity + change);
+          updateCartDisplay();
+        }
+      };
+      
+      // カートからアイテムを削除
+      window.removeFromCart = (index) => {
+        if (index >= 0 && index < cart.length) {
+          const item = cart[index];
+          if (confirm(`${item.name}をカートから削除しますか？`)) {
+            cart.splice(index, 1);
+            updateCartDisplay();
+          }
+        }
+      };
+      
+      // カートを空にする
+      window.clearCart = () => {
+        if (cart.length > 0 && confirm('カートを空にしますか？')) {
+          cart = [];
+          updateCartDisplay();
+        }
+      };
+
+      window.orderItem = (itemId, itemName, price, category) => {
+        const quantityElement = document.getElementById(`quantity-${itemId}`);
+        const quantity = parseInt(quantityElement?.textContent) || 1;
+        const totalPrice = price * quantity;
+        
+        // 注文確認ダイアログ
+        if (confirm(`${itemName} × ${quantity}個 = ¥${totalPrice}\n\nこの注文を確定しますか？`)) {
+          // 注文処理を実行
+          processOrder(itemId, itemName, price, quantity, totalPrice, category);
+        }
+      };
+
+      // 全てのアイテムを一括注文
+      window.orderAllItems = async () => {
+        if (cart.length === 0) {
+          alert('カートが空です');
+          return;
+        }
+        
+        // 注文確認ダイアログ
+        const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+        
+        if (!confirm(`合計 ${totalItems}個 (¥${totalPrice.toLocaleString()})\n\nこの注文を確定しますか？`)) {
+          return;
+        }
+        
+        try {
+          // ユーザーIDを取得（LIFF認証済みの場合）
+          const { auth } = window.Firebase;
+          if (!auth.currentUser) {
+            alert('認証が必要です。ページを再読み込みしてください。');
+            return;
+          }
+
+          const userId = auth.currentUser.uid;
+          
+          // 入店状態を確認
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getUserStatus = httpsCallable(functions, 'getUserStatus');
+          
+          const statusResult = await getUserStatus({ uid: userId });
+          if (!statusResult.data.success || !statusResult.data.user.isStaying) {
+            alert('入店していません。先に入店してください。');
+            return;
+          }
+          
+          // 一括注文（1回の呼び出しで全アイテムを処理）
+          const placeOrderByUser = httpsCallable(functions, 'placeOrderByUser');
+          
+          try {
+            const result = await placeOrderByUser({
+              items: cart.map(item => ({
+                menuItemId: item.menuItemId,
+                category: item.category,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity
+              }))
+            });
+            
+            if (result.data.success) {
+              alert(`🎉 全ての注文が完了しました！\n\n注文数: ${result.data.data.itemsCount}個\n合計金額: ¥${result.data.data.totalItemsPrice.toLocaleString()}`);
+              // カートを空にする
+              cart = [];
+              updateCartDisplay();
+            } else {
+              throw new Error(result.data.error || '注文に失敗しました');
+            }
+          } catch (error) {
+            console.error('一括注文エラー:', error);
+            alert(`注文に失敗しました: ${error.message}`);
+          }
+          
+
+          
+        } catch (error) {
+          console.error('一括注文エラー:', error);
+          alert(`注文に失敗しました: ${error.message}`);
+        }
+      };
+      
+      // 注文履歴を読み込む
+      async function loadOrderHistory() {
+        const historyListEl = document.getElementById('order-history-list');
+        const statsEl = document.getElementById('history-stats');
+        
+        historyListEl.innerHTML = '<p>注文履歴を読み込み中...</p>';
+        statsEl.style.display = 'none';
+        
+        try {
+          // ユーザーIDを取得（LIFF認証済みの場合）
+          const { auth } = window.Firebase;
+          if (!auth.currentUser) {
+            throw new Error('認証が必要です。ページを再読み込みしてください。');
+          }
+
+          const userId = auth.currentUser.uid;
+          
+          // Cloud FunctionsのgetUserOrderHistoryを呼び出し
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getUserOrderHistory = httpsCallable(functions, 'getUserOrderHistory');
+          
+          const result = await getUserOrderHistory({});
+          
+          if (!result.data.success) {
+            throw new Error(result.data.error || '注文履歴の取得に失敗しました');
+          }
+          
+          const { orders, totalCount, totalAmount } = result.data.data;
+          
+          // 統計情報を表示
+          document.getElementById('total-orders').textContent = totalCount;
+          document.getElementById('total-amount').textContent = `¥${totalAmount.toLocaleString()}`;
+          statsEl.style.display = 'flex';
+          
+          if (orders.length === 0) {
+            historyListEl.innerHTML = '<p class="empty-history">注文履歴がありません</p>';
+            return;
+          }
+          
+          // 注文履歴を表示
+          historyListEl.innerHTML = orders.map(order => {
+            // 同じ商品を集約
+            const aggregatedItems = {};
+            order.items.forEach(item => {
+              const key = `${item.name}_${item.price}`;
+              if (aggregatedItems[key]) {
+                aggregatedItems[key].quantity += item.quantity;
+              } else {
+                aggregatedItems[key] = { ...item };
+              }
+            });
+            
+            const uniqueItems = Object.values(aggregatedItems);
+            
+            return `
+              <div class="order-history-item">
+                <div class="order-header">
+                  <div class="order-info">
+                    <span class="order-status status-${order.status}">${getStatusDisplayName(order.status)}</span>
+                  </div>
+                  <div class="order-amount">
+                    ¥${order.totalPrice.toLocaleString()}
+                  </div>
+                </div>
+                <div class="order-items">
+                  ${uniqueItems.map(item => `
+                    <div class="order-item">
+                      <span class="item-name">${item.name}</span>
+                      <span class="item-details">${item.quantity}個 × ¥${item.price}</span>
+                    </div>
+                  `).join('')}
+                </div>
+                ${order.currentTable ? `<div class="order-location">テーブル: ${order.currentTable}${order.currentSeat ? ` (${order.currentSeat})` : ''}</div>` : ''}
+              </div>
+            `;
+          }).join('');
+          
+        } catch (error) {
+          console.error('注文履歴読み込みエラー:', error);
+          historyListEl.innerHTML = `<p class="error-message">注文履歴の読み込みに失敗しました: ${error.message}</p>`;
+        }
+      }
+      
+      // 注文履歴を更新
+      window.refreshOrderHistory = () => {
+        loadOrderHistory();
+      };
+      
+
+      
+      // ステータス表示名を取得
+      function getStatusDisplayName(status) {
+        const statusNames = {
+          'open': '注文中',
+          'closed': '完了',
+          'cancelled': 'キャンセル'
+        };
+        return statusNames[status] || status;
+      }
+      
+      // 個別注文処理関数（既存のまま）
+      async function processOrder(itemId, itemName, price, quantity, totalPrice, category) {
+        try {
+          // ユーザーIDを取得（LIFF認証済みの場合）
+          const { auth } = window.Firebase;
+          if (!auth.currentUser) {
+            alert('認証が必要です。ページを再読み込みしてください。');
+            return;
+          }
+
+          const userId = auth.currentUser.uid;
+          
+          // 入店状態を確認
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getUserStatus = httpsCallable(functions, 'getUserStatus');
+          
+          const statusResult = await getUserStatus({ uid: userId });
+          if (!statusResult.data.success || !statusResult.data.user.isStaying) {
+            alert('入店していません。先に入店してください。');
+            return;
+          }
+          
+          // Cloud FunctionsのplaceOrderByUserを呼び出し（httpsCallable使用）
+          const placeOrderByUser = httpsCallable(functions, 'placeOrderByUser');
+          
+          const result = await placeOrderByUser({
+            item: {
+              menuItemId: itemId,
+              category: category, // カテゴリー情報を追加
+              name: itemName,
+              price: price,
+              quantity: quantity
+            }
+          });
+          
+          if (!result.data.success) {
+            throw new Error(result.data.error || '注文の送信に失敗しました');
+          }
+          
+          // 入店状態チェックのエラーハンドリング
+          if (result.data.error && result.data.error.includes('入店していません')) {
+            alert('入店していません。先に入店してください。');
+            return;
+          }
+
+          alert(`${itemName} × ${quantity}個の注文が完了しました！`);
+          
+          // 数量をリセット
+          const quantityElement = document.getElementById(`quantity-${itemId}`);
+          if (quantityElement) {
+            quantityElement.textContent = '1';
+          }
+          
+          console.log('注文完了:', result.data);
+
+        } catch (error) {
+          console.error('注文エラー:', error);
+          alert(`注文に失敗しました: ${error.message}`);
+        }
+      }
 
       // トーナメント関連関数
       window.showTournament = () => {
@@ -628,7 +1298,7 @@
             profileInfo.innerHTML = `
               <div class="profile-details">
                 <h3>基本情報</h3>
-                <p><strong>ポーカー名:</strong> ${userData.pokerName || '未設定'}</p>
+                <p><strong>pokerName:</strong> ${userData.pokerName || '未設定'}</p>
                 <p><strong>メール:</strong> ${userData.email || '未設定'}</p>
                 <p><strong>誕生日:</strong> ${userData.birthMonthDay || '未設定'}</p>
                 <p><strong>ポイントA:</strong> ${userData.pointA || 0}</p>
@@ -665,8 +1335,23 @@
           // 誕生日ドロップダウンを生成
           generateBirthdayOptions();
           
+          // 初期状態ではローディング画面のみ表示
+          // ホームページは認証完了後に表示
+          
+          // 全てのページを非表示にして、ローディング画面のみ表示
+          homePageEl.style.display = 'none';
+          registrationPageEl.style.display = 'none';
+          qrPageEl.style.display = 'none';
+          orderPageEl.style.display = 'none';
+          orderHistoryPageEl.style.display = 'none';
+          tournamentPageEl.style.display = 'none';
+          profilePageEl.style.display = 'none';
+          
+          // ローディング画面を表示
+          loadingEl.style.display = 'block';
+          
           // LIFF初期化
-          await window.initLiffAndFirebaseAuth("2007806607-1nxokjv8");
+          await window.initLiffAndFirebaseAuth();
           
           // store登録確認
           await checkStoreRegistration();
@@ -713,6 +1398,8 @@
         
         return email;
       }
+
+
     </script>
   </body>
-</html>
+</html> 

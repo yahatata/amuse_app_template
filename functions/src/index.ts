@@ -4,6 +4,11 @@
  * 各機能別の関数をエクスポートします
  */
 
+// 環境変数の読み込み（開発時のみ）
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+
 import * as admin from "firebase-admin";
 
 // Firebase Admin SDKの初期化
@@ -15,5 +20,5 @@ export * from "./auth";
 export * from "./user";
 // メニューアイテム関連関数
 export * from "./itemOrder";
-export * from "./userLogIn";
+export * from "./userLogin";
 export * from "./utils";

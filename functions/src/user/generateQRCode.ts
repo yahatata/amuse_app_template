@@ -1,7 +1,7 @@
 import {onCall} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import {GenerateQRResponse} from "../types";
-import {generateQRData, generateQRImage} from "../utils/qrCodeUtils";
+import {generateQRData, generateQRImage, saveQRCodeToStorage} from "../utils/qrCodeUtils";
 
 /**
  * QRコード生成関数（統合版）
@@ -49,38 +49,23 @@ export const generateQRCode = onCall(
         throw new Error("Login ID not found. Please update your profile.");
       }
 
-      // 連続生成制限チェック（1分間に1回まで）
-      const oneMinuteAgo = Date.now() - (60 * 1000);
-      const recentQRQuery = await admin.firestore()
-        .collection("qrCodeHistory")
-        .where("uid", "==", uid)
-        .where("type", "==", type)
-        .where("generatedAt", ">", new Date(oneMinuteAgo))
-        .limit(1)
-        .get();
-
-      if (!recentQRQuery.empty) {
-        throw new Error("QR code generation is limited to once per minute.");
-      }
+      // 連続生成制限を削除（ユーザーが自由に再生成可能）
 
       // QRコードデータを生成
       const qrData = generateQRData(uid, loginId, type);
       const qrCodeImage = await generateQRImage(qrData);
-      const expiresAt = qrData.timestamp + (5 * 60 * 1000);
+      const expiresAt = qrData.timestamp + (10 * 60 * 1000);
 
       // QRコードをStorageに保存
-      const {saveQRCodeToStorage} = await import("../utils/qrCodeUtils");
       const qrCodeUrl = await saveQRCodeToStorage(uid, qrCodeImage, type);
 
+      // ユーザードキュメントのQRコード情報を更新
       await admin.firestore()
-        .collection("qrCodeHistory")
-        .add({
-          uid,
-          loginId: loginId, // 変数名を明確化
-          type,
-          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          expiresAt: new Date(expiresAt),
+        .collection("users")
+        .doc(uid)
+        .update({
           qrCodeUrl: qrCodeUrl,
+          qrExpiresAt: new Date(expiresAt),
         });
 
       return {

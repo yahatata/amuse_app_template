@@ -1,5 +1,5 @@
 {
-  "indexes": [
+"indexes": [
     {
       "collectionGroup": "qrCodeHistory",
       "queryScope": "COLLECTION",
@@ -19,23 +19,19 @@
       ]
     },
     {
-      "collectionGroup": "menuItems",
+      "collectionGroup": "todaysBills",
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "isArchive",
+          "fieldPath": "userId",
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "archivedAt",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "ASCENDING"
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
         }
       ]
     }
   ],
   "fieldOverrides": []
-} 
+}

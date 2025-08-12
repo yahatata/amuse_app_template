@@ -7,6 +7,8 @@
 
     <!-- LIFF SDK -->
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <!-- 店舗別設定ファイル（デプロイ時に差し替え） -->
+    <script src="./config.amuse-app-template.js"></script>
 
     <!-- Firebase初期化スクリプト -->
     <script type="module">
@@ -14,14 +16,11 @@
       import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
       import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-      // Firebase設定
-      const firebaseConfig = {
-        apiKey: "AIzaSyB4uReYiG_fVVDkwOmkPteF3roa_sGMHDQ",
-        authDomain: "amuse-app-template.firebase.com",
-        projectId: "amuse-app-template",
-        storageBucket: "amuse-app-template.appspot.com",
-        appId: "1:767044015900:web:8671d7fe4f677b17734cd9"
-      };
+      // 設定ファイルから設定を取得
+      const { firebaseConfig, liffId } = window.__CONFIG__;
+      
+      // Cloud Functions URLを動的に生成
+      const functionsUrl = `https://us-central1-${firebaseConfig.projectId}.cloudfunctions.net`;
 
       const app = initializeApp(firebaseConfig);
       const auth = getAuth(app);
@@ -32,9 +31,9 @@
       window.FirebaseAuth = { signInWithCustomToken };
       
       // LIFFとFirebase認証の初期化関数
-      window.initLiffAndFirebaseAuth = async function(liffId) {
+      window.initLiffAndFirebaseAuth = async function() {
         if (!window.liff) {
-          alert("LIFF SDKが読み込まれていません。");
+          console.error("LIFF SDKが読み込まれていません。");
           return;
         }
 
@@ -52,7 +51,7 @@
           }
 
           // サーバーからFirebaseカスタムトークンを取得
-          const res = await fetch("https://us-central1-amuse-app-template.cloudfunctions.net/getFirebaseCustomToken", {
+          const res = await fetch(`${functionsUrl}/getFirebaseCustomToken`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${idToken}`,
@@ -80,8 +79,8 @@
             user: auth.currentUser
           };
         } catch (e) {
-          alert("認証処理中にエラーが発生しました: " + (e?.message || e));
-          console.error(e);
+          // UIにアラートは出さない
+          console.error("認証処理中にエラーが発生しました", e);
         }
       };
     </script>
@@ -220,10 +219,8 @@
       // store登録確認関数（スタッフ用）
       async function checkStaffRegistration() {
         try {
-          alert('checkStaffRegistration開始');
           const { db } = window.Firebase;
           const { doc, getDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          alert('Firebase db取得完了');
           
           // LiffFirebaseが存在するかチェック
           if (!window.LiffFirebase || !window.LiffFirebase.user) {
@@ -231,19 +228,15 @@
           }
           
           const { user } = window.LiffFirebase;
-          alert('ユーザー情報: ' + user.uid);
 
           // Firestoreでスタッフ情報を確認
           const staffDocRef = doc(db, 'staffs', user.uid);
-          alert('ドキュメント参照作成完了');
           
           const staffDoc = await getDoc(staffDocRef);
-          alert('ドキュメント取得完了, exists: ' + staffDoc.exists);
           
           if (staffDoc.exists()) {
             // 登録済みの場合
             const staffData = staffDoc.data();
-            alert('取得したスタッフデータ: ' + JSON.stringify(staffData));
             
             // データの存在確認と安全なアクセス
             const name = staffData?.name || '未設定';
@@ -261,11 +254,9 @@
             showPage(homePageEl);
           } else {
             // 未登録の場合
-            alert('スタッフ未登録、登録画面に遷移');
             showPage(registrationPageEl);
           }
         } catch (error) {
-          alert('スタッフ登録確認エラー: ' + error.message);
           showError('スタッフ情報の確認に失敗しました: ' + error.message);
         }
       }
@@ -337,15 +328,15 @@
 
       // ダッシュボード機能（グローバルに公開）
       window.openShiftManagement = () => {
-        alert('シフト管理機能は今後実装予定です');
+        console.log('シフト管理機能は今後実装予定です');
       };
 
       window.openAttendanceManagement = () => {
-        alert('勤怠管理機能は今後実装予定です');
+        console.log('勤怠管理機能は今後実装予定です');
       };
 
       window.openProfileManagement = () => {
-        alert('プロフィール編集機能は今後実装予定です');
+        console.log('プロフィール編集機能は今後実装予定です');
       };
 
       // ログアウト関数（グローバルに公開）
@@ -363,7 +354,7 @@
       document.addEventListener('DOMContentLoaded', async () => {
         try {
           // LIFF初期化
-          await window.initLiffAndFirebaseAuth("2007806607-1nxokjv8");
+          await window.initLiffAndFirebaseAuth();
           
           // スタッフ登録確認
           await checkStaffRegistration();
