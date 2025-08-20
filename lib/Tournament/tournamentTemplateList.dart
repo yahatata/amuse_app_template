@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'tournamentBlindTemplateList.dart';
+import 'createTournamentTemplatePage.dart';
 
 class TournamentTemplateList extends StatefulWidget {
   const TournamentTemplateList({super.key});
@@ -28,68 +29,80 @@ class _TournamentTemplateListState extends State<TournamentTemplateList> {
     });
 
     try {
-      // 現在はダミーデータを使用（トーナメントテンプレート用のCloud Functionは未実装）
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      setState(() {
-        _templates = [
-          {
-            'id': '1',
-            'name': '週末トーナメント',
-            'description': '週末開催の標準トーナメント',
-            'createdAt': DateTime.now().subtract(const Duration(days: 5)),
-          },
-          {
-            'id': '2',
-            'name': '月曜夜トーナメント',
-            'description': '月曜日の夜開催トーナメント',
-            'createdAt': DateTime.now().subtract(const Duration(days: 2)),
-          },
-          {
-            'id': '3',
-            'name': '金曜夜ターボ',
-            'description': '金曜日のターボトーナメント',
-            'createdAt': DateTime.now().subtract(const Duration(hours: 12)),
-          },
-        ];
-        _isLoading = false;
-      });
+      final functions = FirebaseFunctions.instance;
+      final callable = functions.httpsCallable('getTournamentTemplates');
+
+      final result = await callable.call();
+      final response = result.data;
+
+      if (response['success'] == true) {
+        // Cloud Functionsから返されるデータの型変換
+        final List<dynamic> rawTemplates = response['tournamentTemplates'] ?? [];
+        final List<Map<String, dynamic>> convertedTemplates = rawTemplates.map((template) {
+          final Map<String, dynamic> converted = {};
+          (template as Map).forEach((key, value) {
+            converted[key.toString()] = value;
+          });
+          return converted;
+        }).toList();
+        
+
+        
+        setState(() {
+          _templates = convertedTemplates;
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _errorMessage = response['error'] ?? 'トーナメントテンプレートの取得に失敗しました';
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       setState(() {
-        _errorMessage = 'テンプレートの取得に失敗しました: $e';
+        _errorMessage = 'トーナメントテンプレートの取得に失敗しました: $e';
         _isLoading = false;
       });
     }
   }
 
-  /// テンプレートを削除する
-  Future<void> _deleteTemplate(String templateId) async {
+  /// テンプレートをアーカイブする
+  Future<void> _archiveTemplate(String templateId) async {
     try {
-      // 現在はダミーの削除処理（トーナメントテンプレート用のCloud Functionは未実装）
-      await Future.delayed(const Duration(milliseconds: 300));
+      final functions = FirebaseFunctions.instance;
+      final callable = functions.httpsCallable('archiveTournamentTemplate');
       
-      setState(() {
-        _templates.removeWhere((template) => template['id'] == templateId);
-      });
+      final result = await callable.call({'tournamentTemplateId': templateId});
+      final response = result.data;
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('テンプレートを削除しました')),
-      );
+      if (response['success'] == true) {
+        setState(() {
+          _templates.removeWhere((template) => template['id'] == templateId);
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(response['message'] ?? 'テンプレートをアーカイブしました')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(response['error'] ?? 'アーカイブに失敗しました')),
+        );
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('削除に失敗しました: $e')),
+        SnackBar(content: Text('アーカイブに失敗しました: $e')),
       );
     }
   }
 
-  /// 削除確認ダイアログを表示する
-  void _showDeleteDialog(String templateId, String templateName) {
+  /// アーカイブ確認ダイアログを表示する
+  void _showArchiveDialog(String templateId, String templateName) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('テンプレート削除'),
-          content: Text('「$templateName」を削除しますか？'),
+          title: const Text('テンプレートアーカイブ'),
+          content: Text('「$templateName」をアーカイブしますか？\nアーカイブされたテンプレートは一覧から非表示になります。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -98,9 +111,50 @@ class _TournamentTemplateListState extends State<TournamentTemplateList> {
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                _deleteTemplate(templateId);
+                _archiveTemplate(templateId);
               },
-              child: const Text('削除', style: TextStyle(color: Colors.red)),
+              child: const Text('アーカイブ', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// トーナメントテンプレート詳細ダイアログを表示する
+  void _showTemplateDetail(Map<String, dynamic> template) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(template['name'] ?? '無名テンプレート'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('エントリーフィー: ${template['entryFee'] ?? 0}円'),
+                Text('開始スタック: ${template['startStack'] ?? 0}'),
+                Text('プライズ割合: ${((template['prizeRatio'] ?? 0) * 100).toStringAsFixed(0)}%'),
+                Text('リエントリー: ${template['isReentry'] == true ? '可能' : '不可'}'),
+                if (template['isReentry'] == true) ...[
+                  if (template['maxReentries'] != null) Text('最大リエントリー数: ${template['maxReentries']}回'),
+                  if (template['reentryFee'] != null) Text('リエントリーフィー: ${template['reentryFee']}円'),
+                ],
+                Text('アドオン: ${template['isAddon'] == true ? '可能' : '不可'}'),
+                if (template['isAddon'] == true) ...[
+                  if (template['addonFee'] != null) Text('アドオンフィー: ${template['addonFee']}円'),
+                  if (template['addonStack'] != null) Text('アドオンスタック: ${template['addonStack']}'),
+                ],
+                Text('カテゴリ: ${template['tournamentCategory'] == 'regular' ? 'レギュラー' : 'イレギュラー'}'),
+                Text('更新日: ${_formatDate(template['updatedAt'])}'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('閉じる'),
             ),
           ],
         );
@@ -189,11 +243,11 @@ class _TournamentTemplateListState extends State<TournamentTemplateList> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  '説明: ${template['description'] ?? '説明なし'}',
+                                  'エントリーフィー: ${template['entryFee'] ?? 0}円 | 開始スタック: ${template['startStack'] ?? 0}',
                                   style: const TextStyle(color: Colors.grey),
                                 ),
                                 Text(
-                                  '作成日: ${_formatDate(template['createdAt'])}',
+                                  'カテゴリ: ${template['tournamentCategory'] == 'regular' ? 'レギュラー' : 'イレギュラー'} | 更新日: ${_formatDate(template['updatedAt'])}',
                                   style: const TextStyle(color: Colors.blue),
                                 ),
                               ],
@@ -204,13 +258,20 @@ class _TournamentTemplateListState extends State<TournamentTemplateList> {
                                 IconButton(
                                   icon: const Icon(Icons.edit, color: Colors.blue),
                                   onPressed: () {
-                                    // TODO: テンプレート編集ページへの遷移
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => CreateTournamentTemplatePage(
+                                          existingTemplate: template,
+                                        ),
+                                      ),
+                                    );
                                   },
                                 ),
                                 IconButton(
                                   icon: const Icon(Icons.delete, color: Colors.red),
                                   onPressed: () {
-                                    _showDeleteDialog(
+                                    _showArchiveDialog(
                                       template['id'],
                                       template['name'] ?? '無名テンプレート',
                                     );
@@ -219,15 +280,7 @@ class _TournamentTemplateListState extends State<TournamentTemplateList> {
                               ],
                             ),
                             onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => TournamentBlindTemplateList(
-                                    tournamentTemplateId: template['id'],
-                                    tournamentTemplateName: template['name'] ?? '無名テンプレート',
-                                  ),
-                                ),
-                              );
+                              _showTemplateDetail(template);
                             },
                           ),
                         );
@@ -235,11 +288,10 @@ class _TournamentTemplateListState extends State<TournamentTemplateList> {
                     ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          // TODO: 新規トーナメントテンプレート作成ページへの遷移
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('新規トーナメントテンプレート作成機能は準備中です'),
-              duration: Duration(seconds: 2),
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const CreateTournamentTemplatePage(),
             ),
           );
         },
@@ -253,9 +305,21 @@ class _TournamentTemplateListState extends State<TournamentTemplateList> {
 
   /// 日付をフォーマットする
   String _formatDate(dynamic date) {
-    if (date is DateTime) {
-      return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+    try {
+      if (date is DateTime) {
+        return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+      } else if (date is String) {
+        // ISO文字列形式の日付を解析
+        final parsedDate = DateTime.parse(date);
+        return '${parsedDate.year}/${parsedDate.month.toString().padLeft(2, '0')}/${parsedDate.day.toString().padLeft(2, '0')}';
+      } else if (date != null) {
+        // その他の型の場合、toString()で文字列に変換してから試行
+        final parsedDate = DateTime.parse(date.toString());
+        return '${parsedDate.year}/${parsedDate.month.toString().padLeft(2, '0')}/${parsedDate.day.toString().padLeft(2, '0')}';
+      }
+      return '日付不明';
+    } catch (e) {
+      return '日付不明';
     }
-    return '日付不明';
   }
 }

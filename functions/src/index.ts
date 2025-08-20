@@ -24,3 +24,5 @@ export * from "./userLogin";
 export * from "./utils";
 // トーナメントブラインドテンプレート関連関数
 export * from "./tournamentBlind";
+// トーナメントテンプレート関連関数
+export * from "./tournamentTemplate";
