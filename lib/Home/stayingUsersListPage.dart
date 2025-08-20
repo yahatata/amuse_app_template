@@ -64,7 +64,7 @@ class _StayingUsersListPageState extends State<StayingUsersListPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('入店中ユーザー一覧'),
+        title: const Text('入店中user一覧'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
