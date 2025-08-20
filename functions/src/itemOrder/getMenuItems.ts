@@ -20,29 +20,28 @@ export const getMenuItems = onCall(async (request) => {
     // When: FireStoreクエリ実行時
     // Where: menuItemsコレクション
     // What: 条件に合うメニューアイテムを取得
-    // How: 複数条件でフィルタリング
+    // How: 全データを取得してサーバー側でフィルタリング
     const menuItemsRef = db.collection('menuItems');
-    const snapshot = await menuItemsRef
-      .where('isArchive', '==', false)
-      .get();
+    const snapshot = await menuItemsRef.get();
 
-    // When: アーカイブ済みアイテムの取得時
-    // Where: menuItemsコレクション
-    // What: 3ヶ月以内にアーカイブされたアイテムを取得
-    // How: archivedAtフィールドでフィルタリング
-    const archivedSnapshot = await menuItemsRef
-      .where('isArchive', '==', true)
-      .where('archivedAt', '>=', threeMonthsAgo)
-      .get();
-
-    // When: 結果の統合時
+    // When: 結果のフィルタリング時
     // Where: サーバーサイド
-    // What: 両方のクエリ結果を統合
-    // How: 配列の結合
-    const allItems = [
-      ...snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })),
-      ...archivedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-    ];
+    // What: 条件に合うメニューアイテムを抽出
+    // How: アーカイブ状態と日付でフィルタリング
+    const allItems = snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter((item: any) => {
+        // アーカイブされていないアイテム
+        if (!item.isArchive) return true;
+        
+        // アーカイブ済みで3ヶ月以内のアイテム
+        if (item.isArchive && item.archivedAt) {
+          const archivedDate = item.archivedAt.toDate ? item.archivedAt.toDate() : new Date(item.archivedAt);
+          return archivedDate >= threeMonthsAgo;
+        }
+        
+        return false;
+      });
 
     // When: レスポンス返却時
     // Where: Cloud Functions
