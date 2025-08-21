@@ -101,31 +101,52 @@
         <h1>スタッフダッシュボード</h1>
         <p>スタッフ専用の管理画面です。</p>
         
-        <div id="staff-info" class="staff-info">
+        <div id="staff-info" class="user-info">
           <p>スタッフ情報を読み込み中...</p>
         </div>
         
-        <div class="staff-dashboard">
-          <div class="dashboard-card">
-            <h3>シフト管理</h3>
-            <p>シフトの確認・申請を行えます</p>
-            <button class="btn" onclick="openShiftManagement()">シフト管理</button>
-          </div>
-          
-          <div class="dashboard-card">
-            <h3>勤怠管理</h3>
-            <p>出勤・退勤の記録を行えます</p>
-            <button class="btn" onclick="openAttendanceManagement()">勤怠管理</button>
-          </div>
-          
-          <div class="dashboard-card">
-            <h3>プロフィール</h3>
-            <p>スタッフ情報の編集を行えます</p>
-            <button class="btn" onclick="openProfileManagement()">プロフィール編集</button>
+        <!-- メイン機能ボタン -->
+        <div class="main-functions">
+          <h2>メイン機能</h2>
+          <div class="function-grid">
+            <button class="function-btn qr-btn" onclick="showStaffQRCode()">
+              <div class="btn-icon">📱</div>
+              <div class="btn-text">
+                <h3>出勤・退勤QR</h3>
+                <p>出勤・退勤用QRコードを表示</p>
+              </div>
+            </button>
+            
+            <button class="function-btn shift-btn" onclick="openShiftManagement()">
+              <div class="btn-icon">📅</div>
+              <div class="btn-text">
+                <h3>シフト管理</h3>
+                <p>シフトの確認・申請を行えます</p>
+              </div>
+            </button>
+            
+            <button class="function-btn attendance-btn" onclick="openAttendanceManagement()">
+              <div class="btn-icon">⏰</div>
+              <div class="btn-text">
+                <h3>勤怠管理</h3>
+                <p>出勤・退勤の記録を行えます</p>
+              </div>
+            </button>
+            
+            <button class="function-btn profile-btn" onclick="openProfileManagement()">
+              <div class="btn-icon">👤</div>
+              <div class="btn-text">
+                <h3>プロフィール</h3>
+                <p>スタッフ情報の編集を行えます</p>
+              </div>
+            </button>
           </div>
         </div>
         
-        <button class="btn btn-secondary" onclick="logout()">ログアウト</button>
+        <button class="btn logout-btn" onclick="logout()">ログアウト</button>
+        
+        <!-- デバッグ用: 手動QR生成ボタン -->
+        <button class="btn" onclick="debugGenerateQR()" style="margin-top: 10px; background-color: #ff6b6b;">🔍 デバッグ: QR生成</button>
       </div>
 
       <!-- 登録画面 -->
@@ -139,6 +160,24 @@
           </div>
           
           <div class="form-group">
+            <label for="kana">かな</label>
+            <input type="text" id="kana" placeholder="やまだたろう" required>
+          </div>
+          
+          <div class="form-group">
+            <label>誕生日</label>
+            <div style="display: flex; gap: 10px;">
+              <select id="birthMonth" required style="flex: 1;">
+                <option value="">月</option>
+              </select>
+              <select id="birthDay" required style="flex: 1;">
+                <option value="">日</option>
+              </select>
+            </div>
+            <small style="color: #666; font-size: 0.9rem; margin-top: 5px; display: block;">月と日を選択してください</small>
+          </div>
+          
+          <div class="form-group">
             <label for="email">メールアドレス</label>
             <input type="email" id="email" placeholder="example@email.com" required>
           </div>
@@ -148,29 +187,26 @@
             <input type="tel" id="phone" placeholder="090-1234-5678" required>
           </div>
           
-          <div class="form-group">
-            <label for="position">役職</label>
-            <select id="position" required>
-              <option value="">選択してください</option>
-              <option value="staff">スタッフ</option>
-              <option value="senior">シニアスタッフ</option>
-              <option value="manager">マネージャー</option>
-              <option value="admin">管理者</option>
-            </select>
-          </div>
-          
-          <div class="form-group">
-            <label for="department">部署</label>
-            <select id="department" required>
-              <option value="">選択してください</option>
-              <option value="service">サービス</option>
-              <option value="kitchen">キッチン</option>
-              <option value="management">管理</option>
-            </select>
-          </div>
-          
           <button type="submit" class="btn">登録する</button>
         </form>
+      </div>
+
+      <!-- QRコード表示画面 -->
+      <div id="qr-page" class="page qr-page" style="display: none;">
+        <h1>出勤・退勤QRコード</h1>
+        <div class="qr-container">
+          <div id="qr-code-display" class="qr-code-display">
+            <p>QRコードを生成中...</p>
+          </div>
+          <div class="qr-info">
+            <p>このQRコードを店舗端末で読み取ってください</p>
+            <p class="qr-expiry">有効期限: <span id="qr-expiry-time">-</span></p>
+          </div>
+        </div>
+        <div class="qr-actions">
+          <button class="btn" onclick="generateNewStaffQR()">新しいQRを生成・更新</button>
+          <button class="btn secondary-btn" onclick="showStaffHomePage()">ホームに戻る</button>
+        </div>
       </div>
 
       <!-- エラー表示 -->
@@ -185,6 +221,7 @@
       const loadingEl = document.getElementById('loading');
       const homePageEl = document.getElementById('home-page');
       const registrationPageEl = document.getElementById('registration-page');
+      const qrPageEl = document.getElementById('qr-page');
       const errorEl = document.getElementById('error-message');
       const successEl = document.getElementById('success-message');
       const staffInfoEl = document.getElementById('staff-info');
@@ -211,8 +248,19 @@
       // ページ表示関数
       function showPage(pageElement) {
         loadingEl.style.display = 'none';
+        
+        // 全てのページを非表示
+        homePageEl.style.display = 'none';
+        registrationPageEl.style.display = 'none';
+        qrPageEl.style.display = 'none';
+        
+        // 指定されたページを表示
+        pageElement.style.display = 'block';
+        
+        // activeクラスの管理
         homePageEl.classList.remove('active');
         registrationPageEl.classList.remove('active');
+        qrPageEl.classList.remove('active');
         pageElement.classList.add('active');
       }
 
@@ -245,11 +293,29 @@
             const department = staffData?.department || '未設定';
             
             staffInfoEl.innerHTML = `
-              <h3>スタッフ情報</h3>
-              <p>名前: ${name}</p>
-              <p>メール: ${email}</p>
-              <p>役職: ${getPositionLabel(position)}</p>
-              <p>部署: ${getDepartmentLabel(department)}</p>
+              <div class="info-card">
+                <h3>スタッフ情報</h3>
+                <div class="info-grid">
+                  <div class="info-item">
+                    <strong>名前:</strong> ${staffData.fullName || ''}
+                  </div>
+                  <div class="info-item">
+                    <strong>かな:</strong> ${staffData.fullNameKana || ''}
+                  </div>
+                  <div class="info-item">
+                    <strong>誕生日（月日）:</strong> ${staffData.birthMonthDay || ''}
+                  </div>
+                  <div class="info-item">
+                    <strong>ログインID:</strong> ${staffData.loginId || ''}
+                  </div>
+                  <div class="info-item">
+                    <strong>メール:</strong> ${staffData.email || ''}
+                  </div>
+                  <div class="info-item">
+                    <strong>電話番号:</strong> ${staffData.phoneNumber || ''}
+                  </div>
+                </div>
+              </div>
             `;
             showPage(homePageEl);
           } else {
@@ -261,25 +327,33 @@
         }
       }
 
-      // 役職ラベル取得
-      function getPositionLabel(position) {
-        const positions = {
-          'staff': 'スタッフ',
-          'senior': 'シニアスタッフ',
-          'manager': 'マネージャー',
-          'admin': '管理者'
-        };
-        return positions[position] || position;
+      // かな入力のバリデーション
+      function validateFullNameKana(fullNameKana) {
+        // ひらがなとカタカナのみ許可
+        const kanaRegex = /^[ぁ-んァ-ヶー]*$/;
+        return kanaRegex.test(fullNameKana);
       }
-
-      // 部署ラベル取得
-      function getDepartmentLabel(department) {
-        const departments = {
-          'service': 'サービス',
-          'kitchen': 'キッチン',
-          'management': '管理'
-        };
-        return departments[department] || department;
+      
+      // 誕生日ドロップダウン生成関数
+      function generateBirthdayOptions() {
+        const monthSelect = document.getElementById('birthMonth');
+        const daySelect = document.getElementById('birthDay');
+        
+        // 月のオプションを生成
+        for (let i = 1; i <= 12; i++) {
+          const option = document.createElement('option');
+          option.value = i.toString().padStart(2, '0');
+          option.textContent = i + '月';
+          monthSelect.appendChild(option);
+        }
+        
+        // 日のオプションを生成
+        for (let i = 1; i <= 31; i++) {
+          const option = document.createElement('option');
+          option.value = i.toString().padStart(2, 0);
+          option.textContent = i + '日';
+          daySelect.appendChild(option);
+        }
       }
 
       // 登録フォーム処理
@@ -287,11 +361,28 @@
         e.preventDefault();
         
         try {
-          const name = document.getElementById('name').value;
+          const fullName = document.getElementById('name').value;
+          const fullNameKana = document.getElementById('kana').value;
+          const birthMonth = document.getElementById('birthMonth').value;
+          const birthDay = document.getElementById('birthDay').value;
           const email = document.getElementById('email').value;
-          const phone = document.getElementById('phone').value;
-          const position = document.getElementById('position').value;
-          const department = document.getElementById('department').value;
+          const phoneNumber = document.getElementById('phone').value;
+          
+          // かなのバリデーション
+          if (!validateFullNameKana(fullNameKana)) {
+            throw new Error('かなはひらがなまたはカタカナで入力してください');
+          }
+          
+          // 誕生日（月日）のバリデーション
+          if (!birthMonth || !birthDay) {
+            throw new Error('誕生日の月と日を選択してください');
+          }
+          
+          // birthMonthDayを作成（月+日）
+          const birthMonthDay = birthMonth + birthDay;
+          
+          // loginIdを自動作成（fullName + birthMonthDay）
+          const loginId = fullName + birthMonthDay;
           
           const { db } = window.Firebase;
           
@@ -305,11 +396,13 @@
           // Firestoreにスタッフ情報を保存
           const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
           await setDoc(doc(db, 'staffs', user.uid), {
-            name: name,
+            uid: user.uid,
+            fullName: fullName,
+            fullNameKana: fullNameKana,
+            birthMonthDay: birthMonthDay,
+            loginId: loginId,
             email: email,
-            phone: phone,
-            position: position,
-            department: department,
+            phoneNumber: phoneNumber,
             createdAt: new Date(),
             updatedAt: new Date()
           });
@@ -326,6 +419,106 @@
         }
       });
 
+      // QRコード表示関数
+      window.showStaffQRCode = async () => {
+        try {
+          showPage(qrPageEl);
+          await displayStoredStaffQRCode();
+        } catch (error) {
+          alert('QRコードの表示に失敗しました: ' + error.message);
+        }
+      };
+
+      // ホームページに戻る関数
+      window.showStaffHomePage = () => {
+        showPage(homePageEl);
+      };
+
+      // QRコード表示関数（Firestoreから取得）- 初期表示と有効期限チェック用
+      async function displayStoredStaffQRCode() {
+        const qrDisplay = document.getElementById('qr-code-display');
+        const expiryTime = document.getElementById('qr-expiry-time');
+        
+        qrDisplay.innerHTML = '<p>QRコードを読み込み中...</p>';
+        
+        try {
+          // Firebase認証の状態を確認
+          const { auth } = window.Firebase;
+          const currentUser = auth.currentUser;
+          
+          if (!currentUser) {
+            qrDisplay.innerHTML = '<p>Firebase認証が完了していません。</p>';
+            return;
+          }
+          
+          // スタッフデータからQRコードURLを取得
+          const { db } = window.Firebase;
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const staffDoc = await getDoc(doc(db, 'staffs', currentUser.uid));
+          
+          if (staffDoc.exists()) {
+            const staffData = staffDoc.data();
+            
+            if (staffData.qrCodeUrl && staffData.qrExpiresAt) {
+              const now = new Date();
+              const expiryDate = staffData.qrExpiresAt.toDate ? staffData.qrExpiresAt.toDate() : new Date(staffData.qrExpiresAt);
+              const isExpired = now > expiryDate;
+              
+              if (isExpired) {
+                qrDisplay.innerHTML = '<p>QRコードの有効期限が切れています。新しく生成します...</p>';
+                await window.generateNewStaffQR();
+                return;
+              }
+              
+              // デバッグ情報を表示
+              qrDisplay.innerHTML = '<p>QRコード情報取得成功<br>qrCodeUrl: ' + staffData.qrCodeUrl + '<br>有効期限: ' + expiryDate.toLocaleString('ja-JP') + '</p>';
+              
+              // 有効なQRコードを表示
+              qrDisplay.innerHTML = `<img src="${staffData.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;" onerror="this.style.display='none'; this.parentNode.innerHTML+='<p style=\'color:red;\'>画像の読み込みに失敗しました<br>URL: ' + staffData.qrCodeUrl + '</p>';">`;
+              expiryTime.textContent = expiryDate.toLocaleString('ja-JP');
+            } else {
+              qrDisplay.innerHTML = '<p>QRコード情報が見つかりません。新しく生成します...</p>';
+              await window.generateNewStaffQR();
+            }
+          } else {
+            qrDisplay.innerHTML = '<p>スタッフ情報が見つかりません</p>';
+            expiryTime.textContent = '有効期限: -';
+          }
+        } catch (error) {
+          qrDisplay.innerHTML = '<p>QRコードの読み込みに失敗しました<br>エラー: ' + error.message + '</p>';
+          expiryTime.textContent = '有効期限: -';
+        }
+      }
+
+      // 新しいQRコードを生成・更新する関数
+      window.generateNewStaffQR = async () => {
+        try {
+          // 新しいQRコードを生成してStorageに保存
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const generateQRCode = httpsCallable(functions, 'generateQRCode');
+          
+          const result = await generateQRCode({ type: 'staff' });
+          
+          if (result.data.qrCode) {
+            // デバッグ情報を表示
+            const qrDisplay = document.getElementById('qr-code-display');
+            qrDisplay.innerHTML = '<p>Cloud Function実行成功<br>qrCode: ' + (result.data.qrCode ? 'あり' : 'なし') + '<br>qrCodeUrl: ' + (result.data.qrCodeUrl || 'なし') + '<br>expiresAt: ' + (result.data.expiresAt || 'なし') + '</p>';
+            
+            // 生成完了後、保存されたQRコードを再表示（user側と同じ動作）
+            await displayStoredStaffQRCode();
+          } else {
+            throw new Error('QRコードの生成に失敗しました');
+          }
+        } catch (error) {
+          alert('QRコード生成エラー: ' + error.message);
+        }
+      };
+
+      // 新しいQRコード生成関数（内部用）- 削除済み（重複のため）
+
+      // Staff用QRコード生成関数 - 削除済み（重複のため）
+
       // ダッシュボード機能（グローバルに公開）
       window.openShiftManagement = () => {
         console.log('シフト管理機能は今後実装予定です');
@@ -337,6 +530,16 @@
 
       window.openProfileManagement = () => {
         console.log('プロフィール編集機能は今後実装予定です');
+      };
+
+      // デバッグ用QR生成関数
+      window.debugGenerateQR = async () => {
+        try {
+          const result = await generateStaffQRCode();
+          console.log('デバッグ用QR生成結果:', result);
+        } catch (error) {
+          console.error('デバッグ用QR生成エラー:', error);
+        }
       };
 
       // ログアウト関数（グローバルに公開）
@@ -353,6 +556,15 @@
       // 初期化処理
       document.addEventListener('DOMContentLoaded', async () => {
         try {
+          // 誕生日ドロップダウンを生成
+          generateBirthdayOptions();
+          
+          // 初期状態ではローディング画面のみ表示
+          // ホームページは認証完了後に表示
+          
+          // ローディング画面を表示
+          loadingEl.style.display = 'block';
+          
           // LIFF初期化
           await window.initLiffAndFirebaseAuth();
           
