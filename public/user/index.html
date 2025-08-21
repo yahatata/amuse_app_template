@@ -6,8 +6,8 @@
     <title>ユーザーページ - Amuse App</title>
     <!-- LIFF SDK -->
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-    <!-- 店舗別設定ファイル（デプロイ時に差し替え） -->
-    <script src="./config.amuse-app-template.js"></script>
+    <!-- 店舗別設定ファイル -->
+    <script src="./config.js"></script>
     <!-- Firebase初期化スクリプト -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -737,27 +737,18 @@
       // カテゴリー情報とメニューデータを動的に取得・表示
       async function loadCategoriesAndMenuData() {
         try {
-          const response = await fetch(`${window.FunctionsUrl}/getMenuItems`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              data: {}
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error('カテゴリー情報の取得に失敗しました');
-          }
-
-          const result = await response.json();
+          // Firebase Functions SDKを使用してCallable Functionを呼び出し
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getMenuItems = httpsCallable(functions, 'getMenuItems');
           
-          if (!result.result || !result.result.success) {
-            throw new Error(result.result?.error || 'カテゴリー情報の取得に失敗しました');
+          const result = await getMenuItems({});
+          
+          if (!result.data || !result.data.success) {
+            throw new Error(result.data?.error || 'カテゴリー情報の取得に失敗しました');
           }
 
-          const allMenuItems = result.result.data || [];
+          const allMenuItems = result.data.data || [];
           
           // ユニークなカテゴリーを抽出
           const categories = [...new Set(allMenuItems.map(item => item.category))].filter(cat => cat);
@@ -819,27 +810,17 @@
             allMenuItems = cachedMenuItems;
           } else {
             // キャッシュがない場合は新しく取得
-            const response = await fetch(`${window.FunctionsUrl}/getMenuItems`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                data: {} // Callable Functions用の空データ
-              })
-            });
-
-            if (!response.ok) {
-              throw new Error('メニューの取得に失敗しました');
-            }
-
-            const result = await response.json();
+            const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+            const functions = getFunctions(window.Firebase.app);
+            const getMenuItems = httpsCallable(functions, 'getMenuItems');
             
-            if (!result.result || !result.result.success) {
-              throw new Error(result.result?.error || 'メニューの取得に失敗しました');
+            const result = await getMenuItems({});
+            
+            if (!result.data || !result.data.success) {
+              throw new Error(result.data?.error || 'メニューの取得に失敗しました');
             }
 
-            allMenuItems = result.result.data || [];
+            allMenuItems = result.data.data || [];
           }
           
           // カテゴリーでフィルタリング
