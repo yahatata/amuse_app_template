@@ -32,17 +32,36 @@ export const generateQRCode = onCall(
     }
 
     try {
-      // ユーザー情報を取得
-      const userDoc = await admin.firestore()
-        .collection("users")
-        .doc(uid)
-        .get();
+      let userData: any;
+      let collectionName: string;
 
-      if (!userDoc.exists) {
-        throw new Error("User not found. Please create an account first.");
+      // typeに応じてコレクションを選択
+      if (type === "staff") {
+        const staffDoc = await admin.firestore()
+          .collection("staffs")
+          .doc(uid)
+          .get();
+
+        if (!staffDoc.exists) {
+          throw new Error("Staff not found. Please create an account first.");
+        }
+
+        userData = staffDoc.data();
+        collectionName = "staffs";
+      } else {
+        const userDoc = await admin.firestore()
+          .collection("users")
+          .doc(uid)
+          .get();
+
+        if (!userDoc.exists) {
+          throw new Error("User not found. Please create an account first.");
+        }
+
+        userData = userDoc.data();
+        collectionName = "users";
       }
 
-      const userData = userDoc.data();
       const loginId = userData?.loginID || userData?.loginId; // loginID（大文字）またはloginId（小文字）に対応
 
       if (!loginId) {
@@ -54,19 +73,30 @@ export const generateQRCode = onCall(
       // QRコードデータを生成
       const qrData = generateQRData(uid, loginId, type);
       const qrCodeImage = await generateQRImage(qrData);
-      const expiresAt = qrData.timestamp + (10 * 60 * 1000);
+      // 10分後に期限切れ
+      const expiresAt = Date.now() + (10 * 60 * 1000);
 
       // QRコードをStorageに保存
       const qrCodeUrl = await saveQRCodeToStorage(uid, qrCodeImage, type);
 
-      // ユーザードキュメントのQRコード情報を更新
-      await admin.firestore()
-        .collection("users")
-        .doc(uid)
-        .update({
-          qrCodeUrl: qrCodeUrl,
-          qrExpiresAt: new Date(expiresAt),
-        });
+      // ドキュメントのQRコード情報を更新
+      console.log(`Firestore更新開始: ${collectionName}/${uid}`);
+      console.log(`更新データ: qrCodeUrl=${qrCodeUrl}, qrExpiresAt=${new Date(expiresAt)}`);
+      
+      try {
+        await admin.firestore()
+          .collection(collectionName)
+          .doc(uid)
+          .update({
+            qrCodeUrl: qrCodeUrl,
+            qrExpiresAt: new Date(expiresAt),
+          });
+        console.log(`Firestore更新成功: ${collectionName}/${uid}`);
+      } catch (updateError) {
+        console.error(`Firestore更新エラー: ${collectionName}/${uid}`, updateError);
+        const errorMessage = updateError instanceof Error ? updateError.message : String(updateError);
+        throw new Error(`Firestore更新に失敗しました: ${errorMessage}`);
+      }
 
       return {
         qrCode: qrCodeImage,
