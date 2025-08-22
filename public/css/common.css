@@ -13,9 +13,9 @@ body {
 }
 
 .container { 
-  max-width: 1200px; 
+  max-width: 100%; 
   margin: 0 auto; 
-  padding: 20px; 
+  padding: 15px; 
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -26,8 +26,8 @@ body {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-radius: 20px;
-  padding: 40px;
-  margin: 20px 0;
+  padding: 25px;
+  margin: 15px 0;
   box-shadow: 0 20px 40px rgba(0,0,0,0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   animation: slideUp 0.6s ease-out;
@@ -543,4 +543,381 @@ body {
   line-height: 1.6;
 }
 
- 
+/* シフト管理ページのスタイル */
+.shift-page {
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.shift-form-container {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.shift-form-container h2 {
+  color: #667eea;
+  margin-bottom: 25px;
+  font-size: 1.8rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.shift-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-weight: 600;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.form-group input {
+  padding: 15px;
+  border: 2px solid #e9ecef;
+  border-radius: 10px;
+  font-size: 16px;
+  transition: border-color 0.3s ease;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.shift-list-container {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.shift-list-container h2 {
+  color: #667eea;
+  margin-bottom: 25px;
+  font-size: 1.8rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.shift-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 2px solid #f8f9fa;
+  gap: 20px;
+  transition: background-color 0.3s ease;
+}
+
+.shift-item:hover {
+  background-color: #f8f9fa;
+}
+
+.shift-item:last-child {
+  border-bottom: none;
+}
+
+.shift-date {
+  font-weight: 700;
+  color: #333;
+  min-width: 120px;
+  font-size: 1.1rem;
+}
+
+.shift-time {
+  color: #666;
+  min-width: 180px;
+  font-size: 1.1rem;
+}
+
+.shift-status {
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 100px;
+  text-align: center;
+}
+
+.shift-status:contains('申請中') {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.shift-status:contains('承認済み') {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.shift-status:contains('却下') {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+/* カレンダー関連のスタイル */
+.calendar-container {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.calendar-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.calendar-note {
+  color: #6c757d;
+  font-size: 0.9rem;
+  margin-top: 5px;
+  font-style: italic;
+}
+
+.calendar-header h3 {
+  color: #667eea;
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.calendar {
+  width: 100%;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.weekday {
+  text-align: center;
+  padding: 10px;
+  font-weight: 600;
+  color: #667eea;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.calendar-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  font-weight: 500;
+  border: 2px solid transparent;
+}
+
+.calendar-day:hover {
+  background-color: #e9ecef;
+}
+
+.calendar-day.other-month {
+  color: #adb5bd;
+  cursor: default;
+}
+
+.calendar-day.today {
+  background-color: #667eea;
+  color: white;
+  font-weight: 700;
+}
+
+.calendar-day.selected {
+  background-color: #28a745;
+  color: white;
+  font-weight: 700;
+  border-color: #20c997;
+}
+
+/* シフト入力関連のスタイル */
+.shift-input-container {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.shift-input-container h3 {
+  color: #667eea;
+  margin-bottom: 20px;
+  font-size: 1.5rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.shift-input-form {
+  display: flex;
+  gap: 20px;
+  align-items: end;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* 未提出シフト関連のスタイル */
+.pending-shifts-container {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.pending-shifts-container h3 {
+  color: #667eea;
+  margin-bottom: 20px;
+  font-size: 1.5rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.pending-shifts-list {
+  margin-bottom: 20px;
+}
+
+.pending-shift-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  border-bottom: 2px solid #f8f9fa;
+  gap: 20px;
+}
+
+.pending-shift-item:last-child {
+  border-bottom: none;
+}
+
+.shift-info {
+  font-weight: 600;
+  color: #333;
+  flex: 1;
+}
+
+.remove-btn {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.3s ease;
+}
+
+.remove-btn:hover {
+  background: #c82333;
+}
+
+.submit-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, #28a745, #20c997);
+}
+
+.primary-btn:hover:not(:disabled) {
+  box-shadow: 0 8px 25px rgba(40, 167, 69, 0.6);
+}
+
+.primary-btn:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* 申請済みシフト一覧のスタイル */
+.shift-list-container {
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.shift-list-container h2 {
+  color: #667eea;
+  margin-bottom: 20px;
+  font-size: 1.5rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.shift-list {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.shift-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  border-bottom: 2px solid #f8f9fa;
+  word-wrap: break-word;
+  word-break: break-all;
+}
+
+.shift-list-item:last-child {
+  border-bottom: none;
+}
+
+.shift-date-time {
+  font-weight: 600;
+  color: #333;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shift-status {
+  background: #6c757d;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  margin-left: 10px;
+}

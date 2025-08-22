@@ -11,6 +11,16 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == staffId;
     }
     
+    // シフトコレクション（Cloud Functions経由でのみ書き込み可能）
+    match /shifts/{shiftId} {
+      // 読み取り: 自分のシフトのみ
+      allow read: if request.auth != null && 
+                   request.auth.uid == resource.data.userId;
+      
+      // 書き込み: Cloud Functions経由のみ（クライアントからの直接書き込みは禁止）
+      allow write: if false;
+    }
+    
     // その他のコレクションは読み書き禁止
     match /{document=**} {
       allow read, write: if false;

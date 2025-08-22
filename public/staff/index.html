@@ -209,6 +209,63 @@
         </div>
       </div>
 
+      <!-- シフト管理画面 -->
+      <div id="shift-page" class="page shift-page" style="display: none;">
+        <h1>シフト管理</h1>
+        
+        <!-- 翌月カレンダー表示 -->
+        <div class="calendar-container">
+          <h2>翌月シフト申請</h2>
+                  <div class="calendar-header">
+          <h3 id="current-month">2024年9月</h3>
+          <p class="calendar-note">※来月分のシフトのみ申請可能です</p>
+        </div>
+          
+          <div id="calendar" class="calendar">
+            <!-- カレンダーが動的に生成される -->
+          </div>
+        </div>
+        
+        <!-- シフト時間入力 -->
+        <div class="shift-input-container">
+          <h3>シフト時間入力</h3>
+          <div class="shift-input-form">
+            <div class="form-group">
+              <label for="shift-start">開始時刻</label>
+              <input type="time" id="shift-start" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="shift-end">終了時刻</label>
+              <input type="time" id="shift-end" required>
+            </div>
+            
+            <button id="add-shift-btn" class="btn">シフトを追加</button>
+          </div>
+        </div>
+        
+        <!-- 未提出シフト一覧 -->
+        <div class="pending-shifts-container">
+          <h3>未提出シフト一覧</h3>
+          <div id="pending-shifts-list" class="pending-shifts-list">
+            <p>未提出のシフトはありません</p>
+          </div>
+          
+          <div class="submit-actions">
+            <button id="submit-all-shifts-btn" class="btn primary-btn" disabled>一括提出</button>
+            <button onclick="showStaffHomePage()" class="btn secondary-btn">ホームに戻る</button>
+          </div>
+        </div>
+        
+        <!-- 申請済みシフト一覧 -->
+        <div class="shift-list-container">
+          <h2>申請済みシフト</h2>
+          <div id="shift-list" class="shift-list">
+            <p>シフト申請がありません</p>
+          </div>
+        </div>
+      </div>
+
       <!-- エラー表示 -->
       <div id="error-message" class="error" style="display: none;"></div>
       
@@ -222,10 +279,12 @@
       const homePageEl = document.getElementById('home-page');
       const registrationPageEl = document.getElementById('registration-page');
       const qrPageEl = document.getElementById('qr-page');
+      const shiftPageEl = document.getElementById('shift-page');
       const errorEl = document.getElementById('error-message');
-      const successEl = document.getElementById('success-message');
+      const successEl = document.getElementById('error-message');
       const staffInfoEl = document.getElementById('staff-info');
       const registrationFormEl = document.getElementById('registration-form');
+      const shiftFormEl = document.getElementById('shift-form');
 
       // エラー表示関数
       function showError(message) {
@@ -253,6 +312,7 @@
         homePageEl.style.display = 'none';
         registrationPageEl.style.display = 'none';
         qrPageEl.style.display = 'none';
+        shiftPageEl.style.display = 'none';
         
         // 指定されたページを表示
         pageElement.style.display = 'block';
@@ -261,6 +321,7 @@
         homePageEl.classList.remove('active');
         registrationPageEl.classList.remove('active');
         qrPageEl.classList.remove('active');
+        shiftPageEl.classList.remove('active');
         pageElement.classList.add('active');
       }
 
@@ -515,14 +576,360 @@
         }
       };
 
-      // 新しいQRコード生成関数（内部用）- 削除済み（重複のため）
-
-      // Staff用QRコード生成関数 - 削除済み（重複のため）
 
       // ダッシュボード機能（グローバルに公開）
       window.openShiftManagement = () => {
-        console.log('シフト管理機能は今後実装予定です');
+        showPage(shiftPageEl);
+        loadShiftList(); // シフト一覧を読み込み
       };
+
+      // シフト一覧読み込み関数
+      async function loadShiftList() {
+        try {
+          const { auth } = window.Firebase;
+          const currentUser = auth.currentUser;
+          
+          if (!currentUser) {
+            throw new Error('Firebase認証が完了していません');
+          }
+          
+          // Cloud Functionを使用してシフト一覧を取得
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getShifts = httpsCallable(functions, 'getShifts');
+          
+          const result = await getShifts({});
+          const shiftList = document.getElementById('shift-list');
+          
+          if (!result.data.success) {
+            throw new Error(result.data.error || 'シフト一覧の取得に失敗しました');
+          }
+          
+          const shifts = result.data.shifts || [];
+          
+          if (shifts.length === 0) {
+            shiftList.innerHTML = '<p>シフト申請がありません</p>';
+            return;
+          }
+          
+          // シフト一覧を表示（レスポンシブ対応）
+          shiftList.innerHTML = shifts.map(shift => `
+            <div class="shift-list-item">
+              <div class="shift-date-time">${shift.date} ${shift.start} - ${shift.end}</div>
+              <div class="shift-status">${shift.confirmed === null ? '申請中' : shift.confirmed ? '承認済み' : '却下'}</div>
+            </div>
+          `).join('');
+          
+        } catch (error) {
+          const shiftList = document.getElementById('shift-list');
+          shiftList.innerHTML = '<p>シフト一覧の読み込みに失敗しました: ' + error.message + '</p>';
+        }
+      }
+
+      // カレンダーとシフト管理の機能
+      let currentMonth = new Date();
+      let selectedDate = null; // 日付文字列を保存
+      let pendingShifts = [];
+
+      // 翌月の最初の日を取得
+      function getNextMonth() {
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      }
+
+      // カレンダーを初期化
+      function initializeCalendar() {
+        currentMonth = getNextMonth();
+        renderCalendar();
+        setupCalendarEventListeners();
+      }
+
+      // カレンダーを描画
+      function renderCalendar() {
+        const calendar = document.getElementById('calendar');
+        const monthDisplay = document.getElementById('current-month');
+        
+        if (!calendar || !monthDisplay) return;
+
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth();
+        
+        monthDisplay.textContent = `${year}年${month + 1}月`;
+        
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const startDate = new Date(firstDay);
+        startDate.setDate(startDate.getDate() - firstDay.getDay());
+        
+        let calendarHTML = '<div class="calendar-weekdays">';
+        calendarHTML += '<div class="weekday">日</div>';
+        calendarHTML += '<div class="weekday">月</div>';
+        calendarHTML += '<div class="weekday">火</div>';
+        calendarHTML += '<div class="weekday">水</div>';
+        calendarHTML += '<div class="weekday">木</div>';
+        calendarHTML += '<div class="weekday">金</div>';
+        calendarHTML += '<div class="weekday">土</div>';
+        calendarHTML += '</div>';
+        
+        calendarHTML += '<div class="calendar-days">';
+        
+        for (let i = 0; i < 42; i++) {
+          const currentDate = new Date(startDate);
+          currentDate.setDate(startDate.getDate() + i);
+          
+          const isCurrentMonth = currentDate.getMonth() === month;
+          const isToday = currentDate.toDateString() === new Date().toDateString();
+          // selectedDateは文字列なので、直接比較
+          const isSelected = selectedDate && selectedDate === localDateStr;
+          
+          let dayClass = 'calendar-day';
+          if (!isCurrentMonth) dayClass += ' other-month';
+          if (isToday) dayClass += ' today';
+          if (isSelected) dayClass += ' selected';
+          
+          // ローカル時間で日付文字列を作成（時差問題を回避）
+          const localYear = currentDate.getFullYear();
+          const localMonth = String(currentDate.getMonth() + 1).padStart(2, '0');
+          const localDay = String(currentDate.getDate()).padStart(2, '0');
+          const localDateStr = `${localYear}-${localMonth}-${localDay}`;
+          
+          calendarHTML += `<div class="${dayClass}" data-date="${localDateStr}">`;
+          calendarHTML += currentDate.getDate();
+          calendarHTML += '</div>';
+        }
+        
+        calendarHTML += '</div>';
+        calendar.innerHTML = calendarHTML;
+      }
+
+      // カレンダーのイベントリスナーを設定
+      function setupCalendarEventListeners() {
+        const calendar = document.getElementById('calendar');
+        if (!calendar) return;
+
+        // 日付クリックイベント
+        calendar.addEventListener('click', (e) => {
+          if (e.target.classList.contains('calendar-day') && !e.target.classList.contains('other-month')) {
+            const dateStr = e.target.dataset.date;
+            selectDate(dateStr);
+          }
+        });
+
+        // 来月のみ表示のため、前月・翌月ボタンは無効化
+        // ユーザーは来月分のシフトのみ申請可能
+      }
+
+      // 日付選択
+      function selectDate(dateStr) {
+        // 日付文字列をそのまま保存（Dateオブジェクトは作成しない）
+        selectedDate = dateStr; // 文字列として保存
+        
+        // カレンダーの選択状態を更新
+        document.querySelectorAll('.calendar-day').forEach(day => {
+          day.classList.remove('selected');
+        });
+        
+        const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
+        if (selectedDay) {
+          selectedDay.classList.add('selected');
+        }
+        
+        // 選択された日付を表示
+        console.log('選択された日付:', dateStr);
+        console.log('保存された日付:', selectedDate);
+      }
+
+      // シフトを追加
+      function addShiftToList() {
+        if (!selectedDate) {
+          showError('日付を選択してください');
+          alert('❌ エラー！\n\n日付を選択してください。');
+          return;
+        }
+
+        const start = document.getElementById('shift-start').value;
+        const end = document.getElementById('shift-end').value;
+        
+        if (!start || !end) {
+          showError('開始時刻と終了時刻を入力してください');
+          alert('❌ エラー！\n\n開始時刻と終了時刻を入力してください。');
+          return;
+        }
+        
+        if (start >= end) {
+          showError('開始時刻は終了時刻より前である必要があります');
+          alert('❌ エラー！\n\n開始時刻は終了時刻より前である必要があります。');
+          return;
+        }
+
+        // selectedDateは既に文字列なので、そのまま使用
+        const dateStr = selectedDate;
+        const shiftData = {
+          date: dateStr,
+          start: start,
+          end: end,
+          displayText: `${dateStr} ${start} - ${end}`
+        };
+
+        // 重複チェック
+        const isDuplicate = pendingShifts.some(shift => shift.date === dateStr);
+        if (isDuplicate) {
+          showError('同じ日付のシフトは既に追加されています');
+          alert('❌ エラー！\n\n同じ日付のシフトは既に追加されています。');
+          return;
+        }
+
+        pendingShifts.push(shiftData);
+        updatePendingShiftsList();
+        updateSubmitButton();
+        
+        // フォームをリセット
+        document.getElementById('shift-start').value = '';
+        document.getElementById('shift-end').value = '';
+        
+        // 成功通知
+        showSuccess('シフトが追加されました');
+        
+        // ポップアップ通知
+        alert(`📅 シフト追加完了！\n\n日付: ${shiftData.date}\n時間: ${shiftData.start} - ${shiftData.end}\n\n未提出シフト一覧に追加されました。`);
+      }
+
+      // 未提出シフト一覧を更新
+      function updatePendingShiftsList() {
+        const list = document.getElementById('pending-shifts-list');
+        if (!list) return;
+
+        if (pendingShifts.length === 0) {
+          list.innerHTML = '<p>未提出のシフトはありません</p>';
+          return;
+        }
+
+        list.innerHTML = pendingShifts.map((shift, index) => `
+          <div class="pending-shift-item">
+            <span class="shift-info">${shift.displayText}</span>
+            <button class="btn remove-btn" onclick="removeShift(${index})">削除</button>
+          </div>
+        `).join('');
+      }
+
+      // シフトを削除（グローバル関数として公開）
+      window.removeShift = function(index) {
+        try {
+          // インデックスの妥当性チェック
+          if (index < 0 || index >= pendingShifts.length) {
+            alert('❌ エラー！\n\n削除するシフトが見つかりません。\nインデックス: ' + index);
+            return;
+          }
+          
+          // 削除前の確認
+          const shiftToRemove = pendingShifts[index];
+          const confirmMessage = `以下のシフトを削除しますか？\n\n日付: ${shiftToRemove.date}\n時間: ${shiftToRemove.start} - ${shiftToRemove.end}`;
+          
+          if (!confirm(confirmMessage)) {
+            return; // キャンセルされた場合
+          }
+          
+          // 配列から削除
+          pendingShifts.splice(index, 1);
+          
+          // UI更新
+          updatePendingShiftsList();
+          updateSubmitButton();
+          
+          // 成功通知
+          showSuccess('シフトが削除されました');
+          alert('✅ シフト削除完了！\n\nシフトが正常に削除されました。');
+          
+        } catch (error) {
+          console.error('シフト削除エラー:', error);
+          const errorMessage = error.message || '不明なエラーが発生しました';
+          showError('シフトの削除に失敗しました: ' + errorMessage);
+          alert('❌ シフト削除失敗！\n\nエラー: ' + errorMessage + '\n\n再度お試しください。');
+        }
+      }
+
+      // 提出ボタンの状態を更新
+      function updateSubmitButton() {
+        const submitBtn = document.getElementById('submit-all-shifts-btn');
+        if (submitBtn) {
+          submitBtn.disabled = pendingShifts.length === 0;
+        }
+      }
+
+      // 全シフトを一括提出
+      async function submitAllShifts() {
+        if (pendingShifts.length === 0) {
+          showError('提出するシフトがありません');
+          alert('❌ エラー！\n\n提出するシフトがありません。\n\nシフトを追加してから提出してください。');
+          return;
+        }
+
+        try {
+          const { auth } = window.Firebase;
+          const currentUser = auth.currentUser;
+          
+          if (!currentUser) {
+            throw new Error('Firebase認証が完了していません');
+          }
+
+          // Cloud Functionを使用して複数シフトを一括申請
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const createMultipleShifts = httpsCallable(functions, 'createMultipleShifts');
+          
+          const result = await createMultipleShifts({ shifts: pendingShifts });
+          
+          if (result.data.success) {
+            // 成功通知を表示
+            showSuccess(`${pendingShifts.length}件のシフト申請が完了しました`);
+            
+            // ポップアップ通知を追加
+            alert(`✅ シフト申請完了！\n\n${pendingShifts.length}件のシフトが正常に保存されました。\n\n日付: ${pendingShifts.map(s => s.date).join(', ')}`);
+            
+            // 未提出シフトをクリア
+            pendingShifts = [];
+            updatePendingShiftsList();
+            updateSubmitButton();
+            
+            // 申請済みシフト一覧を更新
+            loadShiftList();
+          } else {
+            const errorMessage = result.data.error || '不明なエラーが発生しました';
+            showError('シフト申請に失敗しました: ' + errorMessage);
+            
+            // 失敗時のポップアップ通知
+            alert(`❌ シフト申請失敗！\n\nエラー: ${errorMessage}\n\nシフトは保存されていません。\n再度お試しください。`);
+          }
+          
+        } catch (error) {
+          const errorMessage = error.message || '不明なエラーが発生しました';
+          showError('シフト申請に失敗しました: ' + errorMessage);
+          
+          // 失敗時のポップアップ通知
+          alert(`❌ シフト申請失敗！\n\nエラー: ${errorMessage}\n\nシフトは保存されていません。\n再度お試しください。`);
+        }
+      }
+
+      // シフト管理ページを開いた時の初期化
+      window.openShiftManagement = () => {
+        showPage(shiftPageEl);
+        initializeCalendar();
+        loadShiftList();
+      };
+
+      // シフト追加ボタンのイベントリスナー
+      document.addEventListener('DOMContentLoaded', () => {
+        const addShiftBtn = document.getElementById('add-shift-btn');
+        const submitAllBtn = document.getElementById('submit-all-shifts-btn');
+        
+        if (addShiftBtn) {
+          addShiftBtn.addEventListener('click', addShiftToList);
+        }
+        
+        if (submitAllBtn) {
+          submitAllBtn.addEventListener('click', submitAllShifts);
+        }
+      });
 
       window.openAttendanceManagement = () => {
         console.log('勤怠管理機能は今後実装予定です');
