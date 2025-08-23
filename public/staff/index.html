@@ -230,7 +230,7 @@
       </div>
 
       <!-- シフト管理画面 -->
-      <div id="shift-page" class="page shift-page" style="display: none; width: 100%; max-width: 100%; margin: 0 auto; text-align: center;">
+      <div id="shift-page" class="page shift-page flexible-container-center" style="display: none;">
         <h1>シフト管理</h1>
         
         <!-- シフト管理メニュー -->
@@ -242,33 +242,33 @@
         
         
         <!-- シフト申請セクション -->
-        <div id="shift-application-section" class="shift-application-section" style="display: block; width: 100%; max-width: 100%; margin: 0 auto; text-align: center;">
+        <div id="shift-application-section" class="shift-application-section flexible-container-center" style="display: block;">
         
         <!-- 翌月カレンダー表示 -->
-        <div class="calendar-container" style="width: 100%; max-width: 100%; margin: 0 auto; overflow: hidden;">
+        <div class="calendar-container flexible-container">
           <h2>翌月シフト申請</h2>
           <div class="month-info" id="current-month">2024年9月</div>
           <p class="note">※来月分のシフトのみ申請可能です</p>
           
-          <div id="calendar" class="calendar" style="width: 100%; max-width: 100%; margin: 0 auto; overflow: hidden;">
+          <div id="calendar" class="calendar flexible-container">
             <!-- カレンダーが動的に生成される -->
           </div>
         </div>
         
         <!-- シフト時間入力 -->
-        <div class="shift-input-container" style="width: 100%; max-width: 100%; margin: 0 auto; overflow: hidden;">
+        <div class="shift-input-container flexible-container">
           <h3>シフト時間入力</h3>
-          <div class="shift-input-form" style="width: 100%; max-width: 100%; margin: 0 auto;">
-            <div class="time-inputs" style="width: 100%; max-width: 100%; margin: 0 auto;">
-              <div class="form-group" style="width: 100%; max-width: 100%; margin: 0 auto;">
-                <label for="shift-start">開始時刻</label>
-                <input type="time" id="shift-start" required style="width: 100%; max-width: 100%; box-sizing: border-box;">
-              </div>
-              
-              <div class="form-group" style="width: 100%; max-width: 100%; margin: 0 auto;">
-                <label for="shift-end">終了時刻</label>
-                <input type="time" id="shift-end" required style="width: 100%; max-width: 100%; box-sizing: border-box;">
-              </div>
+                      <div class="shift-input-form flexible-container">
+                          <div class="time-inputs flexible-container">
+                              <div class="form-group flexible-container">
+                  <label for="shift-start">開始時刻</label>
+                  <input type="time" id="shift-start" required style="width: 100%; max-width: 100%; box-sizing: border-box;">
+                </div>
+                
+                <div class="form-group flexible-container">
+                  <label for="shift-end">終了時刻</label>
+                  <input type="time" id="shift-end" required style="width: 100%; max-width: 100%; box-sizing: border-box;">
+                </div>
             </div>
             
             <button id="add-shift-btn" class="btn">シフトを追加</button>
@@ -276,13 +276,13 @@
         </div>
         
         <!-- 未提出シフト一覧 -->
-        <div class="pending-shifts-container" style="width: 100%; max-width: 100%; margin: 0 auto; overflow: hidden;">
+        <div class="pending-shifts-container flexible-container">
           <h3>未提出シフト一覧</h3>
-          <div id="pending-shifts-list" class="pending-shifts-list" style="width: 100%; max-width: 100%; margin: 0 auto;">
+                      <div id="pending-shifts-list" class="pending-shifts-list flexible-container">
             <p>未提出のシフトはありません</p>
           </div>
           
-          <div class="submit-actions" style="width: 100%; max-width: 100%; margin: 0 auto;">
+                      <div class="submit-actions flexible-container">
             <button id="submit-all-shifts-btn" class="btn primary-btn" disabled>一括提出</button>
             <button onclick="showStaffHomePage()" class="btn secondary-btn">ホームに戻る</button>
           </div>
@@ -292,17 +292,17 @@
         </div>
         
         <!-- 確定シフトセクション -->
-        <div id="confirmed-shifts-section" style="display: none; width: 100%; max-width: 100%; margin: 0 auto; text-align: center; display: flex; flex-direction: column; align-items: center;">
+        <div id="confirmed-shifts-section" class="flexible-container-flex" style="display: none;">
           <h2>確定シフト</h2>
           
           <!-- 確定シフト表示エリア -->
-          <div id="confirmed-shifts-display" style="display: none; width: 100%; max-width: 100%; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">
-            <div class="calendar-container" style="width: 100%; max-width: 100%; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">
-              <div id="calendar-grid" class="calendar-grid" style="width: 100%; max-width: 100%; margin: 0 auto; display: flex; flex-direction: column; align-items: center;"></div>
+          <div id="confirmed-shifts-display" class="flexible-container-flex" style="display: none;">
+            <div class="calendar-container flexible-container-flex">
+              <div id="calendar-grid" class="calendar-grid flexible-container-flex"></div>
             </div>
             
-            <div class="shift-details" style="width: 100%; max-width: 100%; overflow: hidden; margin: 0 auto; text-align: center; display: flex; flex-direction: column; align-items: center;">
-              <div id="shift-details-content" style="width: 100%; max-width: 100%; margin: 0 auto; text-align: center;">
+            <div class="shift-details flexible-container-flex">
+              <div id="shift-details-content" class="flexible-container-center">
                 <p>日付を選択してください</p>
               </div>
 
@@ -1122,10 +1122,10 @@
               }
             }
             
-            detailsHTML += '<div class="shift-detail ' + statusClass + '" style="width: 100%; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; margin: 0 auto; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center;">';
-            detailsHTML += '<div class="shift-date" style="min-width: 0; flex: 1; word-wrap: break-word; text-align: center; width: 100%; margin: 0 auto;">' + shift.date + '</div>';
-            detailsHTML += '<div class="shift-time" style="min-width: 0; flex: 1; word-wrap: break-word; text-align: center; width: 100%; margin: 0 auto;">' + startTime + ' - ' + endTime + '</div>';
-            detailsHTML += '<div class="shift-status" style="min-width: 0; flex-shrink: 0; word-wrap: break-word; text-align: center; width: 100%; margin: 0 auto;">' + status + '</div>';
+            detailsHTML += '<div class="shift-detail ' + statusClass + ' flexible-container-flex" style="box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; justify-content: center;">';
+            detailsHTML += '<div class="shift-date flexible-container-center" style="min-width: 0; flex: 1; word-wrap: break-word;">' + shift.date + '</div>';
+            detailsHTML += '<div class="shift-time flexible-container-center" style="min-width: 0; flex: 1; word-wrap: break-word;">' + startTime + ' - ' + endTime + '</div>';
+            detailsHTML += '<div class="shift-status flexible-container-center" style="min-width: 0; flex-shrink: 0; word-wrap: break-word;">' + status + '</div>';
             detailsHTML += '</div>';
           });
           detailsContent.innerHTML = detailsHTML;
