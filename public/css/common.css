@@ -10,16 +10,18 @@ body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
   min-height: 100vh;
   line-height: 1.6;
+  margin: 0;
+  padding: 0;
 }
 
 .container { 
-  max-width: 100%; 
   margin: 0 auto; 
   padding: 15px; 
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .page {
@@ -550,6 +552,36 @@ body {
   margin: 0 auto;
 }
 
+/* シフト管理メニュー */
+.shift-menu-container {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 30px;
+  justify-content: center;
+}
+
+.shift-menu-container .btn {
+  padding: 12px 24px;
+  font-size: 16px;
+  border-radius: 8px;
+  min-width: 150px;
+}
+
+/* 確定シフトセクション */
+.confirmed-shifts-info {
+  text-align: center;
+  padding: 40px 20px;
+  background: #f8f9fa;
+  border-radius: 10px;
+  margin: 20px 0;
+}
+
+.confirmed-shifts-info p {
+  margin-bottom: 20px;
+  color: #6c757d;
+  font-size: 16px;
+}
+
 .shift-form-container {
   background: white;
   padding: 30px;
@@ -920,4 +952,419 @@ body {
   font-size: 0.8rem;
   white-space: nowrap;
   margin-left: 10px;
+}
+
+/* 確定シフトカレンダーのスタイル */
+.calendar-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.calendar-header h3 {
+  font-size: 1.5rem;
+  color: #333;
+  margin: 0;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.weekday {
+  text-align: center;
+  padding: 10px 5px;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  font-weight: bold;
+  color: #495057;
+  font-size: 0.9rem;
+}
+
+.calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.calendar-day {
+  position: relative;
+  min-height: 60px;
+  padding: 5px;
+  border: 1px solid #dee2e6;
+  background-color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.calendar-day:hover {
+  background-color: #e9ecef;
+  transform: scale(1.05);
+}
+
+.calendar-day.empty {
+  background-color: #f8f9fa;
+  cursor: default;
+}
+
+.calendar-day.empty:hover {
+  background-color: #f8f9fa;
+  transform: none;
+}
+
+.day-number {
+  font-size: 1rem;
+  font-weight: bold;
+  color: #333;
+}
+
+.shift-indicator {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.calendar-day.has-confirmed-shift .shift-indicator {
+  background-color: #28a745;
+  color: white;
+}
+
+.calendar-day.has-pending-shift .shift-indicator {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+/* シフト詳細のスタイル */
+.shift-details-content h4 {
+  margin: 20px 0 15px 0;
+  color: #333;
+  font-size: 1.2rem;
+}
+
+.shift-detail {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  margin: 10px 0;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+  background-color: white;
+}
+
+.shift-detail.confirmed {
+  border-left: 4px solid #28a745;
+  background-color: #f8fff9;
+}
+
+.shift-detail.pending {
+  border-left: 4px solid #ffc107;
+  background-color: #fffef8;
+}
+
+.shift-date {
+  font-weight: bold;
+  color: #333;
+  min-width: 100px;
+}
+
+.shift-time {
+  color: #666;
+  flex: 1;
+  text-align: center;
+}
+
+.shift-detail .shift-status {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: bold;
+  min-width: 60px;
+  text-align: center;
+}
+
+.shift-detail.confirmed .shift-status {
+  background-color: #28a745;
+  color: white;
+}
+
+.shift-detail.pending .shift-status {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+/* シフト管理ページのレスポンシブ対応 */
+.shift-page {
+  padding: 15px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.shift-menu-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  max-width: 100%;
+}
+
+.shift-menu-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.shift-menu-buttons .btn {
+  flex: 1;
+  min-width: 120px;
+  white-space: nowrap;
+}
+
+.shift-application-section {
+  box-sizing: border-box;
+  position: relative;
+}
+
+.shift-application-section h2 {
+  font-size: 1.5rem;
+  margin-bottom: 15px;
+  word-wrap: break-word;
+}
+
+.shift-application-section .month-info {
+  font-size: 1.1rem;
+  margin-bottom: 10px;
+  word-wrap: break-word;
+}
+
+.shift-application-section .note {
+  font-size: 0.9rem;
+  margin-bottom: 20px;
+  word-wrap: break-word;
+}
+
+/* カレンダーのレスポンシブ対応 */
+.calendar-container {
+  padding: 10px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.calendar {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+/* シフト申請ページのカレンダー専用スタイル */
+.calendar.calendar-container {
+  padding: 10px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.calendar-header h3 {
+  font-size: 1.3rem;
+  word-wrap: break-word;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  font-size: 0.8rem;
+  width: 100%;
+}
+
+.weekday {
+  padding: 4px 1px;
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  width: 100%;
+}
+
+.calendar-day {
+  min-height: 35px;
+  padding: 1px;
+  font-size: 0.7rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.day-number {
+  font-size: 0.9rem;
+}
+
+.shift-indicator {
+  width: 16px;
+  height: 16px;
+  font-size: 0.7rem;
+}
+
+/* シフト入力フォームのレスポンシブ対応 */
+.shift-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  max-width: 100%;
+}
+
+.time-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.time-inputs .btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 1rem;
+}
+
+/* 未提出シフトリストのレスポンシブ対応 */
+.pending-shifts-container {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.pending-shifts-container h3 {
+  font-size: 1.3rem;
+  margin-bottom: 15px;
+  word-wrap: break-word;
+}
+
+.pending-shifts-list {
+  max-width: 100%;
+}
+
+.pending-shifts-list .shift-item {
+  padding: 12px;
+  margin-bottom: 10px;
+  word-wrap: break-word;
+}
+
+.shift-item .shift-info {
+  font-size: 0.9rem;
+}
+
+.shift-item .remove-btn {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+/* 確定シフト表示のレスポンシブ対応 */
+.confirmed-shifts-display {
+  max-width: 100%;
+  overflow-x: hidden;
+  padding: 15px;
+}
+
+.shift-details {
+  max-width: 100%;
+  overflow-x: hidden;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.shift-detail {
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  word-wrap: break-word;
+  margin: 0 auto;
+  text-align: center;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.shift-date, .shift-time, .shift-status {
+  text-align: center;
+  min-width: auto;
+  margin: 0 auto;
+}
+
+/* モバイルデバイス向けの調整 */
+@media (max-width: 768px) {
+  .shift-page {
+    padding: 10px;
+  }
+  
+  .shift-menu-buttons {
+    flex-direction: column;
+  }
+  
+  .shift-menu-buttons .btn {
+    width: 100%;
+  }
+  
+  .calendar-container {
+    padding: 5px;
+    max-width: calc(100vw - 20px);
+    width: calc(100vw - 20px);
+  }
+  
+  .calendar {
+    max-width: 100%;
+    width: 100%;
+  }
+  
+  .calendar-day {
+    min-height: 35px;
+    font-size: 0.7rem;
+    padding: 1px;
+  }
+  
+  .weekday {
+    font-size: 0.6rem;
+    padding: 4px 1px;
+  }
+  
+  .shift-detail {
+    padding: 10px;
+  }
+  
+  .shift-date, .shift-time, .shift-status {
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .shift-page {
+    padding: 5px;
+  }
+  
+  .calendar-day {
+    min-height: 35px;
+    font-size: 0.7rem;
+  }
+  
+  .weekday {
+    font-size: 0.6rem;
+    padding: 4px 1px;
+  }
+  
+  .shift-detail {
+    padding: 8px;
+  }
 }
