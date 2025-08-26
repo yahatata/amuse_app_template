@@ -1,6 +1,27 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:convert';
 
+/// 時刻を日本時間の文字列に変換するユーティリティ関数
+String formatToJST(String? timeString) {
+  if (timeString == null || timeString.isEmpty) return '不明';
+  
+  try {
+    // ISO 8601形式の時刻文字列をパース
+    final dateTime = DateTime.parse(timeString);
+    
+    // UTCからJST（+9時間）に変換
+    final jstDateTime = dateTime.toUtc().add(const Duration(hours: 9));
+    
+    // 日本時間形式でフォーマット
+    return '${jstDateTime.year}年${jstDateTime.month}月${jstDateTime.day}日 '
+           '${jstDateTime.hour.toString().padLeft(2, '0')}:'
+           '${jstDateTime.minute.toString().padLeft(2, '0')}';
+  } catch (e) {
+    // パースに失敗した場合は元の文字列を返す
+    return timeString;
+  }
+}
+
 class AttendanceService {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
 
@@ -136,6 +157,87 @@ class AttendanceService {
     }
   }
 
+  /// 手動出勤記録を作成
+  Future<ClockInResult> createManualClockInRecord(String staffId, String staffName) async {
+    try {
+      final result = await _functions
+          .httpsCallable('createManualClockInRecord')
+          .call({
+            'staffId': staffId,
+            'staffName': staffName,
+          });
+
+      final responseData = result.data;
+      if (responseData is! Map) {
+        throw Exception('予期しないレスポンス形式です: ${responseData.runtimeType}');
+      }
+      
+      final data = Map<String, dynamic>.from(responseData);
+      
+      if (data['success'] == true) {
+        final resultData = data['data'];
+        
+        Map<String, dynamic> safeData;
+        if (resultData is Map) {
+          safeData = Map<String, dynamic>.from(resultData);
+        } else {
+          safeData = <String, dynamic>{};
+        }
+        
+        return ClockInResult(
+          docId: data['docId'],
+          message: data['docId'],
+          data: safeData,
+        );
+      } else {
+        throw Exception('手動出勤記録の作成に失敗しました');
+      }
+    } on FirebaseFunctionsException catch (e) {
+      throw _handleFirebaseFunctionsException(e);
+    } catch (e) {
+      throw Exception('予期しないエラーが発生しました: $e');
+    }
+  }
+
+  /// 手動退勤記録を更新
+  Future<ClockOutResult> updateManualClockOutRecord(String docId) async {
+    try {
+      final result = await _functions
+          .httpsCallable('updateManualClockOutRecord')
+          .call({'docId': docId});
+
+      final responseData = result.data;
+      if (responseData is! Map) {
+        throw Exception('予期しないレスポンス形式です: ${responseData.runtimeType}');
+      }
+      
+      final data = Map<String, dynamic>.from(responseData);
+      
+      if (data['success'] == true) {
+        final resultData = data['data'];
+        
+        Map<String, dynamic> safeData;
+        if (resultData is Map) {
+          safeData = Map<String, dynamic>.from(resultData);
+        } else {
+          safeData = <String, dynamic>{};
+        }
+        
+        return ClockOutResult(
+          docId: data['docId'],
+          message: data['message'],
+          data: safeData,
+        );
+      } else {
+        throw Exception('手動退勤記録の更新に失敗しました');
+      }
+    } on FirebaseFunctionsException catch (e) {
+      throw _handleFirebaseFunctionsException(e);
+    } catch (e) {
+      throw Exception('予期しないエラーが発生しました: $e');
+    }
+  }
+
   /// スタッフ一覧を取得（出勤・退勤モード別）
   Future<List<StaffData>> getStaffList(bool isClockInMode) async {
     try {
@@ -144,31 +246,19 @@ class AttendanceService {
           .call({'isClockInMode': isClockInMode});
 
       final responseData = result.data;
-      print('=== AttendanceService Debug Log ===');
-      print('responseData type: ${responseData.runtimeType}');
-      print('responseData: $responseData');
       
       if (responseData is! Map) {
         throw Exception('予期しないレスポンス形式です: ${responseData.runtimeType}');
       }
       
       final data = Map<String, dynamic>.from(responseData);
-      print('converted data type: ${data.runtimeType}');
-      print('data keys: ${data.keys.toList()}');
-      print('staffList type: ${data['staffList'].runtimeType}');
-      print('staffList length: ${(data['staffList'] as List).length}');
       
       if (data['success'] == true) {
         final staffList = data['staffList'] as List;
-        print('first staff item: ${staffList.isNotEmpty ? staffList.first : 'empty'}');
-        print('first staff item type: ${staffList.isNotEmpty ? staffList.first.runtimeType : 'N/A'}');
         
         return staffList.map((staff) {
-          print('processing staff: $staff');
-          print('staff type: ${staff.runtimeType}');
           // 型を明示的にキャスト
           final staffMap = Map<String, dynamic>.from(staff as Map);
-          print('converted staffMap: $staffMap');
           return StaffData.fromMap(staffMap);
         }).toList();
       } else {
@@ -297,6 +387,7 @@ class StaffData {
   final String? shiftStart;
   final String? clockIn;
   final bool hasShiftToday;
+  final String? attendanceDocId; // 退勤時に使用する出勤記録のドキュメントID
 
   StaffData({
     required this.uid,
@@ -306,6 +397,7 @@ class StaffData {
     this.shiftStart,
     this.clockIn,
     required this.hasShiftToday,
+    this.attendanceDocId,
   });
 
   factory StaffData.fromMap(Map<String, dynamic> map) {
@@ -317,6 +409,7 @@ class StaffData {
       shiftStart: map['shiftStart'],
       clockIn: map['clockIn'],
       hasShiftToday: map['hasShiftToday'] ?? false,
+      attendanceDocId: map['attendanceDocId'],
     );
   }
 }

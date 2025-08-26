@@ -167,6 +167,7 @@
         
         <!-- デバッグ用: 手動QR生成ボタン -->
         <button class="btn" onclick="debugGenerateQR()" style="margin-top: 10px; background-color: #ff6b6b;">🔍 デバッグ: QR生成</button>
+        <button class="btn" onclick="clearDebugInfo()" style="margin-top: 10px; background-color: #4ecdc4;">🧹 デバッグ情報クリア</button>
   </div>
 
   <!-- 登録画面 -->
@@ -553,6 +554,10 @@
         showPage(homePageEl);
       };
 
+      // 無限ループ防止用のフラグ
+      let regenInFlight = false;
+      let lastRegenAtMs = 0;
+
       // QRコード表示関数（Firestoreから取得）- 初期表示と有効期限チェック用
       async function displayStoredStaffQRCode() {
         const qrDisplay = document.getElementById('qr-code-display');
@@ -579,25 +584,27 @@
             const staffData = staffDoc.data();
             
             if (staffData.qrCodeUrl && staffData.qrExpiresAt) {
-              const now = new Date();
-              const expiryDate = staffData.qrExpiresAt.toDate ? staffData.qrExpiresAt.toDate() : new Date(staffData.qrExpiresAt);
-              const isExpired = now > expiryDate;
+              // 数値msを優先して比較（型揺れを防ぐ）
+              const nowMs = Date.now();
+              const expMs = staffData.qrExpiresAtMs || 
+                           (staffData.qrExpiresAt.toDate ? staffData.qrExpiresAt.toDate().getTime() : 0);
+              const isExpired = expMs <= nowMs;
               
               if (isExpired) {
                 qrDisplay.innerHTML = '<p>QRコードの有効期限が切れています。新しく生成します...</p>';
-                await window.generateNewStaffQR();
+                await maybeRegenerateStaffQR();
                 return;
               }
               
               // デバッグ情報を表示
-              qrDisplay.innerHTML = '<p>QRコード情報取得成功<br>qrCodeUrl: ' + staffData.qrCodeUrl + '<br>有効期限: ' + expiryDate.toLocaleString('ja-JP') + '</p>';
+              qrDisplay.innerHTML = '<p>QRコード情報取得成功<br>qrCodeUrl: ' + staffData.qrCodeUrl + '<br>有効期限: ' + new Date(expMs).toLocaleString('ja-JP') + '</p>';
               
               // 有効なQRコードを表示
               qrDisplay.innerHTML = `<img src="${staffData.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;" onerror="this.style.display='none'; this.parentNode.innerHTML+='<p style=\'color:red;\'>画像の読み込みに失敗しました<br>URL: ' + staffData.qrCodeUrl + '</p>';">`;
-              expiryTime.textContent = expiryDate.toLocaleString('ja-JP');
+              expiryTime.textContent = new Date(expMs).toLocaleString('ja-JP');
             } else {
               qrDisplay.innerHTML = '<p>QRコード情報が見つかりません。新しく生成します...</p>';
-              await window.generateNewStaffQR();
+              await maybeRegenerateStaffQR();
             }
           } else {
             qrDisplay.innerHTML = '<p>スタッフ情報が見つかりません</p>';
@@ -609,29 +616,118 @@
         }
       }
 
-      // 新しいQRコードを生成・更新する関数
-      window.generateNewStaffQR = async () => {
+      // 無限ループ防止付きのQR再生成関数
+      async function maybeRegenerateStaffQR() {
+        const now = Date.now();
+        
+        // デバッグ情報を画面に表示
+        const qrDisplay = document.getElementById('qr-code-display');
+        qrDisplay.innerHTML = '<p>🔍 QR再生成開始<br>時刻: ' + new Date(now).toLocaleString('ja-JP') + '<br>regenInFlight: ' + regenInFlight + '<br>lastRegenAtMs: ' + (lastRegenAtMs ? new Date(lastRegenAtMs).toLocaleString('ja-JP') : 'なし') + '</p>';
+        
+        // 再生成中フラグとクールダウンチェック
+        if (regenInFlight) {
+          qrDisplay.innerHTML += '<p>⚠️ 再生成中です。スキップします。</p>';
+          return;
+        }
+        if (lastRegenAtMs > 0 && now - lastRegenAtMs < 60000) {
+          qrDisplay.innerHTML += '<p>⏰ クールダウン中です。60秒待機が必要です。</p>';
+          return;
+        }
+        
+        regenInFlight = true;
+        lastRegenAtMs = now;
+        
+        qrDisplay.innerHTML += '<p>🚀 Cloud Function呼び出し開始...</p>';
+        
         try {
-          // 新しいQRコードを生成してStorageに保存
+          // 新しいQRコードを生成
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
           const functions = getFunctions(window.Firebase.app);
           const generateQRCode = httpsCallable(functions, 'generateQRCode');
           
+          qrDisplay.innerHTML += '<p>📞 generateQRCode呼び出し中...</p>';
+          
           const result = await generateQRCode({ type: 'staff' });
           
+          qrDisplay.innerHTML += '<p>✅ Cloud Function完了<br>結果: ' + JSON.stringify(result.data) + '</p>';
+          
           if (result.data.qrCode) {
-            // デバッグ情報を表示
-            const qrDisplay = document.getElementById('qr-code-display');
-            qrDisplay.innerHTML = '<p>Cloud Function実行成功<br>qrCode: ' + (result.data.qrCode ? 'あり' : 'なし') + '<br>qrCodeUrl: ' + (result.data.qrCodeUrl || 'なし') + '<br>expiresAt: ' + (result.data.expiresAt || 'なし') + '</p>';
+            const expectedExpMs = result.data.expiresAt || 0;
+            qrDisplay.innerHTML += '<p>⏳ サーバ反映待機開始<br>期待値: ' + new Date(expectedExpMs).toLocaleString('ja-JP') + '</p>';
             
-            // 生成完了後、保存されたQRコードを再表示（user側と同じ動作）
+            // サーバ反映を1回待ってから判定再開
+            await waitUntilServerUpdated(expectedExpMs, 10000);
+            
+            qrDisplay.innerHTML += '<p>✅ サーバ反映完了</p>';
+            
+            // 生成完了後、保存されたQRコードを再表示
             await displayStoredStaffQRCode();
           } else {
             throw new Error('QRコードの生成に失敗しました');
           }
         } catch (error) {
+          qrDisplay.innerHTML += '<p>❌ エラー発生: ' + error.message + '<br>スタック: ' + error.stack + '</p>';
           alert('QRコード生成エラー: ' + error.message);
+        } finally {
+          regenInFlight = false;
+          qrDisplay.innerHTML += '<p>🏁 再生成処理完了</p>';
         }
+      }
+
+      // サーバ反映を待つ関数
+      async function waitUntilServerUpdated(expectedExpMs, timeoutMs = 5000) {
+        return new Promise(async (resolve, reject) => {
+          const qrDisplay = document.getElementById('qr-code-display');
+          qrDisplay.innerHTML += '<p>🔄 waitUntilServerUpdated開始<br>タイムアウト: ' + timeoutMs + 'ms<br>期待値: ' + new Date(expectedExpMs).toLocaleString('ja-JP') + '</p>';
+          
+          const timeout = setTimeout(() => {
+            qrDisplay.innerHTML += '<p>⏰ タイムアウト発生</p>';
+            reject(new Error('タイムアウト'));
+          }, timeoutMs);
+          
+          const { db } = window.Firebase;
+          const { doc, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          
+          qrDisplay.innerHTML += '<p>👂 Firestore監視開始...</p>';
+          
+          const unsubscribe = onSnapshot(doc(db, 'staffs', window.Firebase.auth.currentUser.uid), 
+            { includeMetadataChanges: true }, 
+            (snap) => {
+              const isFromCache = snap.metadata.fromCache;
+              qrDisplay.innerHTML += '<p>📡 スナップショット受信<br>fromCache: ' + isFromCache + '<br>時刻: ' + new Date().toLocaleString('ja-JP') + '</p>';
+              
+              // キャッシュの瞬間は無視（サーバ反映のみ見る）
+              if (isFromCache) {
+                qrDisplay.innerHTML += '<p>💾 キャッシュデータ - スキップ</p>';
+                return;
+              }
+              
+              const data = snap.data();
+              const expMs = data?.qrExpiresAtMs || 
+                           (data?.qrExpiresAt?.toDate ? data.qrExpiresAt.toDate().getTime() : 0);
+              
+              qrDisplay.innerHTML += '<p>📊 データ比較<br>期待値: ' + new Date(expectedExpMs).toLocaleString('ja-JP') + '<br>実際値: ' + new Date(expMs).toLocaleString('ja-JP') + '<br>差分: ' + (expMs - expectedExpMs) + 'ms</p>';
+              
+              if (expMs >= expectedExpMs) {
+                qrDisplay.innerHTML += '<p>✅ 条件満足 - 完了</p>';
+                clearTimeout(timeout);
+                unsubscribe();
+                resolve();
+              } else {
+                qrDisplay.innerHTML += '<p>⏳ 条件未満足 - 継続監視</p>';
+              }
+            }
+          );
+        });
+      }
+
+      // 既存の関数名を保持（後方互換性）
+      window.generateNewStaffQR = maybeRegenerateStaffQR;
+
+      // デバッグ情報クリア関数
+      window.clearDebugInfo = function() {
+        const qrDisplay = document.getElementById('qr-code-display');
+        qrDisplay.innerHTML = '<p>🧹 デバッグ情報をクリアしました</p>';
       };
 
 

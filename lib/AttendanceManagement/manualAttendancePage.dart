@@ -1,6 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/AttendanceManagement/attendanceService.dart';
 
+/// 時刻を日本時間の文字列に変換するユーティリティ関数
+String formatToJST(String? timeString) {
+  if (timeString == null || timeString.isEmpty) return '不明';
+  
+  try {
+    // ISO 8601形式の時刻文字列をパース
+    final dateTime = DateTime.parse(timeString);
+    
+    // UTCからJST（+9時間）に変換
+    final jstDateTime = dateTime.toUtc().add(const Duration(hours: 9));
+    
+    // 日本時間形式でフォーマット
+    return '${jstDateTime.year}年${jstDateTime.month}月${jstDateTime.day}日 '
+           '${jstDateTime.hour.toString().padLeft(2, '0')}:'
+           '${jstDateTime.minute.toString().padLeft(2, '0')}';
+  } catch (e) {
+    // パースに失敗した場合は元の文字列を返す
+    return timeString;
+  }
+}
+
 class ManualAttendancePage extends StatefulWidget {
   final bool isClockInMode; // true: 出勤モード, false: 退勤モード
 
@@ -261,22 +282,14 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
                 ),
                 if (widget.isClockInMode && staff.shiftStart != null)
                   Text(
-                    'シフト開始: ${staff.shiftStart}',
+                    'シフト開始: ${formatToJST(staff.shiftStart)}',
                     style: TextStyle(
                       color: Colors.green[600],
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                if (!widget.isClockInMode && staff.clockIn != null)
-                  Text(
-                    '出勤時刻: ${staff.clockIn}',
-                    style: TextStyle(
-                      color: Colors.blue[600],
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+
               ],
             ),
             trailing: ElevatedButton(
@@ -333,9 +346,8 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
               if (staff.position != null)
                 Text('役職: ${staff.position}'),
               if (widget.isClockInMode && staff.shiftStart != null)
-                Text('シフト開始: ${staff.shiftStart}'),
-              if (!widget.isClockInMode && staff.clockIn != null)
-                Text('出勤時刻: ${staff.clockIn}'),
+                Text('シフト開始: ${formatToJST(staff.shiftStart)}'),
+
             ],
           ),
           actions: [
@@ -362,14 +374,46 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
     );
   }
 
-  // 勤怠処理の実行
-  void _processAttendance(StaffData staff) {
-    // TODO: 実際の勤怠処理を実装
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${staff.fullName}の${widget.isClockInMode ? '出勤' : '退勤'}処理は未実装です'),
-        backgroundColor: widget.isClockInMode ? Colors.green : Colors.red,
-      ),
-    );
-  }
+      // 勤怠処理の実行
+    Future<void> _processAttendance(StaffData staff) async {
+      try {
+        if (widget.isClockInMode) {
+          // 出勤処理
+          final result = await _attendanceService.createManualClockInRecord(
+            staff.uid,
+            staff.fullName,
+          );
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result.message),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          // 退勤処理
+          final result = await _attendanceService.updateManualClockOutRecord(
+            staff.attendanceDocId!,
+          );
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result.message),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        
+        // 処理完了後、スタッフリストを更新
+        await _loadStaffList();
+        
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
 }

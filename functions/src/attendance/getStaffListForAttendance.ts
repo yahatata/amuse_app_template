@@ -55,19 +55,30 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
         };
       });
 
-      // スタッフにシフト情報を追加
-      staffList = staffs.map(staff => {
-        const shift = shifts.find(s => s.staffId === staff.uid);
-        
-        return {
-          uid: staff.uid,
-          fullName: staff.fullName || '',
-          fullNameKana: staff.fullNameKana || '',
-          position: staff.position || 'スタッフ',
-          hasShiftToday: shift != null,
-          shiftStart: shift?.startTime || null,
-        };
-      });
+      // 当日出勤済みのスタッフを取得
+      const attendancesSnapshot = await admin.firestore()
+        .collection('attendances')
+        .where('date', '==', todayString)
+        .where('clockOut', '==', null)
+        .get();
+
+      const clockedInStaffIds = attendancesSnapshot.docs.map(doc => doc.data().staffId);
+
+      // スタッフにシフト情報を追加（出勤済みは除外）
+      staffList = staffs
+        .filter(staff => !clockedInStaffIds.includes(staff.uid)) // 出勤済みを除外
+        .map(staff => {
+          const shift = shifts.find(s => s.staffId === staff.uid);
+          
+          return {
+            uid: staff.uid,
+            fullName: staff.fullName || '',
+            fullNameKana: staff.fullNameKana || '',
+            position: staff.position || 'スタッフ',
+            hasShiftToday: shift != null,
+            shiftStart: shift?.startTime || null,
+          };
+        });
 
       // 当日シフトがあるスタッフを上に、残りをかな順でソート
       staffList.sort((a, b) => {
@@ -129,21 +140,7 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
       staffList.sort((a, b) => a.fullNameKana.localeCompare(b.fullNameKana));
     }
 
-    // デバッグログ
-    console.log('=== getStaffListForAttendance Debug Log ===');
-    console.log('isClockInMode:', isClockInMode);
-    console.log('todayString:', todayString);
-    console.log('staffList length:', staffList.length);
-    console.log('staffList sample:', JSON.stringify(staffList[0], null, 2));
-    console.log('staffList types:', staffList.map(item => ({
-      uid: typeof item.uid,
-      fullName: typeof item.fullName,
-      fullNameKana: typeof item.fullNameKana,
-      position: typeof item.position,
-      hasShiftToday: typeof item.hasShiftToday,
-      shiftStart: typeof item.shiftStart,
-    })));
-    console.log('=== End Debug Log ===');
+
 
     return {
       success: true,

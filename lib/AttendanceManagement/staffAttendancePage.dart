@@ -169,13 +169,47 @@ class _StaffAttendancePageState extends State<StaffAttendancePage> {
 
   // 手動打刻ページへの遷移
   void _navigateToManualAttendance() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ManualAttendancePage(
-          isClockInMode: true, // デフォルトで出勤モード
-        ),
-      ),
+    // 出勤・退勤モード選択ダイアログを表示
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('手動打刻モード選択'),
+          content: const Text('出勤と退勤のどちらを実行しますか？'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // 出勤モードで遷移
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ManualAttendancePage(
+                      isClockInMode: true,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('出勤'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // 退勤モードで遷移
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ManualAttendancePage(
+                      isClockInMode: false,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('退勤'),
+            ),
+          ],
+        );
+      },
     );
   }
 }
