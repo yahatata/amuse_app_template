@@ -6,3 +6,4 @@ export { approveShift } from "./approveShift";
 export { rejectShift } from "./rejectShift";
 export { autoCleanupRejectedShifts } from "./autoCleanupRejectedShifts";
 export { scheduledCleanup } from "./scheduledCleanup";
+export { createStaffAccount } from "./createStaffAccount";

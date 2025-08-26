@@ -28,3 +28,5 @@ export * from "./tournamentBlind";
 export * from "./tournamentTemplate";
 // スタッフ関連関数
 export * from "./staff";
+// 勤怠管理関連関数
+export * from "./attendance";

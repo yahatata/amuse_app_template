@@ -74,24 +74,27 @@ export const generateQRCode = onCall(
       const qrData = generateQRData(uid, loginId, type);
       const qrCodeImage = await generateQRImage(qrData);
       // 10分後に期限切れ
-      const expiresAt = Date.now() + (10 * 60 * 1000);
+      const expiresAt = qrData.timestamp + (10 * 60 * 1000);
 
       // QRコードをStorageに保存
       const qrCodeUrl = await saveQRCodeToStorage(uid, qrCodeImage, type);
 
-      // ドキュメントのQRコード情報を更新
+      // ドキュメントのQRコード情報を更新（ユーザー側と同じシンプルな処理）
       console.log(`Firestore更新開始: ${collectionName}/${uid}`);
       console.log(`更新データ: qrCodeUrl=${qrCodeUrl}, qrExpiresAt=${new Date(expiresAt)}`);
       
       try {
+        // ユーザー側と同じシンプルな更新処理
         await admin.firestore()
           .collection(collectionName)
           .doc(uid)
           .update({
             qrCodeUrl: qrCodeUrl,
-            qrExpiresAt: new Date(expiresAt),
+            qrExpiresAt: admin.firestore.Timestamp.fromDate(new Date(expiresAt)),
           });
+        
         console.log(`Firestore更新成功: ${collectionName}/${uid}`);
+        
       } catch (updateError) {
         console.error(`Firestore更新エラー: ${collectionName}/${uid}`, updateError);
         const errorMessage = updateError instanceof Error ? updateError.message : String(updateError);
