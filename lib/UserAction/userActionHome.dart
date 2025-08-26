@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'orderFromUserActionPop.dart';
+import 'bustAndReentryPop.dart';
 
 /// When: ユーザー行をタップしてアクションを選択したいとき
 /// Where: StayingUsersListPage などユーザー一覧系の画面
@@ -112,6 +113,11 @@ List<_UserActionItem> _buildActionsForSource({
   // stayingUsersListPage からの呼び出し時は 8 ブロック（A〜H）を表示（仮）
   if (sourcePage == 'StayingUsersListPage') {
     return _buildActionsFromBlocks(blockIds: const ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], user: user);
+  }
+
+  // tableHomeInScheduledTournament からの呼び出し時は 4 ブロックを表示
+  if (sourcePage == 'tableHomeInScheduledTournament') {
+    return _buildActionsFromBlocks(blockIds: const ['A', 'I', 'J', 'K'], user: user);
   }
 
   // 将来: 他の呼び出し元ごとのメニュー構成はここに追加する
@@ -241,6 +247,58 @@ _UserActionItem _buildBlockH(Map<String, dynamic> user) => _UserActionItem(
       },
     );
 
+// 塊I: Bust＆リエントリー
+_UserActionItem _buildBlockI(Map<String, dynamic> user) => _UserActionItem(
+      label: 'Bust＆リエントリー',
+      icon: Icons.refresh,
+      color: Colors.orange,
+      onSelected: (ctx, u) {
+        // トーナメント情報を取得（userから）
+        final tournamentId = u['tournamentId'] as String?;
+        final tableId = u['tableId'] as String?;
+        final seatNumber = u['seatNumber'] as int?;
+        
+        if (tournamentId == null || tableId == null || seatNumber == null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('トーナメント情報が不足しています')),
+          );
+          return;
+        }
+        
+        showBustAndReentryDialog(
+          context: ctx,
+          user: u,
+          tournamentId: tournamentId,
+          tableId: tableId,
+          seatNumber: seatNumber,
+        );
+      },
+    );
+
+// 塊J: Bust&退席
+_UserActionItem _buildBlockJ(Map<String, dynamic> user) => _UserActionItem(
+      label: 'Bust&退席',
+      icon: Icons.exit_to_app,
+      color: Colors.red,
+      onSelected: (ctx, u) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          const SnackBar(content: Text('Bust&退席（仮）')),
+        );
+      },
+    );
+
+// 塊K: Addon
+_UserActionItem _buildBlockK(Map<String, dynamic> user) => _UserActionItem(
+      label: 'Addon',
+      icon: Icons.add_circle_outline,
+      color: Colors.green,
+      onSelected: (ctx, u) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          const SnackBar(content: Text('Addon（仮）')),
+        );
+      },
+    );
+
 final Map<String, UserActionBuilder> _blockRegistry = <String, UserActionBuilder>{
   // ブロックID → ビルダー
   'A': _buildBlockA, // 注文
@@ -251,6 +309,9 @@ final Map<String, UserActionBuilder> _blockRegistry = <String, UserActionBuilder
   'F': _buildBlockF, // 会計
   'G': _buildBlockG, // トーナメント
   'H': _buildBlockH, // プロフィール
+  'I': _buildBlockI, // Bust＆リエントリー
+  'J': _buildBlockJ, // Bust&退席
+  'K': _buildBlockK, // Addon
 };
 
 List<_UserActionItem> _buildActionsFromBlocks({
