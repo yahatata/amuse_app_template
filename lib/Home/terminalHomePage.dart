@@ -1,10 +1,12 @@
 import 'package:amuse_app_template/Home/stayingUsersListPage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/categorySelectPage.dart';
-import 'package:amuse_app_template/OrderView/MenuView/createMenuPage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/menuEditorListPage.dart';
 import 'package:amuse_app_template/Tournament/tournamentHomePage.dart';
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
 import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
+import 'package:amuse_app_template/Home/tournamentHomepage.dart';
+import 'package:amuse_app_template/Home/createTemporaryTablePage.dart';
+import 'package:amuse_app_template/Home/migrateToHybridStructurePage.dart';
 import 'package:flutter/material.dart';
 
 class terminalHomePage extends StatefulWidget {
@@ -27,9 +29,9 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: '注文画面', destination: const CategorySelectPage()),
       (label: '入店中user一覧', destination: const StayingUsersListPage()),
       (label: 'Tournament Home', destination: const TournamentHomePage()),
-      (label: 'Terminal機能 7', destination: const PlaceholderPage(title: 'Terminal機能 7')),
-      (label: 'Terminal機能 8', destination: const PlaceholderPage(title: 'Terminal機能 8')),
-      (label: 'Terminal機能 9', destination: const PlaceholderPage(title: 'Terminal機能 9')),
+      (label: 'スケジュール済みトーナメント', destination: const tournamentHomepage()),
+      (label: '一時テーブル作成', destination: const CreateTemporaryTablePage()),
+      (label: 'ハイブリッド形式移行', destination: const MigrateToHybridStructurePage()),
       (label: 'Terminal機能 10', destination: const PlaceholderPage(title: 'Terminal機能 10')),
     ];
 
