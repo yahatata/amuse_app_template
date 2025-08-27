@@ -1,4 +1,5 @@
 import 'package:amuse_app_template/Home/stayingUsersListPage.dart';
+import 'package:amuse_app_template/AttendanceManagement/staffAttendancePage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/categorySelectPage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/menuEditorListPage.dart';
 import 'package:amuse_app_template/Tournament/tournamentHomePage.dart';
@@ -32,7 +33,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: 'スケジュール済みトーナメント', destination: const tournamentHomepage()),
       (label: '一時テーブル作成', destination: const CreateTemporaryTablePage()),
       (label: 'ハイブリッド形式移行', destination: const MigrateToHybridStructurePage()),
-      (label: 'Terminal機能 10', destination: const PlaceholderPage(title: 'Terminal機能 10')),
+      (label: 'スタッフ打刻', destination: const StaffAttendancePage()),
     ];
 
     return Scaffold(

@@ -61,13 +61,13 @@ export const createUserAccount = onCall(
       // birthMonthDayを組み合わせて作成
       const birthMonthDay = birthMonth + birthDay;
 
-      // loginIDを自動生成（pokerName + birthMonthDay）
-      const loginID = pokerName + birthMonthDay;
+      // loginIdを自動生成（pokerName + birthMonthDay）
+      const loginId = pokerName + birthMonthDay;
 
       // QRコードデータを直接生成
       const {generateQRData, generateQRImage, saveQRCodeToStorage} =
         await import("../utils/qrCodeUtils");
-      const qrData = generateQRData(uid, loginID, "user");
+      const qrData = generateQRData(uid, loginId, "user");
       const qrCodeImage = await generateQRImage(qrData);
       const expiresAt = qrData.timestamp + (10 * 60 * 1000); // 10分に修正
 
@@ -84,7 +84,7 @@ export const createUserAccount = onCall(
           email: email,
           hashedPin: hashedPin,
           birthMonthDay: birthMonthDay,
-          loginID: loginID,
+          loginId: loginId,
           pointA: 0,
           pointB: 0,
           sideGameTip: 0,
@@ -96,7 +96,7 @@ export const createUserAccount = onCall(
           currentSeat: null,
           // QRコード情報を追加
           qrCodeUrl: qrCodeUrl,
-          qrExpiresAt: new Date(expiresAt),
+          qrExpiresAt: admin.firestore.Timestamp.fromDate(new Date(expiresAt)),
         });
 
       return {

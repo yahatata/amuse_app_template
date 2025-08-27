@@ -1,4 +1,5 @@
 import 'package:amuse_app_template/StaffDate/createStaffAccountPage.dart';
+import 'package:amuse_app_template/StaffDate/shiftApprovalPage.dart';
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 
@@ -24,7 +25,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final buttonHeight = (screenHeight - kToolbarHeight - 80) / 2.3;
 
     final List<({String label, Widget destination})> buttons = [
-      (label: 'Admin機能 1', destination: const PlaceholderPage(title: 'Admin機能 1')),
+      (label: 'シフト承認', destination: const ShiftApprovalPage()),
       (label: 'Admin機能 2', destination: const PlaceholderPage(title: 'Admin機能 2')),
       (label: 'Admin機能 3', destination: const PlaceholderPage(title: 'Admin機能 3')),
       (label: 'Admin機能 4', destination: const PlaceholderPage(title: 'Admin機能 4')),
