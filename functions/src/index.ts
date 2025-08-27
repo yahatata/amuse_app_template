@@ -30,3 +30,6 @@ export * from "./tournamentTemplate";
 export * from "./staff";
 // 勤怠管理関連関数
 export * from "./attendance";
+// スケジュール済みトーナメント関連関数
+export * from "./callables";
+

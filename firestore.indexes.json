@@ -1,5 +1,19 @@
 {
-"indexes": [
+  "indexes": [
+    {
+      "collectionGroup": "blindTemplates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isArchive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
     {
       "collectionGroup": "qrCodeHistory",
       "queryScope": "COLLECTION",
@@ -19,25 +33,43 @@
       ]
     },
     {
-      "collectionGroup": "todaysBills",
+      "collectionGroup": "scheduledTournaments",
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "userId",
+          "fieldPath": "isArchived",
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "createdAt",
+          "fieldPath": "startAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "scheduledTournaments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "storeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "startAt",
           "order": "DESCENDING"
         }
       ]
     },
     {
-      "collectionGroup": "blindTemplates",
+      "collectionGroup": "todaysBills",
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "isArchive",
+          "fieldPath": "userId",
           "order": "ASCENDING"
         },
         {
