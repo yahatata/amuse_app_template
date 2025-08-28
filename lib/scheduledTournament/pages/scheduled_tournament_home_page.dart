@@ -799,13 +799,60 @@ class _ScheduledTournamentHomePageState extends State<ScheduledTournamentHomePag
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(
-                                    '${data?['seatedCount'] ?? 0}人着席中',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.blue[700],
-                                      fontSize: 18,
-                                    ),
+                                  StreamBuilder<QuerySnapshot>(
+                                    stream: FirebaseFirestore.instance
+                                        .collection('scheduledTournaments')
+                                        .doc(widget.tournamentId)
+                                        .collection('tablesSeat')
+                                        .snapshots(),
+                                    builder: (context, seatedSnapshot) {
+                                      if (seatedSnapshot.hasError) {
+                                        return Text(
+                                          'エラー',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.red[700],
+                                            fontSize: 18,
+                                          ),
+                                        );
+                                      }
+
+                                      if (seatedSnapshot.connectionState == ConnectionState.waiting) {
+                                        return Text(
+                                          '...人着席中',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.blue[700],
+                                            fontSize: 18,
+                                          ),
+                                        );
+                                      }
+
+                                      final allDocs = seatedSnapshot.data?.docs ?? [];
+                                      // 'waiting'ドキュメントを除外
+                                      final tables = allDocs.where((doc) => doc.id != 'waiting').toList();
+                                      
+                                      int totalOccupiedSeats = 0;
+                                      for (final tableDoc in tables) {
+                                        final tableData = tableDoc.data() as Map<String, dynamic>?;
+                                        final seats = tableData?['seats'] as Map<String, dynamic>? ?? {};
+                                        
+                                        // nullでないseatXXUserIdフィールドの数をカウント
+                                        final occupiedSeats = seats.entries
+                                            .where((entry) => entry.key.endsWith('UserId') && entry.value != null)
+                                            .length;
+                                        totalOccupiedSeats += occupiedSeats;
+                                      }
+
+                                      return Text(
+                                        '${totalOccupiedSeats}人着席中',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.blue[700],
+                                          fontSize: 18,
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ],
                               ),

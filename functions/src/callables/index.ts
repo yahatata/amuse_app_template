@@ -9,3 +9,6 @@ export { migrateWaitingDataCallable } from './migrateWaitingDataCallable';
 export { createTemporaryTable } from './createTemporaryTable';
 export { migrateToHybridStructureCallable } from './migrateToHybridStructureCallable';
 export { bustAndReentry } from './bustAndReentry';
+export { bustAndExit } from './bustAndExit';
+export { addon } from './addon';
+export { bulkAddon } from './bulkAddon';
