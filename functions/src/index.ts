@@ -26,6 +26,10 @@ export * from "./utils";
 export * from "./tournamentBlind";
 // トーナメントテンプレート関連関数
 export * from "./tournamentTemplate";
-
+// スタッフ関連関数
+export * from "./staff";
+// 勤怠管理関連関数
+export * from "./attendance";
 // スケジュール済みトーナメント関連関数
 export * from "./callables";
+

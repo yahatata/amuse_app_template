@@ -73,36 +73,76 @@ export const generateQRCode = onCall(
       // QRコードデータを生成
       const qrData = generateQRData(uid, loginId, type);
       const qrCodeImage = await generateQRImage(qrData);
-      // 10分後に期限切れ
-      const expiresAt = Date.now() + (10 * 60 * 1000);
+      
+      // 期限は関数側で決める（ms基準）
+      const nowMs = Date.now();
+      let expiresAtMs = nowMs + 10 * 60 * 1000; // 10分
+      const expiresAtTs = admin.firestore.Timestamp.fromMillis(expiresAtMs);
+
 
       // QRコードをStorageに保存
       const qrCodeUrl = await saveQRCodeToStorage(uid, qrCodeImage, type);
 
-      // ドキュメントのQRコード情報を更新
-      console.log(`Firestore更新開始: ${collectionName}/${uid}`);
-      console.log(`更新データ: qrCodeUrl=${qrCodeUrl}, qrExpiresAt=${new Date(expiresAt)}`);
+
+      // トランザクションで最大値ルールを適用
+      console.log(`=== Firestore更新処理開始（トランザクション） ===`);
+      console.log(`コレクション: ${collectionName}`);
+      console.log(`ドキュメントID: ${uid}`);
+      console.log(`提案期限: ${expiresAtMs} (${new Date(expiresAtMs)})`);
+      
+      const db = admin.firestore();
+      const ref = db.collection(collectionName).doc(uid);
       
       try {
-        await admin.firestore()
-          .collection(collectionName)
-          .doc(uid)
-          .update({
+        const finalExpMs = await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          const current = (snap.get('qrExpiresAtMs') as number) || 0;
+          
+          console.log(`トランザクション内 - 現在の期限: ${current} (${new Date(current)})`);
+          console.log(`トランザクション内 - 提案期限: ${expiresAtMs} (${new Date(expiresAtMs)})`);
+          
+          // 既存の期限の方が新しければ、何もしない
+          if (current >= expiresAtMs) {
+            console.log(`既存の期限の方が新しいため、更新をスキップ: ${current} >= ${expiresAtMs}`);
+            return current;
+          }
+          
+          // 新しい値で更新
+          const updateData = {
             qrCodeUrl: qrCodeUrl,
-            qrExpiresAt: new Date(expiresAt),
-          });
-        console.log(`Firestore更新成功: ${collectionName}/${uid}`);
-      } catch (updateError) {
-        console.error(`Firestore更新エラー: ${collectionName}/${uid}`, updateError);
-        const errorMessage = updateError instanceof Error ? updateError.message : String(updateError);
-        throw new Error(`Firestore更新に失敗しました: ${errorMessage}`);
+            qrExpiresAt: expiresAtTs,
+            qrExpiresAtMs: expiresAtMs,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          };
+          
+          console.log(`新しい値で更新実行:`, JSON.stringify(updateData, null, 2));
+          tx.update(ref, updateData);
+          
+          return expiresAtMs;
+        });
+        
+        console.log(`✅ トランザクション完了 - 最終期限: ${finalExpMs} (${new Date(finalExpMs)})`);
+        console.log(`=== Firestore更新処理完了 ===`);
+        
+        // 最終的な期限を保存
+        expiresAtMs = finalExpMs;
+        
+      } catch (transactionError: unknown) {
+        console.error(`❌ トランザクションエラー: ${collectionName}/${uid}`);
+        console.error(`エラーの詳細:`, transactionError);
+        console.error(`エラータイプ:`, transactionError instanceof Error ? transactionError.constructor.name : 'Unknown');
+        console.error(`エラーメッセージ:`, transactionError instanceof Error ? transactionError.message : 'Unknown error');
+        console.error(`エラースタック:`, transactionError instanceof Error ? transactionError.stack : 'No stack trace');
+        
+        const errorMessage = transactionError instanceof Error ? transactionError.message : String(transactionError);
+        throw new Error(`トランザクション処理に失敗しました: ${errorMessage}`);
       }
 
       return {
         qrCode: qrCodeImage,
         qrCodeUrl: qrCodeUrl,
         data: qrData,
-        expiresAt,
+        expiresAt: expiresAtMs,
       };
     } catch (error) {
       console.error("QRコード生成エラー:", error);
