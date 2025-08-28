@@ -37,11 +37,19 @@ abstract class ScheduledTournamentService {
     required int seatNumber,
   });
   
-  Future<Map<String, dynamic>> reseatAllPlayers({
+    Future<Map<String, dynamic>> reseatAllPlayers({
     required String tournamentId,
     required List<Map<String, dynamic>> playerAssignments,
   });
-  
+
+  // Bust&退席
+  Future<Map<String, dynamic>> bustAndExit({
+    required String tournamentId,
+    required String userId,
+    required String tableId,
+    required int seatNumber,
+  });
+
   // トーナメント制御
   Future<bool> startTournament(String tournamentId);
   Future<bool> pauseTournament(String tournamentId);
@@ -212,6 +220,30 @@ class ScheduledTournamentServiceImpl implements ScheduledTournamentService {
       return response;
     } catch (e) {
       throw Exception('全員リシートに失敗しました: $e');
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> bustAndExit({
+    required String tournamentId,
+    required String userId,
+    required String tableId,
+    required int seatNumber,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable('bustAndExit');
+      
+      final result = await callable.call({
+        'tournamentId': tournamentId,
+        'userId': userId,
+        'tableId': tableId,
+        'seatNumber': seatNumber,
+      });
+
+      final response = result.data as Map<String, dynamic>;
+      return response;
+    } catch (e) {
+      throw Exception('Bust&退席に失敗しました: $e');
     }
   }
 
@@ -394,6 +426,25 @@ class MockScheduledTournamentService implements ScheduledTournamentService {
       'success': true,
       'playerCount': playerAssignments.length,
       'message': 'モック全員リシートが完了しました',
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> bustAndExit({
+    required String tournamentId,
+    required String userId,
+    required String tableId,
+    required int seatNumber,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 600));
+    
+    // Mock response
+    return {
+      'success': true,
+      'userId': userId,
+      'tableId': tableId,
+      'seatNumber': seatNumber,
+      'message': 'モックBust&退席が完了しました',
     };
   }
 

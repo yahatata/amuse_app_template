@@ -79,8 +79,10 @@ export const generateQRCode = onCall(
       let expiresAtMs = nowMs + 10 * 60 * 1000; // 10分
       const expiresAtTs = admin.firestore.Timestamp.fromMillis(expiresAtMs);
 
+
       // QRコードをStorageに保存
       const qrCodeUrl = await saveQRCodeToStorage(uid, qrCodeImage, type);
+
 
       // トランザクションで最大値ルールを適用
       console.log(`=== Firestore更新処理開始（トランザクション） ===`);

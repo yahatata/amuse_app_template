@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async'; // For TimeoutException
 
 /// Bust＆リエントリー確認ダイアログ
 Future<void> showBustAndReentryDialog({
@@ -19,6 +20,8 @@ Future<void> showBustAndReentryDialog({
     );
     return;
   }
+  
+
 
   // トーナメント情報を取得
   Map<String, dynamic>? tournamentData;
@@ -53,16 +56,10 @@ Future<void> showBustAndReentryDialog({
       final tournaments = todayBillsData['tournaments'] as Map<String, dynamic>? ?? {};
       userTournamentData = tournaments[tournamentId];
       
-      // リエントリー回数を計算
+      // リエントリー回数を取得
       if (userTournamentData != null) {
-        // 既存のトーナメント情報からリエントリー回数を計算
-        if (userTournamentData['reentryFee'] != null) {
-          // リエントリーフィーが設定されている場合、これはリエントリー
-          currentReentryCount = 1;
-        } else if (userTournamentData['entryFee'] != null) {
-          // エントリーフィーが設定されている場合、これは初回エントリー
-          currentReentryCount = 0;
-        }
+        // todaysBillsのtournaments内の対象トーナメントのreentryCountを取得
+        currentReentryCount = userTournamentData['reentryCount'] as int? ?? 0;
       }
     }
     
@@ -127,7 +124,10 @@ Future<void> showBustAndReentryDialog({
               currentReentryCount < (tournamentData!['snapshot']['maxReentriesPerPlayer'] as int))
             ElevatedButton(
               onPressed: () async {
-                // 先にCloud Functionを実行
+                // 先に確認ダイアログを閉じる
+                Navigator.of(context).pop();
+                
+                // Cloud Functionを実行
                 await _executeBustAndReentry(
                   context: context,
                   userId: userId,
@@ -137,12 +137,11 @@ Future<void> showBustAndReentryDialog({
                   seatNumber: seatNumber,
                   tournamentData: tournamentData!,
                 );
-                
-                // 処理完了後にダイアログを閉じる
-                if (context.mounted) {
-                  Navigator.of(context).pop();
-                }
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
               child: const Text('確定'),
             ),
         ],
@@ -161,7 +160,41 @@ Future<void> _executeBustAndReentry({
   required int seatNumber,
   required Map<String, dynamic> tournamentData,
 }) async {
+  // Overlayを使用したローディング表示
+  OverlayEntry? loadingOverlay;
+  
   try {
+    // ローディング表示
+    loadingOverlay = OverlayEntry(
+      builder: (context) => Material(
+        color: Colors.black54,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 16),
+                Text('Bust＆リエントリー処理中...'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    
+    // Overlayに追加
+    Overlay.of(context).insert(loadingOverlay);
+    
     print('=== Bust＆リエントリー処理開始 ===');
     print('userId: $userId');
     print('pokerName: $pokerName');
@@ -172,66 +205,109 @@ Future<void> _executeBustAndReentry({
     final functions = FirebaseFunctions.instance;
     final callable = functions.httpsCallable('bustAndReentry');
     
+    // Cloud Function呼び出し（タイムアウト付き）
+    print('=== Cloud Function呼び出し実行中 ===');
     final result = await callable.call({
       'tournamentId': tournamentId,
       'userId': userId,
       'tableId': tableId,
       'seatNumber': seatNumber,
-    });
+    }).timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        print('=== タイムアウト発生 ===');
+        throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました');
+      },
+    );
+    print('=== Cloud Function呼び出し完了 ===');
 
     print('=== Cloud Function応答 ===');
     print('result.data: ${result.data}');
 
-    final response = result.data as Map<String, dynamic>;
+    // 結果を確認
+    final data = result.data as Map<String, dynamic>;
     
     print('=== レスポンス解析 ===');
-    print('response: $response');
-    print('success: ${response['success']}');
+    print('response: $data');
+    print('success: ${data['success']}');
     
-    if (response['success'] == true) {
-      print('=== 成功処理開始 ===');
+    if (data['success'] == true) {
+      // 成功メッセージを表示
       if (context.mounted) {
-        print('context.mounted: true');
-        // 成功メッセージのポップアップを表示
-        await showDialog<void>(
+        showDialog(
           context: context,
-          barrierDismissible: true,
           builder: (BuildContext context) {
-            print('=== ダイアログビルダー実行 ===');
             return AlertDialog(
-              title: const Text('リエントリー完了'),
+              title: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green),
+                  const SizedBox(width: 8),
+                  const Text('完了'),
+                ],
+              ),
               content: Text('$pokerName様のリエントリー処理が完了しました'),
               actions: [
-                TextButton(
-                  onPressed: () {
-                    print('=== OKボタン押下 ===');
-                    Navigator.of(context).pop();
-                  },
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
                   child: const Text('OK'),
                 ),
               ],
             );
           },
         );
-        print('=== ダイアログ表示完了 ===');
-      } else {
-        print('context.mounted: false');
       }
     } else {
-      print('=== エラー処理 ===');
-      print('error: ${response['error']}');
-      throw Exception(response['error'] ?? '不明なエラー');
+      // エラーメッセージを表示
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('リエントリー処理に失敗しました: ${data['error'] ?? '不明なエラー'}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   } catch (e) {
-    print('=== 例外処理 ===');
+    print('=== Bust＆リエントリー処理エラー ===');
     print('error: $e');
+    
+    // エラーメッセージを表示
     if (context.mounted) {
+      String errorMessage = 'リエントリー処理に失敗しました';
+      
+      if (e is TimeoutException) {
+        errorMessage = '処理がタイムアウトしました。しばらく待ってから再試行してください。';
+      } else if (e.toString().contains('network')) {
+        errorMessage = 'ネットワークエラーが発生しました。接続を確認してください。';
+      } else if (e.toString().contains('permission')) {
+        errorMessage = '権限が不足しています。管理者に連絡してください。';
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('リエントリー処理に失敗しました: $e'),
+          content: Text(errorMessage),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: '詳細',
+            textColor: Colors.white,
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('詳細エラー: $e'),
+                  backgroundColor: Colors.red.shade800,
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            },
+          ),
         ),
       );
+    }
+  } finally {
+    // ローディングを確実に閉じる
+    if (loadingOverlay != null) {
+      loadingOverlay.remove();
     }
   }
 }
