@@ -18,6 +18,9 @@ import {generateQRData, generateQRImage, saveQRCodeToStorage} from "../utils/qrC
  */
 export const generateQRCode = onCall(
   async (request): Promise<GenerateQRResponse> => {
+    // リビジョン識別ログ
+    console.log('REV', process.env.K_SERVICE, process.env.K_REVISION, 'uid', request.auth?.uid, 'type', request.data?.type);
+    
     // 認証チェック
     if (!request.auth) {
       throw new Error("Authentication required.");
@@ -99,9 +102,16 @@ export const generateQRCode = onCall(
           console.log(`トランザクション内 - 現在の期限: ${current} (${new Date(current)})`);
           console.log(`トランザクション内 - 提案期限: ${expiresAtMs} (${new Date(expiresAtMs)})`);
           
-          // 既存の期限の方が新しければ、何もしない
+          // 既存の期限の方が新しければ、期限は据え置き、ただしURLは更新
           if (current >= expiresAtMs) {
-            console.log(`既存の期限の方が新しいため、更新をスキップ: ${current} >= ${expiresAtMs}`);
+            console.log(`既存の期限の方が新しいため、期限は据え置き、URLのみ更新: ${current} >= ${expiresAtMs}`);
+            
+            // 期限は据え置き、ただしURLは更新（UIが最新URLを見るように）
+            tx.update(ref, {
+              qrCodeUrl: qrCodeUrl,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            
             return current;
           }
           
