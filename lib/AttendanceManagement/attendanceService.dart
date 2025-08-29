@@ -333,6 +333,73 @@ class AttendanceService {
         return Exception('エラーが発生しました: ${e.message}');
     }
   }
+
+  // 全スタッフの勤怠記録を取得
+  static Future<Map<String, dynamic>> getAllStaffAttendance({
+    required int month,
+    required int year,
+    required int startDay,
+    required int endDay,
+  }) async {
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable('getAllStaffAttendance');
+      final result = await callable.call({
+        'month': month,
+        'year': year,
+        'startDay': startDay,
+        'endDay': endDay,
+      });
+
+      return result.data;
+    } catch (e) {
+      print('勤怠記録取得エラー: $e');
+      throw Exception('勤怠記録の取得に失敗しました: $e');
+    }
+  }
+
+  // 勤務時間を計算（時間:分形式）
+  static String calculateWorkHours(DateTime? clockIn, DateTime? clockOut) {
+    if (clockIn == null || clockOut == null) return '0時間0分';
+    
+    final difference = clockOut.difference(clockIn);
+    final hours = difference.inHours;
+    final minutes = difference.inMinutes % 60;
+    
+    if (hours > 0 && minutes > 0) {
+      return '${hours}時間${minutes}分';
+    } else if (hours > 0) {
+      return '${hours}時間';
+    } else {
+      return '${minutes}分';
+    }
+  }
+
+  // 深夜時間を計算（時間:分形式）
+  static String calculateNightTimeHours(double nightTimeHours) {
+    if (nightTimeHours <= 0) return '0時間0分';
+    
+    final hours = nightTimeHours.floor();
+    final minutes = ((nightTimeHours - hours) * 60).round();
+    
+    if (hours > 0 && minutes > 0) {
+      return '${hours}時間${minutes}分';
+    } else if (hours > 0) {
+      return '${hours}時間';
+    } else {
+      return '${minutes}分';
+    }
+  }
+
+  // 日付を日本語形式でフォーマット
+  static String formatDate(DateTime date) {
+    final weekdays = ['月', '火', '水', '木', '金', '土', '日'];
+    return '${date.month}月${date.day}日 (${weekdays[date.weekday - 1]})';
+  }
+
+  // 時刻を日本語形式でフォーマット
+  static String formatTime(DateTime time) {
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  }
 }
 
 /// 出勤・退勤判定結果

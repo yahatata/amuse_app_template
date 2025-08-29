@@ -659,10 +659,12 @@
           
           qrDisplay.innerHTML = '<p>Firebase認証確認済み<br>UID: ' + currentUser.uid + '<br>LiffFirebase UID: ' + window.LiffFirebase.user.uid + '</p>';
           
-          // ユーザーデータからQRコードURLを取得
+          // ユーザーデータからQRコードURLを取得（更新直後は必ずサーバーから取得）
           const { db } = window.Firebase;
-          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          const { doc, getDoc, getDocFromServer } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          
+          // QRコード更新直後は必ずサーバーから取得（キャッシュを避ける）
+          const userDoc = await getDocFromServer(doc(db, 'users', currentUser.uid));
           
           if (userDoc.exists()) {
             const userData = userDoc.data();

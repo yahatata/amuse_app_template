@@ -106,6 +106,8 @@
         margin: 0;
         padding: 0;
       }
+
+
     </style>
 </head>
 <body>
@@ -197,7 +199,7 @@
               </select>
             </div>
             <small style="color: #666; font-size: 0.9rem; margin-top: 5px; display: block;">月と日を選択してください</small>
-          </div>
+      </div>
 
       <div class="form-group">
         <label for="email">メールアドレス</label>
@@ -229,6 +231,88 @@
           <button class="btn" onclick="generateNewStaffQR()">新しいQRを生成・更新</button>
           <button class="btn secondary-btn" onclick="showStaffHomePage()">ホームに戻る</button>
         </div>
+      </div>
+
+      <!-- 勤怠管理画面 -->
+      <div id="attendance-page" class="page attendance-page flexible-container-center" style="display: none;">
+        <h1>勤怠管理</h1>
+        
+        <!-- 月選択 -->
+        <div class="month-selector">
+          <button class="btn secondary-btn month-btn" id="previous-month-btn">← 前月</button>
+          <span id="current-month-display" class="month-display">2025年8月</span>
+          <button class="btn secondary-btn month-btn" id="next-month-btn">次月 →</button>
+        </div>
+        
+        <!-- カレンダー表示 -->
+        <div class="calendar-container flexible-container-flex">
+          <div id="attendance-calendar" class="calendar-grid flexible-container-flex">
+            <!-- カレンダーが動的に生成される -->
+          </div>
+        </div>
+        
+        <!-- 勤怠記録表示エリア -->
+        <div id="attendance-details" class="attendance-details" style="display: none;">
+          <h3 id="selected-date-title">選択された日付の勤怠記録</h3>
+          
+          <!-- 勤怠詳細表示エリア -->
+          <div id="attendance-cards" class="attendance-cards">
+            <!-- 勤怠記録カードが表示される -->
+          </div>
+          
+          <!-- 修正申請フォーム（初期は非表示） -->
+          <div id="correction-form-container" class="correction-form-container" style="display: none;">
+            <h4>勤怠修正申請</h4>
+            <form id="correction-form" class="correction-form">
+
+              
+              <div class="form-group">
+                <label for="correction-type">修正種別</label>
+                <select id="correction-type" required>
+                  <option value="">選択してください</option>
+                  <option value="clockIn">出勤時刻の修正</option>
+                  <option value="clockOut">退勤時刻の修正</option>
+                  <option value="both">出勤・退勤時刻の修正</option>
+                  <option value="other">その他の修正</option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label for="current-time">現在の記録</label>
+                <div id="current-time-display" class="current-time-display">
+                  <!-- 現在の記録がここに表示される -->
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label for="new-clockin">新しい出勤時刻</label>
+                <input type="time" id="new-clockin">
+              </div>
+              
+              <div class="form-group">
+                <label for="new-clockout">新しい退勤時刻</label>
+                <input type="time" id="new-clockout">
+              </div>
+              
+              <div class="form-group">
+                <label for="correction-reason">修正理由</label>
+                <textarea id="correction-reason" rows="3" placeholder="修正が必要な理由を記入してください" required></textarea>
+              </div>
+              
+              <div class="form-actions">
+                <button type="button" class="btn secondary-btn" id="cancel-correction-btn">キャンセル</button>
+                <button type="submit" class="btn primary-btn">申請を送信</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        
+        <!-- アクションボタン -->
+        <div class="attendance-actions">
+          <button class="btn secondary-btn" onclick="showStaffHomePage()">ホームに戻る</button>
+        </div>
+        
+
       </div>
 
       <!-- シフト管理画面 -->
@@ -270,10 +354,10 @@
                     </select>
                     <select id="shift-start-minute" required style="width: 45%; margin-left: 5%; height: 40px; font-size: 16px; padding: 8px;">
                       <option value="">分</option>
-                    </select>
+        </select>
                   </div>
-                </div>
-                
+      </div>
+
                 <div class="form-group flexible-container">
                   <label>終了時刻</label>
                   <div class="custom-time-selector">
@@ -282,11 +366,11 @@
                     </select>
                     <select id="shift-end-minute" required style="width: 45%; margin-left: 5%; height: 40px; font-size: 16px; padding: 8px;">
                       <option value="">分</option>
-                    </select>
+        </select>
                   </div>
                 </div>
-            </div>
-            
+      </div>
+
             <button id="add-shift-btn" class="btn">シフトを追加</button>
           </div>
         </div>
@@ -378,6 +462,7 @@
         registrationPageEl.style.display = 'none';
         qrPageEl.style.display = 'none';
         shiftPageEl.style.display = 'none';
+        document.getElementById('attendance-page').style.display = 'none';
         
         // 指定されたページを表示
         pageElement.style.display = 'block';
@@ -387,6 +472,7 @@
     registrationPageEl.classList.remove('active');
         qrPageEl.classList.remove('active');
         shiftPageEl.classList.remove('active');
+        document.getElementById('attendance-page').classList.remove('active');
     pageElement.classList.add('active');
   }
 
@@ -578,10 +664,12 @@
             return;
           }
           
-          // スタッフデータからQRコードURLを取得
+          // スタッフデータからQRコードURLを取得（更新直後は必ずサーバーから取得）
           const { db } = window.Firebase;
-          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          const staffDoc = await getDoc(doc(db, 'staffs', currentUser.uid));
+          const { doc, getDoc, getDocFromServer } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          
+          // QRコード更新直後は必ずサーバーから取得（キャッシュを避ける）
+          const staffDoc = await getDocFromServer(doc(db, 'staffs', currentUser.uid));
           
           if (staffDoc.exists()) {
             const staffData = staffDoc.data();
@@ -1343,9 +1431,697 @@
 
       });
 
+      // 勤怠管理ページを表示
       window.openAttendanceManagement = () => {
-        console.log('勤怠管理機能は今後実装予定です');
+        showPage(document.getElementById('attendance-page'));
+        initializeAttendancePage();
       };
+
+      // 勤怠管理ページの初期化
+      function initializeAttendancePage() {
+        const currentDate = new Date();
+        window.currentMonth = currentDate.getMonth();
+        window.currentYear = currentDate.getFullYear();
+        updateMonthDisplay();
+        generateAttendanceCalendar();
+        loadAttendanceData();
+        
+                  // 月選択ボタンのイベントリスナーを設定
+          setupMonthButtons();
+          
+          // 勤怠修正申請フォームの送信イベントを設定
+          setupCorrectionForm();
+          
+          // 修正申請フォームのキャンセルボタンのイベントリスナーを設定
+          setupCorrectionFormButtons();
+      }
+
+
+
+      // 勤怠カレンダーを生成
+      function generateAttendanceCalendar() {
+        const calendar = document.getElementById('attendance-calendar');
+        const firstDay = new Date(window.currentYear, window.currentMonth, 1);
+        const lastDay = new Date(window.currentYear, window.currentMonth + 1, 0);
+        const startDate = new Date(firstDay);
+        startDate.setDate(startDate.getDate() - firstDay.getDay());
+        
+        // カレンダーHTMLを生成
+        let html = '<div class="calendar-header">';
+        html += '<h3>' + window.currentYear + '年' + (window.currentMonth + 1) + '月</h3>';
+        html += '</div>';
+        
+        html += '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
+        const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+        weekdays.forEach(day => {
+          html += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">' + day + '</div>';
+        });
+        html += '</div>';
+        
+        html += '<div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
+        
+        // 前月の日付を埋める
+        for (let i = 0; i < firstDay.getDay(); i++) {
+          html += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
+        }
+        
+        // 当月の日付を表示
+        for (let day = 1; day <= lastDay.getDate(); day++) {
+          // 日付を文字列形式で生成（タイムゾーンを考慮）
+          const year = window.currentYear;
+          const month = window.currentMonth + 1;
+          const dateString = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+          
+          // 今日の日付かどうかを判定
+          const today = new Date();
+          const todayString = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
+          const isToday = dateString === todayString;
+          
+          let dayClass = 'calendar-day';
+          if (isToday) dayClass += ' today';
+          if (window.attendanceData && window.attendanceData[dateString]) {
+            dayClass += ' has-attendance';
+          }
+          
+          html += '<div class="' + dayClass + '" data-date="' + dateString + '" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;">';
+          html += '<span class="day-number">' + day + '</span>';
+          if (window.attendanceData && window.attendanceData[dateString]) {
+            html += '<span class="shift-indicator">●</span>';
+          }
+          html += '</div>';
+        }
+        
+        // 次月の日付を埋める（42マス目まで）
+        const totalDays = firstDay.getDay() + lastDay.getDate();
+        for (let i = totalDays; i < 42; i++) {
+          html += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
+        }
+        
+        html += '</div>';
+        calendar.innerHTML = html;
+        
+        // 各日付要素にイベントリスナーを追加
+        const dayElements = calendar.querySelectorAll('.calendar-day:not(.empty)');
+        
+        dayElements.forEach(dayElement => {
+          const date = dayElement.getAttribute('data-date');
+          
+          if (date) {
+            // タッチイベントとクリックイベントの両方に対応
+            dayElement.addEventListener('touchstart', (e) => {
+              e.preventDefault();
+              showAttendanceDetails(date);
+            }, { passive: false });
+            
+            dayElement.addEventListener('click', (e) => {
+              e.preventDefault();
+              showAttendanceDetails(date);
+            });
+          }
+        });
+      }
+
+      // 月選択ボタンのイベントリスナーを設定
+      function setupMonthButtons() {
+        const previousBtn = document.getElementById('previous-month-btn');
+        const nextBtn = document.getElementById('next-month-btn');
+        
+        if (previousBtn) {
+          // 前月ボタンにタッチイベントとクリックイベントを設定
+          previousBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            previousMonth();
+          }, { passive: false });
+          
+          previousBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            previousMonth();
+          });
+        }
+        
+        if (nextBtn) {
+          // 次月ボタンにタッチイベントとクリックイベントを設定
+          nextBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            nextMonth();
+          }, { passive: false });
+          
+          nextBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            nextMonth();
+          });
+        }
+      }
+
+      // 前月ボタンクリック処理
+      function previousMonth() {
+        if (window.currentMonth > 0) {
+          window.currentMonth--;
+        } else {
+          window.currentMonth = 11;
+          window.currentYear--;
+        }
+        updateMonthDisplay();
+        generateAttendanceCalendar();
+        loadAttendanceData();
+      }
+
+      // 次月ボタンクリック処理
+      function nextMonth() {
+        if (window.currentMonth < 11) {
+          window.currentMonth++;
+        } else {
+          window.currentMonth = 0;
+          window.currentYear++;
+        }
+        updateMonthDisplay();
+        generateAttendanceCalendar();
+        loadAttendanceData();
+      }
+
+      // 月表示を更新
+      function updateMonthDisplay() {
+        const monthDisplay = document.getElementById('current-month-display');
+        if (monthDisplay) {
+          monthDisplay.textContent = `${window.currentYear}年${window.currentMonth + 1}月`;
+        }
+      }
+
+      // 勤怠データを読み込み
+      async function loadAttendanceData() {
+        try {
+          const currentUser = window.Firebase.auth.currentUser;
+          if (!currentUser) return;
+          
+          // Cloud Functionを呼び出して勤怠データを取得
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getStaffAttendance = httpsCallable(functions, 'getStaffAttendance');
+          
+          console.log('勤怠データ取得開始:', {
+            staffId: currentUser.uid,
+            year: window.currentYear,
+            month: window.currentMonth + 1
+          });
+          
+          const result = await getStaffAttendance({
+            staffId: currentUser.uid,
+            year: window.currentYear,
+            month: window.currentMonth + 1
+          });
+          
+          if (result.data.success) {
+            // データを日付をキーとしたオブジェクトに変換
+            window.attendanceData = {};
+            result.data.attendances.forEach((attendance) => {
+              if (attendance.date) {
+                window.attendanceData[attendance.date] = attendance;
+              }
+            });
+            
+            console.log('勤怠データ取得完了:', {
+              totalCount: result.data.totalCount,
+              data: window.attendanceData
+            });
+            
+            // カレンダーを再生成して勤怠マークを表示
+            generateAttendanceCalendar();
+          } else {
+            console.error('勤怠データ取得に失敗:', result.data);
+          }
+        } catch (error) {
+          console.error('勤怠データの読み込みエラー:', error);
+        }
+      }
+
+      // 勤怠詳細を表示
+      async function showAttendanceDetails(date) {
+        const detailsSection = document.getElementById('attendance-details');
+        const titleElement = document.getElementById('selected-date-title');
+        const cardsContainer = document.getElementById('attendance-cards');
+        
+        // 要素取得結果を確認
+        if (!detailsSection || !titleElement || !cardsContainer) {
+          console.error('要素が見つかりません');
+          return;
+        }
+        
+        // 選択された日付をグローバル変数に保存
+        window.selectedAttendanceDate = date;
+        
+        // 日付タイトルを更新（曜日付き）
+        const dateObj = new Date(date);
+        const weekday = ['日', '月', '火', '水', '木', '金', '土'][dateObj.getDay()];
+        titleElement.textContent = `${date} (${weekday}) の勤怠記録`;
+        
+        console.log('勤怠データ確認:', {
+          attendanceData: window.attendanceData,
+          selectedDate: date,
+          hasData: window.attendanceData && window.attendanceData[date]
+        });
+        
+        if (window.attendanceData && window.attendanceData[date]) {
+          const attendance = window.attendanceData[date];
+          console.log('選択された日付の勤怠データ:', attendance);
+          const cardClass = attendance.isManual ? 'attendance-card manual' : 'attendance-card qr';
+          
+          let cardHTML = `<div class="${cardClass}">`;
+          
+          // ヘッダー部分
+          cardHTML += `<div class="attendance-header">`;
+          cardHTML += `<span class="attendance-date">${date} (${weekday})</span>`;
+          cardHTML += `<span class="attendance-status">${attendance.isManual ? '手動打刻' : 'QR打刻'}</span>`;
+          cardHTML += `</div>`;
+          
+          // 時間情報
+          cardHTML += `<div class="attendance-time">`;
+          if (attendance.clockIn) {
+            const clockInTime = formatTime(attendance.clockIn);
+            cardHTML += `<div class="time-row"><span class="time-label">出勤:</span> <span class="time-value">${clockInTime}</span></div>`;
+          }
+          
+          if (attendance.clockOut) {
+            const clockOutTime = formatTime(attendance.clockOut);
+            cardHTML += `<div class="time-row"><span class="time-label">退勤:</span> <span class="time-value">${clockOutTime}</span></div>`;
+          } else {
+            cardHTML += `<div class="time-row"><span class="time-label">退勤:</span> <span class="time-value working">勤務中</span></div>`;
+          }
+          cardHTML += `</div>`;
+          
+          // 勤務時間情報
+          cardHTML += `<div class="attendance-summary">`;
+          if (attendance.totalMinutes) {
+            const hours = Math.floor(attendance.totalMinutes / 60);
+            const minutes = attendance.totalMinutes % 60;
+            cardHTML += `<div class="summary-row"><span class="summary-label">勤務時間:</span> <span class="summary-value">${hours}時間${minutes}分</span></div>`;
+          }
+          
+          if (attendance.nightMinutes) {
+            const hours = Math.floor(attendance.nightMinutes / 60);
+            const minutes = attendance.nightMinutes % 60;
+            cardHTML += `<div class="summary-row"><span class="summary-label">深夜時間:</span> <span class="summary-value">${hours}時間${minutes}分</span></div>`;
+          }
+          cardHTML += `</div>`;
+          
+          cardHTML += '</div>';
+          
+          // 勤怠修正申請ボタンを追加
+          cardHTML += '<div class="attendance-card-actions">';
+          cardHTML += '<button class="btn primary-btn correction-request-btn" data-attendance=\'' + JSON.stringify(attendance) + '\'>勤怠修正申請</button>';
+          cardHTML += '</div>';
+          
+          cardsContainer.innerHTML = cardHTML;
+          
+          // 勤怠修正申請ボタンのイベントリスナーを設定
+          setupCorrectionRequestButtons();
+          
+          // 修正申請タブに勤怠データを設定
+          setupCorrectionFormWithData(attendance);
+          
+          // 日付選択時点で申請済みかチェック
+          await checkExistingRequestOnDateSelect(date);
+        } else {
+          cardsContainer.innerHTML = '<p>この日の勤怠記録はありません。</p>';
+          
+          // 修正申請タブにデータをクリア
+          setupCorrectionFormWithData(null);
+        }
+        
+        detailsSection.style.display = 'block';
+      }
+
+      // 勤怠詳細を非表示
+      function hideAttendanceDetails() {
+        document.getElementById('attendance-details').style.display = 'none';
+      }
+
+      // 勤怠データを修正申請フォームに設定
+      function setupCorrectionFormWithData(attendanceData) {
+        if (attendanceData) {
+          // 修正対象日は削除したので、ここでは何もしない
+          
+          // 現在の記録を表示
+          const currentTimeDisplay = document.getElementById('current-time-display');
+          if (currentTimeDisplay) {
+            let currentTimeHTML = '';
+            if (attendanceData.clockIn) {
+              currentTimeHTML += `出勤: ${formatTime(attendanceData.clockIn)}`;
+            }
+            if (attendanceData.clockOut) {
+              currentTimeHTML += currentTimeHTML ? ` - 退勤: ${formatTime(attendanceData.clockOut)}` : `退勤: ${formatTime(attendanceData.clockOut)}`;
+            } else {
+              currentTimeHTML += currentTimeHTML ? ' - 勤務中' : '勤務中';
+            }
+            currentTimeDisplay.innerHTML = currentTimeHTML;
+          }
+          
+          // 新しい時刻の初期値を現在の時刻に設定
+          if (attendanceData.clockIn) {
+            const clockInTime = new Date(attendanceData.clockIn);
+            const hours = clockInTime.getHours().toString().padStart(2, '0');
+            const minutes = clockInTime.getMinutes().toString().padStart(2, '0');
+            document.getElementById('new-clockin').value = `${hours}:${minutes}`;
+          }
+          
+          if (attendanceData.clockOut) {
+            const clockOutTime = new Date(attendanceData.clockOut);
+            const hours = clockOutTime.getHours().toString().padStart(2, '0');
+            const minutes = clockOutTime.getMinutes().toString().padStart(2, '0');
+            document.getElementById('new-clockout').value = `${hours}:${minutes}`;
+          }
+          
+          // 修正種別の初期値を設定（bothに設定して両方のフィールドを有効化）
+          const correctionType = document.getElementById('correction-type');
+          if (correctionType) {
+            correctionType.value = 'both';
+            // 修正種別の変更イベントを設定
+            setupCorrectionTypeChange();
+          }
+        } else {
+          // 勤怠データがない場合、今日の日付をデフォルトに設定
+          const today = new Date();
+          const todayString = today.toISOString().split('T')[0];
+          document.getElementById('correction-date').value = todayString;
+          
+          // 現在の記録をクリア
+          const currentTimeDisplay = document.getElementById('current-time-display');
+          if (currentTimeDisplay) {
+            currentTimeDisplay.innerHTML = '勤怠記録がありません';
+          }
+        }
+      }
+
+
+
+      // 勤怠修正申請パネルを閉じる
+      function closeCorrectionPanel() {
+        const panel = document.getElementById('correction-panel');
+        if (panel) {
+          panel.classList.remove('active');
+          // フォームをリセット
+          document.getElementById('correction-form').reset();
+        }
+      }
+
+      // 修正種別の変更イベントを設定
+      function setupCorrectionTypeChange() {
+        const correctionType = document.getElementById('correction-type');
+        const newClockIn = document.getElementById('new-clockin');
+        const newClockOut = document.getElementById('new-clockout');
+        
+        correctionType.addEventListener('change', function() {
+          const type = this.value;
+          
+          // 前の選択の影響をリセット（両方のフィールドを一旦有効化）
+          newClockIn.disabled = false;
+          newClockOut.disabled = false;
+          
+          // 修正種別に応じて入力フィールドを制御
+          if (type === 'clockIn') {
+            newClockIn.required = true;
+            newClockOut.required = false;
+            newClockOut.disabled = true;
+          } else if (type === 'clockOut') {
+            newClockIn.required = false;
+            newClockOut.required = true;
+            newClockIn.disabled = true;
+          } else if (type === 'both') {
+            newClockIn.required = true;
+            newClockOut.required = true;
+            newClockIn.disabled = false;
+            newClockOut.disabled = false;
+          } else if (type === 'other') {
+            newClockIn.required = false;
+            newClockOut.required = false;
+            newClockIn.disabled = true;
+            newClockOut.disabled = true;
+          }
+        });
+      }
+
+      // 修正申請フォームの送信処理
+      async function submitCorrectionRequest(event) {
+        event.preventDefault();
+        
+        // 現在選択されている日付を取得（グローバル変数から）
+        const selectedDate = window.selectedAttendanceDate;
+        
+        // 現在の勤怠記録を取得
+        const currentAttendance = window.attendanceData && window.attendanceData[selectedDate] ? window.attendanceData[selectedDate] : null;
+        
+        // 現在の勤怠時刻をhh:mm形式で取得
+        let currentClockInHHMM = null;
+        let currentClockOutHHMM = null;
+        
+        if (currentAttendance) {
+          if (currentAttendance.clockIn) {
+            // 時刻をhh:mm形式に変換
+            const clockInDate = new Date(currentAttendance.clockIn);
+            const hours = clockInDate.getHours().toString().padStart(2, '0');
+            const minutes = clockInDate.getMinutes().toString().padStart(2, '0');
+            currentClockInHHMM = `${hours}:${minutes}`;
+          }
+          
+          if (currentAttendance.clockOut) {
+            // 時刻をhh:mm形式に変換
+            const clockOutDate = new Date(currentAttendance.clockOut);
+            const hours = clockOutDate.getHours().toString().padStart(2, '0');
+            const minutes = clockOutDate.getMinutes().toString().padStart(2, '0');
+            currentClockOutHHMM = `${hours}:${minutes}`;
+          }
+        }
+
+        
+        // スタッフ情報を取得して名前を取得
+        let staffName = '不明';
+        try {
+          const { db } = window.Firebase;
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          
+          const staffDoc = await getDoc(doc(db, 'staffs', window.Firebase.auth.currentUser.uid));
+          
+          if (staffDoc.exists()) {
+            const staffData = staffDoc.data();
+            staffName = staffData.fullName || window.Firebase.auth.currentUser.uid;
+          } else {
+            staffName = window.Firebase.auth.currentUser.uid;
+          }
+        } catch (error) {
+          alert('スタッフ情報取得エラー: ' + error.message);
+          staffName = window.Firebase.auth.currentUser.uid;
+        }
+        
+        const formData = {
+          date: selectedDate,
+          type: document.getElementById('correction-type').value,
+          currentClockIn: currentClockInHHMM,
+          currentClockOut: currentClockOutHHMM,
+          newClockIn: document.getElementById('new-clockin').value,
+          newClockOut: document.getElementById('new-clockout').value,
+          reason: document.getElementById('correction-reason').value,
+          staffId: window.Firebase.auth.currentUser?.uid,
+          staffName: staffName,
+          status: 'pending',
+          createdAt: new Date().toISOString()
+        };
+        
+        console.log('修正申請データ:', formData);
+        
+        try {
+          // 既に読み込まれているFirebase Functionsを使用
+          const functions = window.Firebase.functions;
+          const createCorrectionRequest = window.FirebaseFunctions.httpsCallable(functions, 'createAttendanceCorrectionRequest');
+          
+          const result = await createCorrectionRequest(formData);
+          
+          if (result.data.success) {
+            alert('修正申請を送信しました。承認までお待ちください。');
+            hideCorrectionForm();
+          } else {
+            alert('修正申請の送信に失敗しました: ' + result.data.error);
+          }
+        } catch (error) {
+          alert('修正申請送信エラー: ' + error.message);
+          alert('修正申請の送信に失敗しました。もう一度お試しください。');
+        }
+      }
+
+      // 勤怠修正申請フォームの設定
+      function setupCorrectionForm() {
+        const form = document.getElementById('correction-form');
+        if (form) {
+          form.addEventListener('submit', submitCorrectionRequest);
+        }
+      }
+
+
+
+      // 日付選択時点で申請済みかチェック
+      async function checkExistingRequestOnDateSelect(date) {
+        try {
+          // 申請済みかチェック
+          const functions = window.Firebase.functions;
+          const checkExistingRequest = window.FirebaseFunctions.httpsCallable(functions, 'checkExistingCorrectionRequest');
+          
+          const result = await checkExistingRequest({
+            staffId: window.Firebase.auth.currentUser.uid,
+            date: date
+          });
+          
+          if (result.data.success && result.data.hasExistingRequest) {
+            // 申請済みの場合、既存の修正申請タブがあれば閉じる
+            hideCorrectionForm();
+            
+            let message = result.data.message;
+            
+            if (result.data.status === 'rejected') {
+              message += '\n\n既存の申請を削除して再度申請しますか？';
+              if (confirm(message)) {
+                // 却下された申請を削除する処理（今後実装予定）
+                alert('既存の申請を削除する機能は今後実装予定です。');
+              }
+            } else {
+              alert(message);
+            }
+          }
+        } catch (error) {
+          console.error('申請済みチェックエラー:', error);
+        }
+      }
+
+      // 申請済みかチェックしてから修正申請フォームを表示
+      async function checkAndShowCorrectionForm(attendanceData) {
+        try {
+          // 申請済みかチェック
+          const functions = window.Firebase.functions;
+          const checkExistingRequest = window.FirebaseFunctions.httpsCallable(functions, 'checkExistingCorrectionRequest');
+          
+          const result = await checkExistingRequest({
+            staffId: window.Firebase.auth.currentUser.uid,
+            date: attendanceData.date
+          });
+          
+          if (result.data.success) {
+            if (result.data.hasExistingRequest) {
+              // 申請済みの場合、既存の修正申請タブがあれば閉じる
+              hideCorrectionForm();
+              
+              let message = result.data.message;
+              
+              if (result.data.status === 'rejected') {
+                message += '\n\n既存の申請を削除して再度申請しますか？';
+                if (confirm(message)) {
+                  // 却下された申請を削除する処理（今後実装予定）
+                  alert('既存の申請を削除する機能は今後実装予定です。');
+                }
+              } else {
+                alert(message);
+              }
+            } else {
+              // 申請可能な場合
+              showCorrectionForm(attendanceData);
+            }
+          } else {
+            alert('申請済みチェックに失敗しました: ' + result.data.error);
+          }
+        } catch (error) {
+          alert('申請済みチェックエラー: ' + error.message);
+        }
+      }
+
+      // 修正申請フォームを表示
+      function showCorrectionForm(attendanceData) {
+        // 修正申請フォームを表示
+        const correctionFormContainer = document.getElementById('correction-form-container');
+        if (correctionFormContainer) {
+          correctionFormContainer.style.display = 'block';
+          
+          // 勤怠データをフォームに設定
+          setupCorrectionFormWithData(attendanceData);
+          
+          // 修正種別の変更イベントを設定
+          setupCorrectionTypeChange();
+          
+          // フォームが表示された位置までスクロール
+          correctionFormContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
+
+      // 修正申請フォームを非表示
+      function hideCorrectionForm() {
+        const correctionFormContainer = document.getElementById('correction-form-container');
+        if (correctionFormContainer) {
+          correctionFormContainer.style.display = 'none';
+          // フォームをリセット
+          document.getElementById('correction-form').reset();
+        }
+      }
+
+      // 修正申請フォームのボタン設定
+      function setupCorrectionFormButtons() {
+        const cancelBtn = document.getElementById('cancel-correction-btn');
+        
+        if (cancelBtn) {
+          // キャンセルボタンにタッチイベントとクリックイベントを設定
+          cancelBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            hideCorrectionForm();
+          }, { passive: false });
+          
+          cancelBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            hideCorrectionForm();
+          });
+        }
+      }
+
+      // 勤怠詳細カード内の修正申請ボタンのイベントリスナーを設定
+      function setupCorrectionRequestButtons() {
+        const correctionBtns = document.querySelectorAll('.correction-request-btn');
+        
+        correctionBtns.forEach(btn => {
+          // 既存のイベントリスナーを削除（重複防止）
+          btn.replaceWith(btn.cloneNode(true));
+          const newBtn = document.querySelector('.correction-request-btn');
+          
+          if (newBtn) {
+            // タッチイベントとクリックイベントの両方に対応
+            newBtn.addEventListener('touchstart', (e) => {
+              e.preventDefault();
+              const attendanceData = JSON.parse(newBtn.getAttribute('data-attendance'));
+              checkAndShowCorrectionForm(attendanceData);
+            }, { passive: false });
+            
+            newBtn.addEventListener('click', (e) => {
+              e.preventDefault();
+              const attendanceData = JSON.parse(newBtn.getAttribute('data-attendance'));
+              checkAndShowCorrectionForm(attendanceData);
+            });
+          }
+        });
+      }
+
+      // 時間をフォーマット
+      function formatTime(time) {
+        if (typeof time === 'string') {
+          // ISO文字列形式の場合
+          try {
+            const date = new Date(time);
+            return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+          } catch (e) {
+            return '--:--';
+          }
+        } else if (time && time.seconds) {
+          // Firestore Timestamp形式の場合
+          const date = new Date(time.seconds * 1000);
+          return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+        } else if (time && time.toDate) {
+          // Firestore Timestamp形式（toDate()メソッドあり）
+          const date = time.toDate();
+          return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+        }
+        return '--:--';
+      }
 
       window.openProfileManagement = () => {
         console.log('プロフィール編集機能は今後実装予定です');
