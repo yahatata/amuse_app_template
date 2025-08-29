@@ -6,8 +6,7 @@ import 'package:amuse_app_template/Tournament/tournamentHomePage.dart';
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
 import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
 import 'package:amuse_app_template/Home/tournamentHomepage.dart';
-import 'package:amuse_app_template/Home/createTemporaryTablePage.dart';
-import 'package:amuse_app_template/Home/migrateToHybridStructurePage.dart';
+import 'package:amuse_app_template/Home/systemSettingsPage.dart';
 import 'package:flutter/material.dart';
 
 class terminalHomePage extends StatefulWidget {
@@ -31,8 +30,8 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: '入店中user一覧', destination: const StayingUsersListPage()),
       (label: 'Tournament Home', destination: const TournamentHomePage()),
       (label: 'スケジュール済みトーナメント', destination: const tournamentHomepage()),
-      (label: '一時テーブル作成', destination: const CreateTemporaryTablePage()),
-      (label: 'ハイブリッド形式移行', destination: const MigrateToHybridStructurePage()),
+      (label: 'Terminal機能 8', destination: const PlaceholderPage(title: 'Terminal機能 8')),
+      (label: 'Terminal機能 9', destination: const PlaceholderPage(title: 'Terminal機能 9')),
       (label: 'スタッフ打刻', destination: const StaffAttendancePage()),
     ];
 
@@ -44,10 +43,14 @@ class _terminalHomePageState extends State<terminalHomePage> {
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('設定は未実装です')),
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SystemSettingsPage(),
+                ),
               );
             },
+            tooltip: 'システム設定',
           ),
         ],
       ),

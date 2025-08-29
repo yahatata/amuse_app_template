@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'orderFromUserActionPop.dart';
 import 'bustAndReentryPop.dart';
+import 'bustAndExitPop.dart';
+import 'addonPop.dart';
 
 /// When: ユーザー行をタップしてアクションを選択したいとき
 /// Where: StayingUsersListPage などユーザー一覧系の画面
@@ -281,8 +283,24 @@ _UserActionItem _buildBlockJ(Map<String, dynamic> user) => _UserActionItem(
       icon: Icons.exit_to_app,
       color: Colors.red,
       onSelected: (ctx, u) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('Bust&退席（仮）')),
+        // トーナメント情報を取得（userから）
+        final tournamentId = u['tournamentId'] as String?;
+        final tableId = u['tableId'] as String?;
+        final seatNumber = u['seatNumber'] as int?;
+        
+        if (tournamentId == null || tableId == null || seatNumber == null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('トーナメント情報が不足しています')),
+          );
+          return;
+        }
+        
+        showBustAndExitDialog(
+          context: ctx,
+          user: u,
+          tournamentId: tournamentId,
+          tableId: tableId,
+          seatNumber: seatNumber,
         );
       },
     );
@@ -293,8 +311,20 @@ _UserActionItem _buildBlockK(Map<String, dynamic> user) => _UserActionItem(
       icon: Icons.add_circle_outline,
       color: Colors.green,
       onSelected: (ctx, u) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('Addon（仮）')),
+        // トーナメント情報を取得（userから）
+        final tournamentId = u['tournamentId'] as String?;
+        
+        if (tournamentId == null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('トーナメント情報が不足しています')),
+          );
+          return;
+        }
+        
+        showAddonDialog(
+          context: ctx,
+          user: u,
+          tournamentId: tournamentId,
         );
       },
     );

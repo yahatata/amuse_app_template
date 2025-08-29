@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>スタッフページ - Amuse App</title>
 
+
   <!-- LIFF SDK -->
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <!-- 店舗別設定ファイル -->
@@ -335,11 +336,11 @@
           <div class="month-info" id="current-month">2024年9月</div>
           <p class="note">※来月分のシフトのみ申請可能です</p>
           
+
           <div id="calendar" class="calendar flexible-container">
             <!-- カレンダーが動的に生成される -->
           </div>
         </div>
-        
         <!-- シフト時間入力 -->
         <div class="shift-input-container flexible-container">
           <h3>シフト時間入力</h3>
@@ -532,6 +533,7 @@
       } else {
             // 未登録の場合
         showPage(registrationPageEl);
+
       }
     } catch (error) {
       showError('スタッフ情報の確認に失敗しました: ' + error.message);
@@ -566,6 +568,7 @@
           daySelect.appendChild(option);
         }
   }
+
 
   // 登録フォーム処理
   registrationFormEl.addEventListener('submit', async (e) => {
@@ -748,6 +751,7 @@
             
             qrDisplay.innerHTML += '<p>✅ サーバ反映完了</p>';
             
+
             // 生成完了後、保存されたQRコードを再表示
             await displayStoredStaffQRCode();
           } else {
@@ -761,6 +765,7 @@
           qrDisplay.innerHTML += '<p>🏁 再生成処理完了</p>';
         }
       }
+
 
       // サーバ反映を待つ関数
       async function waitUntilServerUpdated(expectedExpMs, timeoutMs = 5000) {
@@ -1010,6 +1015,7 @@
             return; // キャンセルされた場合
           }
           
+
           // 配列から削除
           pendingShifts.splice(index, 1);
           
@@ -1089,6 +1095,7 @@
           alert(`❌ シフト申請失敗！\n\nエラー: ${errorMessage}\n\nシフトは保存されていません。\n再度お試しください。`);
         }
       }
+
 
       // シフト管理ページを開いた時の初期化
       window.openShiftManagement = () => {

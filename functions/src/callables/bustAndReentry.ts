@@ -142,16 +142,43 @@ export const bustAndReentry = functions.https.onCall(async (data, context) => {
       
       console.log(`waiting情報: count=${waitingCount}, currentCount=${currentCount}, waitingExists=${waitingExists}`);
       
-      // 10. ユーザーが既にwaitingに存在するかチェック
+      // 10. 全テーブルの空席数を計算
+      const allTablesSeatRef = db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat');
+      
+      const allTablesSeatDocs = await transaction.get(allTablesSeatRef);
+      let totalEmptySeats = 0;
+      
+      allTablesSeatDocs.forEach((doc) => {
+        if (doc.id === 'waiting') return; // waitingドキュメントを除外
+        
+        const tableData = doc.data();
+        const seats = tableData.seats || {};
+        
+        // seatXXUserIdフィールドの数をカウント
+        for (const [key, value] of Object.entries(seats)) {
+          if (key.endsWith('UserId')) {
+            if (value === null || value === '') {
+              totalEmptySeats++;
+            }
+          }
+        }
+      });
+      
+      console.log(`空席数: ${totalEmptySeats}, waiting数: ${waitingCount}`);
+      
+      // 11. ユーザーが既にwaitingに存在するかチェック
       const isAlreadyInWaiting = currentWaiting[userId] ? true : false;
       
       console.log(`ユーザー ${userId} のwaiting状態: isAlreadyInWaiting=${isAlreadyInWaiting}`);
       
       // 全ての読み取りが完了したので、ここから書き込み操作を開始
       
-      // 11. waitingのcountが0の場合、シートに残す（waitingに追加しない）
-      if (waitingCount === 0) {
-        console.log(`waitingのcountが0のため、ユーザー ${userId} をシートに残します`);
+      // 12. 空席数 - waiting数 ≥ 3の場合、シートに残す（waitingに追加しない）
+      if (totalEmptySeats - waitingCount >= 3) {
+        console.log(`空席数(${totalEmptySeats}) - waiting数(${waitingCount}) = ${totalEmptySeats - waitingCount} ≥ 3のため、ユーザー ${userId} をシートに残します`);
         
         // シートは変更せず、統計のみ更新
         transaction.update(viewsMainRef, {
@@ -182,7 +209,7 @@ export const bustAndReentry = functions.https.onCall(async (data, context) => {
         return { success: true, userId, pokerName };
       }
       
-      // 12. waitingのcountが0より大きい場合、通常の処理
+      // 13. waitingのcountが0より大きい場合、通常の処理
       console.log(`waitingのcountが${waitingCount}のため、通常のリエントリー処理を実行します`);
       
       // テーブルシートからユーザーを削除
