@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
+import { enqueueStartTask, enqueueRegistTask } from "../lib/tasks";
 
 // 入力スキーマの定義
 const createScheduledTournamentSchema = z.object({
@@ -81,14 +82,16 @@ export const createScheduledTournament = onCall(async (request) => {
     const tournamentRef = db.collection('scheduledTournaments').doc();
     const tournamentId = tournamentRef.id;
 
+
+
     // 2) scheduledTournaments/{tmtId} を作成
     const scheduledTournamentData = {
       templateId,
       storeId,
       tenantId,
       status: 'scheduled',
-      startAt: Timestamp.fromDate(startAtDate),
-      regEndAt: Timestamp.fromDate(regEndAtDate),
+      startAt: Timestamp.fromDate(startAtDate), // 一時的にstartAtDateを使用
+      regEndAt: Timestamp.fromDate(regEndAtDate), // 一時的にregEndAtDateを使用un
       freeze: freeze || false,
       isPrizeConfirmed: false,
       isArchived: false,
@@ -141,10 +144,108 @@ export const createScheduledTournament = onCall(async (request) => {
       updatedAt: Timestamp.fromDate(now),
     };
 
+    // 6) blindTemplateからstagesを生成
+    const blindStructureId = templateData.blindStructure || templateData.blindStructureId;
+    let stages = [];
+    let lateRegUntilLev = 0;
+    let breakDuration = 0;
+    
+    if (blindStructureId) {
+      const blindTemplateDoc = await db.collection('blindTemplates').doc(blindStructureId).get();
+      if (blindTemplateDoc.exists) {
+        const blindTemplateData = blindTemplateDoc.data()!;
+        const levels = blindTemplateData.levels || [];
+        lateRegUntilLev = blindTemplateData.lateRegUntilLev || 0;
+        breakDuration = blindTemplateData.breakDuration || 0;
+        
+        // levelsからstagesを生成（durationは分→秒に変換）
+        stages = levels.map((level: any) => {
+          const stage = {
+            type: 'level',
+            lev: level.level, // 数値のみ
+            durationSec: (level.duration || 0) * 60, // 分を秒に変換
+          };
+          
+          // hasBreakAfterがtrueの場合、breakステージを追加
+          if (level.hasBreakAfter) {
+            return [stage, {
+              type: 'break',
+              durationSec: breakDuration * 60, // 分を秒に変換
+            }];
+          }
+          
+          return stage;
+        }).flat();
+        
+            // lateRegUntilLev+1のレベル直前にregistステージを追加
+    if (lateRegUntilLev > 0) {
+      const newStages: any[] = [];
+      
+      for (let i = 0; i < stages.length; i++) {
+        const stage = stages[i];
+        
+        // lateRegUntilLev+1のレベル直前にregistを挿入
+        if (stage.type === 'level' && stage.lev === lateRegUntilLev + 1) {
+          newStages.push({
+            type: 'regist',
+            durationSec: 0,
+          });
+        }
+        
+        newStages.push(stage);
+      }
+      
+      stages = newStages;
+    }
+      }
+    }
+
+    // 7) plannedStartAtとplannedRegistAtを計算
+    const plannedStartAt = Timestamp.fromDate(startAtDate);
+    
+    // plannedRegistAtを計算（lateRegUntilLev+1のレベルが始まるタイミング）
+    let plannedRegistAt: Date;
+    if (lateRegUntilLev > 0 && stages.length > 0) {
+      let totalDurationSec = 0;
+      for (let i = 0; i < stages.length; i++) {
+        const stage = stages[i];
+        // lateRegUntilLev+1のレベルが始まる直前まで（registステージの前まで）の時間を計算
+        if (stage.type === 'level' && stage.lev === lateRegUntilLev + 1) {
+          break; // lateRegUntilLev+1のレベルが始まる前で停止
+        }
+        totalDurationSec += stage.durationSec;
+      }
+      plannedRegistAt = new Date(startAtDate.getTime() + (totalDurationSec * 1000));
+    } else {
+      plannedRegistAt = startAtDate; // デフォルトは開始時刻と同じ
+    }
+
+    // 8) /views/runtime を初期化（stages情報を含む）
+    const runtimeData = {
+      status: 'scheduled',
+      startedAt: null, // Cloud Tasksから設定される
+      pausedAt: null,
+      shiftSec: 0,
+      regClosedAt: null, // Cloud Tasksから設定される
+      plannedStartAt: plannedStartAt,
+      plannedRegistAt: Timestamp.fromDate(plannedRegistAt),
+      stages: stages,
+      lateRegUntilLev: lateRegUntilLev,
+      breakDurationSec: breakDuration * 60, // 分を秒に変換
+      startRev: 1, // 初期値1
+      registRev: 1, // 初期値1
+      updatedAt: Timestamp.fromDate(now),
+    };
+
     // トランザクションで一括作成
     await db.runTransaction(async (transaction) => {
-      // scheduledTournaments を作成
-      transaction.set(tournamentRef, scheduledTournamentData);
+      // scheduledTournaments を作成（plannedRegistAtとstartAtを更新）
+      const finalScheduledTournamentData = {
+        ...scheduledTournamentData,
+        startAt: plannedStartAt, // runtimeのplannedStartAtと同じ値
+        regEndAt: Timestamp.fromDate(plannedRegistAt), // plannedRegistAtと同じ値
+      };
+      transaction.set(tournamentRef, finalScheduledTournamentData);
       
       // views/main を作成
       const mainViewRef = tournamentRef.collection('views').doc('main');
@@ -157,7 +258,42 @@ export const createScheduledTournament = onCall(async (request) => {
       // tablesSeat/waiting を作成
       const waitingRef = tournamentRef.collection('tablesSeat').doc('waiting');
       transaction.set(waitingRef, waitingListData);
+      
+      // views/runtime を作成
+      const runtimeRef = tournamentRef.collection('views').doc('runtime');
+      transaction.set(runtimeRef, runtimeData);
     });
+
+    // Cloud Tasks にタスクを投入
+    try {
+      console.log('=== Cloud Tasks 投入開始 ===');
+      console.log('tournamentId:', tournamentId);
+      console.log('plannedStartAt:', plannedStartAt.toDate().toISOString());
+      console.log('plannedRegistAt:', plannedRegistAt.toISOString());
+
+      // 開始タスクを投入（Rev=1で初期投入）
+      // 過去時刻の場合は5秒後に丸める
+      const now = new Date();
+      const startTime = plannedStartAt.toDate() < now 
+        ? new Date(now.getTime() + 5000) // 5秒後
+        : plannedStartAt.toDate();
+      
+      const startTaskName = await enqueueStartTask(tournamentId, startTime, 1);
+      console.log('開始タスク投入完了:', startTaskName);
+
+      // レジスト確定タスクを投入（Rev=1で初期投入）
+      const registTime = plannedRegistAt < now 
+        ? new Date(now.getTime() + 10000) // 10秒後
+        : plannedRegistAt;
+        
+      const registTaskName = await enqueueRegistTask(tournamentId, registTime, 1);
+      console.log('レジスト確定タスク投入完了:', registTaskName);
+
+      console.log('=== Cloud Tasks 投入完了 ===');
+    } catch (taskError) {
+      console.error('Cloud Tasks 投入エラー:', taskError);
+      // タスク投入に失敗してもトーナメント作成は成功とする
+    }
 
     return {
       success: true,

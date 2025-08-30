@@ -208,8 +208,8 @@ export const getScheduledTournaments = onCall(async (request) => {
         console.log(`No templateId found for tournament ${doc.id}`);
       }
       
-      // Timestampを日本時間のISO文字列に変換するヘルパー関数
-      const convertTimestampToJST = (timestamp: any): string => {
+      // TimestampをUTCのISO文字列に変換するヘルパー関数
+      const convertTimestampToUTC = (timestamp: any): string => {
         if (!timestamp) return '';
         
         let date: Date;
@@ -232,19 +232,16 @@ export const getScheduledTournaments = onCall(async (request) => {
           return '';
         }
         
-        // UTCから日本時間（UTC+9）に変換
-        const jstOffset = 9 * 60 * 60 * 1000; // UTC+9のミリ秒単位でのオフセット
-        const jstDate = new Date(date.getTime() + jstOffset);
-        
-        return jstDate.toISOString();
+        // UTCのISO文字列として返す（一般的な形式）
+        return date.toISOString();
       };
       
       return {
         id: doc.id,
         name: tournamentName,
         templateId: data.templateId, // templateIdも返却
-        startAt: convertTimestampToJST(data.startAt),
-        regEndAt: convertTimestampToJST(data.regEndAt),
+        startAt: convertTimestampToUTC(data.startAt),
+        regEndAt: convertTimestampToUTC(data.regEndAt),
         status: data.freeze ? 'frozen' : 'scheduled',
         entries: data.views?.main?.entries || 0,
         maxEntrants: maxEntrants,
@@ -253,8 +250,8 @@ export const getScheduledTournaments = onCall(async (request) => {
         playersIn: data.views?.main?.playersIn || 0,
         seatedCount: data.views?.main?.seatedCount || 0,
         waitingCount: data.views?.main?.waitingCount || 0,
-        createdAt: convertTimestampToJST(data.createdAt),
-        updatedAt: convertTimestampToJST(data.updatedAt),
+        createdAt: convertTimestampToUTC(data.createdAt),
+        updatedAt: convertTimestampToUTC(data.updatedAt),
       };
     });
     

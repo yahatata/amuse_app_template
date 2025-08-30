@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import '../repositories/scheduled_tournament_repository_factory.dart';
-import '../repositories/scheduled_tournament_repository_interface.dart';
+import '../repositories/firestore_scheduled_tournament_repository.dart';
 import '../widgets/table_grid.dart';
 import 'scheduled_tournament_table_detail_page.dart';
 import '../models/table_seats.dart';
@@ -18,13 +17,13 @@ class ScheduledTournamentTablesPage extends StatefulWidget {
 }
 
 class _ScheduledTournamentTablesPageState extends State<ScheduledTournamentTablesPage> {
-  late final ScheduledTournamentRepositoryInterface _repository;
+  late final FirestoreScheduledTournamentRepository _repository;
   late final Stream<Map<String, TableSeats>> _tableSeatsStream;
 
   @override
   void initState() {
     super.initState();
-    _repository = ScheduledTournamentRepositoryFactory.createFromEnvironment();
+    _repository = FirestoreScheduledTournamentRepository();
     _repository.initialize(widget.tournamentId);
     _tableSeatsStream = _repository.getAllTableSeatsStream(widget.tournamentId);
   }

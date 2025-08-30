@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import '../repositories/scheduled_tournament_repository_factory.dart';
-import '../repositories/scheduled_tournament_repository_interface.dart';
+import '../repositories/firestore_scheduled_tournament_repository.dart';
 import '../widgets/waiting_list_view.dart';
 import '../models/waiting_list.dart';
 
@@ -17,13 +16,13 @@ class ScheduledTournamentWaitingPage extends StatefulWidget {
 }
 
 class _ScheduledTournamentWaitingPageState extends State<ScheduledTournamentWaitingPage> {
-  late final ScheduledTournamentRepositoryInterface _repository;
+  late final FirestoreScheduledTournamentRepository _repository;
   late final Stream<WaitingList> _waitingListStream;
 
   @override
   void initState() {
     super.initState();
-    _repository = ScheduledTournamentRepositoryFactory.createFromEnvironment();
+    _repository = FirestoreScheduledTournamentRepository();
     _repository.initialize(widget.tournamentId);
     _waitingListStream = _repository.getWaitingListStream(widget.tournamentId);
   }

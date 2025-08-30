@@ -463,6 +463,7 @@ class _tournamentHomepageState extends State<tournamentHomepage> {
         final yesterday = DateTimeUtils.getYesterdayStartJST();
         return _scheduledTournaments.where((tournament) {
           try {
+            // Firestoreから取得したデータはUTCのISO文字列なので、日本時間に変換
             final startAt = DateTimeUtils.parseISOToJST(tournament['startAt'] ?? '');
             return DateTimeUtils.isSameDayJSTAlready(startAt, yesterday);
           } catch (e) {
@@ -475,17 +476,21 @@ class _tournamentHomepageState extends State<tournamentHomepage> {
         
         // デバッグ用ログ
         debugPrint('=== 今日のフィルタリング ===');
-        debugPrint('today: $today');
+        debugPrint('現在時刻 (JST): ${DateTimeUtils.getCurrentJST()}');
+        debugPrint('今日の開始 (JST): $today');
         debugPrint('フィルタリング対象トーナメント数: ${_scheduledTournaments.length}');
         
         final filtered = _scheduledTournaments.where((tournament) {
           try {
+            // Firestoreから取得したデータはUTCのISO文字列なので、日本時間に変換
             final startAt = DateTimeUtils.parseISOToJST(tournament['startAt'] ?? '');
             final isSameDay = DateTimeUtils.isSameDayJSTAlready(startAt, today);
             
             // デバッグ用ログ
             debugPrint('トーナメント: ${tournament['name']} (${tournament['startAt']})');
+            debugPrint('  startAt (UTC): ${tournament['startAt']}');
             debugPrint('  startAt (JST): $startAt');
+            debugPrint('  today (JST): $today');
             debugPrint('  今日と同じ日: $isSameDay');
             
             return isSameDay;
@@ -510,6 +515,7 @@ class _tournamentHomepageState extends State<tournamentHomepage> {
         
         final filtered = _scheduledTournaments.where((tournament) {
           try {
+            // Firestoreから取得したデータはUTCのISO文字列なので、日本時間に変換
             final startAt = DateTimeUtils.parseISOToJST(tournament['startAt'] ?? '');
             final isInRange = DateTimeUtils.isInDateRangeJSTAlready(startAt, next7DaysStart, next7DaysEnd);
             
@@ -569,15 +575,21 @@ class _tournamentHomepageState extends State<tournamentHomepage> {
         throw Exception('開始時刻の形式が正しくありません (HH:MM)');
       }
       
-      // 日時を組み立て
-      final startAt = DateTime.parse('${normalizedStartDate}T${normalizedStartTime}:00');
-      final regEndAt = startAt.subtract(const Duration(minutes: 30)); // 開始時刻の30分前
+      // 日時を組み立て（日本時間として解釈）
+      final startAtJST = DateTime.parse('${normalizedStartDate}T${normalizedStartTime}:00');
+      final regEndAtJST = startAtJST.subtract(const Duration(minutes: 30)); // 開始時刻の30分前
+      
+      // 日本時間をUTCに変換（JST = UTC+9）
+      final startAt = startAtJST.subtract(const Duration(hours: 9));
+      final regEndAt = regEndAtJST.subtract(const Duration(hours: 9));
 
       // デバッグ用: 送信データをログ出力
       debugPrint('送信データ:');
       debugPrint('templateId: $templateId');
-      debugPrint('startAt: ${startAt.toIso8601String()}');
-      debugPrint('regEndAt: ${regEndAt.toIso8601String()}');
+      debugPrint('startAtJST: ${startAtJST.toIso8601String()}');
+      debugPrint('startAt (UTC): ${startAt.toIso8601String()}');
+      debugPrint('regEndAtJST: ${regEndAtJST.toIso8601String()}');
+      debugPrint('regEndAt (UTC): ${regEndAt.toIso8601String()}');
       
       // 完全な送信オブジェクトをログ出力
       final requestData = {
@@ -796,7 +808,7 @@ class _tournamentHomepageState extends State<tournamentHomepage> {
     }
     
     try {
-      // ISO文字列を日本時間のDateTimeに変換
+      // Firestoreから取得したデータはUTCのISO文字列なので、日本時間に変換
       final jstDateTime = DateTimeUtils.parseISOToJST(dateTimeString);
       return DateTimeUtils.formatJSTForDisplay(jstDateTime);
     } catch (e) {

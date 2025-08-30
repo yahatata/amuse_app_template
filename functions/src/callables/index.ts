@@ -5,10 +5,11 @@ export { assignSeatToPlayer } from './assignSeatToPlayer';
 export { reseatAllPlayers } from './reseatAllPlayers';
 export { getAvailableTables } from './getAvailableTables';
 export { registerParticipants } from './registerParticipants';
-export { migrateWaitingDataCallable } from './migrateWaitingDataCallable';
 export { createTemporaryTable } from './createTemporaryTable';
-export { migrateToHybridStructureCallable } from './migrateToHybridStructureCallable';
 export { bustAndReentry } from './bustAndReentry';
 export { bustAndExit } from './bustAndExit';
 export { addon } from './addon';
 export { bulkAddon } from './bulkAddon';
+export { pauseTournament } from './api.pause';
+export { resumeTournament } from './api.resume';
+
