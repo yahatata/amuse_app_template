@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'createTemporaryTablePage.dart';
-import 'migrateToHybridStructurePage.dart';
+
 
 class SystemSettingsPage extends StatelessWidget {
   const SystemSettingsPage({super.key});
@@ -43,22 +43,7 @@ class SystemSettingsPage extends StatelessWidget {
                       );
                     },
                   ),
-                  const SizedBox(height: 16),
-                  _buildSettingCard(
-                    context: context,
-                    title: 'ハイブリッド形式移行',
-                    subtitle: '既存のデータをハイブリッド形式に移行します',
-                    icon: Icons.transform,
-                    color: Colors.orange,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const MigrateToHybridStructurePage(),
-                        ),
-                      );
-                    },
-                  ),
+
                 ],
               ),
             ),

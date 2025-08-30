@@ -22,8 +22,10 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false; // 書き込みはCloud Functions経由のみ
       
-      // views/main サブコレクションの読み取り（開発用：全許可）
-      match /views/main {
+
+      
+      // views サブコレクションの読み取り（開発用：全許可）
+      match /views/{viewId} {
         allow read: if true;
         allow write: if false; // 書き込みはCloud Functions経由のみ
       }

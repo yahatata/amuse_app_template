@@ -7,6 +7,8 @@ import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
 import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
 import 'package:amuse_app_template/Home/tournamentHomepage.dart';
 import 'package:amuse_app_template/Home/systemSettingsPage.dart';
+import 'package:amuse_app_template/scheduledTournament/pages/tournament_list_page.dart';
+import 'package:amuse_app_template/scheduledTournament/pages/scheduled_tournament_for_terminal.dart';
 import 'package:flutter/material.dart';
 
 class terminalHomePage extends StatefulWidget {
@@ -30,7 +32,8 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: '入店中user一覧', destination: const StayingUsersListPage()),
       (label: 'Tournament Home', destination: const TournamentHomePage()),
       (label: 'スケジュール済みトーナメント', destination: const tournamentHomepage()),
-      (label: 'Terminal機能 8', destination: const PlaceholderPage(title: 'Terminal機能 8')),
+      (label: 'Runtime Debug', destination: const TournamentListPage()),
+      (label: 'トーナメント一覧', destination: const ScheduledTournamentForTerminal()),
       (label: 'Terminal機能 9', destination: const PlaceholderPage(title: 'Terminal機能 9')),
       (label: 'スタッフ打刻', destination: const StaffAttendancePage()),
     ];

@@ -4,10 +4,10 @@ import '../models/main_view.dart';
 import '../models/table_seats.dart';
 import '../models/waiting_list.dart';
 import '../models/waiting_user_data.dart';
-import 'scheduled_tournament_repository_interface.dart';
+
 
 /// Firestoreを使用したスケジュール済みトーナメントのリポジトリ実装
-class FirestoreScheduledTournamentRepository implements ScheduledTournamentRepositoryInterface {
+class FirestoreScheduledTournamentRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   StreamSubscription<DocumentSnapshot>? _mainViewSubscription;
   StreamSubscription<QuerySnapshot>? _tableSeatsSubscription;
@@ -16,12 +16,10 @@ class FirestoreScheduledTournamentRepository implements ScheduledTournamentRepos
   // 現在のトーナメントID（将来的な拡張用）
   // String? _currentTournamentId;
 
-  @override
   void initialize(String tournamentId) {
     // _currentTournamentId = tournamentId;
   }
 
-  @override
   void dispose() {
     _mainViewSubscription?.cancel();
     _tableSeatsSubscription?.cancel();
@@ -29,7 +27,6 @@ class FirestoreScheduledTournamentRepository implements ScheduledTournamentRepos
     // _currentTournamentId = null;
   }
 
-  @override
   Stream<MainView> getMainViewStream(String tournamentId) {
     return _firestore
         .collection('scheduledTournaments')
@@ -59,7 +56,6 @@ class FirestoreScheduledTournamentRepository implements ScheduledTournamentRepos
     });
   }
 
-  @override
   Stream<TableSeats> getTableSeatsStream(String tournamentId, String tableId) {
     return _firestore
         .collection('scheduledTournaments')
@@ -82,7 +78,6 @@ class FirestoreScheduledTournamentRepository implements ScheduledTournamentRepos
     });
   }
 
-  @override
   Stream<Map<String, TableSeats>> getAllTableSeatsStream(String tournamentId) {
     return _firestore
         .collection('scheduledTournaments')
@@ -104,7 +99,6 @@ class FirestoreScheduledTournamentRepository implements ScheduledTournamentRepos
     });
   }
 
-  @override
   Stream<WaitingList> getWaitingListStream(String tournamentId) {
     return _firestore
         .collection('scheduledTournaments')

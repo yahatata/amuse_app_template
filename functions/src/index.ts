@@ -33,3 +33,12 @@ export * from "./attendance";
 // スケジュール済みトーナメント関連関数
 export * from "./callables";
 
+// トーナメント時間管理システム（Phase1）
+import { onRequest } from 'firebase-functions/v2/https';
+import { controlHook } from "./http/controlHook";
+
+
+
+// HTTP関数としてエクスポート
+export const controlHookHttp = onRequest(controlHook);
+
