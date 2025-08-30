@@ -12,4 +12,5 @@ export { addon } from './addon';
 export { bulkAddon } from './bulkAddon';
 export { pauseTournament } from './api.pause';
 export { resumeTournament } from './api.resume';
+export { registerDevice } from './registerDevice';
 
