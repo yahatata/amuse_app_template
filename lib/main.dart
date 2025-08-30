@@ -1,4 +1,7 @@
 import 'package:amuse_app_template/Home/adminHomePage.dart';
+import 'package:amuse_app_template/Home/terminalHomePage.dart';
+import 'package:amuse_app_template/pages/device_registration_page.dart';
+import 'package:amuse_app_template/services/device_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -44,7 +47,169 @@ class MyApp extends StatelessWidget {
         Locale('en', 'US'), // 英語（フォールバック）
       ],
       locale: const Locale('ja', 'JP'), // デフォルトを日本語に設定
-      home: const AdminHomePage(), // 将来はここで Firebase role を見て分岐
+      home: const AppInitializer(), // デバイス登録状態をチェックして適切な画面に遷移
     );
+  }
+}
+
+/// アプリ初期化ウィジェット
+class AppInitializer extends StatefulWidget {
+  const AppInitializer({super.key});
+
+  @override
+  State<AppInitializer> createState() => _AppInitializerState();
+}
+
+class _AppInitializerState extends State<AppInitializer> {
+  final DeviceService _deviceService = DeviceService();
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    try {
+      // デバイス登録状態をチェック
+      final isRegistered = await _deviceService.isDeviceRegistered();
+      
+      if (!mounted) return;
+
+      if (isRegistered) {
+        // 登録済みの場合、デバイス情報を取得して適切な画面に遷移
+        final device = await _deviceService.getCurrentDevice();
+        
+        if (device != null && device.status == 'active') {
+          // デバイスがアクティブな場合、役割に応じて画面を選択
+          if (device.role == 'admin') {
+            if (mounted) {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (context) => const AdminHomePage()),
+              );
+            }
+          } else {
+            if (mounted) {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (context) => const terminalHomePage()),
+              );
+            }
+          }
+        } else {
+          // デバイスがブロックまたは退役している場合
+          setState(() {
+            _error = 'このデバイスは使用できません。管理者にお問い合わせください。';
+            _isLoading = false;
+          });
+        }
+      } else {
+        // 未登録の場合、デバイス登録画面に遷移
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const DeviceRegistrationPage()),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = '初期化エラー: $e';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.blue[50],
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.devices,
+                size: 80,
+                color: Colors.blue[700],
+              ),
+              const SizedBox(height: 24),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(
+                'アプリを初期化中...',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        backgroundColor: Colors.red[50],
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 80,
+                  color: Colors.red[600],
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'エラーが発生しました',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red[700],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.red[600],
+                  ),
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _isLoading = true;
+                      _error = null;
+                    });
+                    _initializeApp();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red[700],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 16,
+                    ),
+                  ),
+                  child: const Text('再試行'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 }
