@@ -88,6 +88,18 @@ service cloud.firestore {
       allow write: if true;
     }
     
+    // 勤怠コレクション（開発用：読み取り全許可）
+    match /attendances/{attendanceId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+    
+    // 勤怠修正申請コレクション（開発用：読み取り全許可）
+    match /attendanceCorrectionRequests/{requestId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+    
     // 管理者コレクション
     match /admins/{adminId} {
       allow read: if request.auth != null && request.auth.uid == adminId;

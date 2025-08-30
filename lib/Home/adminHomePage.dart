@@ -2,6 +2,8 @@ import 'package:amuse_app_template/StaffDate/createStaffAccountPage.dart';
 import 'package:amuse_app_template/StaffDate/shiftApprovalPage.dart';
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
+import 'package:amuse_app_template/AttendanceManagement/allStaffAttendancePage.dart';
+import 'package:amuse_app_template/AttendanceManagement/attendanceCorrectionRequestsPage.dart';
 
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({super.key});
@@ -24,14 +26,14 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final screenHeight = MediaQuery.of(context).size.height;
     final buttonHeight = (screenHeight - kToolbarHeight - 80) / 2.3;
 
-    final List<({String label, Widget destination})> buttons = [
-      (label: 'シフト承認', destination: const ShiftApprovalPage()),
-      (label: 'Admin機能 2', destination: const PlaceholderPage(title: 'Admin機能 2')),
-      (label: 'Admin機能 3', destination: const PlaceholderPage(title: 'Admin機能 3')),
-      (label: 'Admin機能 4', destination: const PlaceholderPage(title: 'Admin機能 4')),
-      (label: 'Admin機能 5', destination: const PlaceholderPage(title: 'Admin機能 5')),
-      (label: 'Staff作成', destination: const CreateStaffAccount()),
-    ];
+          final List<({String label, Widget destination})> buttons = [
+        (label: 'シフト承認', destination: const ShiftApprovalPage()),
+        (label: '全スタッフ勤怠', destination: const AllStaffAttendancePage()),
+        (label: '勤怠修正申請', destination: const AttendanceCorrectionRequestsPage()),
+        (label: 'Admin機能 4', destination: const PlaceholderPage(title: 'Admin機能 4')),
+        (label: 'Admin機能 5', destination: const PlaceholderPage(title: 'Admin機能 5')),
+        (label: 'Staff作成', destination: const CreateStaffAccount()),
+      ];
 
     return Scaffold(
       appBar: AppBar(

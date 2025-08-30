@@ -1398,3 +1398,386 @@ body {
   flex-direction: column;
   align-items: center;
 }
+
+/* 勤怠管理ページのスタイル */
+.attendance-page {
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.month-selector {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 30px;
+}
+
+.month-btn {
+  padding: 8px 16px !important;
+  font-size: 0.9rem !important;
+  min-width: 60px;
+}
+
+.month-display {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #333;
+  min-width: 150px;
+  text-align: center;
+}
+
+.attendance-calendar {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 30px;
+}
+
+.calendar-header {
+  text-align: center;
+  margin-bottom: 15px;
+}
+
+.calendar-header h3 {
+  color: #667eea;
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.weekday {
+  text-align: center;
+  padding: 10px;
+  font-weight: 600;
+  color: #667eea;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.calendar-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  font-weight: 500;
+  border: 2px solid transparent;
+  position: relative;
+  min-height: 44px; /* タッチしやすい最小サイズ */
+  min-width: 44px; /* タッチしやすい最小サイズ */
+}
+
+.calendar-day:hover {
+  background-color: #e9ecef;
+}
+
+.calendar-day.empty {
+  background-color: #f8f9fa;
+  cursor: default;
+}
+
+.calendar-day.today {
+  background-color: #667eea;
+  color: white;
+  font-weight: 700;
+}
+
+.calendar-day.has-attendance {
+  background-color: #e3f2fd;
+  border-color: #2196f3;
+  color: #1976d2;
+  font-weight: bold;
+}
+
+.calendar-day .day-number {
+  font-size: 0.9rem;
+}
+
+.calendar-day .shift-indicator {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 0.7rem;
+  color: #2196f3;
+}
+
+.attendance-details {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 30px;
+}
+
+.attendance-cards {
+  margin: 20px 0;
+}
+
+.attendance-card {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 15px;
+  border-left: 4px solid #2196f3;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  transition: all 0.3s ease;
+}
+
+.attendance-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+}
+
+.attendance-card.manual {
+  border-left-color: #ff9800;
+}
+
+.attendance-card.qr {
+  border-left-color: #4caf50;
+}
+
+.attendance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.attendance-date {
+  font-weight: 600;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.attendance-status {
+  background: #667eea;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 15px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.attendance-time {
+  margin-bottom: 15px;
+}
+
+.time-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.time-label {
+  font-weight: 500;
+  color: #666;
+  min-width: 60px;
+}
+
+.time-value {
+  font-weight: 600;
+  color: #333;
+}
+
+.time-value.working {
+  color: #ff9800;
+  font-weight: 600;
+}
+
+.attendance-summary {
+  border-top: 1px solid #e9ecef;
+  padding-top: 15px;
+}
+
+.attendance-card-actions {
+  border-top: 1px solid #e9ecef;
+  padding-top: 15px;
+  text-align: center;
+}
+
+.attendance-card-actions .correction-request-btn {
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  min-width: 120px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.summary-label {
+  font-weight: 500;
+  color: #666;
+}
+
+.summary-value {
+  font-weight: 600;
+  color: #333;
+}
+
+.attendance-actions {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 30px;
+}
+
+/* 修正申請フォームコンテナ */
+.correction-form-container {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  border: 1px solid #e9ecef;
+}
+
+.correction-form-container h4 {
+  margin: 0 0 20px 0;
+  color: #333;
+  font-size: 1.2rem;
+  text-align: center;
+}
+
+/* 読み取り専用フィールドのスタイル */
+.correction-form input[readonly] {
+  background-color: #f8f9fa;
+  color: #495057;
+  cursor: not-allowed;
+  border: 1px solid #ced4da;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+.close-btn:hover {
+  background: #f8f9fa;
+  color: #333;
+}
+
+.correction-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.correction-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.correction-form label {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.95rem;
+}
+
+.correction-form input,
+.correction-form select,
+.correction-form textarea {
+  padding: 12px;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.3s ease;
+}
+
+.correction-form input:focus,
+.correction-form select:focus,
+.correction-form textarea:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.correction-form input:disabled,
+.correction-form select:disabled,
+.correction-form textarea:disabled {
+  background: #f8f9fa;
+  color: #666;
+  cursor: not-allowed;
+}
+
+.current-time-display {
+  background: #f8f9fa;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+  min-height: 20px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.form-actions button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 500;
+}
+
+.form-actions .primary-btn {
+  background: #667eea;
+  color: white;
+}
+
+.form-actions .primary-btn:hover {
+  background: #5a6fd8;
+  transform: translateY(-2px);
+}
+
+.form-actions .secondary-btn {
+  background: #6c757d;
+  color: white;
+}
+
+.form-actions .secondary-btn:hover {
+  background: #5a6268;
+  transform: translateY(-2px);
+}
