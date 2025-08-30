@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../services/stage_builder.dart';
 import 'timer_widget.dart';
 
 /// カウントダウン表示ウィジェット（フリッカー対策版）
@@ -33,7 +32,7 @@ class CountdownDisplay extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -194,13 +193,5 @@ class CountdownDisplay extends StatelessWidget {
     );
   }
 
-  Color _getTimeColor(int remainingSec) {
-    if (remainingSec <= 60) {
-      return Colors.red; // 1分以下は赤
-    } else if (remainingSec <= 300) {
-      return Colors.orange; // 5分以下はオレンジ
-    } else {
-      return Colors.green; // それ以上は緑
-    }
-  }
+
 }

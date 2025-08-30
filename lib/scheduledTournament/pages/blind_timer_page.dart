@@ -11,9 +11,9 @@ class BlindTimerPage extends StatefulWidget {
   final String tournamentId;
 
   const BlindTimerPage({
-    Key? key,
+    super.key,
     required this.tournamentId,
-  }) : super(key: key);
+  });
 
   @override
   State<BlindTimerPage> createState() => _BlindTimerPageState();
@@ -535,7 +535,7 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     } else if (maxReentries == null) {
       return '無制限';
     } else {
-      return '${maxReentries}回まで';
+      return '$maxReentries回まで';
     }
   }
 

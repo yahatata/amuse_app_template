@@ -232,4 +232,3 @@ class _TournamentBlindScreenState extends State<TournamentBlindScreen>
     );
   }
 }
-不要にする

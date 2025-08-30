@@ -269,9 +269,9 @@ class _StageInfoWidgetState extends State<StageInfoWidget> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: stageColor.withOpacity(0.1),
+        color: stageColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: stageColor.withOpacity(0.3)),
+        border: Border.all(color: stageColor.withValues(alpha: 0.3)),
       ),
       child: Column(
         children: [
@@ -299,7 +299,7 @@ class _StageInfoWidgetState extends State<StageInfoWidget> {
               stageDetails,
               style: TextStyle(
                 fontSize: 14,
-                color: stageColor.withOpacity(0.8),
+                color: stageColor.withValues(alpha: 0.8),
               ),
               textAlign: TextAlign.center,
             ),
@@ -317,9 +317,9 @@ class _StageInfoWidgetState extends State<StageInfoWidget> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: stageColor.withOpacity(0.05),
+        color: stageColor.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: stageColor.withOpacity(0.2)),
+        border: Border.all(color: stageColor.withValues(alpha: 0.2)),
       ),
       child: Column(
         children: [
@@ -347,7 +347,7 @@ class _StageInfoWidgetState extends State<StageInfoWidget> {
               stageDetails,
               style: TextStyle(
                 fontSize: 12,
-                color: stageColor.withOpacity(0.7),
+                color: stageColor.withValues(alpha: 0.7),
               ),
               textAlign: TextAlign.center,
             ),
