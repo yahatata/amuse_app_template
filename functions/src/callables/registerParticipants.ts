@@ -40,19 +40,14 @@ export const registerParticipants = functions.https.onCall(async (data, context)
     
     const tournamentData = tournamentDoc.data()!;
     const startAt = tournamentData.startAt;
-    const templateId = tournamentData.templateId;
+    const snapshot = tournamentData.snapshot;
     
-    // テンプレート情報を取得
-    const templateRef = db.collection('tournamentTemplates').doc(templateId);
-    const templateDoc = await templateRef.get();
-    
-    if (!templateDoc.exists) {
-      throw new Error('トーナメントテンプレートが存在しません');
+    if (!snapshot) {
+      throw new Error('トーナメントのスナップショット情報が存在しません');
     }
     
-    const templateData = templateDoc.data()!;
-    const templateName = templateData.name;
-    const entryFee = templateData.entryFee;
+    const templateName = snapshot.name;
+    const entryFee = snapshot.entryFee;
     
     // 各ユーザーを順次処理
     for (const userId of userIds) {

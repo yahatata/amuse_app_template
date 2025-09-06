@@ -34,7 +34,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: 'スケジュール済みトーナメント', destination: const tournamentHomepage()),
       (label: 'Runtime Debug', destination: const TournamentListPage()),
       (label: 'トーナメント一覧', destination: const ScheduledTournamentForTerminal()),
-      (label: 'Terminal機能 9', destination: const PlaceholderPage(title: 'Terminal機能 9')),
       (label: 'スタッフ打刻', destination: const StaffAttendancePage()),
     ];
 

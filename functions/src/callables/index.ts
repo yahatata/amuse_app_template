@@ -1,5 +1,8 @@
 export { createScheduledTournament } from './createScheduledTournament';
 export { getScheduledTournaments } from './getScheduledTournaments';
+export { getTodayTournaments } from './getTodayTournaments';
+export { getUpcomingTournaments } from './getUpcomingTournaments';
+export { registerForTournament } from './registerForTournament';
 export { addTableToTournament } from './addTableToTournament';
 export { assignSeatToPlayer } from './assignSeatToPlayer';
 export { reseatAllPlayers } from './reseatAllPlayers';
