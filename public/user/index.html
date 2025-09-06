@@ -82,7 +82,6 @@
       updateDebugDisplay();
     } catch (e) {
       alert("認証処理中にエラーが発生しました: " + (e?.message || e));
-      console.error(e);
     }
   };
   
@@ -305,17 +304,33 @@
         </div>
       </div>
 
-      <!-- トーナメント画面 -->
+      <!-- 本日のトーナメント画面 -->
       <div id="tournament-page" class="page tournament-page" style="display: none;">
-        <h1>トーナメント</h1>
-        <div class="tournament-info">
-          <h2>開催中・予定のトーナメント</h2>
-          <div id="tournament-list" class="tournament-list">
-            <p>トーナメント情報を読み込み中...</p>
-          </div>
+        <h1>本日のトーナメント</h1>
+        <div class="tournament-date-info">
+          <h2 id="today-date">今日のトーナメント</h2>
+        </div>
+        <div id="today-tournament-list" class="tournament-list">
+          <p>トーナメント情報を読み込み中...</p>
         </div>
         <div class="tournament-actions">
+          <button class="btn secondary" onclick="showWeeklyTournaments()">今後のトーナメントを見る</button>
           <button class="btn" onclick="showHomePage()">ホームに戻る</button>
+        </div>
+      </div>
+
+      <!-- 今後のトーナメント画面 -->
+      <div id="weekly-tournament-page" class="page weekly-tournament-page" style="display: none;">
+        <h1>今後のトーナメント</h1>
+        <div class="tournament-period-info">
+          <h2>1週間先までのトーナメント</h2>
+        </div>
+        <div id="weekly-tournament-list" class="tournament-list">
+          <p>トーナメント情報を読み込み中...</p>
+        </div>
+        <div class="tournament-actions">
+          <button class="btn" onclick="showTournament()">本日のトーナメントに戻る</button>
+          <button class="btn secondary" onclick="showHomePage()">ホームに戻る</button>
         </div>
       </div>
 
@@ -344,6 +359,7 @@
       const orderPageEl = document.getElementById('order-page');
       const orderHistoryPageEl = document.getElementById('order-history-page');
       const tournamentPageEl = document.getElementById('tournament-page');
+      const weeklyTournamentPageEl = document.getElementById('weekly-tournament-page');
       const profilePageEl = document.getElementById('profile-page');
       const errorEl = document.getElementById('error-message');
       const userInfoEl = document.getElementById('user-info');
@@ -376,6 +392,7 @@
         orderPageEl.style.display = 'none';
         orderHistoryPageEl.style.display = 'none';
         tournamentPageEl.classList.remove('active');
+        weeklyTournamentPageEl.classList.remove('active');
         profilePageEl.style.display = 'none';
         
         // 全てのページのactiveクラスを確実に削除
@@ -385,6 +402,7 @@
         orderPageEl.classList.remove('active');
         orderHistoryPageEl.classList.remove('active');
         tournamentPageEl.classList.remove('active');
+        weeklyTournamentPageEl.classList.remove('active');
         profilePageEl.classList.remove('active');
         
         // 対象ページのみ表示してactiveクラスを追加
@@ -490,7 +508,6 @@
             throw new Error('ユーザー登録に失敗しました。');
           }
         } catch (error) {
-          console.error('登録エラー:', error);
           
           // エラーメッセージの詳細化
           let errorMessage = '登録に失敗しました。';
@@ -530,12 +547,10 @@
         try {
           // ログイン時には特に何も更新しない
           // isStayingとlastLoginはhandleAttendance関数で管理される
-          console.log('ユーザーログイン完了');
           
           // 入店状態を確認してUIを更新
           await updateCheckinStatusUI(userId);
         } catch (error) {
-          console.error('ログイン状態更新エラー:', error);
         }
       }
 
@@ -585,12 +600,9 @@
             // 入店状態表示を表示
             checkinStatusEl.style.display = 'block';
             
-            console.log('入店状態UI更新完了:', { isStaying, userId });
           } else {
-            console.error('入店状態の取得に失敗:', result.data.error);
           }
         } catch (error) {
-          console.error('入店状態UI更新エラー:', error);
         }
       }
 
@@ -602,7 +614,6 @@
         showPage(orderHistoryPageEl);
         loadOrderHistory();
       };
-      window.showTournamentPage = () => showPage(tournamentPageEl);
       window.showProfilePage = () => showPage(profilePageEl);
 
       // QRコード関連関数
@@ -611,7 +622,6 @@
           showPage(qrPageEl);
           await displayStoredQRCode();
         } catch (error) {
-          console.error('QRコード表示エラー:', error);
           showError('QRコードの表示に失敗しました: ' + error.message);
         }
       };
@@ -632,7 +642,6 @@
             throw new Error('QRコードの生成に失敗しました');
           }
         } catch (error) {
-          console.error('QRコード生成エラー:', error);
           showError('QRコードの生成に失敗しました: ' + error.message);
         }
       };
@@ -715,7 +724,6 @@
             throw new Error('QRコードの生成に失敗しました');
           }
         } catch (error) {
-          console.error('QRコード生成エラー:', error);
           const qrDisplay = document.getElementById('qr-code-display');
           qrDisplay.innerHTML = '<p>QRコードの生成に失敗しました</p>';
           throw error;
@@ -772,7 +780,6 @@
           return { categories, allMenuItems };
 
         } catch (error) {
-          console.error('カテゴリー読み込みエラー:', error);
           // エラー時はデフォルトカテゴリーを使用
           return null;
         }
@@ -860,7 +867,6 @@
           `).join('');
 
         } catch (error) {
-          console.error('メニュー読み込みエラー:', error);
           menuItems.innerHTML = `<p>メニューの読み込みに失敗しました: ${error.message}</p>`;
         }
       }
@@ -1055,7 +1061,6 @@
               throw new Error(result.data.error || '注文に失敗しました');
             }
           } catch (error) {
-            console.error('一括注文エラー:', error);
             alert(`注文に失敗しました: ${error.message}`);
           }
           
@@ -1146,7 +1151,6 @@
           }).join('');
           
         } catch (error) {
-          console.error('注文履歴読み込みエラー:', error);
           historyListEl.innerHTML = `<p class="error-message">注文履歴の読み込みに失敗しました: ${error.message}</p>`;
         }
       }
@@ -1222,10 +1226,8 @@
             quantityElement.textContent = '1';
           }
           
-          console.log('注文完了:', result.data);
 
         } catch (error) {
-          console.error('注文エラー:', error);
           alert(`注文に失敗しました: ${error.message}`);
         }
       }
@@ -1233,28 +1235,150 @@
       // トーナメント関連関数
       window.showTournament = () => {
         showPage(tournamentPageEl);
-        loadTournaments();
+        loadTodayTournaments();
       };
 
-      async function loadTournaments() {
-        const tournamentList = document.getElementById('tournament-list');
-        tournamentList.innerHTML = '<p>トーナメント情報を読み込み中...</p>';
+      window.showWeeklyTournaments = () => {
+        showPage(weeklyTournamentPageEl);
+        loadWeeklyTournaments();
+      };
+
+      // 本日のトーナメントを読み込み
+      async function loadTodayTournaments() {
+        const todayDateEl = document.getElementById('today-date');
+        const todayTournamentList = document.getElementById('today-tournament-list');
         
-        // 仮のトーナメントデータ（後でFirestoreから取得）
-        const tournaments = [
-          { name: 'ポーカートーナメント', date: '2024-01-15', time: '19:00', status: '開催中' },
-          { name: 'ブラックジャック大会', date: '2024-01-20', time: '20:00', status: '予定' }
-        ];
+        // 今日の日付を表示
+        const today = new Date();
+        const todayString = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+        todayDateEl.textContent = `${todayString}のトーナメント`;
         
-        tournamentList.innerHTML = tournaments.map(tournament => `
-          <div class="tournament-item">
-            <h3>${tournament.name}</h3>
-            <p>日時: ${tournament.date} ${tournament.time}</p>
-            <p>ステータス: <span class="status ${tournament.status}">${tournament.status}</span></p>
-            <button class="btn" onclick="joinTournament('${tournament.name}')">参加</button>
-          </div>
-        `).join('');
+        todayTournamentList.innerHTML = '<p>トーナメント情報を読み込み中...</p>';
+        
+        try {
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getTodayTournaments = httpsCallable(functions, 'getTodayTournaments');
+          
+          const result = await getTodayTournaments({});
+          
+          if (!result.data.success) {
+            throw new Error(result.data.error || 'トーナメント情報の取得に失敗しました');
+          }
+          
+          const tournaments = result.data.data || [];
+          
+          if (tournaments.length === 0) {
+            todayTournamentList.innerHTML = '<p class="empty-message">今日はトーナメントがありません</p>';
+            return;
+          }
+          
+          todayTournamentList.innerHTML = tournaments.map(tournament => `
+            <div class="tournament-item">
+              <div class="tournament-header">
+                <h3>${tournament.name}</h3>
+                <span class="tournament-status status-${tournament.status}">${getTournamentStatusDisplay(tournament.status)}</span>
+              </div>
+              <div class="tournament-info">
+                <p><strong>開始時間:</strong> ${formatTime(tournament.startAt)}</p>
+                <p><strong>参加費:</strong> ¥${tournament.entryFee || 0}</p>
+                <p><strong>賞金:</strong> ¥${tournament.prizePool || 0}</p>
+                <p><strong>参加者数:</strong> ${tournament.participantCount || 0}人</p>
+                <p><strong>定員:</strong> ${tournament.maxEntrants || '無制限'}人</p>
+              </div>
+              <div class="tournament-actions">
+                <button class="btn" onclick="showTournamentRegistration('${tournament.id}')">参加登録</button>
+              </div>
+            </div>
+          `).join('');
+          
+        } catch (error) {
+          todayTournamentList.innerHTML = `<p class="error-message">トーナメント情報の読み込みに失敗しました: ${error.message}</p>`;
+        }
       }
+
+      // 1週間先までのトーナメントを読み込み
+      async function loadWeeklyTournaments() {
+        const weeklyTournamentList = document.getElementById('weekly-tournament-list');
+        weeklyTournamentList.innerHTML = '<p>トーナメント情報を読み込み中...</p>';
+        
+        try {
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getUpcomingTournaments = httpsCallable(functions, 'getUpcomingTournaments');
+          
+          const result = await getUpcomingTournaments({});
+          
+          if (!result.data.success) {
+            throw new Error(result.data.error || 'トーナメント情報の取得に失敗しました');
+          }
+          
+          const tournaments = result.data.data || [];
+          
+          if (tournaments.length === 0) {
+            weeklyTournamentList.innerHTML = '<p class="empty-message">今後のトーナメントがありません</p>';
+            return;
+          }
+          
+          weeklyTournamentList.innerHTML = tournaments.map(tournament => `
+            <div class="tournament-list-item">
+              <div class="tournament-name">${tournament.name}</div>
+              <div class="tournament-details">
+                <div class="tournament-date">${formatDate(tournament.startAt)}</div>
+                <div class="tournament-time">${formatTime(tournament.startAt)}</div>
+                <div class="tournament-entry-fee">¥${tournament.entryFee || 0}</div>
+              </div>
+            </div>
+          `).join('');
+          
+        } catch (error) {
+          weeklyTournamentList.innerHTML = `<p class="error-message">トーナメント情報の読み込みに失敗しました: ${error.message}</p>`;
+        }
+      }
+
+      // フォーマット関数
+      function formatDate(timestamp) {
+        if (!timestamp) return '日付不明';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return `${date.getMonth() + 1}/${date.getDate()}`;
+      }
+
+      function formatTime(timestamp) {
+        if (!timestamp) return '時間不明';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+      }
+
+      function getTournamentStatusDisplay(status) {
+        const statusMap = {
+          'scheduled': '開催予定',
+          'active': '開催中',
+          'completed': '終了',
+          'cancelled': '中止'
+        };
+        return statusMap[status] || status || '不明';
+      }
+
+      // トーナメント参加登録
+      window.showTournamentRegistration = async (tournamentId) => {
+        try {
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const registerForTournament = httpsCallable(functions, 'registerForTournament');
+          
+          const result = await registerForTournament({ tournamentId });
+          
+          if (result.data.success) {
+            alert(`✅ 参加登録完了！\n\n${result.data.data.tournamentName}に参加登録しました。`);
+            // トーナメント一覧を再読み込み
+            loadTodayTournaments();
+          } else {
+            alert(`❌ 参加登録失敗\n\n${result.data.error}`);
+          }
+        } catch (error) {
+          alert(`❌ 参加登録エラー\n\n${error.message}`);
+        }
+      };
 
       window.joinTournament = (tournamentName) => {
         alert(`${tournamentName}に参加しました`);
@@ -1292,7 +1416,6 @@
           }
         } catch (error) {
           profileInfo.innerHTML = '<p>プロフィール情報の読み込みに失敗しました</p>';
-          console.error('プロフィール読み込みエラー:', error);
         }
       }
 
@@ -1307,7 +1430,6 @@
           await window.Firebase.auth.signOut();
           window.location.reload();
         } catch (error) {
-          console.error('ログアウトエラー:', error);
           showError('ログアウトに失敗しました: ' + error.message);
         }
       };
@@ -1328,6 +1450,7 @@
           orderPageEl.style.display = 'none';
           orderHistoryPageEl.style.display = 'none';
           tournamentPageEl.style.display = 'none';
+        weeklyTournamentPageEl.style.display = 'none';
           profilePageEl.style.display = 'none';
           
           // ローディング画面を表示
@@ -1340,7 +1463,6 @@
           await checkStoreRegistration();
           
         } catch (error) {
-          console.error('初期化エラー:', error);
           showError('初期化に失敗しました: ' + error.message);
         }
       });
