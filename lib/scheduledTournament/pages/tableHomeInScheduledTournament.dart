@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:async'; // For TimeoutException
 import '../../UserAction/userActionHome.dart';
 import '../../UserAction/bulkAddonPop.dart';
+import '../../ActionHistory/tournamentActionsHistoryPage.dart'; // Added import for TournamentActionsHistoryPage
 
 class TableHomeInScheduledTournament extends StatefulWidget {
   final String tournamentId;
@@ -107,6 +108,26 @@ class _TableHomeInScheduledTournamentState extends State<TableHomeInScheduledTou
               ),
             ),
           ),
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            child: ElevatedButton.icon(
+              onPressed: () {
+                _showActionHistoryDialog();
+              },
+              icon: const Icon(Icons.history, size: 18),
+              label: const Text('操作履歴確認', style: TextStyle(fontSize: 12)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade50,
+                foregroundColor: Colors.orange.shade700,
+                elevation: 1,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: Colors.orange.shade200),
+                ),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadTableData,
@@ -204,8 +225,14 @@ class _TableHomeInScheduledTournamentState extends State<TableHomeInScheduledTou
     final reEntryCount = _mainViewData?['reentries'] as int? ?? 0;
     final totalEntries = entryCount + reEntryCount; // 総エントリー数
     
+    final screenSize = MediaQuery.of(context).size;
+    final availableHeight = screenSize.height - MediaQuery.of(context).padding.top - kToolbarHeight;
+    
+    // 画面高さに応じたベースフォントサイズを計算（画面高さの1.5%）
+    final baseFontSize = availableHeight * 0.025;
+    
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(screenSize.height * 0.04), // 画面幅の2%
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -238,7 +265,7 @@ class _TableHomeInScheduledTournamentState extends State<TableHomeInScheduledTou
 
   Widget _buildTournamentInfoItem(IconData icon, String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 1),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -354,10 +381,10 @@ class _TableHomeInScheduledTournamentState extends State<TableHomeInScheduledTou
               bottom: 0,
               child: Center(
                 child: Container(
-                  width: 720, // 1.8倍に拡大 (400 * 1.8)
-                  height: 504, // 1.8倍に拡大 (280 * 1.8)
+                  width: MediaQuery.of(context).size.width * 0.6, // 画面幅の60%
+                  height: MediaQuery.of(context).size.width * 0.4, // 画面幅の40%（3:2の比率）
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(252), // 楕円形 (504 / 2)
+                    borderRadius: BorderRadius.circular(MediaQuery.of(context).size.width * 0.2), // 楕円形（画面幅の20%）
                     color: Colors.green.shade800,
                     border: Border.all(color: Colors.green.shade900, width: 3),
                     boxShadow: [
@@ -499,9 +526,9 @@ class _TableHomeInScheduledTournamentState extends State<TableHomeInScheduledTou
       // 左右反転: -cos(angle) を使用
       final angle = i * (2 * 3.14159 / totalPositions) - (3.14159 / 2); // 12時方向から開始
       
-      // 楕円の配置（正確な楕円周上に配置）
-      final ellipseWidth = 790.0;
-      final ellipseHeight = 530.0;
+      // 楕円の配置（画面サイズに応じた楕円周上に配置）
+      final ellipseWidth = MediaQuery.of(context).size.width * 0.64; // 画面幅の75%
+      final ellipseHeight = MediaQuery.of(context).size.width * 0.44; // 画面幅の50%（3:2の比率）
       final a = ellipseWidth / 2; // 楕円の横半径
       final b = ellipseHeight / 2; // 楕円の縦半径
       
@@ -940,5 +967,40 @@ class _TableHomeInScheduledTournamentState extends State<TableHomeInScheduledTou
         loadingOverlay.remove();
       }
     }
+  }
+
+  void _showActionHistoryDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('操作履歴の確認'),
+          content: const Text('操作履歴の確認を行いますか？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _navigateToActionHistory();
+              },
+              child: const Text('Yes'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _navigateToActionHistory() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => TournamentActionsHistoryPage(
+          tournamentId: widget.tournamentId,
+        ),
+      ),
+    );
   }
 }
