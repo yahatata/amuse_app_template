@@ -170,8 +170,13 @@ export const registerForTournament = onCall(async (request) => {
         [tournamentId]: updatedTournamentInfo,
       };
       
+      // totalPriceにentryFeeを加算
+      const currentTotalPrice = todayBillsData.totalPrice || 0;
+      const newTotalPrice = currentTotalPrice + entryFee;
+      
       transaction.update(todayBillsDoc.ref, {
         tournaments: updatedTournaments,
+        totalPrice: newTotalPrice,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 

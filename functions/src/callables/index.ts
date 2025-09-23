@@ -3,6 +3,7 @@ export { getScheduledTournaments } from './getScheduledTournaments';
 export { getTodayTournaments } from './getTodayTournaments';
 export { getUpcomingTournaments } from './getUpcomingTournaments';
 export { registerForTournament } from './registerForTournament';
+export { updateStaffHourlyWage } from './updateStaffHourlyWage';
 export { addTableToTournament } from './addTableToTournament';
 export { assignSeatToPlayer } from './assignSeatToPlayer';
 export { reseatAllPlayers } from './reseatAllPlayers';
