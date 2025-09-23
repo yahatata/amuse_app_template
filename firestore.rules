@@ -4,116 +4,122 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // ===== 開発用設定（セキュリティを緩く設定） =====
     // 本番環境では適切な認証制限を再設定してください
-    
+
     // ユーザーコレクション（開発用：読み取り全許可）
     match /users/{userId} {
       allow read: if true; // 開発用：全許可
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
-    
+
     match /staffs/{staffId} {
       allow read: if true; // 開発用：全許可
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
-    
+
     // scheduledTournaments関連のルール（開発用：読み取り全許可）
     match /scheduledTournaments/{tournamentId} {
       // トーナメント基本情報の読み取り（開発用：全許可）
       allow read: if true;
       allow write: if false; // 書き込みはCloud Functions経由のみ
-      
 
-      
+
+
       // views サブコレクションの読み取り（開発用：全許可）
       match /views/{viewId} {
         allow read: if true;
         allow write: if false; // 書き込みはCloud Functions経由のみ
       }
-      
+
       // tablesSeat サブコレクションの読み取り（開発用：全許可）
       match /tablesSeat/{docId} {
         allow read: if true;
         allow write: if false; // 書き込みはCloud Functions経由のみ
       }
-      
+
+      // actionLog サブコレクションの読み取り（開発用：全許可）
+      match /actionLog/{logId} {
+        allow read: if true;
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+
       // users サブコレクション（開発用：読み取り全許可）
       match /users/{userId} {
         allow read: if true;
         allow write: if false; // 書き込みはCloud Functions経由のみ
       }
-      
+
       // tables サブコレクション（開発用：読み取り全許可）
       match /tables/{tableId} {
         allow read: if true;
         allow write: if false; // 書き込みはCloud Functions経由のみ
       }
-      
+
       // events サブコレクション（開発用：読み取り全許可）
       match /events/{eventId} {
         allow read: if true;
         allow write: if false; // 書き込みはCloud Functions経由のみ
       }
     }
-    
+
     // tournamentTemplates の読み取り（開発用：全許可）
     match /tournamentTemplates/{templateId} {
       allow read: if true;
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
-    
+
     // recurrenceRules の読み取り（開発用：全許可）
     match /recurrenceRules/{ruleId} {
       allow read: if true;
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
-    
+
     // todaysBills の読み取り（開発用：全許可）
     match /todaysBills/{billId} {
       allow read: if true;
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
-    
+
     // tables の読み取り（開発用：全許可）
     match /tables/{tableId} {
       allow read: if true;
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
-    
+
     // デバイスコレクション（開発用：読み取り全許可）
     match /devices/{deviceId} {
       allow read: if true; // 開発用：全許可
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
-    
+
     // シフトコレクション
     match /shifts/{shiftId} {
       // 読み取り: 全ユーザー（テスト用）
       allow read: if true;
-      
+
       // 書き込み: 全ユーザー（テスト用）
       allow write: if true;
     }
-    
+
     // 勤怠コレクション（開発用：読み取り全許可）
     match /attendances/{attendanceId} {
       allow read: if true; // 開発用：全許可
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
-    
+
     // 勤怠修正申請コレクション（開発用：読み取り全許可）
     match /attendanceCorrectionRequests/{requestId} {
       allow read: if true; // 開発用：全許可
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
-    
+
     // 管理者コレクション
     match /admins/{adminId} {
       allow read: if request.auth != null && request.auth.uid == adminId;
     }
-    
+
     // その他のコレクションは読み書き禁止
     match /{document=**} {
       allow read, write: if false;
     }
   }
-} 
+}

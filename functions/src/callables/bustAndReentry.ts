@@ -201,8 +201,13 @@ export const bustAndReentry = functions.https.onCall(async (data, context) => {
           [tournamentId]: updatedTournamentInfo,
         };
         
+        // totalPriceにreentryFeeを加算
+        const currentTotalPrice = todayBillsData.totalPrice || 0;
+        const newTotalPrice = currentTotalPrice + reentryFee;
+        
         transaction.update(todayBillsDoc.ref, {
           tournaments: updatedTournaments,
+          totalPrice: newTotalPrice,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         
@@ -287,8 +292,13 @@ export const bustAndReentry = functions.https.onCall(async (data, context) => {
         [tournamentId]: updatedTournamentInfo,
       };
       
+      // totalPriceにreentryFeeを加算
+      const currentTotalPrice = todayBillsData.totalPrice || 0;
+      const newTotalPrice = currentTotalPrice + reentryFee;
+      
       transaction.update(todayBillsDoc.ref, {
         tournaments: updatedTournaments,
+        totalPrice: newTotalPrice,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       

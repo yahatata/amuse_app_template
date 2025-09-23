@@ -5,6 +5,7 @@ import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/AttendanceManagement/allStaffAttendancePage.dart';
 import 'package:amuse_app_template/AttendanceManagement/attendanceCorrectionRequestsPage.dart';
 import 'package:amuse_app_template/pages/device_management_page.dart';
+import 'package:amuse_app_template/Home/staffListPage.dart';
 
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({super.key});
@@ -32,7 +33,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         (label: '全スタッフ勤怠', destination: const AllStaffAttendancePage()),
         (label: '勤怠修正申請', destination: const AttendanceCorrectionRequestsPage()),
         (label: 'デバイス管理', destination: const DeviceManagementPage()),
-        (label: 'Admin機能 5', destination: const PlaceholderPage(title: 'Admin機能 5')),
+        (label: 'スタッフ一覧', destination: const StaffListPage()),
         (label: 'Staff作成', destination: const CreateStaffAccount()),
       ];
 

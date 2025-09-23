@@ -216,8 +216,21 @@ export const registerParticipants = functions.https.onCall(async (data, context)
             [tournamentId]: updatedTournamentInfo,
           };
           
+          // totalPriceに料金を加算
+          const currentTotalPrice = todayBillsData.totalPrice || 0;
+          let newTotalPrice = currentTotalPrice;
+          
+          if (isUserAlreadyRegistered) {
+            // リエントリーの場合
+            newTotalPrice = currentTotalPrice + reentryFee;
+          } else {
+            // 初回エントリーの場合
+            newTotalPrice = currentTotalPrice + entryFee;
+          }
+          
           transaction.update(todayBillsDoc.ref, {
             tournaments: updatedTournaments,
+            totalPrice: newTotalPrice,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 

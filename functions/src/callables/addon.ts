@@ -121,8 +121,13 @@ export const addon = onCall(async (request) => {
         [tournamentId]: updatedTournamentInfo 
       });
 
+      // totalPriceにaddonFeeを加算
+      const currentTotalPrice = todayBillsData.totalPrice || 0;
+      const newTotalPrice = currentTotalPrice + addonFee;
+
       transaction.update(todayBillsDoc.ref, {
         tournaments: updatedTournaments,
+        totalPrice: newTotalPrice,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 

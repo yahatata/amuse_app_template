@@ -5,7 +5,7 @@ import 'dart:math';
 import 'dart:async'; // For TimeoutException
 import '../../UserAction/userActionHome.dart';
 import '../../UserAction/bulkAddonPop.dart';
-import '../../ActionHistory/tournamentActionsHistoryPage.dart'; // Added import for TournamentActionsHistoryPage
+// Added import for TournamentActionsHistoryPage
 
 class TableHomeInScheduledTournament extends StatefulWidget {
   final String tournamentId;
@@ -981,20 +981,20 @@ class _TableHomeInScheduledTournamentState extends State<TableHomeInScheduledTou
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('キャンセル'),
             ),
-            ElevatedButton(
+            /*ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
                 _navigateToActionHistory();
               },
               child: const Text('Yes'),
-            ),
+            ),*/
           ],
         );
       },
     );
   }
 
-  void _navigateToActionHistory() {
+  /*void _navigateToActionHistory() {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => TournamentActionsHistoryPage(
@@ -1002,5 +1002,5 @@ class _TableHomeInScheduledTournamentState extends State<TableHomeInScheduledTou
         ),
       ),
     );
-  }
+  }*/
 }
