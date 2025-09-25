@@ -16,8 +16,8 @@ class GlobalConstants {
   static const double defaultPrizeRatio = 0.7; // デフォルトプライズ割合（70%）
 
   // 給与計算期間設定
-  static const int PAYROLL_START_DAY = 25; // 給与計算期間の開始日（25日から開始）
-  static const int PAYROLL_END_DAY = 24;   // 給与計算期間の終了日（翌月24日まで）
+  static const int PAYROLL_START_DAY = 26; // 給与計算期間の開始日（25日から開始）
+  static const int PAYROLL_END_DAY = 25;   // 給与計算期間の終了日（翌月24日まで）
   
   // 給与計算期間の説明
   static const String PAYROLL_PERIOD_DESCRIPTION = "給与計算期間は25日〜翌月24日です。変更する場合は、このファイルの数値を変更してアプリを再起動してください。";

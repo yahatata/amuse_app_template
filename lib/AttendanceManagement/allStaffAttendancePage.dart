@@ -179,9 +179,27 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
     );
     if (picked != null && picked != selectedDate) {
       setState(() {
-        selectedDate = DateTime(picked.year, picked.month, 1);
+        // 選択された日付から給与計算期間を計算
+        selectedDate = _calculatePayrollPeriodStart(picked);
       });
       _loadAttendanceData(); // 月が変更されたらデータを再取得
+    }
+  }
+
+  // 選択された日付から給与計算期間の開始日を計算
+  DateTime _calculatePayrollPeriodStart(DateTime selectedDate) {
+    int year = selectedDate.year;
+    int month = selectedDate.month;
+    int day = selectedDate.day;
+    
+    // 選択された日付が給与計算期間の開始日より前か後かで判定
+    if (day < GlobalConstants.PAYROLL_START_DAY) {
+      // 前月の給与計算期間に含まれる
+      DateTime prevMonth = DateTime(year, month - 1);
+      return DateTime(prevMonth.year, prevMonth.month, GlobalConstants.PAYROLL_START_DAY);
+    } else {
+      // 今月の給与計算期間に含まれる
+      return DateTime(year, month, GlobalConstants.PAYROLL_START_DAY);
     }
   }
 
@@ -190,9 +208,9 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
     final startDay = GlobalConstants.PAYROLL_START_DAY;
     final endDay = GlobalConstants.PAYROLL_END_DAY;
     
-    final now = DateTime.now();
-    final currentMonth = now.month;
-    final currentYear = now.year;
+    // selectedDateから給与計算期間を計算
+    final currentMonth = selectedDate.month;
+    final currentYear = selectedDate.year;
     
     // 終了日の表示テキストを取得
     String getEndDayText(int year, int month, int day) {
@@ -214,32 +232,16 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
     
     if (endDay == 0) {
       // 終了日が0の場合：今月開始日〜今月終了日（月を跨がない）
-      if (now.day >= startDay) {
-        // 今月開始日以降の場合
-        periodStart = DateTime(currentYear, currentMonth, startDay);
-        periodEnd = DateTime(currentYear, currentMonth, DateTime(currentYear, currentMonth + 1, 0).day);
-      } else {
-        // 今月開始日以前の場合
-        final prevMonth = currentMonth == 1 ? 12 : currentMonth - 1;
-        final prevYear = currentMonth == 1 ? currentYear - 1 : currentYear;
-        periodStart = DateTime(prevYear, prevMonth, startDay);
-        periodEnd = DateTime(currentYear, currentMonth, DateTime(currentYear, currentMonth + 1, 0).day);
-      }
+      // selectedDateから給与計算期間を計算
+      periodStart = DateTime(currentYear, currentMonth, startDay);
+      periodEnd = DateTime(currentYear, currentMonth, DateTime(currentYear, currentMonth + 1, 0).day);
     } else {
       // 終了日が0以外の場合：月を跨ぐ期間
-      if (now.day >= startDay) {
-        // 今月開始日以降の場合：今月開始日〜来月終了日
-        periodStart = DateTime(currentYear, currentMonth, startDay);
-        final nextMonth = currentMonth == 12 ? 1 : currentMonth + 1;
-        final nextYear = currentMonth == 12 ? currentYear + 1 : currentYear;
-        periodEnd = DateTime(nextYear, nextMonth, endDay);
-      } else {
-        // 今月開始日以前の場合：先月開始日〜今月終了日
-        final prevMonth = currentMonth == 1 ? 12 : currentMonth - 1;
-        final prevYear = currentMonth == 1 ? currentYear - 1 : currentYear;
-        periodStart = DateTime(prevYear, prevMonth, startDay);
-        periodEnd = DateTime(currentYear, currentMonth, endDay);
-      }
+      // selectedDateから給与計算期間を計算
+      periodStart = DateTime(currentYear, currentMonth, startDay);
+      final nextMonth = currentMonth == 12 ? 1 : currentMonth + 1;
+      final nextYear = currentMonth == 12 ? currentYear + 1 : currentYear;
+      periodEnd = DateTime(nextYear, nextMonth, endDay);
     }
     
     // 期間テキストを生成
@@ -396,7 +398,7 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
                               const Icon(Icons.calendar_today, color: Colors.blue),
                               const SizedBox(width: 8.0),
                               Text(
-                                '${selectedDate.year}年${selectedDate.month}月',
+                                _getPayrollPeriodText(),
                                 style: const TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold),
                               ),
                             ],

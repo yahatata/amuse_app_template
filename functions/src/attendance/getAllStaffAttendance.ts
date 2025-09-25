@@ -63,6 +63,13 @@ export const getAllStaffAttendance = onCall(
         .get();
 
       console.log(`勤怠記録取得件数: ${attendanceSnapshot.size}`);
+      
+      // デバッグ用：取得したドキュメントの詳細をログ出力
+      if (attendanceSnapshot.size > 0) {
+        console.log('取得された勤怠記録の最初のドキュメント:', attendanceSnapshot.docs[0].data());
+      } else {
+        console.log('勤怠記録が見つかりませんでした');
+      }
 
       const attendances: any[] = [];
       
