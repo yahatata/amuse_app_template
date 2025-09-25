@@ -42,12 +42,15 @@ export const monthlyPayrollTrigger = onSchedule({
       
       console.log(`スタッフ ${staffName} (${staffId}) の給与計算開始`);
       
-      // 該当期間の勤怠データを取得
+      // 該当期間の勤怠データを取得（clockOut基準、nullは除外）
+      const periodStartTimestamp = admin.firestore.Timestamp.fromDate(periodStart);
+      const periodEndTimestamp = admin.firestore.Timestamp.fromDate(periodEnd);
+      
       const attendanceSnapshot = await db
         .collection('attendances')
         .where('staffId', '==', staffId)
-        .where('date', '>=', periodStartStr)
-        .where('date', '<=', periodEndStr)
+        .where('clockOut', '>=', periodStartTimestamp)
+        .where('clockOut', '<=', periodEndTimestamp)
         .get();
       
       console.log(`勤怠記録数: ${attendanceSnapshot.size}`);

@@ -10,6 +10,7 @@ class StaffAttendanceDetailPage extends StatefulWidget {
   final Map<String, dynamic>? monthData;
   final List<Map<String, dynamic>>? shiftsData;
   final List<Map<String, dynamic>>? attendancesData;
+  final String? payrollPeriodText; // 期間表示テキストを追加
   
   const StaffAttendanceDetailPage({
     super.key,
@@ -19,6 +20,7 @@ class StaffAttendanceDetailPage extends StatefulWidget {
     this.monthData,
     this.shiftsData,
     this.attendancesData,
+    this.payrollPeriodText,
   });
 
   @override
@@ -85,39 +87,35 @@ class _StaffAttendanceDetailPageState extends State<StaffAttendanceDetailPage>
       ),
       body: Column(
         children: [
-          // 月選択とスタッフ情報
+          // 期間表示とスタッフ情報
           Container(
             padding: const EdgeInsets.all(16.0),
             color: Colors.grey[100],
             child: Column(
               children: [
-                // 月選択
-                Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => _selectMonth(context),
-                        child: Container(
-                          padding: const EdgeInsets.all(12.0),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey),
-                            borderRadius: BorderRadius.circular(8.0),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.calendar_today, color: Colors.blue),
-                              const SizedBox(width: 8.0),
-                              Text(
-                                '${selectedMonth.year}年${selectedMonth.month}月',
-                                style: const TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
+                // 期間表示（カレンダー選択を削除）
+                Container(
+                  padding: const EdgeInsets.all(12.0),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    border: Border.all(color: Colors.blue),
+                    borderRadius: BorderRadius.circular(8.0),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.schedule, color: Colors.blue),
+                      const SizedBox(width: 8.0),
+                      Text(
+                        '給与計算期間: ${widget.payrollPeriodText ?? '期間未設定'}',
+                        style: const TextStyle(
+                          fontSize: 16.0, 
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 12.0),
                 // スタッフ情報

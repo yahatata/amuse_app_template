@@ -16,11 +16,15 @@ export const determineAttendanceMode = onCall(async (request: CallableRequest) =
       );
     }
 
-    // 今日の日付を取得（JST）
+    // 現在時刻を取得（JST）
     const now = new Date();
     const jstOffset = 9 * 60; // JST = UTC+9
     const jstDate = new Date(now.getTime() + jstOffset * 60000);
     const today = jstDate.toISOString().split('T')[0]; // YYYY-MM-DD形式
+    const currentHour = jstDate.getHours(); // 現在時刻（0-23）
+    
+    // 店舗締め時間設定（globalConstant.dartの値と同期）
+    const STORE_CLOSE_HOUR = 9; // 9:00まで（日付跨ぎ勤務可能）
 
     // スタッフ情報を取得
     const staffDoc = await admin.firestore()
@@ -38,32 +42,76 @@ export const determineAttendanceMode = onCall(async (request: CallableRequest) =
     const staffData = staffDoc.data()!;
     const staffName = staffData.fullName || 'Unknown Staff';
 
-    // 当日の出勤記録を確認
-    const attendanceQuery = await admin.firestore()
-      .collection('attendances')
-      .where('staffId', '==', staffId)
-      .where('date', '==', today)
-      .get();
-
     let isClockIn = true; // デフォルトは出勤
     let existingDocId = null;
 
-    if (!attendanceQuery.empty) {
-      const attendanceDoc = attendanceQuery.docs[0];
-      const attendanceData = attendanceDoc.data();
+    if (currentHour < STORE_CLOSE_HOUR) {
+      // 締め時間前：前日の勤務を継続する可能性をチェック
+      const yesterday = new Date(jstDate);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
       
-      // 出勤記録はあるが退勤記録がない場合
-      if (attendanceData.clockIn && !attendanceData.clockOut) {
+      // 前日の未完了勤務を確認
+      const yesterdayAttendanceQuery = await admin.firestore()
+        .collection('attendances')
+        .where('staffId', '==', staffId)
+        .where('date', '==', yesterdayStr)
+        .where('clockOut', '==', null)
+        .get();
+
+      if (!yesterdayAttendanceQuery.empty) {
+        // 前日の未完了勤務がある場合：退勤処理
+        const attendanceDoc = yesterdayAttendanceQuery.docs[0];
         isClockIn = false; // 退勤
         existingDocId = attendanceDoc.id;
+      } else {
+        // 前日の未完了勤務がない場合：新しい出勤処理
+        isClockIn = true;
       }
-      // 既に出勤・退勤が完了している場合
-      else if (attendanceData.clockIn && attendanceData.clockOut) {
-        throw new HttpsError(
-          'already-exists',
-          'Attendance record already completed for today'
-        );
+    } else {
+      // 締め時間後：当日の勤務をチェック
+      const attendanceQuery = await admin.firestore()
+        .collection('attendances')
+        .where('staffId', '==', staffId)
+        .where('date', '==', today)
+        .get();
+
+      if (!attendanceQuery.empty) {
+        const attendanceDoc = attendanceQuery.docs[0];
+        const attendanceData = attendanceDoc.data();
+        
+        // 出勤記録はあるが退勤記録がない場合
+        if (attendanceData.clockIn && !attendanceData.clockOut) {
+          isClockIn = false; // 退勤
+          existingDocId = attendanceDoc.id;
+        }
+        // 既に出勤・退勤が完了している場合
+        else if (attendanceData.clockIn && attendanceData.clockOut) {
+          throw new HttpsError(
+            'already-exists',
+            'Attendance record already completed for today'
+          );
+        }
       }
+      
+      // TODO: 前日の未完了勤務がある場合の通知機能
+      // if (currentHour >= STORE_CLOSE_HOUR) {
+      //   const yesterday = new Date(jstDate);
+      //   yesterday.setDate(yesterday.getDate() - 1);
+      //   const yesterdayStr = yesterday.toISOString().split('T')[0];
+      //   
+      //   const yesterdayIncompleteQuery = await admin.firestore()
+      //     .collection('attendances')
+      //     .where('staffId', '==', staffId)
+      //     .where('date', '==', yesterdayStr)
+      //     .where('clockOut', '==', null)
+      //     .get();
+      //   
+      //   if (!yesterdayIncompleteQuery.empty) {
+      //     // 前日の未完了勤務がある場合の通知
+      //     await sendNotification(staffId, "前日の勤務が未完了です");
+      //   }
+      // }
     }
 
     return {

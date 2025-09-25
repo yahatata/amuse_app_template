@@ -572,6 +572,8 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
                       shiftsData: staffShifts,
                       // 期間内の全勤怠データも渡す
                       attendancesData: attendances,
+                      // 期間表示テキストも渡す
+                      payrollPeriodText: _getPayrollPeriodText(),
                     ),
                   ),
                 );
