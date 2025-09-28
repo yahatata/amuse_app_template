@@ -41,6 +41,9 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
   // トーナメントカテゴリ
   String _tournamentCategory = 'regular';
   
+  // ポイントタイプ
+  String _selectedPointType = 'pointA';
+  
   // 状態管理
   bool _isLoading = false;
   bool _isSaving = false;
@@ -228,6 +231,7 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
         'blindStructure': _selectedBlindTemplateId,
         'prizeRatio': _prizeRatio,
         'tournamentCategory': _tournamentCategory,
+        'pointType': _selectedPointType,
       };
 
       final result = await callable.call(tournamentTemplateData);
@@ -409,9 +413,28 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
                             ),
                             const SizedBox(height: 16),
 
-
-
-
+                            // ポイントタイプ選択
+                            DropdownButtonFormField<String>(
+                              value: _selectedPointType,
+                              decoration: const InputDecoration(
+                                labelText: 'ポイントタイプ *',
+                                border: OutlineInputBorder(),
+                              ),
+                              items: GlobalConstants.pointTypes.map((String pointType) {
+                                return DropdownMenuItem<String>(
+                                  value: pointType,
+                                  child: Text(pointType),
+                                );
+                              }).toList(),
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setState(() {
+                                    _selectedPointType = value;
+                                  });
+                                }
+                              },
+                            ),
+                            const SizedBox(height: 16),
 
                             // トーナメントカテゴリ
                             DropdownButtonFormField<String>(

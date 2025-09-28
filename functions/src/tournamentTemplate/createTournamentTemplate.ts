@@ -6,7 +6,7 @@ export const createTournamentTemplate = onCall(async (request) => {
     const {
       name, entryFee, isReentry, maxReentries, reentryFee, startStack,
       isAddon, addonFee, addonStack, blindStructure, prizeRatio,
-      tournamentCategory
+      tournamentCategory, pointType
     } = request.data;
 
     // 必須フィールドのバリデーション
@@ -56,6 +56,7 @@ export const createTournamentTemplate = onCall(async (request) => {
       blindStructure,
       prizeRatio,
       tournamentCategory,
+      pointType: pointType || 'pointA', // UIから送信されたpointTypeまたはデフォルト
       updatedAt: now,
       isArchived: false,
     };

@@ -141,6 +141,26 @@ export const registerParticipants = functions.https.onCall(async (data, context)
               waitingCount: currentWaitingCount + 1,
               updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
+            
+            // bustedから該当ユーザーを削除
+            const bustedRef = db
+              .collection('scheduledTournaments')
+              .doc(tournamentId)
+              .collection('tablesSeat')
+              .doc('busted');
+            
+            const bustedDoc = await transaction.get(bustedRef);
+            if (bustedDoc.exists) {
+              const bustedData = bustedDoc.data()!;
+              const bustedUser = bustedData.bustedUser || {};
+              
+              if (bustedUser[userId]) {
+                delete bustedUser[userId];
+                transaction.update(bustedRef, {
+                  bustedUser: bustedUser,
+                });
+              }
+            }
           } else {
             // 初回エントリーの場合
             transaction.update(viewsMainRef, {

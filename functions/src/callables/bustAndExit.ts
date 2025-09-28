@@ -68,6 +68,17 @@ export const bustAndExit = functions.https.onCall(async (data, context) => {
       const viewsMainData = viewsMainDoc.data()!;
       const currentPlayersBusted = viewsMainData.playersBusted || 0;
 
+      // 6. bustedドキュメントを取得（読み取り操作を先に実行）
+      const bustedRef = db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc('busted');
+
+      const bustedDoc = await transaction.get(bustedRef);
+      const bustedData = bustedDoc.exists ? bustedDoc.data()! : { bustedUser: {} };
+      const bustedUser = bustedData.bustedUser || {};
+
       // 全ての読み取りが完了したので、ここから書き込み操作を開始
 
       // 4. シートからユーザーを削除
@@ -84,6 +95,20 @@ export const bustAndExit = functions.https.onCall(async (data, context) => {
       transaction.update(viewsMainRef, {
         playersBusted: currentPlayersBusted + 1,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // 6. bustedドキュメントに退席情報を追加
+      // プレイヤー名を取得
+      const pokerName = seats[seatPokerNameKey];
+      
+      // bustedUserに追加
+      bustedUser[userId] = {
+        pokerName: pokerName,
+        bustAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      transaction.update(bustedRef, {
+        bustedUser: bustedUser,
       });
 
       return { success: true, userId, tableId, seatNumber };
