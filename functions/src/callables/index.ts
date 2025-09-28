@@ -16,4 +16,9 @@ export { bulkAddon } from './bulkAddon';
 export { pauseTournament } from './api.pause';
 export { resumeTournament } from './api.resume';
 export { registerDevice } from './registerDevice';
+export { getPrizeData } from './getPrizeData';
+export { setPrizeData } from './setPrizeData';
+export { getRankingData } from './getRankingData';
+export { setRankingData } from './setRankingData';
+export { endTournament } from './endTournament';
 
