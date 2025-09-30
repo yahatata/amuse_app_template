@@ -352,8 +352,53 @@ class AttendanceService {
 
       return result.data;
     } catch (e) {
-      print('勤怠記録取得エラー: $e');
       throw Exception('勤怠記録の取得に失敗しました: $e');
+    }
+  }
+
+  // 期間内の給与データを取得
+  static Future<List<Map<String, dynamic>>> getPayrollData({
+    required int month,
+    required int year,
+    required int startDay,
+    required int endDay,
+  }) async {
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable('getPayrollData');
+      
+      final result = await callable.call({
+        'month': month,
+        'year': year,
+        'startDay': startDay,
+        'endDay': endDay,
+      });
+      
+      final responseData = result.data;
+      
+      if (responseData is! Map) {
+        throw Exception('予期しないレスポンス形式です: ${responseData.runtimeType}');
+      }
+      
+      final data = Map<String, dynamic>.from(responseData);
+      
+      if (data['success'] == true) {
+        final payrollData = data['payrollData'];
+        
+        if (payrollData is List) {
+          // CastListを避けて実体化 + キーをStringに統一
+          final List<dynamic> raw = List<dynamic>.from(payrollData);
+          return raw
+              .whereType<Map>() // Map<Object?, Object?>でも通る
+              .map<Map<String, dynamic>>((m) => m.map((k, v) => MapEntry(k.toString(), v)))
+              .toList(growable: false);
+        } else {
+          return [];
+        }
+      } else {
+        throw Exception('給与データの取得に失敗しました: ${data['error'] ?? '不明なエラー'}');
+      }
+    } catch (e) {
+      throw Exception('給与データの取得中にエラーが発生しました: $e');
     }
   }
 

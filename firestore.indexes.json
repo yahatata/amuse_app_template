@@ -179,6 +179,20 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "monthlyPayroll",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "periodStart",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "periodEnd",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

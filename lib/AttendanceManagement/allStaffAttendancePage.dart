@@ -19,6 +19,7 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
   bool isLoading = false;
   List<Map<String, dynamic>> attendances = [];
   List<Map<String, dynamic>> shifts = [];
+  dynamic payrollData = []; // 給与データを追加
   Map<String, dynamic>? summaryData;
 
   @override
@@ -33,101 +34,119 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
     });
 
     try {
-      print('=== 勤怠データ取得開始 ===');
-      print('選択月: ${selectedDate.month}月');
-      print('選択年: ${selectedDate.year}年');
+      // 勤怠データと給与データを並行取得
+      // 給与データは選択月の翌月期間で取得（8月選択→8月26日〜9月25日、9月選択→9月26日〜10月25日）
+      final payrollMonth = selectedDate.month + 1;
+      final payrollYear = payrollMonth > 12 ? selectedDate.year + 1 : selectedDate.year;
+      final adjustedPayrollMonth = payrollMonth > 12 ? 1 : payrollMonth;
       
-      final result = await AttendanceService.getAllStaffAttendance(
-        month: selectedDate.month,
-        year: selectedDate.year,
-        startDay: GlobalConstants.PAYROLL_START_DAY,
-        endDay: GlobalConstants.PAYROLL_END_DAY,
-      );
-
-      print('=== Cloud Function結果 ===');
-      print('result: $result');
-      print('success: ${result['success']}');
-      print('attendances: ${result['attendances']}');
-      print('attendances.length: ${result['attendances']?.length ?? 0}');
-      print('shifts: ${result['shifts']}');
-      print('shifts.length: ${result['shifts']?.length ?? 0}');
+      // 勤怠データと給与データを個別に取得
+      Map<String, dynamic> result;
+      try {
+        result = await AttendanceService.getAllStaffAttendance(
+          month: selectedDate.month,
+          year: selectedDate.year,
+          startDay: GlobalConstants.PAYROLL_START_DAY,
+          endDay: GlobalConstants.PAYROLL_END_DAY,
+        );
+      } catch (e) {
+        result = {'success': false, 'attendances': [], 'shifts': []};
+      }
+      
+      List<dynamic> payrollResult = [];
+      try {
+        final payrollData = await AttendanceService.getPayrollData(
+          month: adjustedPayrollMonth,
+          year: payrollYear,
+          startDay: GlobalConstants.PAYROLL_START_DAY,
+          endDay: GlobalConstants.PAYROLL_END_DAY,
+        );
+        
+        // AttendanceServiceで既に正規化済みなので、そのまま使用
+        payrollResult = payrollData;
+      } catch (e) {
+        payrollResult = [];
+      }
 
       if (result['success'] == true) {
         // 勤怠データの型安全な変換
-        final rawAttendances = result['attendances'] as List? ?? [];
         final attendancesList = <Map<String, dynamic>>[];
-        
-        for (final item in rawAttendances) {
-          if (item is Map) {
-            // 各フィールドを明示的に変換
-            final convertedItem = <String, dynamic>{
-              'id': item['id']?.toString() ?? '',
-              'staffId': item['staffId']?.toString() ?? '',
-              'staffName': item['staffName']?.toString() ?? '不明',
-              'date': item['date']?.toString() ?? '',
-              'clockIn': _parseTimestamp(item['clockIn']),
-              'clockOut': _parseTimestamp(item['clockOut']),
-              'shiftStart': _parseTimestamp(item['shiftStart']),
-              'shiftEnd': _parseTimestamp(item['shiftEnd']),
-              'isManual': item['isManual'] == true,
-              'nightTimeHours': (item['nightTimeHours'] is num) ? (item['nightTimeHours'] as num).toDouble() : 0.0,
-              'totalWorkHours': (item['totalWorkHours'] is num) ? (item['totalWorkHours'] as num).toDouble() : 0.0,
-              'nightMinutes': (item['nightMinutes'] is num) ? (item['nightMinutes'] as num).toInt() : 0,
-              'totalMinutes': (item['totalMinutes'] is num) ? (item['totalMinutes'] as num).toInt() : 0,
-            };
-            attendancesList.add(convertedItem);
+        try {
+          final rawAttendances = result['attendances'];
+          if (rawAttendances is List) {
+            for (final item in rawAttendances) {
+              if (item is Map) {
+                try {
+                  // 各フィールドを明示的に変換
+                  final convertedItem = <String, dynamic>{
+                    'id': item['id']?.toString() ?? '',
+                    'staffId': item['staffId']?.toString() ?? '',
+                    'staffName': item['staffName']?.toString() ?? '不明',
+                    'date': item['date']?.toString() ?? '',
+                    'clockIn': _parseTimestamp(item['clockIn']),
+                    'clockOut': _parseTimestamp(item['clockOut']),
+                    'shiftStart': _parseTimestamp(item['shiftStart']),
+                    'shiftEnd': _parseTimestamp(item['shiftEnd']),
+                    'isManual': item['isManual'] == true,
+                    'nightTimeHours': (item['nightTimeHours'] is num) ? (item['nightTimeHours'] as num).toDouble() : 0.0,
+                    'totalWorkHours': (item['totalWorkHours'] is num) ? (item['totalWorkHours'] as num).toDouble() : 0.0,
+                    'nightMinutes': (item['nightMinutes'] is num) ? (item['nightMinutes'] as num).toInt() : 0,
+                    'totalMinutes': (item['totalMinutes'] is num) ? (item['totalMinutes'] as num).toInt() : 0,
+                  };
+                  attendancesList.add(convertedItem);
+                } catch (e) {
+                  // 個別アイテムの変換エラーは無視
+                }
+              }
+            }
           }
+        } catch (e) {
+          // 勤怠データの変換エラーは無視
         }
-
+        
         // シフトデータの型安全な変換
-        final rawShifts = result['shifts'] as List? ?? [];
         final shiftsList = <Map<String, dynamic>>[];
-        
-        for (final item in rawShifts) {
-          if (item is Map) {
-            // 各フィールドを明示的に変換
-            final convertedItem = <String, dynamic>{
-              'id': item['id']?.toString() ?? '',
-              'staffId': item['staffId']?.toString() ?? '',
-              'staffName': item['staffName']?.toString() ?? '不明',
-              'date': item['date']?.toString() ?? '',
-              'start': item['start']?.toString() ?? '', // startフィールドを使用
-              'end': item['end']?.toString() ?? '',     // endフィールドを使用
-              'confirmed': item['confirmed'],
-              'approvedBy': item['approvedBy']?.toString(),
-              'approvedAt': item['approvedAt'],
-              'createdAt': item['createdAt'],
-              'updatedAt': item['updatedAt'],
-              'status': item['status']?.toString() ?? '不明',
-            };
-            shiftsList.add(convertedItem);
+        try {
+          final rawShifts = result['shifts'];
+          if (rawShifts is List) {
+            for (final item in rawShifts) {
+              if (item is Map) {
+                try {
+                  // 各フィールドを明示的に変換
+                  final convertedItem = <String, dynamic>{
+                    'id': item['id']?.toString() ?? '',
+                    'staffId': item['staffId']?.toString() ?? '',
+                    'staffName': item['staffName']?.toString() ?? '不明',
+                    'date': item['date']?.toString() ?? '',
+                    'start': item['start']?.toString() ?? '',
+                    'end': item['end']?.toString() ?? '',
+                    'confirmed': item['confirmed'] == true,
+                    'approvedBy': item['approvedBy']?.toString() ?? '',
+                    'approvedAt': _parseTimestamp(item['approvedAt']),
+                    'createdAt': _parseTimestamp(item['createdAt']),
+                    'updatedAt': _parseTimestamp(item['updatedAt']),
+                    'status': item['status']?.toString() ?? '',
+                  };
+                  shiftsList.add(convertedItem);
+                } catch (e) {
+                  // 個別アイテムの変換エラーは無視
+                }
+              }
+            }
           }
+        } catch (e) {
+          // シフトデータの変換エラーは無視
         }
-        
-        print('=== 変換後のデータ ===');
-        print('attendancesList: $attendancesList');
-        print('attendancesList.length: ${attendancesList.length}');
-        print('shiftsList: $shiftsList');
-        print('shiftsList.length: ${shiftsList.length}');
         
         setState(() {
           attendances = attendancesList;
           shifts = shiftsList;
+          payrollData = payrollResult;
           _updateSummaryData();
           _updateStaffNames();
         });
-        
-        print('=== 状態更新後 ===');
-        print('attendances.length: ${attendances.length}');
-        print('shifts.length: ${shifts.length}');
-        print('summaryData: $summaryData');
-        print('staffNames: $staffNames');
-      } else {
-        print('❌ Cloud Functionが失敗: ${result['error'] ?? '不明なエラー'}');
       }
     } catch (e) {
-      print('❌ 勤怠データ取得エラー: $e');
-      print('エラーの詳細: ${e.toString()}');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('勤怠データの取得に失敗しました: $e')),
       );
@@ -135,8 +154,6 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
       setState(() {
         isLoading = false;
       });
-      print('=== データ取得完了 ===');
-      print('最終的なattendances.length: ${attendances.length}');
     }
   }
 
@@ -446,12 +463,7 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
   }
 
   Widget _buildAttendanceList() {
-    print('=== _buildAttendanceList呼び出し ===');
-    print('attendances.length: ${attendances.length}');
-    print('attendances: $attendances');
-    
     if (attendances.isEmpty) {
-      print('❌ attendancesが空のため「勤怠記録がありません」を表示');
       return const Center(
         child: Text(
           '勤怠記録がありません',
@@ -466,18 +478,11 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
     
     // フィルタリング
     List<String> filteredStaffNames = staffNames;
-    print('フィルタリング前: ${filteredStaffNames.length}件');
     
     if (selectedStaffId != null) {
-      print('選択されたスタッフ: $selectedStaffId');
       filteredStaffNames = staffNames.where((staffName) {
-        final matches = staffName == selectedStaffId;
-        print('スタッフ名: $staffName, マッチ: $matches');
-        return matches;
+        return staffName == selectedStaffId;
       }).toList();
-      print('フィルタリング後: ${filteredStaffNames.length}件');
-    } else {
-      print('全スタッフ表示（フィルタリングなし）');
     }
 
     return ListView.builder(
@@ -574,6 +579,8 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
                       attendancesData: attendances,
                       // 期間表示テキストも渡す
                       payrollPeriodText: _getPayrollPeriodText(),
+                      // 給与データも渡す
+                      payrollData: payrollData,
                     ),
                   ),
                 );
@@ -584,6 +591,5 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
       },
     );
   }
-
 
 }
