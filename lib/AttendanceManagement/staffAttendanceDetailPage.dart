@@ -10,6 +10,8 @@ class StaffAttendanceDetailPage extends StatefulWidget {
   final Map<String, dynamic>? monthData;
   final List<Map<String, dynamic>>? shiftsData;
   final List<Map<String, dynamic>>? attendancesData;
+  final String? payrollPeriodText; // 期間表示テキストを追加
+  final dynamic payrollData; // 給与データを追加
   
   const StaffAttendanceDetailPage({
     super.key,
@@ -19,6 +21,8 @@ class StaffAttendanceDetailPage extends StatefulWidget {
     this.monthData,
     this.shiftsData,
     this.attendancesData,
+    this.payrollPeriodText,
+    this.payrollData,
   });
 
   @override
@@ -34,7 +38,7 @@ class _StaffAttendanceDetailPageState extends State<StaffAttendanceDetailPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this); // 3タブに変更
     
     // 渡された月次データがあれば使用
     if (widget.monthData != null) {
@@ -52,21 +56,6 @@ class _StaffAttendanceDetailPageState extends State<StaffAttendanceDetailPage>
     super.dispose();
   }
 
-  Future<void> _selectMonth(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: selectedMonth,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      initialDatePickerMode: DatePickerMode.year,
-      locale: const Locale('ja', 'JP'), // 日本語対応
-    );
-    if (picked != null && picked != selectedMonth) {
-      setState(() {
-        selectedMonth = DateTime(picked.year, picked.month, 1);
-      });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -80,44 +69,41 @@ class _StaffAttendanceDetailPageState extends State<StaffAttendanceDetailPage>
           tabs: const [
             Tab(text: 'シフト', icon: Icon(Icons.schedule)),
             Tab(text: '勤怠記録', icon: Icon(Icons.work_history)),
+            Tab(text: '給与', icon: Icon(Icons.attach_money)),
           ],
         ),
       ),
       body: Column(
         children: [
-          // 月選択とスタッフ情報
+          // 期間表示とスタッフ情報
           Container(
             padding: const EdgeInsets.all(16.0),
             color: Colors.grey[100],
             child: Column(
               children: [
-                // 月選択
-                Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => _selectMonth(context),
-                        child: Container(
-                          padding: const EdgeInsets.all(12.0),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey),
-                            borderRadius: BorderRadius.circular(8.0),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.calendar_today, color: Colors.blue),
-                              const SizedBox(width: 8.0),
-                              Text(
-                                '${selectedMonth.year}年${selectedMonth.month}月',
-                                style: const TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
+                // 期間表示（カレンダー選択を削除）
+                Container(
+                  padding: const EdgeInsets.all(12.0),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    border: Border.all(color: Colors.blue),
+                    borderRadius: BorderRadius.circular(8.0),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.schedule, color: Colors.blue),
+                      const SizedBox(width: 8.0),
+                      Text(
+                        '給与計算期間: ${widget.payrollPeriodText ?? '期間未設定'}',
+                        style: const TextStyle(
+                          fontSize: 16.0, 
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 12.0),
                 // スタッフ情報
@@ -140,6 +126,7 @@ class _StaffAttendanceDetailPageState extends State<StaffAttendanceDetailPage>
               children: [
                 _buildShiftsTab(),
                 _buildAttendanceTab(),
+                _buildPayrollTab(),
               ],
             ),
           ),
@@ -774,4 +761,180 @@ class _StaffAttendanceDetailPageState extends State<StaffAttendanceDetailPage>
         return '';
     }
   }
+
+  // 給与タブのビルド
+  Widget _buildPayrollTab() {
+    // このスタッフの給与データを取得
+    final staffPayroll = _getStaffPayroll();
+    
+    if (staffPayroll == null) {
+      // 給与未確定の場合
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.schedule,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '給与はまだ確定していません',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '期間終了後に自動計算されます',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[500],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 給与確定済みの場合
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          // 合計給与（メイン表示）
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24.0),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.green[400]!, Colors.green[600]!],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16.0),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.green.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Text(
+                  '¥${staffPayroll['totalPay']?.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},') ?? '0'}',
+                  style: const TextStyle(
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '合計給与',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          const SizedBox(height: 24),
+          
+          // 内訳詳細
+          Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+            child: Column(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      Icon(Icons.receipt_long, color: Colors.blue),
+                      SizedBox(width: 8),
+                      Text(
+                        '給与内訳',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                _buildPayrollDetailItem(
+                  '基本給',
+                  '¥${staffPayroll['basicPay']?.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},') ?? '0'}',
+                  Icons.work,
+                ),
+                _buildPayrollDetailItem(
+                  '深夜手当',
+                  '¥${staffPayroll['nightTimePay']?.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},') ?? '0'}',
+                  Icons.nightlight,
+                ),
+                const Divider(height: 1),
+                _buildPayrollDetailItem(
+                  '勤務時間',
+                  '${staffPayroll['totalWorkHours']?.toString() ?? '0'}時間',
+                  Icons.access_time,
+                ),
+                _buildPayrollDetailItem(
+                  '深夜時間',
+                  '${staffPayroll['nightTimeHours']?.toString() ?? '0'}時間',
+                  Icons.nightlight_round,
+                ),
+                _buildPayrollDetailItem(
+                  '時給',
+                  '¥${staffPayroll['hourlyWage']?.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},') ?? '0'}',
+                  Icons.attach_money,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 給与詳細項目のビルド
+  Widget _buildPayrollDetailItem(String title, String value, IconData icon) {
+    return ListTile(
+      leading: Icon(icon, color: Colors.blue),
+      title: Text(title),
+      trailing: Text(
+        value,
+        style: const TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 16,
+        ),
+      ),
+    );
+  }
+
+  // このスタッフの給与データを取得
+  Map<String, dynamic>? _getStaffPayroll() {
+    if (widget.payrollData == null) return null;
+    
+    // AttendanceServiceで既に正規化済みなので、直接使用
+    for (final item in widget.payrollData!) {
+      if (item['staffId'] == widget.staffId) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+
 }
