@@ -47,9 +47,9 @@ export const createUserByApp = onCall(async (request) => {
     hashedPin,
     role: "user",
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    pointA: 0,
-    pointB: 0,
-    sideGameTip: 0,
+    pointA: 0, // globalConstant.dart の pointTypes[0] フィールド
+    pointB: 0, // globalConstant.dart の pointTypes[1] フィールド
+    sideGameTip: 0, // globalConstant.dart の pointTypes[2] フィールド
     lastLogin: admin.firestore.FieldValue.serverTimestamp(),
     isStaying: false,
     currentTable: null,

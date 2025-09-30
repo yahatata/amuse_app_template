@@ -114,6 +114,7 @@ export const createScheduledTournament = onCall(async (request) => {
         entriesPerPayout: templateData.entriesPerPayout || 8,
         maxEntrants: templateData.maxEntrants || null,
         category: templateData.tournamentCategory || templateData.category || 'regular',
+        pointType: templateData.pointType || 'pointA', // テンプレートのpointTypeを継承
       },
     };
 
@@ -258,6 +259,10 @@ export const createScheduledTournament = onCall(async (request) => {
       // tablesSeat/waiting を作成
       const waitingRef = tournamentRef.collection('tablesSeat').doc('waiting');
       transaction.set(waitingRef, waitingListData);
+      
+      // tablesSeat/busted を作成（空のbustedUserマップ）
+      const bustedRef = tournamentRef.collection('tablesSeat').doc('busted');
+      transaction.set(bustedRef, { bustedUser: {} });
       
       // views/runtime を作成
       const runtimeRef = tournamentRef.collection('views').doc('runtime');

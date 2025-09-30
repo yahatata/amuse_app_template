@@ -85,9 +85,9 @@ export const createUserAccount = onCall(
           hashedPin: hashedPin,
           birthMonthDay: birthMonthDay,
           loginId: loginId,
-          pointA: 0,
-          pointB: 0,
-          sideGameTip: 0,
+          pointA: 0, // globalConstant.dart の pointTypes[0] フィールド
+          pointB: 0, // globalConstant.dart の pointTypes[1] フィールド
+          sideGameTip: 0, // globalConstant.dart の pointTypes[2] フィールド
           isStaying: false,
           lastLogin: null,
           role: "user",

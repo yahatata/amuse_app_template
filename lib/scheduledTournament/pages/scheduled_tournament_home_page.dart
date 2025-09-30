@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import '../widgets/add_table_dialog.dart';
 import '../widgets/assign_seat_dialog.dart';
@@ -9,6 +10,8 @@ import '../models/table_and_users.dart';
 import '../services/tournament_data_service.dart';
 import '../scheduled_tournament_service.dart';
 import 'tableHomeInScheduledTournament.dart';
+import 'prize_setup_page.dart';
+import 'ranking_setup_page.dart';
 
 class ScheduledTournamentHomePage extends StatefulWidget {
   final String tournamentId;
@@ -212,9 +215,102 @@ class _ScheduledTournamentHomePageState extends State<ScheduledTournamentHomePag
   }
 
   void _confirmPrizes() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('プライズを確定する機能が実装されました')),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PrizeSetupPage(
+          tournamentId: widget.tournamentId,
+        ),
+      ),
     );
+  }
+
+  void _confirmRankings() async {
+    try {
+      // プライズプールの存在確認
+      final mainViewDoc = await FirebaseFirestore.instance
+          .collection('scheduledTournaments')
+          .doc(widget.tournamentId)
+          .collection('views')
+          .doc('main')
+          .get();
+      
+      if (!mainViewDoc.exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('トーナメントデータが見つかりません')),
+        );
+        return;
+      }
+      
+      final mainViewData = Map<String, dynamic>.from(mainViewDoc.data()!);
+      final prizePool = mainViewData['prizePool'];
+      
+      if (prizePool == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('プライズの確定が行われていないため、先にプライズ確定を行ってください')),
+        );
+        return;
+      }
+      
+      // 順位確定画面に遷移
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => RankingSetupPage(
+            tournamentId: widget.tournamentId,
+          ),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('エラーが発生しました: $e')),
+      );
+    }
+  }
+
+  void _endTournament() async {
+    // 確認ダイアログを表示
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('トーナメント終了'),
+        content: const Text('トーナメントの終了処理を行いますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('終了処理を行う'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
+    try {
+      // 終了処理を実行
+      final functions = FirebaseFunctions.instance;
+      final callable = functions.httpsCallable('endTournament');
+      final result = await callable.call({
+        'tournamentId': widget.tournamentId,
+      });
+      
+      if (result.data['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('トーナメントを終了しました')),
+        );
+        Navigator.of(context).pop();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.data['error'] ?? '終了処理に失敗しました')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('エラーが発生しました: $e')),
+      );
+    }
   }
 
   /// 統計アイテムを構築
@@ -269,18 +365,24 @@ class _ScheduledTournamentHomePageState extends State<ScheduledTournamentHomePag
 
   /// 下部アクションバーを構築
   Widget _buildBottomActionBar() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        border: Border(
-          top: BorderSide(color: Colors.grey[300]!),
+    return ExpansionTile(
+      title: const Text(
+        'トーナメント操作',
+        style: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
         ),
       ),
-      child: Row(
+      leading: const Icon(Icons.settings),
+      backgroundColor: Colors.grey[50],
+      collapsedBackgroundColor: Colors.grey[100],
+      childrenPadding: const EdgeInsets.all(16),
+      children: [
+        Row(
         children: [
-          // 左側: トーナメント状況表示
-          Expanded(
+          // 左側: トーナメント状況表示（画面幅の2/3に固定）
+          SizedBox(
+            width: MediaQuery.of(context).size.width * 0.67,
             child: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -304,7 +406,9 @@ class _ScheduledTournamentHomePageState extends State<ScheduledTournamentHomePag
                     return const Center(child: CircularProgressIndicator());
                   }
                   
-                  final data = snapshot.data?.data() as Map<String, dynamic>?;
+                  final data = snapshot.data?.data() != null 
+                      ? Map<String, dynamic>.from(snapshot.data!.data()! as Map)
+                      : null;
                   
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -481,46 +585,81 @@ class _ScheduledTournamentHomePageState extends State<ScheduledTournamentHomePag
           
           const SizedBox(width: 16),
           
-          // 右側: アクションボタン（縦並び）
-          Column(
-            mainAxisSize: MainAxisSize.min,
+          // 右側: アクションボタン（2列縦並びレイアウト）
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ElevatedButton.icon(
-                onPressed: () => _registerParticipant(),
-                icon: const Icon(Icons.person_add),
-                label: const Text('参加者登録'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(120, 40),
-                ),
+              // 左列: 参加者登録、全員リシート、プライズ確定
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _registerParticipant(),
+                    icon: const Icon(Icons.person_add),
+                    label: const Text('参加者登録'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => _reseatAllPlayers(),
+                    icon: const Icon(Icons.shuffle),
+                    label: const Text('全員リシート'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => _confirmPrizes(),
+                    icon: const Icon(Icons.emoji_events),
+                    label: const Text('プライズ確定'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.purple,
+                      foregroundColor: Colors.white,
+                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: () => _reseatAllPlayers(),
-                icon: const Icon(Icons.shuffle),
-                label: const Text('全員リシート'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(120, 40),
-                ),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: () => _confirmPrizes(),
-                icon: const Icon(Icons.emoji_events),
-                label: const Text('プライズ確定'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(120, 40),
-                ),
+              const SizedBox(width: 16),
+              // 右列: 順位確定、終了処理
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _confirmRankings(),
+                    icon: const Icon(Icons.leaderboard),
+                    label: const Text('順位確定'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      foregroundColor: Colors.white,
+                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => _endTournament(),
+                    icon: const Icon(Icons.stop),
+                    label: const Text('終了処理'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -596,7 +735,9 @@ class _ScheduledTournamentHomePageState extends State<ScheduledTournamentHomePag
           }
 
           // データ取得成功
-          final data = snapshot.data!.data() as Map<String, dynamic>?;
+          final data = snapshot.data!.data() != null 
+              ? Map<String, dynamic>.from(snapshot.data!.data()! as Map)
+              : null;
           debugPrint('=== views/main データ取得成功 ===');
           debugPrint('データ: $data');
 
@@ -685,7 +826,9 @@ class _ScheduledTournamentHomePageState extends State<ScheduledTournamentHomePag
                                     return const Center(child: CircularProgressIndicator());
                                   }
 
-                                  final waitingData = waitingSnapshot.data?.data() as Map<String, dynamic>?;
+                                  final waitingData = waitingSnapshot.data?.data() != null 
+                                      ? Map<String, dynamic>.from(waitingSnapshot.data!.data()! as Map)
+                                      : null;
                                   final waitingList = waitingData?['waiting'] as Map<String, dynamic>? ?? {};
                                   final waitingCount = waitingList.length;
 
@@ -834,7 +977,9 @@ class _ScheduledTournamentHomePageState extends State<ScheduledTournamentHomePag
                                       
                                       int totalOccupiedSeats = 0;
                                       for (final tableDoc in tables) {
-                                        final tableData = tableDoc.data() as Map<String, dynamic>?;
+                                        final tableData = tableDoc.data() != null 
+                                            ? Map<String, dynamic>.from(tableDoc.data()! as Map)
+                                            : null;
                                         final seats = tableData?['seats'] as Map<String, dynamic>? ?? {};
                                         
                                         // nullでないseatXXUserIdフィールドの数をカウント
@@ -906,7 +1051,9 @@ class _ScheduledTournamentHomePageState extends State<ScheduledTournamentHomePag
                                     itemBuilder: (context, index) {
                                       final tableDoc = tables[index];
                                       final tableId = tableDoc.id;
-                                      final tableData = tableDoc.data() as Map<String, dynamic>?;
+                                      final tableData = tableDoc.data() != null 
+                                          ? Map<String, dynamic>.from(tableDoc.data()! as Map)
+                                          : null;
                                       final seats = tableData?['seats'] as Map<String, dynamic>? ?? {};
                                       // seatXXUserIdフィールドの数をカウント
                                       final userIdFields = seats.keys.where((key) => key.endsWith('UserId')).length;
