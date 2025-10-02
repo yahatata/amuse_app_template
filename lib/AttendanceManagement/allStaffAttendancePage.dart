@@ -13,7 +13,7 @@ class AllStaffAttendancePage extends StatefulWidget {
 }
 
 class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
-  DateTime selectedDate = DateTime.now();
+  late DateTime selectedDate;
   String? selectedStaffId;
   List<String> staffNames = [];
   bool isLoading = false;
@@ -25,10 +25,20 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
   @override
   void initState() {
     super.initState();
+    // 今日の日付から給与計算期間の開始日を計算して初期化
+    selectedDate = _calculatePayrollPeriodStart(DateTime.now());
+    print('=== initState 開始 ===');
+    print('今日の日付: ${DateTime.now()}');
+    print('計算後のselectedDate: $selectedDate');
+    print('selectedDate.month: ${selectedDate.month}');
+    print('selectedDate.year: ${selectedDate.year}');
     _loadAttendanceData();
   }
 
   Future<void> _loadAttendanceData() async {
+    print('=== _loadAttendanceData 開始 ===');
+    print('selectedDate: $selectedDate');
+    
     setState(() {
       isLoading = true;
     });
@@ -40,16 +50,21 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
       final payrollYear = payrollMonth > 12 ? selectedDate.year + 1 : selectedDate.year;
       final adjustedPayrollMonth = payrollMonth > 12 ? 1 : payrollMonth;
       
+      print('給与データ取得パラメータ: month=$adjustedPayrollMonth, year=$payrollYear');
+      
       // 勤怠データと給与データを個別に取得
       Map<String, dynamic> result;
       try {
+        print('勤怠データ取得開始: month=${selectedDate.month}, year=${selectedDate.year}');
         result = await AttendanceService.getAllStaffAttendance(
           month: selectedDate.month,
           year: selectedDate.year,
           startDay: GlobalConstants.PAYROLL_START_DAY,
           endDay: GlobalConstants.PAYROLL_END_DAY,
         );
+        print('勤怠データ取得成功: ${result['attendances']?.length ?? 0}件');
       } catch (e) {
+        print('勤怠データ取得エラー: $e');
         result = {'success': false, 'attendances': [], 'shifts': []};
       }
       
@@ -68,13 +83,19 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
         payrollResult = [];
       }
 
+      print('result["success"]: ${result['success']}');
+      
       if (result['success'] == true) {
+        print('=== 勤怠データ変換開始 ===');
         // 勤怠データの型安全な変換
         final attendancesList = <Map<String, dynamic>>[];
         try {
           final rawAttendances = result['attendances'];
+          print('rawAttendances.length: ${rawAttendances?.length ?? 0}');
+          
           if (rawAttendances is List) {
-            for (final item in rawAttendances) {
+            for (int i = 0; i < rawAttendances.length; i++) {
+              final item = rawAttendances[i];
               if (item is Map) {
                 try {
                   // 各フィールドを明示的に変換
@@ -94,14 +115,16 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
                     'totalMinutes': (item['totalMinutes'] is num) ? (item['totalMinutes'] as num).toInt() : 0,
                   };
                   attendancesList.add(convertedItem);
+                  print('✅ 勤怠データ[$i]変換成功: ${convertedItem['date']}');
                 } catch (e) {
-                  // 個別アイテムの変換エラーは無視
+                  print('❌ 勤怠データ[$i]変換エラー: $e');
                 }
               }
             }
           }
+          print('変換後のattendancesList.length: ${attendancesList.length}');
         } catch (e) {
-          // 勤怠データの変換エラーは無視
+          print('❌ 勤怠データ変換エラー: $e');
         }
         
         // シフトデータの型安全な変換
@@ -138,6 +161,11 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
           // シフトデータの変換エラーは無視
         }
         
+        print('=== setState 前 ===');
+        print('attendancesList.length: ${attendancesList.length}');
+        print('shiftsList.length: ${shiftsList.length}');
+        print('payrollResult.length: ${payrollResult.length}');
+        
         setState(() {
           attendances = attendancesList;
           shifts = shiftsList;
@@ -145,8 +173,14 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
           _updateSummaryData();
           _updateStaffNames();
         });
+        
+        print('=== setState 後 ===');
+        print('attendances.length: ${attendances.length}');
+        print('shifts.length: ${shifts.length}');
+        print('payrollData.length: ${payrollData.length}');
       }
     } catch (e) {
+      print('❌ _loadAttendanceData エラー: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('勤怠データの取得に失敗しました: $e')),
       );
@@ -225,9 +259,8 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
     final startDay = GlobalConstants.PAYROLL_START_DAY;
     final endDay = GlobalConstants.PAYROLL_END_DAY;
     
-    // selectedDateから給与計算期間を計算
-    final currentMonth = selectedDate.month;
-    final currentYear = selectedDate.year;
+    // _calculatePayrollPeriodStartを使って正しい期間開始日を取得
+    final periodStart = _calculatePayrollPeriodStart(selectedDate);
     
     // 終了日の表示テキストを取得
     String getEndDayText(int year, int month, int day) {
@@ -243,21 +276,16 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
     // 現在の給与計算期間を計算
     String periodText;
     
-    // 給与計算期間の開始日を計算
-    DateTime periodStart;
+    // 給与計算期間の終了日を計算
     DateTime periodEnd;
     
     if (endDay == 0) {
       // 終了日が0の場合：今月開始日〜今月終了日（月を跨がない）
-      // selectedDateから給与計算期間を計算
-      periodStart = DateTime(currentYear, currentMonth, startDay);
-      periodEnd = DateTime(currentYear, currentMonth, DateTime(currentYear, currentMonth + 1, 0).day);
+      periodEnd = DateTime(periodStart.year, periodStart.month, DateTime(periodStart.year, periodStart.month + 1, 0).day);
     } else {
       // 終了日が0以外の場合：月を跨ぐ期間
-      // selectedDateから給与計算期間を計算
-      periodStart = DateTime(currentYear, currentMonth, startDay);
-      final nextMonth = currentMonth == 12 ? 1 : currentMonth + 1;
-      final nextYear = currentMonth == 12 ? currentYear + 1 : currentYear;
+      final nextMonth = periodStart.month == 12 ? 1 : periodStart.month + 1;
+      final nextYear = periodStart.month == 12 ? periodStart.year + 1 : periodStart.year;
       periodEnd = DateTime(nextYear, nextMonth, endDay);
     }
     
