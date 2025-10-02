@@ -20,19 +20,109 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
   final TextEditingController _hourlyWageController = TextEditingController();
+  
+  // 銀行口座情報用のコントローラー
+  final TextEditingController _bankNameController = TextEditingController();
+  final TextEditingController _branchNameController = TextEditingController();
+  final TextEditingController _accountNumberController = TextEditingController();
+  final TextEditingController _accountHolderController = TextEditingController();
+  String _accountType = '普通'; // 普通 or 当座
+  
   bool _isEditing = false;
+  bool _isEditingBankInfo = false;
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
     _hourlyWageController.text = widget.staffData['hourlyWage']?.toString() ?? '';
+    
+    // 銀行口座情報の初期化
+    final bankInfo = widget.staffData['bankInfo'] as Map<String, dynamic>?;
+    if (bankInfo != null) {
+      _bankNameController.text = bankInfo['bankName']?.toString() ?? '';
+      _branchNameController.text = bankInfo['branchName']?.toString() ?? '';
+      _accountNumberController.text = bankInfo['accountNumber']?.toString() ?? '';
+      _accountHolderController.text = bankInfo['accountHolder']?.toString() ?? '';
+      _accountType = bankInfo['accountType']?.toString() ?? '普通';
+    }
   }
 
   @override
   void dispose() {
     _hourlyWageController.dispose();
+    _bankNameController.dispose();
+    _branchNameController.dispose();
+    _accountNumberController.dispose();
+    _accountHolderController.dispose();
     super.dispose();
+  }
+
+  // 銀行口座情報を更新する関数（Cloud Function経由）
+  Future<void> _updateBankInfo() async {
+    if (_bankNameController.text.isEmpty ||
+        _branchNameController.text.isEmpty ||
+        _accountNumberController.text.isEmpty ||
+        _accountHolderController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('すべての項目を入力してください')),
+      );
+      return;
+    }
+
+    // 口座番号のバリデーション（7桁の数字）
+    if (_accountNumberController.text.length != 7 || 
+        int.tryParse(_accountNumberController.text) == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('口座番号は7桁の数字で入力してください')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Cloud Functionを呼び出して銀行口座情報を更新
+      final result = await _functions.httpsCallable('updateStaffBankInfo').call({
+        'staffId': widget.staffId,
+        'bankInfo': {
+          'bankName': _bankNameController.text,
+          'branchName': _branchNameController.text,
+          'accountNumber': _accountNumberController.text,
+          'accountHolder': _accountHolderController.text,
+          'accountType': _accountType,
+        },
+      });
+
+      if (mounted) {
+        if (result.data['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result.data['message'] ?? '銀行口座情報を更新しました')),
+          );
+          setState(() {
+            _isEditingBankInfo = false;
+          });
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('更新に失敗しました')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('更新に失敗しました: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   Future<void> _updateHourlyWage() async {
@@ -272,9 +362,195 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
             
             const SizedBox(height: 16),
             
+            // 銀行口座情報カード
+            Card(
+              elevation: 4,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          '銀行口座情報',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: _isLoading ? null : () {
+                            setState(() {
+                              _isEditingBankInfo = !_isEditingBankInfo;
+                              if (!_isEditingBankInfo) {
+                                // キャンセル時に元の値に戻す
+                                final bankInfo = widget.staffData['bankInfo'] as Map<String, dynamic>?;
+                                if (bankInfo != null) {
+                                  _bankNameController.text = bankInfo['bankName']?.toString() ?? '';
+                                  _branchNameController.text = bankInfo['branchName']?.toString() ?? '';
+                                  _accountNumberController.text = bankInfo['accountNumber']?.toString() ?? '';
+                                  _accountHolderController.text = bankInfo['accountHolder']?.toString() ?? '';
+                                  _accountType = bankInfo['accountType']?.toString() ?? '普通';
+                                }
+                              }
+                            });
+                          },
+                          icon: Icon(_isEditingBankInfo ? Icons.close : Icons.edit),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (_isEditingBankInfo)
+                      Column(
+                        children: [
+                          TextField(
+                            controller: _bankNameController,
+                            decoration: const InputDecoration(
+                              labelText: '銀行名',
+                              border: OutlineInputBorder(),
+                              hintText: '例: ○○銀行',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _branchNameController,
+                            decoration: const InputDecoration(
+                              labelText: '支店名',
+                              border: OutlineInputBorder(),
+                              hintText: '例: ○○支店',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: _accountType,
+                            decoration: const InputDecoration(
+                              labelText: '口座種別',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: '普通', child: Text('普通')),
+                              DropdownMenuItem(value: '当座', child: Text('当座')),
+                            ],
+                            onChanged: (value) {
+                              setState(() {
+                                _accountType = value ?? '普通';
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _accountNumberController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: '口座番号',
+                              border: OutlineInputBorder(),
+                              hintText: '7桁の数字',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _accountHolderController,
+                            decoration: const InputDecoration(
+                              labelText: '口座名義（カタカナ）',
+                              border: OutlineInputBorder(),
+                              hintText: '例: ヤマダタロウ',
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _isLoading ? null : _updateBankInfo,
+                                  icon: _isLoading
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        )
+                                      : const Icon(Icons.save),
+                                  label: Text(_isLoading ? '保存中...' : '保存'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _isLoading ? null : () {
+                                    setState(() {
+                                      _isEditingBankInfo = false;
+                                      final bankInfo = widget.staffData['bankInfo'] as Map<String, dynamic>?;
+                                      if (bankInfo != null) {
+                                        _bankNameController.text = bankInfo['bankName']?.toString() ?? '';
+                                        _branchNameController.text = bankInfo['branchName']?.toString() ?? '';
+                                        _accountNumberController.text = bankInfo['accountNumber']?.toString() ?? '';
+                                        _accountHolderController.text = bankInfo['accountHolder']?.toString() ?? '';
+                                        _accountType = bankInfo['accountType']?.toString() ?? '普通';
+                                      }
+                                    });
+                                  },
+                                  icon: const Icon(Icons.cancel),
+                                  label: const Text('キャンセル'),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      )
+                    else
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildBankInfoRow('銀行名', _bankNameController.text.isEmpty ? '未設定' : _bankNameController.text),
+                          const SizedBox(height: 8),
+                          _buildBankInfoRow('支店名', _branchNameController.text.isEmpty ? '未設定' : _branchNameController.text),
+                          const SizedBox(height: 8),
+                          _buildBankInfoRow('口座種別', _accountType),
+                          const SizedBox(height: 8),
+                          _buildBankInfoRow('口座番号', _accountNumberController.text.isEmpty ? '未設定' : _accountNumberController.text),
+                          const SizedBox(height: 8),
+                          _buildBankInfoRow('口座名義', _accountHolderController.text.isEmpty ? '未設定' : _accountHolderController.text),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBankInfoRow(String label, String value) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 100,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontWeight: FontWeight.w500,
+              color: Colors.grey,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 16),
+          ),
+        ),
+      ],
     );
   }
 
