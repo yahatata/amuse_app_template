@@ -9,6 +9,7 @@ import 'package:amuse_app_template/Home/systemSettingsPage.dart';
 import 'package:amuse_app_template/Home/tournamentCreationMenuPage.dart';
 import 'package:amuse_app_template/scheduledTournament/pages/tournament_list_page.dart';
 import 'package:amuse_app_template/scheduledTournament/pages/scheduled_tournament_for_terminal.dart';
+import 'package:amuse_app_template/Accounting/accountingPage.dart';
 import 'package:flutter/material.dart';
 
 class terminalHomePage extends StatefulWidget {
@@ -35,6 +36,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: 'Runtime Debug', destination: const TournamentListPage()),
       (label: 'トーナメント一覧', destination: const ScheduledTournamentForTerminal()),
       (label: 'スタッフ打刻', destination: const StaffAttendancePage()),
+      (label: '会計管理', destination: const AccountingPage()),
     ];
 
     return Scaffold(
@@ -58,7 +60,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       ),
       body: GridView.custom(
         padding: const EdgeInsets.all(16),
-        physics: const NeverScrollableScrollPhysics(),
+        physics: const AlwaysScrollableScrollPhysics(), // スクロール可能に変更
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 5,
           crossAxisSpacing: 12,
