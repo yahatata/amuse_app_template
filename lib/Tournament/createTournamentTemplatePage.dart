@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'tournamentBlindTemplateList.dart';
 import '../globalConstant.dart';
 
@@ -38,8 +39,8 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
   String _selectedBlindTemplateId = '';
   String _selectedBlindTemplateName = '';
   
-  // トーナメントカテゴリ
-  String _tournamentCategory = 'regular';
+  // 色設定
+  Color _selectedColor = Colors.blue;
   
   // ポイントタイプ
   String _selectedPointType = 'pointA';
@@ -74,11 +75,48 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
       _addonFee = template['addonFee'] ?? 1000;
       _addonStack = template['addonStack'] ?? 10000;
       _selectedBlindTemplateId = template['blindStructure'] ?? '';
-      _tournamentCategory = template['tournamentCategory'] ?? 'regular';
+      
+      // 色の初期化
+      if (template['color'] != null) {
+        _selectedColor = Color(int.parse(template['color'].replaceFirst('#', '0xFF')));
+      }
       
       // ブラインドテンプレート名を設定（後でロード後に更新）
       _selectedBlindTemplateName = '読み込み中...';
     }
+  }
+
+  /// 色選択ダイアログを表示
+  void _showColorPicker() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('色を選択'),
+          content: SingleChildScrollView(
+            child: ColorPicker(
+              pickerColor: _selectedColor,
+              onColorChanged: (Color color) {
+                setState(() {
+                  _selectedColor = color;
+                });
+              },
+              pickerAreaHeightPercent: 0.8,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('決定'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   /// ブラインドテンプレートを読み込む
@@ -230,7 +268,7 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
         'addonStack': _isAddon ? _addonStack : null,
         'blindStructure': _selectedBlindTemplateId,
         'prizeRatio': _prizeRatio,
-        'tournamentCategory': _tournamentCategory,
+        'color': '#${_selectedColor.value.toRadixString(16).substring(2).toUpperCase()}',
         'pointType': _selectedPointType,
       };
 
@@ -436,24 +474,37 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
                             ),
                             const SizedBox(height: 16),
 
-                            // トーナメントカテゴリ
-                            DropdownButtonFormField<String>(
-                              value: _tournamentCategory,
-                              decoration: const InputDecoration(
-                                labelText: 'トーナメントカテゴリ *',
-                                border: OutlineInputBorder(),
+                            // 色選択
+                            InkWell(
+                              onTap: _showColorPicker,
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: _selectedColor,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: Colors.grey),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    const Text(
+                                      '色を選択',
+                                      style: TextStyle(fontSize: 16),
+                                    ),
+                                    const Spacer(),
+                                    const Icon(Icons.arrow_forward_ios, size: 16),
+                                  ],
+                                ),
                               ),
-                              items: const [
-                                DropdownMenuItem(value: 'regular', child: Text('レギュラー')),
-                                DropdownMenuItem(value: 'irregular', child: Text('イレギュラー')),
-                              ],
-                              onChanged: (value) {
-                                if (value != null) {
-                                  setState(() {
-                                    _tournamentCategory = value;
-                                  });
-                                }
-                              },
                             ),
                           ],
                         ),

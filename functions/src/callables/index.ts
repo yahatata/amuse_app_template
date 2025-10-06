@@ -27,4 +27,12 @@ export { endTournament } from './endTournament';
 export { startAccounting, completeAccounting } from './accounting';
 export { migrateTodaysBillsAccountingFields } from './migrateTodaysBills';
 export { getAccountingHistory } from './getAccountingHistory';
+export { createTournamentRecurrence } from './createTournamentRecurrence';
+export { getTournamentRecurrences } from './getTournamentRecurrences';
+export { deleteTournamentRecurrence } from './deleteTournamentRecurrence';
+export { generateRecurringTournaments } from './generateRecurringTournaments';
+export { updateTournamentRecurrence } from './updateTournamentRecurrence';
+export { updateTournamentTemplate } from './updateTournamentTemplate';
+export { getScheduledTournamentsForEdit } from './getScheduledTournamentsForEdit';
+export { getBlindTemplates } from '../tournamentBlind/getBlindTemplates';
 

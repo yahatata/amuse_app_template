@@ -5,6 +5,10 @@ export const setRankingData = onCall(async (request) => {
   try {
     const { tournamentId, rankingData } = request.data;
     
+    console.log('=== setRankingData 開始 ===');
+    console.log('tournamentId:', tournamentId);
+    console.log('rankingData:', JSON.stringify(rankingData, null, 2));
+    
     if (!tournamentId) {
       throw new HttpsError('invalid-argument', 'tournamentId is required');
     }
@@ -22,10 +26,29 @@ export const setRankingData = onCall(async (request) => {
       .collection('views')
       .doc('main');
     
-    await mainViewRef.update({
-      ...rankingData,
+    // nullやundefinedの値を除外してクリーンなデータを作成
+    const cleanRankingData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(rankingData)) {
+      if (value !== null && value !== undefined) {
+        cleanRankingData[key] = value;
+      }
+    }
+    
+    console.log('cleanRankingData:', JSON.stringify(cleanRankingData, null, 2));
+    
+    const updateData = {
+      ...cleanRankingData,
       updatedAt: new Date(),
-    });
+    };
+    
+    console.log('updateData:', JSON.stringify(updateData, null, 2));
+    
+    await mainViewRef.update(updateData);
+    
+    // プライズ付与処理
+    await _awardPrizes(db, tournamentId, cleanRankingData);
+    
+    console.log('=== setRankingData 成功 ===');
     
     return {
       success: true,
@@ -33,6 +56,7 @@ export const setRankingData = onCall(async (request) => {
     };
     
   } catch (error) {
+    console.error('=== setRankingData エラー ===');
     console.error('setRankingData error:', error);
     
     if (error instanceof HttpsError) {
@@ -42,3 +66,76 @@ export const setRankingData = onCall(async (request) => {
     throw new HttpsError('internal', 'Internal server error');
   }
 });
+
+// プライズ付与処理
+async function _awardPrizes(db: any, tournamentId: string, rankingData: Record<string, any>) {
+  try {
+    console.log('=== プライズ付与処理開始 ===');
+    
+    // メインビューデータからpointTypeを取得
+    const mainViewRef = db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('views')
+      .doc('main');
+    
+    const mainViewDoc = await mainViewRef.get();
+    const mainViewData = mainViewDoc.data();
+    const pointType = mainViewData?.pointType || 'pointA';
+    
+    console.log('pointType:', pointType);
+    
+    // 順位データを処理
+    const prizeAwards = [];
+    
+    for (const [key, value] of Object.entries(rankingData)) {
+      if (key.endsWith('stPlayerUid') && value) {
+        const rank = key.replace('stPlayerUid', '');
+        const prizeKey = `${rank}stPrize`;
+        
+        // メインビューデータからプライズ金額を取得
+        const prizeAmount = mainViewData?.[prizeKey];
+        
+        console.log(`順位 ${rank}: playerUid=${value}, prizeKey=${prizeKey}, prizeAmount=${prizeAmount}`);
+        
+        if (prizeAmount && prizeAmount > 0) {
+          prizeAwards.push({
+            playerUid: value,
+            rank: rank,
+            prizeAmount: prizeAmount
+          });
+        }
+      }
+    }
+    
+    console.log('prizeAwards:', JSON.stringify(prizeAwards, null, 2));
+    
+    // 各プレイヤーにプライズを付与
+    for (const award of prizeAwards) {
+      const userRef = db.collection('users').doc(award.playerUid);
+      const userDoc = await userRef.get();
+      
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        const currentPoints = (userData as any)[pointType] || 0;
+        const newPoints = currentPoints + award.prizeAmount;
+        
+        await userRef.update({
+          [pointType]: newPoints,
+          updatedAt: new Date()
+        });
+        
+        console.log(`プレイヤー ${award.playerUid} に ${award.prizeAmount} ポイント付与 (${pointType}: ${currentPoints} -> ${newPoints})`);
+      } else {
+        console.warn(`ユーザー ${award.playerUid} が見つかりません`);
+      }
+    }
+    
+    console.log('=== プライズ付与処理完了 ===');
+    
+  } catch (error) {
+    console.error('=== プライズ付与処理エラー ===');
+    console.error('_awardPrizes error:', error);
+    throw error;
+  }
+}
