@@ -22,4 +22,12 @@ export { setPrizeData } from './setPrizeData';
 export { getRankingData } from './getRankingData';
 export { setRankingData } from './setRankingData';
 export { endTournament } from './endTournament';
+export { createTournamentRecurrence } from './createTournamentRecurrence';
+export { getTournamentRecurrences } from './getTournamentRecurrences';
+export { deleteTournamentRecurrence } from './deleteTournamentRecurrence';
+export { generateRecurringTournaments } from './generateRecurringTournaments';
+export { updateTournamentRecurrence } from './updateTournamentRecurrence';
+export { updateTournamentTemplate } from './updateTournamentTemplate';
+export { getScheduledTournamentsForEdit } from './getScheduledTournamentsForEdit';
+export { getBlindTemplates } from '../tournamentBlind/getBlindTemplates';
 

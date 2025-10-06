@@ -95,6 +95,8 @@ export const createScheduledTournament = onCall(async (request) => {
       freeze: freeze || false,
       isPrizeConfirmed: false,
       isArchived: false,
+      regular: false, // 通常のトーナメント作成
+      generateBy: null, // 通常作成の場合はnull
       createdAt: Timestamp.fromDate(now),
       updatedAt: Timestamp.fromDate(now),
       
@@ -103,18 +105,18 @@ export const createScheduledTournament = onCall(async (request) => {
         name: templateData.name || '',
         entryFee: templateData.entryFee || 0,
         isReentry: templateData.isReentry || false,
-        maxReentriesPerPlayer: templateData.maxReentriesPerPlayer || null,
+        maxReentries: templateData.maxReentries || null,
         reentryFee: templateData.reentryFee || null,
         isAddon: templateData.isAddon || false,
         addonFee: templateData.addonFee || null,
         addonStack: templateData.addonStack || null,
         startStack: templateData.startStack || 0,
-        blindStructureId: templateData.blindStructure || templateData.blindStructureId || '',
-        prizeRateBps: Math.round((templateData.prizeRatio || 0.7) * 10000), // パーセンテージをbpsに変換
-        entriesPerPayout: templateData.entriesPerPayout || 8,
-        maxEntrants: templateData.maxEntrants || null,
-        category: templateData.tournamentCategory || templateData.category || 'regular',
-        pointType: templateData.pointType || 'pointA', // テンプレートのpointTypeを継承
+        blindStructure: templateData.blindStructure || templateData.blindStructureId || '',
+        prizeRatio: templateData.prizeRatio || 0.7,
+        color: templateData.color || '#2196F3', // デフォルト色
+        pointType: templateData.pointType || 'pointA',
+        isArchived: false,
+        updatedAt: Timestamp.fromDate(now),
       },
     };
 

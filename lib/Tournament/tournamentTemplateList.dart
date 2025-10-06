@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'tournamentBlindTemplateList.dart';
 import 'createTournamentTemplatePage.dart';
+import '../Home/editTournamentTemplatePage.dart';
 
 class TournamentTemplateList extends StatefulWidget {
   const TournamentTemplateList({super.key});
@@ -261,8 +262,9 @@ class _TournamentTemplateListState extends State<TournamentTemplateList> {
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => CreateTournamentTemplatePage(
-                                          existingTemplate: template,
+                                        builder: (context) => EditTournamentTemplatePage(
+                                          templateId: template['id'],
+                                          templateData: template,
                                         ),
                                       ),
                                     );
