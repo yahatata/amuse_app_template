@@ -69,6 +69,13 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
 
   void _initializeData() {
     final template = widget.templateData;
+    debugPrint('=== テンプレートデータ全体デバッグ ===');
+    debugPrint('template keys: ${template.keys.toList()}');
+    debugPrint('template[\'color\']: ${template['color']}');
+    debugPrint('template[\'color\']の型: ${template['color'].runtimeType}');
+    debugPrint('template[\'color\']がnullか: ${template['color'] == null}');
+    debugPrint('===============================');
+    
     _nameController.text = template['name'] ?? '';
     _entryFee = template['entryFee'] ?? 1000;
     _startStack = template['startStack'] ?? 10000;
@@ -83,10 +90,63 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
     _selectedPointType = template['pointType'] ?? 'pointA';
     
     // 色の初期化
+    debugPrint('=== 色の初期化デバッグ ===');
+    debugPrint('template[\'color\']: ${template['color']}');
+    debugPrint('template[\'color\']の型: ${template['color'].runtimeType}');
+    debugPrint('template[\'color\']がnullか: ${template['color'] == null}');
+    
     if (template['color'] != null) {
-      _selectedColor = Color(int.parse(template['color'].replaceFirst('#', '0xFF')));
-      _originalColor = _selectedColor;
+      String colorString = template['color'].toString();
+      debugPrint('色文字列: $colorString');
+      debugPrint('色文字列の長さ: ${colorString.length}');
+      debugPrint('色文字列の型: ${colorString.runtimeType}');
+      
+      // 色の形式を正規化
+      if (colorString.startsWith('#')) {
+        // #FF5722形式の場合
+        colorString = colorString.replaceFirst('#', '0xFF');
+        debugPrint('#形式として処理: $colorString');
+      } else if (colorString.startsWith('0x')) {
+        // 0xFFFF5722形式の場合
+        debugPrint('0x形式として処理: $colorString');
+      } else {
+        // その他の場合、#を付けてから変換
+        colorString = '0xFF${colorString.replaceFirst('#', '')}';
+        debugPrint('その他形式として処理: $colorString');
+      }
+      
+      debugPrint('変換後の色文字列: $colorString');
+      debugPrint('変換後の色文字列の長さ: ${colorString.length}');
+      
+      try {
+        int colorValue = int.parse(colorString);
+        debugPrint('パースされた色の値: $colorValue');
+        debugPrint('色の値の16進数: 0x${colorValue.toRadixString(16).toUpperCase()}');
+        
+        _selectedColor = Color(colorValue);
+        _originalColor = _selectedColor;
+        
+        debugPrint('初期化された色: $_selectedColor');
+        debugPrint('色の16進数: #${_selectedColor.value.toRadixString(16).substring(2).toUpperCase()}');
+        debugPrint('色のRGB: R=${_selectedColor.red}, G=${_selectedColor.green}, B=${_selectedColor.blue}');
+      } catch (e) {
+        debugPrint('色の変換エラー: $e');
+        debugPrint('エラーの詳細: ${e.toString()}');
+        _selectedColor = Colors.blue;
+        _originalColor = Colors.blue;
+        debugPrint('デフォルト色（青）を使用');
+      }
+    } else {
+      debugPrint('template[\'color\']がnullのため、デフォルト色（青）を使用');
+      debugPrint('注意: このテンプレートにはcolorフィールドが設定されていません');
+      debugPrint('新しい色を選択すると、colorフィールドが追加されます');
+      // デフォルト色として青を設定
+      _selectedColor = Colors.blue;
+      _originalColor = Colors.blue;
     }
+    debugPrint('最終的な色: $_selectedColor');
+    debugPrint('最終的な色の16進数: #${_selectedColor.value.toRadixString(16).substring(2).toUpperCase()}');
+    debugPrint('====================');
   }
 
   Future<void> _loadBlindTemplates() async {
@@ -453,12 +513,36 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
                                           style: TextStyle(fontSize: 16),
                                         ),
                                         const SizedBox(height: 4),
-                                        Text(
-                                          '現在: #${_selectedColor.value.toRadixString(16).substring(2).toUpperCase()}',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey,
-                                          ),
+                                        Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '現在: #${_selectedColor.value.toRadixString(16).substring(2).toUpperCase()}',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey,
+                                              ),
+                                            ),
+                                            if (_selectedColor != _originalColor) ...[
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '元の色: #${_originalColor.value.toRadixString(16).substring(2).toUpperCase()}',
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.blue,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '変更後: #${_selectedColor.value.toRadixString(16).substring(2).toUpperCase()}',
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.orange,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ],
                                     ),
