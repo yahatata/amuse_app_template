@@ -12,6 +12,7 @@ import '../scheduled_tournament_service.dart';
 import 'tableHomeInScheduledTournament.dart';
 import 'prize_setup_page.dart';
 import 'ranking_setup_page.dart';
+import 'blind_timer_page.dart';
 
 class ScheduledTournamentHomePage extends StatefulWidget {
   final String tournamentId;
@@ -670,6 +671,26 @@ class _ScheduledTournamentHomePageState extends State<ScheduledTournamentHomePag
         title: Text(widget.tournamentName),
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
+        actions: [
+          // ブラインドタイマー画面に遷移するボタン
+          TextButton.icon(
+            icon: const Icon(Icons.timer, color: Colors.white),
+            label: const Text(
+              'ブラインドタイマー',
+              style: TextStyle(color: Colors.white),
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BlindTimerPage(
+                    tournamentId: widget.tournamentId,
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance

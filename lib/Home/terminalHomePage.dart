@@ -2,11 +2,11 @@ import 'package:amuse_app_template/Home/stayingUsersListPage.dart';
 import 'package:amuse_app_template/AttendanceManagement/staffAttendancePage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/categorySelectPage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/menuEditorListPage.dart';
-import 'package:amuse_app_template/Tournament/tournamentHomePage.dart';
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
 import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
 import 'package:amuse_app_template/Home/tournamentHomepage.dart';
 import 'package:amuse_app_template/Home/systemSettingsPage.dart';
+import 'package:amuse_app_template/Home/tournamentCreationMenuPage.dart';
 import 'package:amuse_app_template/scheduledTournament/pages/tournament_list_page.dart';
 import 'package:amuse_app_template/scheduledTournament/pages/scheduled_tournament_for_terminal.dart';
 import 'package:flutter/material.dart';
@@ -30,8 +30,8 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: 'メニュー追加', destination: const MenuEditorListPage()),
       (label: '注文画面', destination: const CategorySelectPage()),
       (label: '入店中user一覧', destination: const StayingUsersListPage()),
-      (label: 'Tournament Home', destination: const TournamentHomePage()),
-      (label: 'スケジュール済みトーナメント', destination: const tournamentHomepage()),
+      (label: 'Tournament 作成', destination: const TournamentCreationMenuPage()),
+      (label: 'Tournament Home', destination: const tournamentHomepage()),
       (label: 'Runtime Debug', destination: const TournamentListPage()),
       (label: 'トーナメント一覧', destination: const ScheduledTournamentForTerminal()),
       (label: 'スタッフ打刻', destination: const StaffAttendancePage()),

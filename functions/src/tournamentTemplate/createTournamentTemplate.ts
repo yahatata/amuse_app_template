@@ -6,7 +6,7 @@ export const createTournamentTemplate = onCall(async (request) => {
     const {
       name, entryFee, isReentry, maxReentries, reentryFee, startStack,
       isAddon, addonFee, addonStack, blindStructure, prizeRatio,
-      tournamentCategory, pointType
+      color, pointType
     } = request.data;
 
     // 必須フィールドのバリデーション
@@ -36,8 +36,8 @@ export const createTournamentTemplate = onCall(async (request) => {
     if (!prizeRatio || typeof prizeRatio !== 'number' || prizeRatio <= 0) {
       return { success: false, error: '有効なプライズ割合を入力してください' };
     }
-    if (!tournamentCategory || typeof tournamentCategory !== 'string') {
-      return { success: false, error: 'トーナメントカテゴリを選択してください' };
+    if (!color || typeof color !== 'string') {
+      return { success: false, error: '色を選択してください' };
     }
 
     const db = getFirestore();
@@ -55,7 +55,7 @@ export const createTournamentTemplate = onCall(async (request) => {
       addonStack: isAddon ? addonStack : null,
       blindStructure,
       prizeRatio,
-      tournamentCategory,
+      color,
       pointType: pointType || 'pointA', // UIから送信されたpointTypeまたはデフォルト
       updatedAt: now,
       isArchived: false,

@@ -104,6 +104,13 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
     return _selectedPlayers.values.contains(playerId);
   }
   
+  bool _isRankLocked(int rank) {
+    if (_mainViewData == null) return false;
+    final playerName = _mainViewData!['${rank}stPlayerName'] as String?;
+    final playerUid = _mainViewData!['${rank}stPlayerUid'] as String?;
+    return playerName != null && playerUid != null;
+  }
+  
   void _selectPlayer(int rank, String playerId) {
     setState(() {
       _selectedPlayers[rank] = playerId;
@@ -135,11 +142,36 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
     }
     
     // 確認ダイアログを表示
+    final selectedRanks = <int>[];
+    final selectedPlayers = <String>[];
+    
+    // 全ての順位をチェック（prizeReceiverCountまで）
+    final prizeReceiverCount = _mainViewData?['prizeReceiverCount'] as int? ?? 0;
+    for (int rank = 1; rank <= prizeReceiverCount; rank++) {
+      final playerId = _selectedPlayers[rank];
+      if (playerId != null) {
+        selectedRanks.add(rank);
+        selectedPlayers.add(_playerData[playerId]?['pokerName'] ?? '不明なプレイヤー');
+      }
+    }
+    
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('順位確定'),
-        content: Text('${selectedCount}位に${_playerData[_selectedPlayers[selectedCount]]?['pokerName']}様を登録します。'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('以下の順位を確定します：'),
+            const SizedBox(height: 8),
+            ...selectedRanks.asMap().entries.map((entry) {
+              final index = entry.key;
+              final rank = entry.value;
+              return Text('${rank}位: ${selectedPlayers[index]}');
+            }).toList(),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -160,9 +192,9 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
         _isLoading = true;
       });
       
-      // 順位データを準備
+      // 順位データを準備（選択された順位のみ）
       final rankingData = <String, dynamic>{};
-      for (int rank = 1; rank <= _selectedPlayers.length; rank++) {
+      for (int rank = 1; rank <= prizeReceiverCount; rank++) {
         final playerId = _selectedPlayers[rank];
         if (playerId != null) {
           final player = _playerData[playerId]!;
@@ -313,6 +345,8 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
                     ),
                     const SizedBox(height: 8),
                     Text('プライズプール: ¥${(_mainViewData?['prizePool'] as int? ?? 0).toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
+                    const SizedBox(height: 4),
+                    Text('プライズタイプ: ${_mainViewData?['pointType'] ?? 'pointA'}'),
                   ],
                 ),
               ),
@@ -324,11 +358,13 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
               final rank = index + 1;
               final prizeAmount = _getPrizeAmount(rank);
               final isSelected = _isPlayerSelected(rank);
+              final isLocked = _isRankLocked(rank);
               final selectedPlayerId = _selectedPlayers[rank];
               final selectedPlayer = selectedPlayerId != null ? _playerData[selectedPlayerId] : null;
               
               return Card(
                 margin: const EdgeInsets.only(bottom: 16),
+                color: isLocked ? Colors.grey[100] : null,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -338,13 +374,25 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
                         children: [
                           Text(
                             '${rank}位',
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontSize: 18, 
+                              fontWeight: FontWeight.bold,
+                              color: isLocked ? Colors.grey[600] : null,
+                            ),
                           ),
                           const SizedBox(width: 16),
                           Text(
                             '¥${prizeAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                            style: const TextStyle(fontSize: 16, color: Colors.green, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontSize: 16, 
+                              color: isLocked ? Colors.grey[600] : Colors.green, 
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
+                          if (isLocked) ...[
+                            const SizedBox(width: 8),
+                            Icon(Icons.lock, color: Colors.grey[600], size: 16),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -354,24 +402,27 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.green[50],
-                            border: Border.all(color: Colors.green),
+                            color: isLocked ? Colors.grey[200] : Colors.green[50],
+                            border: Border.all(color: isLocked ? Colors.grey : Colors.green),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.person, color: Colors.green[700]),
+                              Icon(
+                                isLocked ? Icons.lock : Icons.person, 
+                                color: isLocked ? Colors.grey[600] : Colors.green[700],
+                              ),
                               const SizedBox(width: 8),
                               Text(
                                 selectedPlayer['pokerName'],
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.green[700],
+                                  color: isLocked ? Colors.grey[600] : Colors.green[700],
                                 ),
                               ),
                               const Spacer(),
-                              if (!_isPlayerDisabled(selectedPlayerId!))
+                              if (!isLocked && !_isPlayerDisabled(selectedPlayerId!))
                                 IconButton(
                                   onPressed: () => _clearPlayer(rank),
                                   icon: const Icon(Icons.clear, color: Colors.red),
@@ -379,8 +430,8 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
                             ],
                           ),
                         )
-                      else
-                        // プレイヤー選択ボタン
+                      else if (!isLocked)
+                        // プレイヤー選択ボタン（ロックされていない場合のみ）
                         ElevatedButton.icon(
                           onPressed: () => _showPlayerSelector(rank),
                           icon: const Icon(Icons.person_add),
@@ -388,6 +439,29 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blue,
                             foregroundColor: Colors.white,
+                          ),
+                        )
+                      else
+                        // ロックされた順位の表示
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[200],
+                            border: Border.all(color: Colors.grey),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.lock, color: Colors.grey[600]),
+                              const SizedBox(width: 8),
+                              Text(
+                                '既に確定済み',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                     ],
@@ -421,6 +495,14 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
   }
   
   void _showPlayerSelector(int rank) {
+    // ロックされた順位の場合は選択ダイアログを表示しない
+    if (_isRankLocked(rank)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('この順位は既に確定済みです')),
+      );
+      return;
+    }
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
