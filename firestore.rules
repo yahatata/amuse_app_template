@@ -112,6 +112,12 @@ service cloud.firestore {
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
 
+    // 会計履歴コレクション（開発用：読み取り全許可）
+    match /accountingHistory/{historyId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
     // 管理者コレクション
     match /admins/{adminId} {
       allow read: if request.auth != null && request.auth.uid == adminId;

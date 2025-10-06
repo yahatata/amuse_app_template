@@ -111,6 +111,14 @@ export const manualCheckIn = onCall(async (request) => {
       settledAt: null,
       currentTable: null,
       currentSeat: null,
+      // 会計状態フィールドを追加
+      accountingStatus: 'pending',
+      accountingStartedAt: null,
+      accountingCompletedAt: null,
+      accountingStartedBy: null,
+      accountingCompletedBy: null,
+      accountingHistoryId: null,
+      date: now.toISOString().split('T')[0], // 日付フィールドを追加
     } as Record<string, unknown>;
 
     const todaysBillsRef = await db.collection('todaysBills').add(todaysBillsData);
