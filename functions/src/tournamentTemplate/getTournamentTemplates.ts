@@ -44,6 +44,8 @@ export const getTournamentTemplates = onCall(async (request) => {
         addonStack: data.addonStack || null,
         blindStructure: data.blindStructure || '',
         prizeRatio: data.prizeRatio || 0,
+        color: data.color || null,
+        pointType: data.pointType || 'pointA',
         tournamentCategory: data.tournamentCategory || '',
         updatedAt: updatedAtValue,
         isArchived: data.isArchived || false,
