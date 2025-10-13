@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/models/table_and_users.dart';
 import 'package:amuse_app_template/tournament/active/services/tournament_data_service.dart';
+import 'package:amuse_app_template/tournament/active/services/seat_decision_logic.dart';
 
 
 class ReseatAllDialog extends StatefulWidget {
@@ -337,29 +338,101 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
     });
 
     try {
+      print('\n========================================');
+      print('=== リシート実行開始 ===');
+      print('========================================');
+      
       // 利用可能なテーブルとシートを取得
       final availableTables = _tournamentTables;
+      print('テーブル数: ${availableTables.length}');
+      for (var table in availableTables) {
+        print('  - ${table.tableId}: maxSeats = ${table.maxSeats}');
+      }
       
-      // 全プレイヤー（既着席者 + 選択された待機者）をランダムにシャッフル
+      // テーブル情報を作成
+      final tableInfos = availableTables.map((table) => TableInfo(
+        tableId: table.tableId,
+        maxSeats: table.maxSeats,
+      )).toList();
+      
+      // テーブルごとの人数を振り分け
+      print('\n対象プレイヤー数: ${_reseatTargetUserIds.length}');
+      final distribution = SeatDecisionLogic.distributePlayersAcrossTables(
+        totalPlayers: _reseatTargetUserIds.length,
+        tables: tableInfos,
+      );
+      print('テーブルごとの振り分け: $distribution');
+      
+      // 全プレイヤーをランダムにシャッフル
       final allPlayerIds = List<String>.from(_reseatTargetUserIds);
       allPlayerIds.shuffle();
+      print('シャッフル後のプレイヤー順: $allPlayerIds');
       
-      // プレイヤーをランダムにテーブルとシートに割り当て
+      // プレイヤーを座席決定ロジックに基づいて割り当て
       final playerAssignments = <Map<String, dynamic>>[];
       int playerIndex = 0;
       
       for (final table in availableTables) {
-        if (playerIndex >= allPlayerIds.length) break;
+        final assignedCount = distribution[table.tableId] ?? 0;
+        if (assignedCount == 0) continue;
         
-        for (int seat = 1; seat <= table.maxSeats && playerIndex < allPlayerIds.length; seat++) {
-          playerAssignments.add({
+        print('\n--- テーブル ${table.tableId} の処理開始 ---');
+        print('割り当て人数: $assignedCount');
+        
+        // このテーブルに割り当てられた人数分だけ座席を割り当て
+        print('このテーブルへの割り当て:');
+        for (int i = 0; i < assignedCount && playerIndex < allPlayerIds.length; i++) {
+          print('\n  --- ${i + 1}人目の配置 ---');
+          
+          // 現在の座席状態を取得（今までの割り当てを含む）
+          final currentSeats = <int, bool>{};
+          for (int seat = 1; seat <= table.maxSeats; seat++) {
+            // 元々座っていた人をチェック
+            final seatData = table.seats[seat];
+            bool isOccupied = seatData != null && seatData.userId != null;
+            
+            // 今回のリシートで既に割り当てた座席もチェック
+            if (!isOccupied) {
+              for (var assignment in playerAssignments) {
+                if (assignment['tableId'] == table.tableId && 
+                    assignment['seatNumber'] == seat) {
+                  isOccupied = true;
+                  break;
+                }
+              }
+            }
+            
+            currentSeats[seat] = isOccupied;
+          }
+          print('  現在の座席状態: $currentSeats');
+          
+          // 優先順位付けされた座席リストを再計算
+          final prioritizedSeats = SeatDecisionLogic.getPrioritizedSeats(
+            currentSeats: currentSeats,
+            maxSeats: table.maxSeats,
+          );
+          
+          // 座席が不足している場合はエラー
+          if (prioritizedSeats.isEmpty) {
+            throw Exception('利用可能座席数に対して、リシートの対象とする人数が多すぎます');
+          }
+          
+          // 最優先座席（リストの先頭）に割り当て
+          final selectedSeat = prioritizedSeats[0];
+          final assignment = {
             'userId': allPlayerIds[playerIndex],
             'tableId': table.tableId,
-            'seatNumber': seat,
-          });
+            'seatNumber': selectedSeat,
+          };
+          print('  ${allPlayerIds[playerIndex]} → 座席$selectedSeat（最優先座席）');
+          playerAssignments.add(assignment);
           playerIndex++;
         }
       }
+      
+      print('\n最終的な割り当て:');
+      print('playerAssignments: $playerAssignments');
+      print('========================================\n');
 
       final service = TournamentServiceImpl();
       final result = await service.reseatAllPlayers(
