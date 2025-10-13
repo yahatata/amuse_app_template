@@ -98,6 +98,11 @@ export const manualCheckIn = onCall(async (request) => {
       createdAt: now
     }] : [];
 
+    // JST（日本時間）で日付を計算
+    const jstOffset = 9 * 60; // JST = UTC+9
+    const jstDate = new Date(now.getTime() + jstOffset * 60000);
+    const today = jstDate.toISOString().split('T')[0]; // YYYY-MM-DD形式
+
     const todaysBillsData = {
       createdAt: now,
       pokerName: pokerName,
@@ -111,14 +116,13 @@ export const manualCheckIn = onCall(async (request) => {
       settledAt: null,
       currentTable: null,
       currentSeat: null,
-      // 会計状態フィールドを追加
-      accountingStatus: 'pending',
+      // 会計履歴用フィールド
       accountingStartedAt: null,
       accountingCompletedAt: null,
       accountingStartedBy: null,
       accountingCompletedBy: null,
       accountingHistoryId: null,
-      date: now.toISOString().split('T')[0], // 日付フィールドを追加
+      date: today, // JST日付
     } as Record<string, unknown>;
 
     const todaysBillsRef = await db.collection('todaysBills').add(todaysBillsData);
