@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import '../UserAction/userActionHome.dart';
+import '../user_actions/user_action_home.dart';
 
 class StayingUsersListPage extends StatefulWidget {
   const StayingUsersListPage({super.key});
