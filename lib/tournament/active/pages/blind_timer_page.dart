@@ -170,7 +170,13 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
                 _mainViewData = mainSnapshot.data!.data() as Map<String, dynamic>? ?? {};
               }
               
-              return _buildMainContent(runtimeData, screenSize);
+              // リアルタイムで更新するためにStreamBuilderを使用
+              return StreamBuilder<int>(
+                stream: Stream.periodic(const Duration(seconds: 1), (count) => count),
+                builder: (context, timerSnapshot) {
+                  return _buildMainContent(runtimeData, screenSize);
+                },
+              );
             },
           );
         },
@@ -261,14 +267,17 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
         _buildLeftContent(screenSize),
 
         // 画面右部 - 追加情報
-        _buildRightContent(screenSize),
+        _buildRightContent(screenSize, progress, runtimeData),
       ],
     );
   }
 
   Widget _buildCenterContent(StageProgress progress, Map<String, dynamic> runtimeData, Size screenSize) {
     final currentStage = progress.currentStage;
-    final nextStage = progress.nextStage;
+    final isNotStarted = progress.isNotStarted;
+    
+    // nextStageを取得（durationSecが0のステージはスキップ）
+    Map<String, dynamic>? nextStage = _getNextMeaningfulStage(progress, runtimeData);
     
     return Positioned(
       left: screenSize.width * 0.5 - (screenSize.width * 0.4),
@@ -279,7 +288,7 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
           children: [
             // 現在のブラインドレベル
             Text(
-              _getCurrentBlindLevel(currentStage),
+              _getCurrentBlindLevel(currentStage, isNotStarted),
               style: TextStyle(
                 fontSize: screenSize.height * 0.08,
                 fontWeight: FontWeight.bold,
@@ -400,7 +409,7 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     );
   }
 
-  Widget _buildRightContent(Size screenSize) {
+  Widget _buildRightContent(Size screenSize, StageProgress progress, Map<String, dynamic> runtimeData) {
     return Positioned(
       right: 0,
       top: screenSize.height * 0.2,
@@ -412,10 +421,11 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
         ),
         child: Column(
           children: [
-            _buildRightItem('Total Time', _getTotalTime(), screenSize),
+            _buildRightItem('Total Time', _getTotalTime(runtimeData), screenSize),
+            _buildRightItem('レジストまでの残り時間', _getTimeToRegist(progress, runtimeData), screenSize),
             _buildRightItem('Reentry情報', _getReentryInfo(), screenSize),
             _buildRightItem('Addon情報', _getAddonInfo(), screenSize),
-            _buildRightItem('Next Break', _getNextBreak(), screenSize),
+            _buildRightItem('Next Break', _getNextBreak(progress, runtimeData), screenSize),
           ],
         ),
       ),
@@ -464,7 +474,39 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     return snapshot['name'] ?? 'トーナメント名なし';
   }
 
-  String _getCurrentBlindLevel(Map<String, dynamic>? stage) {
+  /// 次の意味のあるステージを取得（durationSec = 0 のステージはスキップ）
+  Map<String, dynamic>? _getNextMeaningfulStage(StageProgress progress, Map<String, dynamic> runtimeData) {
+    final stages = (runtimeData['stages'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final currentIndex = progress.currentStageIndex;
+    
+    // 現在のインデックスの次から探索
+    for (int i = currentIndex + 1; i < stages.length; i++) {
+      final stage = stages[i];
+      final durationSec = stage['durationSec'] as int? ?? 0;
+      
+      // durationSecが0より大きいステージを見つけたら返す
+      if (durationSec > 0) {
+        return stage;
+      }
+    }
+    
+    // 見つからない場合はnull
+    return null;
+  }
+
+  String _getCurrentBlindLevel(Map<String, dynamic>? stage, bool isNotStarted) {
+    // 開始前の場合はstartAtを参照
+    if (isNotStarted) {
+      final startAt = _tournamentData?['startAt'] as Timestamp?;
+      if (startAt != null) {
+        final startTime = startAt.toDate();
+        final hours = startTime.hour.toString().padLeft(2, '0');
+        final minutes = startTime.minute.toString().padLeft(2, '0');
+        return '$hours:$minutesより開始予定';
+      }
+      return '開始予定';
+    }
+    
     if (stage == null) return 'BREAK';
     
     switch (stage['type']) {
@@ -484,14 +526,27 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     
     switch (stage['type']) {
       case 'level':
+        // stagesに埋め込まれたブラインド情報を取得
+        final sb = stage['sb'] as int?;
+        final bb = stage['bb'] as int?;
+        final ante = stage['ante'] as int?;
+        
+        if (sb != null && bb != null) {
+          if (ante != null && ante > 0) {
+            return '$sb / $bb / $ante';
+          } else {
+            return '$sb / $bb / 0';
+          }
+        }
+        
+        // ブラインド情報がない場合は仮の値
         final lev = stage['lev'] as int? ?? 1;
-        // ブラインド構造は仮の値（実際のテンプレートから取得する必要がある）
-        final sb = lev * 25;
-        final bb = lev * 50;
-        final ante = lev * 5;
-        return '$sb / $bb / $ante';
+        final defaultSb = lev * 25;
+        final defaultBb = lev * 50;
+        final defaultAnte = lev * 5;
+        return '$defaultSb / $defaultBb / $defaultAnte';
       case 'break':
-        return '-';
+        return '- / - / -';
       case 'regist':
         return '-';
       default:
@@ -530,10 +585,40 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     return '$playersIn/$entries';
   }
 
-  String _getTotalTime() {
-    // main view データから取得
-    final totalTime = _mainViewData?['totalTime'] as String? ?? '0:00:00';
-    return totalTime;
+  String _getTotalTime(Map<String, dynamic> runtimeData) {
+    final startedAt = runtimeData['startedAt'] as Timestamp?;
+    final pausedAt = runtimeData['pausedAt'] as Timestamp?;
+    final shiftSec = runtimeData['shiftSec'] as int? ?? 0;
+    final status = runtimeData['status'] as String? ?? 'scheduled';
+    
+    // 開始していない場合
+    if (startedAt == null) {
+      return '00:00:00';
+    }
+    
+    // 評価時刻を決定
+    DateTime evaluationTime;
+    if (status == 'paused' && pausedAt != null) {
+      evaluationTime = pausedAt.toDate();
+    } else {
+      evaluationTime = ServerTimeHelper.getCurrentTime();
+    }
+    
+    // 経過秒数を計算
+    final startTime = startedAt.toDate();
+    final elapsedSec = evaluationTime.difference(startTime).inSeconds - shiftSec;
+    
+    // 負の値の場合は0:00:00
+    if (elapsedSec < 0) {
+      return '00:00:00';
+    }
+    
+    // XX:YY:ZZ形式にフォーマット
+    final hours = elapsedSec ~/ 3600;
+    final minutes = (elapsedSec % 3600) ~/ 60;
+    final seconds = elapsedSec % 60;
+    
+    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   String _getReentryInfo() {
@@ -562,10 +647,86 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     }
   }
 
-  String _getNextBreak() {
-    // main view データから取得
-    final nextBreak = _mainViewData?['nextBreak'] as String? ?? '-';
-    return nextBreak;
+  String _getNextBreak(StageProgress progress, Map<String, dynamic> runtimeData) {
+    final currentStage = progress.currentStage;
+    
+    // 現在がBreak中の場合は'-'を返す
+    if (currentStage != null && currentStage['type'] == 'break') {
+      return '-';
+    }
+    
+    final stages = (runtimeData['stages'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final currentIndex = progress.currentStageIndex;
+    
+    if (currentIndex < 0 || currentIndex >= stages.length) {
+      return '-';
+    }
+    
+    // 現在のステージの残り時間
+    int timeToBreak = progress.remainingSec;
+    
+    // 現在のステージの次から順に探索
+    for (int i = currentIndex + 1; i < stages.length; i++) {
+      final stage = stages[i];
+      final stageType = stage['type'] as String?;
+      
+      if (stageType == 'break') {
+        // Breakが見つかった場合、時間をフォーマットして返す
+        final minutes = timeToBreak ~/ 60;
+        final seconds = timeToBreak % 60;
+        return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+      }
+      
+      // Breakでない場合は、そのステージの時間を加算
+      final stageDuration = stage['durationSec'] as int? ?? 0;
+      timeToBreak += stageDuration;
+    }
+    
+    // Breakが見つからなかった場合
+    return '-';
+  }
+
+  String _getTimeToRegist(StageProgress progress, Map<String, dynamic> runtimeData) {
+    final stages = (runtimeData['stages'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final currentIndex = progress.currentStageIndex;
+    
+    // 開始前の場合
+    if (progress.isNotStarted) {
+      return '-';
+    }
+    
+    // registステージを探す
+    int registIndex = -1;
+    for (int i = 0; i < stages.length; i++) {
+      if (stages[i]['type'] == 'regist') {
+        registIndex = i;
+        break;
+      }
+    }
+    
+    // registステージが見つからない場合
+    if (registIndex == -1) {
+      return '-';
+    }
+    
+    // すでにregistステージを通過している場合
+    if (currentIndex >= registIndex) {
+      return 'レジスト済み';
+    }
+    
+    // registステージまでの残り時間を計算
+    int timeToRegist = progress.remainingSec;
+    
+    // 現在のステージの次からregistステージの前まで加算
+    for (int i = currentIndex + 1; i < registIndex; i++) {
+      final stageDuration = stages[i]['durationSec'] as int? ?? 0;
+      timeToRegist += stageDuration;
+    }
+    
+    // XX:YY形式にフォーマット
+    final minutes = timeToRegist ~/ 60;
+    final seconds = timeToRegist % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
 
