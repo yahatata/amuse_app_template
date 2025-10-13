@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
+import { enqueueStartTask, enqueueRegistTask } from "../lib/tasks";
 
 // 入力スキーマの定義
 const createTournamentRecurrenceSchema = z.object({
@@ -236,16 +237,93 @@ async function createScheduledTournamentFromRecurrence(
 ): Promise<string | null> {
   try {
     const now = new Date();
-    const regEndAt = new Date(startAt.getTime() - 30 * 60 * 1000); // 30分前
+    const startAtDate = startAt;
 
+    // トーナメントIDを生成（一意性を保証）
+    const tournamentRef = db.collection('scheduledTournaments').doc();
+    const tournamentId = tournamentRef.id;
+
+    // blindTemplateからstagesを生成し、plannedRegistAtを計算
+    const blindStructureId = templateData.blindStructure || templateData.blindStructureId;
+    let stages: any[] = [];
+    let lateRegUntilLev = 0;
+    let breakDuration = 0;
+    let plannedRegistAt: Date;
+    
+    if (blindStructureId) {
+      const blindTemplateDoc = await db.collection('blindTemplates').doc(blindStructureId).get();
+      if (blindTemplateDoc.exists) {
+        const blindTemplateData = blindTemplateDoc.data()!;
+        const levels = blindTemplateData.levels || [];
+        lateRegUntilLev = blindTemplateData.lateRegUntilLev || 0;
+        breakDuration = blindTemplateData.breakDuration || 0;
+        
+        // levelsからstagesを生成
+        stages = levels.map((level: any) => {
+          const stage = {
+            type: 'level',
+            lev: level.level,
+            durationSec: (level.duration || 0) * 60,
+          };
+          
+          if (level.hasBreakAfter) {
+            return [stage, {
+              type: 'break',
+              durationSec: breakDuration * 60,
+            }];
+          }
+          
+          return stage;
+        }).flat();
+        
+        // lateRegUntilLev+1のレベル直前にregistステージを追加
+        if (lateRegUntilLev > 0) {
+          const newStages: any[] = [];
+          
+          for (let i = 0; i < stages.length; i++) {
+            const stage = stages[i];
+            
+            if (stage.type === 'level' && stage.lev === lateRegUntilLev + 1) {
+              newStages.push({
+                type: 'regist',
+                durationSec: 0,
+              });
+            }
+            
+            newStages.push(stage);
+          }
+          
+          stages = newStages;
+        }
+      }
+    }
+
+    // plannedRegistAtを計算
+    if (lateRegUntilLev > 0 && stages.length > 0) {
+      let totalDurationSec = 0;
+      for (let i = 0; i < stages.length; i++) {
+        const stage = stages[i];
+        if (stage.type === 'level' && stage.lev === lateRegUntilLev + 1) {
+          break;
+        }
+        totalDurationSec += stage.durationSec;
+      }
+      plannedRegistAt = new Date(startAtDate.getTime() + (totalDurationSec * 1000));
+    } else {
+      plannedRegistAt = startAtDate;
+    }
+
+    const plannedStartAt = Timestamp.fromDate(startAtDate);
+
+    // scheduledTournaments ドキュメント作成
     const scheduledTournamentData = {
       templateId,
       recurrenceId, // 定期開催IDを追加
       storeId,
       tenantId,
       status: 'scheduled',
-      startAt: Timestamp.fromDate(startAt),
-      regEndAt: Timestamp.fromDate(regEndAt),
+      startAt: plannedStartAt,
+      regEndAt: Timestamp.fromDate(plannedRegistAt), // 正確なregEndAt
       freeze: false,
       isPrizeConfirmed: false,
       isArchived: false,
@@ -274,9 +352,107 @@ async function createScheduledTournamentFromRecurrence(
       },
     };
 
-    const tournamentRef = await db.collection('scheduledTournaments').add(scheduledTournamentData);
-    console.log('定期開催トーナメント作成完了:', tournamentRef.id);
+    // views/main を初期化
+    const mainViewData = {
+      entries: 0,
+      reentries: 0,
+      addons: 0,
+      playersIn: 0,
+      playersBusted: 0,
+      seatedCount: 0,
+      waitingCount: 0,
+      currentLevel: 1,
+      levelEndsAt: null,
+      lastEventAt: Timestamp.fromDate(now),
+    };
 
+    // tablesSeat/waiting を初期化
+    const waitingListData = {
+      waiting: {},
+      count: 0,
+      updatedAt: Timestamp.fromDate(now),
+    };
+
+    // views/usersList を初期化
+    const usersListData = {
+      users: {},
+      updatedAt: Timestamp.fromDate(now),
+    };
+
+    // views/runtime を初期化
+    const runtimeData = {
+      status: 'scheduled',
+      startedAt: null,
+      pausedAt: null,
+      shiftSec: 0,
+      regClosedAt: null,
+      plannedStartAt: plannedStartAt,
+      plannedRegistAt: Timestamp.fromDate(plannedRegistAt),
+      stages: stages,
+      lateRegUntilLev: lateRegUntilLev,
+      breakDurationSec: breakDuration * 60,
+      startRev: 1,
+      registRev: 1,
+      updatedAt: Timestamp.fromDate(now),
+    };
+
+    // トランザクションで一括作成
+    await db.runTransaction(async (transaction) => {
+      // scheduledTournaments を作成
+      transaction.set(tournamentRef, scheduledTournamentData);
+      
+      // views/main を作成
+      const mainViewRef = tournamentRef.collection('views').doc('main');
+      transaction.set(mainViewRef, mainViewData);
+      
+      // views/usersList を作成
+      const usersListRef = tournamentRef.collection('views').doc('usersList');
+      transaction.set(usersListRef, usersListData);
+      
+      // tablesSeat/waiting を作成
+      const waitingRef = tournamentRef.collection('tablesSeat').doc('waiting');
+      transaction.set(waitingRef, waitingListData);
+      
+      // tablesSeat/busted を作成
+      const bustedRef = tournamentRef.collection('tablesSeat').doc('busted');
+      transaction.set(bustedRef, { bustedUser: {} });
+      
+      // views/runtime を作成
+      const runtimeRef = tournamentRef.collection('views').doc('runtime');
+      transaction.set(runtimeRef, runtimeData);
+    });
+
+    // Cloud Tasks にタスクを投入
+    try {
+      console.log('=== Cloud Tasks 投入開始（定期開催） ===');
+      console.log('tournamentId:', tournamentId);
+      console.log('plannedStartAt:', plannedStartAt.toDate().toISOString());
+      console.log('plannedRegistAt:', plannedRegistAt.toISOString());
+
+      // 開始タスクを投入
+      const nowForTask = new Date();
+      const startTime = plannedStartAt.toDate() < nowForTask 
+        ? new Date(nowForTask.getTime() + 5000)
+        : plannedStartAt.toDate();
+      
+      const startTaskName = await enqueueStartTask(tournamentId, startTime, 1);
+      console.log('開始タスク投入完了:', startTaskName);
+
+      // レジスト確定タスクを投入
+      const registTime = plannedRegistAt < nowForTask 
+        ? new Date(nowForTask.getTime() + 10000)
+        : plannedRegistAt;
+        
+      const registTaskName = await enqueueRegistTask(tournamentId, registTime, 1);
+      console.log('レジスト確定タスク投入完了:', registTaskName);
+
+      console.log('=== Cloud Tasks 投入完了 ===');
+    } catch (taskError) {
+      console.error('Cloud Tasks 投入エラー:', taskError);
+      // タスク投入に失敗してもトーナメント作成は成功とする
+    }
+
+    console.log('定期開催トーナメント作成完了:', tournamentRef.id);
     return tournamentRef.id;
   } catch (error) {
     console.error('定期開催トーナメント作成エラー:', error);
