@@ -29,12 +29,12 @@ class _AccountingPageState extends State<AccountingPage> {
     });
 
     try {
-      // 今日の未会計・会計中の請求書を取得
+      // 今日の未会計の請求書を取得
       final today = DateTime.now().toIso8601String().split('T')[0];
       final querySnapshot = await _firestore
           .collection('todaysBills')
           .where('date', isEqualTo: today)
-          .where('accountingStatus', whereIn: ['pending', 'in_progress'])
+          .where('status', isEqualTo: 'open')
           .get();
 
       setState(() {
@@ -90,6 +90,11 @@ class _AccountingPageState extends State<AccountingPage> {
         'billId': billId,
       });
 
+      // デバッグログを追加
+      print('会計完了結果: ${result.data}');
+      print('success値: ${result.data['success']}');
+      print('successの型: ${result.data['success'].runtimeType}');
+
       if (result.data['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('会計を完了しました')),
@@ -101,6 +106,7 @@ class _AccountingPageState extends State<AccountingPage> {
         );
       }
     } catch (e) {
+      print('会計完了エラー: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('会計完了に失敗しました: $e')),
       );
@@ -170,7 +176,8 @@ class _AccountingPageState extends State<AccountingPage> {
 
   Widget _buildBillCard(Map<String, dynamic> bill) {
     final totalPrice = bill['totalPrice'] ?? 0;
-    final accountingStatus = bill['accountingStatus'] ?? 'pending';
+    final status = bill['status'] ?? 'open';
+    final accountingStarted = bill['accountingStartedAt'] != null;
     final pokerName = bill['pokerName'] ?? '不明';
     final createdAt = bill['createdAt']?.toDate() ?? DateTime.now();
 
@@ -196,11 +203,11 @@ class _AccountingPageState extends State<AccountingPage> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: _getStatusColor(accountingStatus),
+                    color: accountingStarted ? Colors.orange : Colors.blue,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    _getStatusText(accountingStatus),
+                    accountingStarted ? '会計中' : '未会計',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,
@@ -262,7 +269,7 @@ class _AccountingPageState extends State<AccountingPage> {
             // アクションボタン
             Row(
               children: [
-                if (accountingStatus == 'pending')
+                if (!accountingStarted)
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () => _startAccounting(bill['id']),
@@ -275,7 +282,7 @@ class _AccountingPageState extends State<AccountingPage> {
                       ),
                     ),
                   ),
-                if (accountingStatus == 'in_progress')
+                if (accountingStarted)
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () => _completeAccounting(bill['id']),
@@ -310,13 +317,20 @@ class _AccountingPageState extends State<AccountingPage> {
     }
 
     // トーナメント参加費
-    final tournaments = bill['tournaments'] as Map<String, dynamic>? ?? {};
+    final tournamentsData = bill['tournaments'];
     int totalTournamentFee = 0;
-    for (final tournamentEntry in tournaments.values) {
-      if (tournamentEntry is Map<String, dynamic>) {
-        totalTournamentFee += (tournamentEntry['entryFee'] as num? ?? 0).toInt();
+    
+    // tournamentsはMapまたはListの可能性があるため、型チェックを行う
+    if (tournamentsData is Map<String, dynamic>) {
+      for (final tournamentEntry in tournamentsData.values) {
+        if (tournamentEntry is Map<String, dynamic>) {
+          totalTournamentFee += (tournamentEntry['entryFee'] as num? ?? 0).toInt();
+        }
       }
+    } else if (tournamentsData is List) {
+      // Listの場合は空配列なので何もしない
     }
+    
     if (totalTournamentFee > 0) {
       breakdown.add(_buildBreakdownItem('トーナメント参加費', totalTournamentFee));
     }
@@ -372,31 +386,6 @@ class _AccountingPageState extends State<AccountingPage> {
     );
   }
 
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'pending':
-        return Colors.grey;
-      case 'in_progress':
-        return Colors.orange;
-      case 'completed':
-        return Colors.green;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _getStatusText(String status) {
-    switch (status) {
-      case 'pending':
-        return '未会計';
-      case 'in_progress':
-        return '会計中';
-      case 'completed':
-        return '会計済み';
-      default:
-        return '不明';
-    }
-  }
 
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.month}/${dateTime.day} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';

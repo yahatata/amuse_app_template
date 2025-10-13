@@ -50,16 +50,15 @@ export const startAccounting = onCall(async (request) => {
     }
 
     const billData = billDoc.data()!;
-    const currentStatus = billData.accountingStatus || 'pending';
+    const currentStatus = billData.status || 'open';
 
     // 既に会計済みの場合はエラー
-    if (currentStatus === 'completed') {
+    if (currentStatus === 'settled') {
       throw new HttpsError('failed-precondition', 'この請求書は既に会計済みです');
     }
 
-    // 会計状態を更新
+    // 会計開始時刻を記録（statusは変更しない）
     await billRef.update({
-      accountingStatus: 'in_progress',
       accountingStartedAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingStartedBy: adminId,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -69,7 +68,7 @@ export const startAccounting = onCall(async (request) => {
       success: true, 
       message: '会計を開始しました',
       billId: billId,
-      status: 'in_progress'
+      status: 'open'
     };
   } catch (error: any) {
     if (error instanceof z.ZodError) {
@@ -120,11 +119,16 @@ export const completeAccounting = onCall(async (request) => {
     }
 
     const billData = billDoc.data()!;
-    const currentStatus = billData.accountingStatus || 'pending';
+    const currentStatus = billData.status || 'open';
 
-    // 会計中でない場合はエラー
-    if (currentStatus !== 'in_progress') {
-      throw new HttpsError('failed-precondition', 'この請求書は会計中ではありません');
+    // 会計開始していない場合はエラー
+    if (!billData.accountingStartedAt) {
+      throw new HttpsError('failed-precondition', 'この請求書はまだ会計開始されていません');
+    }
+    
+    // 既に会計済みの場合はエラー
+    if (currentStatus === 'settled') {
+      throw new HttpsError('failed-precondition', 'この請求書は既に会計済みです');
     }
 
     // 会計履歴を作成
@@ -140,20 +144,54 @@ export const completeAccounting = onCall(async (request) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 会計状態を完了に更新
+    // 会計完了
     await billRef.update({
-      accountingStatus: 'completed',
+      status: 'settled',
+      settledAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingCompletedBy: adminId,
       accountingHistoryId: accountingHistoryRef.id,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    // 退店処理
+    const userId = billData.userId;
+    if (userId) {
+      const userRef = db.collection('users').doc(userId);
+      await userRef.update({
+        isStaying: false,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // visitLogsの最新の未完了ログを更新
+      const visitLogsSnapshot = await userRef.collection('visitLogs')
+        .where('checkOutAt', '==', null)
+        .orderBy('checkInAt', 'desc')
+        .limit(1)
+        .get();
+
+      if (!visitLogsSnapshot.empty) {
+        const visitLogDoc = visitLogsSnapshot.docs[0];
+        const checkInAt = visitLogDoc.data().checkInAt;
+        const checkOutAt = admin.firestore.Timestamp.now();
+        const stayMinutes = checkInAt 
+          ? Math.floor((checkOutAt.toMillis() - checkInAt.toMillis()) / 60000)
+          : null;
+
+        await visitLogDoc.ref.update({
+          checkOutAt: admin.firestore.FieldValue.serverTimestamp(),
+          stayMinutes: stayMinutes,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    console.log('会計完了成功 - 戻り値を返します');
     return { 
       success: true, 
       message: '会計を完了しました',
       billId: billId,
-      status: 'completed',
+      status: 'settled',
       accountingHistoryId: accountingHistoryRef.id
     };
   } catch (error: any) {
