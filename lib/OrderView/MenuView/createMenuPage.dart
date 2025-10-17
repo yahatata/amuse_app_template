@@ -50,6 +50,50 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
     }
   }
 
+  void _onCategoryChanged(String? value) {
+    if (value != null) {
+      setState(() {
+        _selectedCategory = value;
+        
+        // Chipカテゴリーが選択された場合、商品名を自動設定
+        if (value == 'Chip') {
+          _nameController.text = 'side game chip ：';
+        }
+      });
+    }
+  }
+
+  void _onChipNameChanged(String value) {
+    // Chipカテゴリーの場合のみ、数値部分のみを抽出して更新
+    if (_selectedCategory == 'Chip') {
+      // 'side game chip ：'の後の数値部分のみを抽出
+      final prefix = 'side game chip ：';
+      if (value.startsWith(prefix)) {
+        final numberPart = value.substring(prefix.length);
+        // 数値のみを許可（空文字も許可）
+        if (numberPart.isEmpty || RegExp(r'^\d+$').hasMatch(numberPart)) {
+          _nameController.text = value;
+        } else {
+          // 数値以外が入力された場合は、前の有効な値に戻す
+          final currentText = _nameController.text;
+          if (currentText.startsWith(prefix)) {
+            final currentNumber = currentText.substring(prefix.length);
+            if (RegExp(r'^\d+$').hasMatch(currentNumber)) {
+              _nameController.text = currentText;
+            } else {
+              _nameController.text = prefix;
+            }
+          } else {
+            _nameController.text = prefix;
+          }
+        }
+      } else {
+        // プレフィックスが変更された場合は元に戻す
+        _nameController.text = prefix;
+      }
+    }
+  }
+
   Future<void> _pickImage() async {
     final picked = await _picker.pickImage(source: ImageSource.gallery);
     if (picked != null) {
@@ -76,11 +120,31 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
     final price = int.tryParse(_priceController.text.trim()) ?? 0;
     final description = _descriptionController.text.trim();
 
+    // 基本バリデーション
     if (name.isEmpty || price <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('有効な名前と金額を入力してください')),
       );
       return;
+    }
+
+    // Chipカテゴリーの場合、数値が入力されているかチェック
+    if (_selectedCategory == 'Chip') {
+      final prefix = 'side game chip ：';
+      if (!name.startsWith(prefix)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Chip商品の名前が正しくありません')),
+        );
+        return;
+      }
+      
+      final numberPart = name.substring(prefix.length);
+      if (numberPart.isEmpty || !RegExp(r'^\d+$').hasMatch(numberPart)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Chip商品には数値を入力してください')),
+        );
+        return;
+      }
     }
 
     try {
@@ -200,13 +264,30 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
                   flex: 1,
                   child: Column(
                     children: [
+                      // カテゴリー選択
+                      DropdownButtonFormField<String>(
+                        value: _selectedCategory,
+                        decoration: const InputDecoration(
+                          labelText: 'カテゴリー',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: _onCategoryChanged,
+                        items: _categories.map((cat) {
+                          return DropdownMenuItem(value: cat, child: Text(cat));
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 12),
+
                       // 商品名入力
                       TextField(
                         controller: _nameController,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: '商品名',
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
+                          hintText: _selectedCategory == 'Chip' ? '数値を入力してください' : null,
                         ),
+                        onChanged: _onChipNameChanged,
+                        keyboardType: _selectedCategory == 'Chip' ? TextInputType.number : TextInputType.text,
                       ),
                       const SizedBox(height: 12),
 
@@ -218,26 +299,6 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
                           border: OutlineInputBorder(),
                         ),
                         keyboardType: TextInputType.number,
-                      ),
-                      const SizedBox(height: 12),
-
-                      // カテゴリー選択
-                      DropdownButtonFormField<String>(
-                        value: _selectedCategory,
-                        decoration: const InputDecoration(
-                          labelText: 'カテゴリー',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() {
-                              _selectedCategory = value;
-                            });
-                          }
-                        },
-                        items: _categories.map((cat) {
-                          return DropdownMenuItem(value: cat, child: Text(cat));
-                        }).toList(),
                       ),
                     ],
                   ),

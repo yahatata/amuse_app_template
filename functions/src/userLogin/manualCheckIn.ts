@@ -104,7 +104,6 @@ export const manualCheckIn = onCall(async (request) => {
       status: 'open',
       userId: uid,
       items: [],
-      sideGameTip: [],
       tournaments: [],
       extraCost: extraCost,
       totalPrice: entranceFee > 0 ? entranceFee : 0, // 入店料を初期値として設定（0円の場合は0）

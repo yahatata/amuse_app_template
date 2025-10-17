@@ -35,4 +35,9 @@ export { updateTournamentRecurrence } from './updateTournamentRecurrence';
 export { updateTournamentTemplate } from './updateTournamentTemplate';
 export { getScheduledTournamentsForEdit } from './getScheduledTournamentsForEdit';
 export { getBlindTemplates } from '../tournamentBlind/getBlindTemplates';
+export { debugSideGame } from './debugSideGame';
+export { registerForSideGame } from '../sideGame/registerForSideGame';
+export { leaveSeat } from '../sideGame/leaveSeat';
+export { withdrawTip } from '../sideGame/withdrawTip';
+export { depositTip } from '../sideGame/depositTip';
 

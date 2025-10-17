@@ -52,16 +52,17 @@ export const createTemporaryTable = functions.https.onCall(async (data, context)
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       
-      // 4. temporaryTablesコレクションにドキュメント作成（ドキュメントID = テーブル名）
-      const temporaryTableSeatRef = db
-        .collection('temporaryTables')
+      // 4. sideGameコレクションにドキュメント作成（ドキュメントID = テーブル名）
+      const sideGameTableRef = db
+        .collection('sideGame')
         .doc(tableName);
       
-      transaction.set(temporaryTableSeatRef, {
+      transaction.set(sideGameTableRef, {
         tableId: tableName, // テーブル名をtableIdとして使用
         name: tableName,
         maxSeats: maxSeats,
         seats: seats,
+        active: false, // 初期値はfalse
         isEnabled: true,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),

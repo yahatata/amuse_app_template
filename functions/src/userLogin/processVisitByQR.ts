@@ -131,7 +131,6 @@ export const processVisitByQR = onCall(async (request) => {
                status: 'open',
                userId: parsed.uid,
                items: [],
-               sideGameTip: [],
                tournaments: [],
                extraCost: extraCost, // 入店料を含む
                totalPrice: entranceFee > 0 ? entranceFee : 0, // 入店料を初期値として設定

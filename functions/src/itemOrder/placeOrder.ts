@@ -1,5 +1,26 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { addLogEntry } from "../utils/logUtils";
+
+/**
+ * Chip名から数値部分を抽出する
+ * 例: "side game chip ：1000" -> 1000
+ * 例: "チップ 500" -> 500
+ */
+function extractChipAmount(chipName: string): number {
+  console.log(`extractChipAmount: 入力="${chipName}"`);
+  
+  // 文字列から数値部分を抽出（最後の数値部分を取得）
+  const match = chipName.match(/(\d+)(?!.*\d)/);
+  if (match) {
+    const amount = parseInt(match[1], 10);
+    console.log(`extractChipAmount: 抽出結果=${amount}`);
+    return amount;
+  }
+  
+  console.log(`extractChipAmount: 数値が見つかりません`);
+  return 0;
+}
 
 /**
  * When: スタッフが注文確定ボタンを押下したとき
@@ -87,15 +108,41 @@ export const placeOrder = onCall(async (request) => {
         orderedAt,
       };
 
-      const existingItems: any[] = Array.isArray(billsData?.items) ? billsData.items : [];
-      const updatedItems = [...existingItems, newEntry];
-      const updatedTotal = (Number(billsData?.totalPrice) || 0) + itemTotal;
+      // Chipカテゴリーの場合はsideGameChipフィールドに保存、それ以外はitemsフィールドに保存
+      if (item.category === 'Chip') {
+        const existingSideGameChips: any[] = Array.isArray(billsData?.sideGameChip) ? billsData.sideGameChip : [];
+        const updatedSideGameChips = [...existingSideGameChips, newEntry];
+        
+        tx.update(billsRef, {
+          sideGameChip: updatedSideGameChips,
+          totalPrice: (Number(billsData?.totalPrice) || 0) + itemTotal,
+          updatedAt: now,
+        });
 
-      tx.update(billsRef, {
-        items: updatedItems,
-        totalPrice: updatedTotal,
-        updatedAt: now,
-      });
+        // Chip購入の場合はusersコレクションのsideGameTipも更新
+        const chipAmount = extractChipAmount(item.name);
+        const totalChipAmount = chipAmount * Number(item.quantity);
+        
+        console.log(`Chip購入処理: name=${item.name}, chipAmount=${chipAmount}, quantity=${item.quantity}, totalChipAmount=${totalChipAmount}`);
+        
+        if (totalChipAmount > 0) {
+          const userRef = db.collection('users').doc(userId);
+          tx.update(userRef, {
+            sideGameTip: FieldValue.increment(totalChipAmount),
+            updatedAt: now,
+          });
+          console.log(`sideGameTip更新予定: userId=${userId}, 加算量=${totalChipAmount}`);
+        }
+      } else {
+        const existingItems: any[] = Array.isArray(billsData?.items) ? billsData.items : [];
+        const updatedItems = [...existingItems, newEntry];
+        
+        tx.update(billsRef, {
+          items: updatedItems,
+          totalPrice: (Number(billsData?.totalPrice) || 0) + itemTotal,
+          updatedAt: now,
+        });
+      }
 
       // 2) orders/{YYYYMMDD} と _TodaysOrders の作成/更新
 
@@ -136,9 +183,38 @@ export const placeOrder = onCall(async (request) => {
         todaysBillsId: billsRef.id,
         ordersDocId: orderDocId,
         todaysOrderId: todaysOrderRef.id,
-        totalPrice: updatedTotal,
+        totalPrice: (Number(billsData?.totalPrice) || 0) + itemTotal,
       };
     });
+
+    // Chip購入の場合はログ記録を追加（トランザクション外で実行）
+    if (item.category === 'Chip') {
+      try {
+        // Chip名から数値部分を抽出
+        const chipAmount = extractChipAmount(item.name);
+        const totalChipAmount = chipAmount * Number(item.quantity);
+        
+        console.log(`Chip購入ログ記録: name=${item.name}, chipAmount=${chipAmount}, quantity=${item.quantity}, totalChipAmount=${totalChipAmount}`);
+        
+        if (totalChipAmount > 0) {
+          // ログ記録を追加（amountDeltaはChip量を使用）
+          await addLogEntry(userId, 'sideGameChipLogs', {
+            appliedAt: new Date(),
+            category: 'purchase',
+            amountDelta: totalChipAmount, // Chip量を使用（価格ではない）
+            reasonType: 'sideGame',
+            actor: 'tablet_front', // 実際の端末IDに置き換え可能
+          });
+          console.log(`Chip購入ログ記録完了: userId=${userId}, chipAmount=${totalChipAmount}`);
+        } else {
+          console.warn(`Chip量が0のためログ記録をスキップ: name=${item.name}`);
+        }
+      } catch (logError) {
+        console.error('Chip購入ログ記録エラー:', logError);
+        // ログ記録の失敗は注文処理を止めないが、エラーを記録
+        throw new Error(`Chip購入ログ記録に失敗しました: ${logError instanceof Error ? logError.message : String(logError)}`);
+      }
+    }
 
     return { success: true, data: result };
   } catch (error) {
