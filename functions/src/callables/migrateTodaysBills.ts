@@ -4,7 +4,7 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 const db = admin.firestore();
 
 /**
- * 既存のtodaysBillsドキュメントに会計状態フィールドを追加するマイグレーション関数
+ * 既存のtodaysBillsドキュメントに会計履歴用フィールドを追加するマイグレーション関数
  * 管理者権限を持つユーザーのみが実行可能
  */
 export const migrateTodaysBillsAccountingFields = onCall(async (request) => {
@@ -44,18 +44,17 @@ export const migrateTodaysBillsAccountingFields = onCall(async (request) => {
     let updatedCount = 0;
     const batch = db.batch();
 
-    // 各ドキュメントに会計状態フィールドを追加
+    // 各ドキュメントに会計履歴用フィールドを追加
     for (const doc of todaysBillsQuery.docs) {
       const data = doc.data();
       
-      // 既に会計状態フィールドがある場合はスキップ
-      if (data.accountingStatus !== undefined) {
+      // 既に会計履歴用フィールドがある場合はスキップ
+      if (data.accountingStartedAt !== undefined) {
         continue;
       }
 
-      // 会計状態フィールドを追加
+      // 会計履歴用フィールドを追加
       batch.update(doc.ref, {
-        accountingStatus: 'pending', // デフォルトは未会計
         accountingStartedAt: null,
         accountingCompletedAt: null,
         accountingStartedBy: null,
@@ -74,7 +73,7 @@ export const migrateTodaysBillsAccountingFields = onCall(async (request) => {
 
     return { 
       success: true, 
-      message: `${updatedCount}件の請求書に会計状態フィールドを追加しました`,
+      message: `${updatedCount}件の請求書に会計履歴用フィールドを追加しました`,
       updatedCount: updatedCount
     };
   } catch (error: any) {
