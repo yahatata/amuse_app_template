@@ -3,6 +3,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as bcrypt from "bcryptjs";
 import * as QRCode from "qrcode";
+import { initializeUserLogs } from "../utils/logUtils";
 
 export const createUserByApp = onCall(async (request) => {
   const {pokerName, email, pin, birthMonthDay} = request.data;
@@ -77,6 +78,9 @@ export const createUserByApp = onCall(async (request) => {
   await admin.firestore().collection("users").doc(uid).update({
     qrCodeUrl: url,
   });
+
+  // ログサブコレクションを初期化
+  await initializeUserLogs(uid);
 
   return {success: true, uid, qrUrl: url};
 }); 

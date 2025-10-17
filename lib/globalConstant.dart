@@ -5,6 +5,7 @@ class GlobalConstants {
     'フード',
     'ノンアルコール',
     'アルコール',
+    'Chip',
     'その他',
   ];
 
@@ -47,5 +48,13 @@ class GlobalConstants {
   
   // ポイントタイプ選択肢（フィールド名のみ）
   static const List<String> pointTypes = ['pointA', 'pointB', 'sideGameTip'];//createUserAccount.tsやcreateUserByApp.tsについては直接コード内で修正する必要がある
+  
+  // サイドゲーム選択肢
+  static const List<String> sideGameTypes = [
+    'ブラックジャック',
+    'ルーレット',
+    'バカラ',
+    'アルティメットポーカー',
+  ];
 }
 
