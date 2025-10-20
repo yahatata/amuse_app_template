@@ -111,6 +111,23 @@ export const bustAndExit = functions.https.onCall(async (data, context) => {
         bustedUser: bustedUser,
       });
 
+      // 7. todaysBillsのcurrentTable/currentSeatをnullに設定
+      const todayBillsQuery = db.collection('todaysBills')
+        .where('userId', '==', userId)
+        .where('status', '==', 'open')
+        .limit(1);
+      
+      const todayBillsSnapshot = await transaction.get(todayBillsQuery);
+      
+      if (!todayBillsSnapshot.empty) {
+        const todayBillsDoc = todayBillsSnapshot.docs[0];
+        transaction.update(todayBillsDoc.ref, {
+          currentTable: null,
+          currentSeat: null,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
       return { success: true, userId, tableId, seatNumber };
     });
 

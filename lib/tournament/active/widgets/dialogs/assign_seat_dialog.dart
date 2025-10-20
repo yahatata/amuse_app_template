@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/models/table_and_users.dart';
 import 'package:amuse_app_template/tournament/active/services/tournament_data_service.dart';
@@ -80,47 +81,17 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
             
             const SizedBox(height: 16),
             
-            // テーブル選択
+            // テーブル選択（リアルタイム状態監視）
             if (_isLoadingData)
               const SizedBox.shrink()
             else
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(
-                  labelText: 'テーブル',
-                  border: OutlineInputBorder(),
-                ),
-                value: _selectedTableId,
-                items: _tournamentTables
-                    .map((table) => DropdownMenuItem(
-                          value: table.tableId,
-                          child: Text('${table.name} (${table.maxSeats}席)'),
-                        ))
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedTableId = value;
-                    _selectedSeatNumber = null; // テーブル変更時はシートをリセット
-                  });
-                },
-              ),
+              _buildTableSelectionWithStatus(),
             
             const SizedBox(height: 16),
             
-            // シート選択
+            // シート選択（リアルタイム状態監視）
             if (_selectedTableId != null) ...[
-              DropdownButtonFormField<int>(
-                decoration: const InputDecoration(
-                  labelText: 'シート番号',
-                  border: OutlineInputBorder(),
-                ),
-                value: _selectedSeatNumber,
-                items: _buildSeatItems(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedSeatNumber = value;
-                  });
-                },
-              ),
+              _buildSeatSelectionWithStatus(),
               
               const SizedBox(height: 16),
             ],
@@ -165,6 +136,153 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
       return DropdownMenuItem(
         value: seatNumber,
         child: Text('シート $seatNumber'),
+      );
+    });
+  }
+
+  /// テーブル選択（リアルタイム状態監視）
+  Widget _buildTableSelectionWithStatus() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('scheduledTournaments')
+          .doc(widget.tournamentId)
+          .collection('tablesSeat')
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Text('エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red));
+        }
+        
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        final allDocs = snapshot.data?.docs ?? [];
+        final tables = allDocs.where((doc) => doc.id != 'waiting' && doc.id != 'busted').toList();
+        
+        return DropdownButtonFormField<String>(
+          decoration: const InputDecoration(
+            labelText: 'テーブル',
+            border: OutlineInputBorder(),
+          ),
+          value: _selectedTableId,
+          items: tables.map((tableDoc) {
+            final tableId = tableDoc.id;
+            final tableData = tableDoc.data() != null 
+                ? Map<String, dynamic>.from(tableDoc.data()! as Map)
+                : null;
+            final seats = tableData?['seats'] as Map<String, dynamic>? ?? {};
+            
+            // 着席数をカウント
+            final occupiedSeats = seats.entries
+                .where((entry) => entry.key.endsWith('UserId') && entry.value != null)
+                .length;
+            
+            // 最大席数を取得
+            final maxSeats = tableData?['maxSeats'] as int? ?? 0;
+            
+            return DropdownMenuItem(
+              value: tableId,
+              child: Text('$tableId ($occupiedSeats/$maxSeats席)'),
+            );
+          }).toList(),
+          onChanged: (value) {
+            setState(() {
+              _selectedTableId = value;
+              _selectedSeatNumber = null; // テーブル変更時はシートをリセット
+            });
+          },
+        );
+      },
+    );
+  }
+
+  /// 座席の状態を取得するStreamBuilder
+  Widget _buildSeatSelectionWithStatus() {
+    if (_selectedTableId == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('scheduledTournaments')
+          .doc(widget.tournamentId)
+          .collection('tablesSeat')
+          .doc(_selectedTableId!)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Text('エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red));
+        }
+        
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        final data = snapshot.data?.data() != null 
+            ? Map<String, dynamic>.from(snapshot.data!.data()! as Map)
+            : null;
+        final seats = data?['seats'] as Map<String, dynamic>? ?? {};
+        
+        return DropdownButtonFormField<int>(
+          decoration: const InputDecoration(
+            labelText: 'シート番号',
+            border: OutlineInputBorder(),
+          ),
+          value: _selectedSeatNumber,
+          items: _buildSeatItemsWithStatus(seats),
+          onChanged: (value) {
+            setState(() {
+              _selectedSeatNumber = value;
+            });
+          },
+        );
+      },
+    );
+  }
+
+  /// 座席の状態を考慮したシート選択肢を生成
+  List<DropdownMenuItem<int>> _buildSeatItemsWithStatus(Map<String, dynamic> seats) {
+    final selectedTable = _tournamentTables.firstWhere(
+      (table) => table.tableId == _selectedTableId,
+    );
+    
+    return List.generate(selectedTable.maxSeats, (index) {
+      final seatNumber = index + 1;
+      final seatNoStr = seatNumber.toString().padLeft(2, '0');
+      final userId = seats['seat${seatNoStr}UserId'] as String?;
+      final isOccupied = userId != null && userId.isNotEmpty;
+      
+      return DropdownMenuItem(
+        value: seatNumber,
+        enabled: !isOccupied, // 着席済みの場合は無効化
+        child: Row(
+          children: [
+            Icon(
+              isOccupied ? Icons.person : Icons.event_seat,
+              color: isOccupied ? Colors.red : Colors.green,
+              size: 16,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'シート $seatNumber',
+              style: TextStyle(
+                color: isOccupied ? Colors.grey : Colors.black,
+                fontWeight: isOccupied ? FontWeight.normal : FontWeight.bold,
+              ),
+            ),
+            if (isOccupied) ...[
+              const SizedBox(width: 4),
+              Text(
+                '(着席済み)',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ],
+        ),
       );
     });
   }

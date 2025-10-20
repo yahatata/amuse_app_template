@@ -109,6 +109,13 @@ export const assignSeatToPlayer = functions.https.onCall(async (data, context) =
         seats: updatedSeats,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+
+      // 8. todaysBillsのcurrentTable/currentSeatを更新
+      transaction.update(todayBillsDoc.ref, {
+        currentTable: tableId,
+        currentSeat: seatNumber,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
       
       // 5. usersサブコレクションにユーザー情報を記録
       // TODO: 今後実装予定 - usersサブコレクションへの記録

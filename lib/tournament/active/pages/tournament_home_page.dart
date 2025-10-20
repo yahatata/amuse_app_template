@@ -993,8 +993,8 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                       }
 
                                       final allDocs = seatedSnapshot.data?.docs ?? [];
-                                      // 'waiting'ドキュメントを除外
-                                      final tables = allDocs.where((doc) => doc.id != 'waiting').toList();
+                                      // 'waiting'と'busted'ドキュメントを除外
+                                      final tables = allDocs.where((doc) => doc.id != 'waiting' && doc.id != 'busted').toList();
                                       
                                       int totalOccupiedSeats = 0;
                                       for (final tableDoc in tables) {
@@ -1045,8 +1045,8 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                   }
 
                                   final allDocs = tablesSnapshot.data?.docs ?? [];
-                                  // 'waiting'ドキュメントを除外
-                                  final tables = allDocs.where((doc) => doc.id != 'waiting').toList();
+                                  // 'waiting'と'busted'ドキュメントを除外
+                                  final tables = allDocs.where((doc) => doc.id != 'waiting' && doc.id != 'busted').toList();
                                   debugPrint('=== 卓データ取得成功 ===');
                                   debugPrint('全ドキュメント数: ${allDocs.length}');
                                   debugPrint('卓数: ${tables.length}');
