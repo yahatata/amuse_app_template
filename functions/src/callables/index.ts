@@ -35,4 +35,7 @@ export { updateTournamentRecurrence } from './updateTournamentRecurrence';
 export { updateTournamentTemplate } from './updateTournamentTemplate';
 export { getScheduledTournamentsForEdit } from './getScheduledTournamentsForEdit';
 export { getBlindTemplates } from '../tournamentBlind/getBlindTemplates';
+export { updateAccounting } from './updateAccounting';
+export { cancelAccounting } from './cancelAccounting';
+export { processRefund, getRefundHistory } from './refundProcessing';
 

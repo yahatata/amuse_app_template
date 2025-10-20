@@ -207,6 +207,24 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "visitLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "checkInAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "checkOutAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []
