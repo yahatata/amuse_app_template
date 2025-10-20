@@ -79,10 +79,16 @@ service cloud.firestore {
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
 
-    // tables の読み取り（開発用：全許可）
+    // tables の読み取り・書き込み（開発用：全許可）
     match /tables/{tableId} {
-      allow read: if true;
-      allow write: if false; // 書き込みはCloud Functions経由のみ
+      allow read: if true; // 開発用：全許可
+      allow write: if true; // 開発用：全許可
+    }
+
+    // sideGame の読み取り・書き込み（開発用：全許可）
+    match /sideGame/{tableId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if true; // 開発用：全許可
     }
 
     // デバイスコレクション（開発用：読み取り全許可）
@@ -116,6 +122,18 @@ service cloud.firestore {
     match /accountingHistory/{historyId} {
       allow read: if true; // 開発用：全許可
       allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // orders コレクション（開発用：読み取り・書き込み全許可）
+    match /orders/{orderId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if true; // 開発用：全許可
+      
+      // _TodaysOrders サブコレクション
+      match /_TodaysOrders/{subOrderId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if true; // 開発用：全許可
+      }
     }
 
     // 管理者コレクション

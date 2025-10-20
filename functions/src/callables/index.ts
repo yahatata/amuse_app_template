@@ -38,4 +38,9 @@ export { getBlindTemplates } from '../tournamentBlind/getBlindTemplates';
 export { updateAccounting } from './updateAccounting';
 export { cancelAccounting } from './cancelAccounting';
 export { processRefund, getRefundHistory } from './refundProcessing';
+export { debugSideGame } from './debugSideGame';
+export { registerForSideGame } from '../sideGame/registerForSideGame';
+export { leaveSeat } from '../sideGame/leaveSeat';
+export { withdrawTip } from '../sideGame/withdrawTip';
+export { depositTip } from '../sideGame/depositTip';
 

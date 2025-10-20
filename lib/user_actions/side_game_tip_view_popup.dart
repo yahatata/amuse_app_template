@@ -1,0 +1,201 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+/// SideGame用Tip参照ポップアップ
+Future<void> showSideGameTipViewDialog({
+  required BuildContext context,
+  required String userId,
+  required String pokerName,
+}) async {
+  // 外側（ページ側）のコンテキストを退避。以降のUI操作は必ずこれを使う
+  final outerCtx = context;
+
+  if (userId.isEmpty) {
+    if (outerCtx.mounted) {
+      ScaffoldMessenger.of(outerCtx).showSnackBar(
+        const SnackBar(content: Text('ユーザー識別子が見つかりません')),
+      );
+    }
+    return;
+  }
+
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    builder: (ctx) => _SideGameTipViewDialog(
+      userId: userId,
+      pokerName: pokerName,
+    ),
+  );
+}
+
+class _SideGameTipViewDialog extends StatelessWidget {
+  final String userId;
+  final String pokerName;
+
+  const _SideGameTipViewDialog({
+    required this.userId,
+    required this.pokerName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.account_balance_wallet, color: Colors.orange),
+          const SizedBox(width: 8),
+          const Text('Tip残高'),
+        ],
+      ),
+      content: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          if (snapshot.hasError) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error, color: Colors.red, size: 48),
+                const SizedBox(height: 16),
+                Text(
+                  'エラーが発生しました',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.red[700],
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  snapshot.error.toString(),
+                  style: const TextStyle(fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            );
+          }
+
+          if (!snapshot.hasData || !snapshot.data!.exists) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.person_off, color: Colors.grey, size: 48),
+                const SizedBox(height: 16),
+                Text(
+                  'ユーザー情報が見つかりません',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[700],
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            );
+          }
+
+          final userData = snapshot.data!.data() as Map<String, dynamic>;
+          final sideGameTip = userData['sideGameTip'] as num? ?? 0;
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ユーザー名表示
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.person,
+                      color: Colors.blue,
+                      size: 32,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      pokerName,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              
+              // Tip残高表示
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade200, width: 2),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.account_balance_wallet,
+                      color: Colors.orange,
+                      size: 40,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '現在のTip残高',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${sideGameTip.toString().replaceAllMapped(
+                        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+                        (Match m) => '${m[1]},',
+                      )}',
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange,
+                      ),
+                    ),
+                    const Text(
+                      'Tip',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.orange,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('閉じる'),
+        ),
+      ],
+    );
+  }
+}

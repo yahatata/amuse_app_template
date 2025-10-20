@@ -85,6 +85,8 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
         return const Icon(Icons.local_drink, color: Colors.blue);
       case 'アルコール':
         return const Icon(Icons.local_bar, color: Colors.amber);
+      case 'Chip':
+        return const Icon(Icons.account_balance_wallet, color: Colors.orange);
       case 'その他':
         return const Icon(Icons.category, color: Colors.grey);
       default:

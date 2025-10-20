@@ -38,6 +38,7 @@ export const reseatAllPlayers = functions.https.onCall(async (data, context) => 
       
       // 2. todaysBillsからユーザー情報を事前に取得（すべての読み取りを最初に実行）
       const userPokerNames: { [userId: string]: string } = {};
+      const todaysBillsDocs: { [userId: string]: any } = {};
       
       for (const assignment of playerAssignments) {
         const { userId } = assignment;
@@ -52,8 +53,10 @@ export const reseatAllPlayers = functions.https.onCall(async (data, context) => 
         let pokerName = `Player_${userId}`;
         
         if (!todayBillsSnapshot.empty) {
-          const todayBillsData = todayBillsSnapshot.docs[0].data();
+          const todayBillsDoc = todayBillsSnapshot.docs[0];
+          const todayBillsData = todayBillsDoc.data();
           pokerName = todayBillsData.pokerName || pokerName;
+          todaysBillsDocs[userId] = todayBillsDoc; // ドキュメント参照を保存
         }
         
         userPokerNames[userId] = pokerName;
@@ -69,6 +72,10 @@ export const reseatAllPlayers = functions.https.onCall(async (data, context) => 
           tableSeatDocsMap.set(tableId, tableSeatDoc);
         }
       }
+      
+      // 4. waitingドキュメントを事前に読み取り
+      const waitingRef = tablesSeatRef.doc('waiting');
+      const waitingDoc = await transaction.get(waitingRef);
       
       // 全ての読み取りが完了したので、ここから書き込み操作を開始
       
@@ -123,14 +130,42 @@ export const reseatAllPlayers = functions.https.onCall(async (data, context) => 
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
+
+      // 7. todaysBillsのcurrentTable/currentSeatを更新（事前に取得したドキュメント参照を使用）
+      for (const assignment of playerAssignments) {
+        const { userId, tableId, seatNumber } = assignment;
+        
+        if (todaysBillsDocs[userId]) {
+          const todayBillsDoc = todaysBillsDocs[userId];
+          transaction.update(todayBillsDoc.ref, {
+            currentTable: tableId,
+            currentSeat: seatNumber,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
       
-      // 5. 待機者リストをクリア
-      const waitingRef = tablesSeatRef.doc('waiting');
-      transaction.update(waitingRef, {
-        waiting: {},
-        count: 0,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      // 5. 待機者リストから割り当てられたユーザーのみを削除（事前に読み取ったドキュメントを使用）
+      if (waitingDoc.exists) {
+        const waitingData = waitingDoc.data()!;
+        const currentWaiting = waitingData.waiting || {};
+        
+        // 割り当てられたユーザーのみを削除
+        const assignedUserIds = new Set(playerAssignments.map(assignment => assignment.userId));
+        const updatedWaiting = { ...currentWaiting };
+        
+        for (const userId of assignedUserIds) {
+          if (updatedWaiting.hasOwnProperty(userId)) {
+            delete updatedWaiting[userId];
+          }
+        }
+        
+        transaction.update(waitingRef, {
+          waiting: updatedWaiting,
+          count: Object.keys(updatedWaiting).length,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
       
       // 6. eventsサブコレクションに記録（ロールバック用）
       // TODO: 今後実装予定 - eventsサブコレクションへの記録

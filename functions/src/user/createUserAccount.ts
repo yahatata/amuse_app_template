@@ -2,6 +2,7 @@ import {onCall} from "firebase-functions/v2/https";
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as bcrypt from "bcryptjs";
+import { initializeUserLogs } from "../utils/logUtils";
 
 /**
  * ユーザーアカウント作成関数
@@ -98,6 +99,9 @@ export const createUserAccount = onCall(
           qrCodeUrl: qrCodeUrl,
           qrExpiresAt: admin.firestore.Timestamp.fromDate(new Date(expiresAt)),
         });
+
+      // ログサブコレクションを初期化
+      await initializeUserLogs(uid);
 
       return {
         success: true,

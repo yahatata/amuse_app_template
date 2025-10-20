@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
+import { addLogEntry } from '../utils/logUtils';
 
 export const setRankingData = onCall(async (request) => {
   try {
@@ -123,6 +124,16 @@ async function _awardPrizes(db: any, tournamentId: string, rankingData: Record<s
         await userRef.update({
           [pointType]: newPoints,
           updatedAt: new Date()
+        });
+        
+        // ログ記録を追加
+        const logType = pointType === 'pointA' ? 'pointALogs' : 'pointBLogs';
+        await addLogEntry(award.playerUid, logType, {
+          appliedAt: new Date(),
+          category: 'income',
+          amountDelta: award.prizeAmount,
+          reasonType: 'tournamentId',
+          actor: 'tablet_front', // 実際の端末IDに置き換え可能
         });
         
         console.log(`プレイヤー ${award.playerUid} に ${award.prizeAmount} ポイント付与 (${pointType}: ${currentPoints} -> ${newPoints})`);

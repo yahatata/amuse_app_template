@@ -3,6 +3,11 @@ import 'order_from_user_action_popup.dart';
 import 'bust_and_reentry_popup.dart';
 import 'bust_and_exit_popup.dart';
 import 'addon_popup.dart';
+import 'side_game_tip_view_popup.dart';
+import 'side_game_tip_withdraw_popup.dart';
+import 'side_game_tip_deposit_popup.dart';
+import 'side_game_chip_purchase_popup.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 /// When: ユーザー行をタップしてアクションを選択したいとき
 /// Where: StayingUsersListPage などユーザー一覧系の画面
@@ -120,6 +125,11 @@ List<_UserActionItem> _buildActionsForSource({
   // tableHomeInScheduledTournament からの呼び出し時は 4 ブロックを表示
   if (sourcePage == 'tableHomeInScheduledTournament') {
     return _buildActionsFromBlocks(blockIds: const ['A', 'I', 'J', 'K'], user: user);
+  }
+
+  // sideGameTableHome からの呼び出し時は 6 ブロックを表示
+  if (sourcePage == 'sideGameTableHome') {
+    return _buildActionsFromBlocks(blockIds: const ['L', 'M', 'N', 'O', 'P', 'Q'], user: user);
   }
 
   // 将来: 他の呼び出し元ごとのメニュー構成はここに追加する
@@ -329,6 +339,200 @@ _UserActionItem _buildBlockK(Map<String, dynamic> user) => _UserActionItem(
       },
     );
 
+// 塊L: SideGame注文
+_UserActionItem _buildBlockL(Map<String, dynamic> user) => _UserActionItem(
+      label: '注文',
+      icon: Icons.shopping_bag_outlined,
+      color: Colors.blue,
+      onSelected: (ctx, u) {
+        // When: 「注文」ブロック選択時
+        // Where: userActionHome（ダイアログ内）
+        // What: 選択ユーザー向けの注文フローを表示
+        // How: カテゴリー→メニュー選択→数量指定→placeOrder 呼び出し
+        showOrderFromUserDialog(
+          pageContext: ctx,
+          user: u,
+          onBackToUserActionHome: () {
+            showUserActionHome(context: ctx, sourcePage: 'sideGameTableHome', user: u);
+          },
+        );
+      },
+    );
+
+// 塊M: Tipの参照
+_UserActionItem _buildBlockM(Map<String, dynamic> user) => _UserActionItem(
+      label: 'Tipの参照',
+      icon: Icons.visibility,
+      color: Colors.orange,
+      onSelected: (ctx, u) {
+        final userId = u['userId'] as String?;
+        final pokerName = u['pokerName'] as String?;
+        
+        if (userId == null || pokerName == null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('ユーザー情報が不足しています')),
+          );
+          return;
+        }
+        
+        showSideGameTipViewDialog(
+          context: ctx,
+          userId: userId,
+          pokerName: pokerName,
+        );
+      },
+    );
+
+// 塊N: Tipの引き出し
+_UserActionItem _buildBlockN(Map<String, dynamic> user) => _UserActionItem(
+      label: 'Tipの引き出し',
+      icon: Icons.account_balance_wallet,
+      color: Colors.red,
+      onSelected: (ctx, u) {
+        final userId = u['userId'] as String?;
+        final pokerName = u['pokerName'] as String?;
+        
+        if (userId == null || pokerName == null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('ユーザー情報が不足しています')),
+          );
+          return;
+        }
+        
+        showSideGameTipWithdrawDialog(
+          context: ctx,
+          userId: userId,
+          pokerName: pokerName,
+        );
+      },
+    );
+
+// 塊O: Tipの預入と退席
+_UserActionItem _buildBlockO(Map<String, dynamic> user) => _UserActionItem(
+      label: 'Tipの預入と退席',
+      icon: Icons.account_balance,
+      color: Colors.green,
+      onSelected: (ctx, u) {
+        final userId = u['userId'] as String?;
+        final pokerName = u['pokerName'] as String?;
+        final tableId = u['tableId'] as String?;
+        final seatNumber = u['seatNumber'] as int?;
+        
+        if (userId == null || pokerName == null || tableId == null || seatNumber == null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('SideGame情報が不足しています')),
+          );
+          return;
+        }
+        
+        showSideGameTipDepositDialog(
+          context: ctx,
+          userId: userId,
+          pokerName: pokerName,
+          tableId: tableId,
+          seatNumber: seatNumber,
+        );
+      },
+    );
+
+// 塊P: Chipの購入
+_UserActionItem _buildBlockP(Map<String, dynamic> user) => _UserActionItem(
+      label: 'Chipの購入',
+      icon: Icons.shopping_cart,
+      color: Colors.teal,
+      onSelected: (ctx, u) {
+        final userId = u['userId'] as String?;
+        final pokerName = u['pokerName'] as String?;
+        
+        if (userId == null || pokerName == null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('ユーザー情報が不足しています')),
+          );
+          return;
+        }
+        
+        showSideGameChipPurchaseDialog(
+          context: ctx,
+          userId: userId,
+          pokerName: pokerName,
+        );
+      },
+    );
+
+// 塊Q: 退席
+_UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
+      label: '退席',
+      icon: Icons.exit_to_app,
+      color: Colors.red,
+      onSelected: (ctx, u) async {
+        final userId = u['userId'] as String?;
+        final pokerName = u['pokerName'] as String?;
+        final tableId = u['tableId'] as String?;
+        final seatNumber = u['seatNumber'] as int?;
+        
+        if (userId == null || pokerName == null || tableId == null || seatNumber == null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('SideGame情報が不足しています')),
+          );
+          return;
+        }
+        
+        // 退席確認ダイアログを表示
+        final confirmed = await showDialog<bool>(
+          context: ctx,
+          builder: (context) => AlertDialog(
+            title: const Text('退席確認'),
+            content: Text('${pokerName}様を退席させますか？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('キャンセル'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('退席'),
+              ),
+            ],
+          ),
+        );
+        
+        if (confirmed == true) {
+          try {
+            final functions = FirebaseFunctions.instance;
+            final callable = functions.httpsCallable('leaveSeat');
+            
+            await callable.call({
+              'tableId': tableId,
+              'seatNumber': seatNumber,
+              'userId': userId,
+            });
+            
+            if (ctx.mounted) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                SnackBar(
+                  content: Text('${pokerName}様を退席させました'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } catch (e) {
+            if (ctx.mounted) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                SnackBar(
+                  content: Text('退席処理に失敗しました: $e'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+        }
+      },
+    );
+
 final Map<String, UserActionBuilder> _blockRegistry = <String, UserActionBuilder>{
   // ブロックID → ビルダー
   'A': _buildBlockA, // 注文
@@ -342,6 +546,12 @@ final Map<String, UserActionBuilder> _blockRegistry = <String, UserActionBuilder
   'I': _buildBlockI, // Bust＆リエントリー
   'J': _buildBlockJ, // Bust&退席
   'K': _buildBlockK, // Addon
+  'L': _buildBlockL, // SideGame注文
+  'M': _buildBlockM, // Tipの参照
+  'N': _buildBlockN, // Tipの引き出し
+  'O': _buildBlockO, // Tipの預入と退席
+  'P': _buildBlockP, // Chipの購入
+  'Q': _buildBlockQ, // 退席
 };
 
 List<_UserActionItem> _buildActionsFromBlocks({
