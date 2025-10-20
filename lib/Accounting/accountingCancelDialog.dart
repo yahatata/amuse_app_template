@@ -19,6 +19,14 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
   final _formKey = GlobalKey<FormState>();
   final _reasonController = TextEditingController();
   final _functions = FirebaseFunctions.instance;
+  bool _includeRefund = false;
+  int _refundAmount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _refundAmount = widget.bill['totalPrice'] ?? 0;
+  }
 
   @override
   void dispose() {
@@ -36,11 +44,16 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
     }
 
     // 確認ダイアログ
+    String confirmMessage = '${widget.bill['pokerName']}の会計をキャンセルしますか？\n\nこの操作により、ユーザーは再び退店可能な状態になります。';
+    if (_includeRefund) {
+      confirmMessage += '\n\n返金額: ${_refundAmount}円';
+    }
+    
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('会計キャンセル'),
-        content: Text('${widget.bill['pokerName']}の会計をキャンセルしますか？\n\nこの操作により、ユーザーは再び退店可能な状態になります。'),
+        content: Text(confirmMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -60,6 +73,8 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
       final result = await _functions.httpsCallable('cancelAccounting').call({
         'billId': widget.bill['id'],
         'reason': _reasonController.text.trim(),
+        'includeRefund': _includeRefund,
+        'refundAmount': _includeRefund ? _refundAmount : 0,
       });
 
       if (result.data['success'] == true) {
@@ -160,6 +175,65 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
               
               const SizedBox(height: 16),
               
+              // 返金処理の選択
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '返金処理',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        title: const Text('返金処理も同時に実行する'),
+                        subtitle: const Text('キャンセルと同時に返金処理を行います'),
+                        value: _includeRefund,
+                        onChanged: (value) {
+                          setState(() {
+                            _includeRefund = value ?? false;
+                          });
+                        },
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                      if (_includeRefund) ...[
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          initialValue: _refundAmount.toString(),
+                          decoration: const InputDecoration(
+                            labelText: '返金額',
+                            border: OutlineInputBorder(),
+                            suffixText: '円',
+                          ),
+                          keyboardType: TextInputType.number,
+                          onChanged: (value) {
+                            _refundAmount = int.tryParse(value) ?? 0;
+                          },
+                          validator: (value) {
+                            if (_includeRefund && (value == null || value.isEmpty)) {
+                              return '返金額を入力してください';
+                            }
+                            final amount = int.tryParse(value ?? '');
+                            if (_includeRefund && (amount == null || amount <= 0)) {
+                              return '有効な返金額を入力してください';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+              
               // 注意事項
               Container(
                 padding: const EdgeInsets.all(12),
@@ -188,7 +262,8 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
                     Text(
                       '• キャンセル後、ユーザーは再び退店可能な状態になります\n'
                       '• この操作は取り消せません\n'
-                      '• キャンセル履歴は会計履歴に記録されます',
+                      '• キャンセル履歴は会計履歴に記録されます\n'
+                      '• 返金処理を選択した場合、返金履歴も記録されます',
                       style: TextStyle(color: Colors.orange.shade700),
                     ),
                   ],

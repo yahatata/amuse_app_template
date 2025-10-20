@@ -8,6 +8,8 @@ const db = admin.firestore();
 const CancelAccountingSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
   reason: z.string().min(1, 'キャンセル理由は必須です'),
+  includeRefund: z.boolean().optional().default(false),
+  refundAmount: z.number().min(0).optional().default(0),
 });
 
 /**
@@ -36,7 +38,7 @@ export const cancelAccounting = onCall(async (request) => {
 
     // 入力データの検証
     const validatedData = CancelAccountingSchema.parse(request.data);
-    const { billId, reason } = validatedData;
+    const { billId, reason, includeRefund, refundAmount } = validatedData;
 
     const billRef = db.collection('todaysBills').doc(billId);
 
@@ -78,6 +80,8 @@ export const cancelAccounting = onCall(async (request) => {
           reason: reason,
           cancelledBy: adminId,
           cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+          includeRefund: includeRefund,
+          refundAmount: includeRefund ? refundAmount : 0,
         };
 
         transaction.update(accountingHistoryRef, {
@@ -112,15 +116,44 @@ export const cancelAccounting = onCall(async (request) => {
           });
         }
       }
+
+      // 返金処理が選択された場合
+      if (includeRefund && refundAmount > 0) {
+        // todaysBillsに返金情報を追加
+        transaction.update(billRef, {
+          refundAmount: refundAmount,
+          refundedAt: admin.firestore.FieldValue.serverTimestamp(),
+          refundedBy: adminId,
+        });
+
+        // accountingHistoryに返金記録を追加
+        if (accountingHistoryId) {
+          const accountingHistoryRef = db.collection('accountingHistory').doc(accountingHistoryId);
+          const refundRecord = {
+            type: 'refund',
+            amount: refundAmount,
+            refundedBy: adminId,
+            refundedAt: admin.firestore.FieldValue.serverTimestamp(),
+            reason: `キャンセルに伴う返金: ${reason}`,
+          };
+
+          transaction.update(accountingHistoryRef, {
+            refundRecord: refundRecord,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
     });
 
     console.log('会計キャンセル成功 - 戻り値を返します');
     return {
       success: true,
-      message: '会計をキャンセルしました',
+      message: includeRefund ? '会計をキャンセルし、返金処理を完了しました' : '会計をキャンセルしました',
       billId: billId,
       pokerName: billData.pokerName,
       totalPrice: billData.totalPrice,
+      includeRefund: includeRefund,
+      refundAmount: includeRefund ? refundAmount : 0,
     };
 
   } catch (error: any) {

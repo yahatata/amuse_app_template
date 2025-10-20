@@ -489,39 +489,6 @@ class _AccountingPageState extends State<AccountingPage> {
               ),
             ),
 
-            // 返金情報（返金がある場合）
-            if (refundAmount > 0) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.shade200),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      '返金額',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.orange,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Text(
-                      '${refundAmount}円',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.orange.shade700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
 
             const SizedBox(height: 16),
 
@@ -553,18 +520,6 @@ class _AccountingPageState extends State<AccountingPage> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red,
                       side: const BorderSide(color: Colors.red),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _showRefundDialog(bill),
-                    icon: const Icon(Icons.money_off),
-                    label: const Text('返金'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.orange,
-                      side: const BorderSide(color: Colors.orange),
                     ),
                   ),
                 ),
