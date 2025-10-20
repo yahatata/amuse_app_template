@@ -9,6 +9,7 @@ import 'package:amuse_app_template/Home/systemSettingsPage.dart';
 import 'package:amuse_app_template/tournament/scheduling/pages/tournament_creation_menu_page.dart';
 import 'package:amuse_app_template/Accounting/accountingPage.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_list.dart';
+import 'package:amuse_app_template/OrderView/OrderManagement/order_management_page.dart';
 import 'package:flutter/material.dart';
 
 class terminalHomePage extends StatefulWidget {
@@ -33,7 +34,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: 'Tournament 作成', destination: const TournamentCreationMenuPage()),
       (label: 'Tournament Home', destination: const ScheduledTournamentListPage()),
       (label: 'sideGame', destination: const SideGameTableListPage()),
-      (label: 'デモ2', destination: const PlaceholderPage(title: 'demo2')),
+      (label: '注文管理', destination: const OrderManagementPage()),
       (label: 'スタッフ打刻', destination: const StaffAttendancePage()),
       (label: '会計管理', destination: const AccountingPage()),
     ];
