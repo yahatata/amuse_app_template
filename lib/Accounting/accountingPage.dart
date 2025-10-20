@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/Accounting/accountingHistoryPage.dart';
+import 'package:amuse_app_template/Accounting/accountingEditDialog.dart';
+import 'package:amuse_app_template/Accounting/accountingCancelDialog.dart';
+import 'package:amuse_app_template/Accounting/refundProcessingDialog.dart';
 
 class AccountingPage extends StatefulWidget {
   const AccountingPage({super.key});
@@ -15,12 +18,15 @@ class _AccountingPageState extends State<AccountingPage> {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
   
   List<Map<String, dynamic>> _activeBills = [];
+  List<Map<String, dynamic>> _settledBills = [];
   bool _isLoading = false;
+  bool _showSettledBills = false;
 
   @override
   void initState() {
     super.initState();
     _loadActiveBills();
+    _loadSettledBills();
   }
 
   Future<void> _loadActiveBills() async {
@@ -57,6 +63,35 @@ class _AccountingPageState extends State<AccountingPage> {
         setState(() {
           _isLoading = false;
         });
+      }
+    }
+  }
+
+  Future<void> _loadSettledBills() async {
+    try {
+      // 今日の会計完了済みの請求書を取得
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      final querySnapshot = await _firestore
+          .collection('todaysBills')
+          .where('date', isEqualTo: today)
+          .where('status', isEqualTo: 'settled')
+          .orderBy('accountingCompletedAt', descending: true)
+          .get();
+
+      setState(() {
+        _settledBills = querySnapshot.docs.map((doc) {
+          final data = doc.data();
+          return {
+            'id': doc.id,
+            ...data,
+          };
+        }).toList();
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('会計完了データの取得に失敗しました: $e')),
+        );
       }
     }
   }
@@ -100,6 +135,7 @@ class _AccountingPageState extends State<AccountingPage> {
           const SnackBar(content: Text('会計を完了しました')),
         );
         _loadActiveBills(); // データを再読み込み
+        _loadSettledBills(); // 会計完了データも再読み込み
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('会計完了に失敗しました: ${result.data['message']}')),
@@ -135,42 +171,105 @@ class _AccountingPageState extends State<AccountingPage> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadActiveBills,
+            onPressed: () {
+              _loadActiveBills();
+              _loadSettledBills();
+            },
             tooltip: '更新',
           ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _activeBills.isEmpty
-              ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.receipt_long,
-                        size: 64,
-                        color: Colors.grey,
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        '未会計の請求書はありません',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Colors.grey,
-                        ),
-                      ),
+          : DefaultTabController(
+              length: 2,
+              child: Column(
+                children: [
+                  const TabBar(
+                    tabs: [
+                      Tab(text: '未会計'),
+                      Tab(text: '会計完了'),
                     ],
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _activeBills.length,
-                  itemBuilder: (context, index) {
-                    final bill = _activeBills[index];
-                    return _buildBillCard(bill);
-                  },
-                ),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _buildActiveBillsTab(),
+                        _buildSettledBillsTab(),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget _buildActiveBillsTab() {
+    if (_activeBills.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.receipt_long,
+              size: 64,
+              color: Colors.grey,
+            ),
+            SizedBox(height: 16),
+            Text(
+              '未会計の請求書はありません',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _activeBills.length,
+      itemBuilder: (context, index) {
+        final bill = _activeBills[index];
+        return _buildBillCard(bill);
+      },
+    );
+  }
+
+  Widget _buildSettledBillsTab() {
+    if (_settledBills.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.check_circle_outline,
+              size: 64,
+              color: Colors.grey,
+            ),
+            SizedBox(height: 16),
+            Text(
+              '会計完了済みの請求書はありません',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _settledBills.length,
+      itemBuilder: (context, index) {
+        final bill = _settledBills[index];
+        return _buildSettledBillCard(bill);
+      },
     );
   }
 
@@ -303,6 +402,135 @@ class _AccountingPageState extends State<AccountingPage> {
     );
   }
 
+  Widget _buildSettledBillCard(Map<String, dynamic> bill) {
+    final totalPrice = bill['totalPrice'] ?? 0;
+    final pokerName = bill['pokerName'] ?? '不明';
+    final accountingCompletedAt = bill['accountingCompletedAt']?.toDate() ?? DateTime.now();
+    final refundAmount = bill['refundAmount'] ?? 0;
+
+    return Card(
+      elevation: 4,
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ヘッダー
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  pokerName,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    '会計完了',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            // 会計完了日時
+            Text(
+              '会計完了: ${accountingCompletedAt.year}年${accountingCompletedAt.month}月${accountingCompletedAt.day}日 ${accountingCompletedAt.hour.toString().padLeft(2, '0')}:${accountingCompletedAt.minute.toString().padLeft(2, '0')}',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // 合計金額
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '会計額',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.green,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  Text(
+                    '${totalPrice}円',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+
+            const SizedBox(height: 16),
+
+            // 内訳表示
+            _buildBillBreakdown(bill),
+
+            const SizedBox(height: 16),
+
+            // アクションボタン
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showEditDialog(bill),
+                    icon: const Icon(Icons.edit),
+                    label: const Text('修正'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.blue,
+                      side: const BorderSide(color: Colors.blue),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showCancelDialog(bill),
+                    icon: const Icon(Icons.cancel),
+                    label: const Text('キャンセル'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBillBreakdown(Map<String, dynamic> bill) {
     final breakdown = <Widget>[];
 
@@ -389,5 +617,44 @@ class _AccountingPageState extends State<AccountingPage> {
 
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.month}/${dateTime.day} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  void _showEditDialog(Map<String, dynamic> bill) {
+    showDialog(
+      context: context,
+      builder: (context) => AccountingEditDialog(
+        bill: bill,
+        onUpdated: () {
+          _loadActiveBills();
+          _loadSettledBills();
+        },
+      ),
+    );
+  }
+
+  void _showCancelDialog(Map<String, dynamic> bill) {
+    showDialog(
+      context: context,
+      builder: (context) => AccountingCancelDialog(
+        bill: bill,
+        onUpdated: () {
+          _loadActiveBills();
+          _loadSettledBills();
+        },
+      ),
+    );
+  }
+
+  void _showRefundDialog(Map<String, dynamic> bill) {
+    showDialog(
+      context: context,
+      builder: (context) => RefundProcessingDialog(
+        bill: bill,
+        onUpdated: () {
+          _loadActiveBills();
+          _loadSettledBills();
+        },
+      ),
+    );
   }
 }

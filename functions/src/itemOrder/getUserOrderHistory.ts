@@ -21,27 +21,33 @@ export const getUserOrderHistory = onCall(async (request) => {
 
     const userId = request.auth.uid;
     
-    // クエリパラメータの取得（オプション）
-    const { limit = 50, startDate, endDate } = request.data || {};
+    // 日本時間の当日の開始時刻と終了時刻を計算
+    const now = new Date();
+    const jstOffset = 9 * 60; // JSTはUTC+9
+    const jstNow = new Date(now.getTime() + (jstOffset * 60 * 1000));
+    
+    // 当日の開始時刻（00:00:00 JST）
+    const todayStart = new Date(jstNow.getFullYear(), jstNow.getMonth(), jstNow.getDate());
+    const todayStartUTC = new Date(todayStart.getTime() - (jstOffset * 60 * 1000));
+    
+    // 当日の終了時刻（23:59:59 JST）
+    const todayEnd = new Date(jstNow.getFullYear(), jstNow.getMonth(), jstNow.getDate(), 23, 59, 59, 999);
+    const todayEndUTC = new Date(todayEnd.getTime() - (jstOffset * 60 * 1000));
 
-    // 対象ユーザーのtodaysBillsを取得
-    let billsQuery = db
+    console.log('日本時間の当日範囲:', {
+      todayStart: todayStart.toISOString(),
+      todayEnd: todayEnd.toISOString(),
+      todayStartUTC: todayStartUTC.toISOString(),
+      todayEndUTC: todayEndUTC.toISOString()
+    });
+
+    // 対象ユーザーの当日のtodaysBillsを取得
+    const billsQuery = db
       .collection("todaysBills")
       .where("userId", "==", userId)
+      .where("createdAt", ">=", todayStartUTC)
+      .where("createdAt", "<=", todayEndUTC)
       .orderBy("createdAt", "desc");
-
-    // 日付フィルタリング（オプション）
-    if (startDate) {
-      billsQuery = billsQuery.where("createdAt", ">=", new Date(startDate));
-    }
-    if (endDate) {
-      billsQuery = billsQuery.where("createdAt", "<=", new Date(endDate));
-    }
-
-    // 件数制限
-    if (limit && limit > 0) {
-      billsQuery = billsQuery.limit(limit);
-    }
 
     const billsSnap = await billsQuery.get();
 

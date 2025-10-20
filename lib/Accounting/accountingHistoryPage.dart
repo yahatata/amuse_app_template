@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'customerAccountingDetailPage.dart';
 
 class AccountingHistoryPage extends StatefulWidget {
   const AccountingHistoryPage({super.key});
@@ -36,14 +37,34 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
       });
 
       if (result.data['success'] == true) {
-        final accountingData = result.data['accountingHistory'];
+        final customerBasedData = result.data['customerBasedHistory'];
         
-        if (accountingData is List) {
+        // デバッグログ
+        print('顧客単位会計履歴データ: $customerBasedData');
+        if (customerBasedData is List && customerBasedData.isNotEmpty) {
+          print('最初の顧客データ: ${customerBasedData[0]}');
+          print('顧客名: ${customerBasedData[0]['customerName']}');
+          print('会計記録数: ${customerBasedData[0]['recordCount']}');
+        }
+        
+        if (customerBasedData is List) {
           // CastListを避けて実体化 + キーをStringに統一
-          final List<dynamic> raw = List<dynamic>.from(accountingData);
+          final List<dynamic> raw = List<dynamic>.from(customerBasedData);
           final convertedData = raw
               .whereType<Map>() // Map<Object?, Object?>でも通る
-              .map<Map<String, dynamic>>((m) => m.map((k, v) => MapEntry(k.toString(), v)))
+              .map<Map<String, dynamic>>((m) {
+                final Map<String, dynamic> result = {};
+                m.forEach((k, v) {
+                  final key = k.toString();
+                  // Dateオブジェクトはそのまま保持
+                  if (v is DateTime) {
+                    result[key] = v;
+                  } else {
+                    result[key] = v;
+                  }
+                });
+                return result;
+              })
               .toList(growable: false);
           
           setState(() {
@@ -226,149 +247,236 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
     );
   }
 
-  Widget _buildHistoryCard(Map<String, dynamic> history) {
-    final totalPrice = history['totalPrice'] ?? 0;
-    final pokerName = history['pokerName'] ?? '不明';
+  Widget _buildHistoryCard(Map<String, dynamic> customer) {
+    final customerName = customer['customerName'] ?? '不明';
+    final totalAmount = customer['totalAmount'] ?? 0;
+    final totalRefundAmount = customer['totalRefundAmount'] ?? 0;
+    final recordCount = customer['recordCount'] ?? 0;
+    final hasCancelled = customer['hasCancelled'] ?? false;
+    final hasCorrections = customer['hasCorrections'] ?? false;
+    final hasRefunds = customer['hasRefunds'] ?? false;
+    final accountingRecords = customer['accountingRecords'] as List<dynamic>? ?? [];
+    final latestAccountingDate = customer['latestAccountingDate'];
     
-    // ISO文字列をDateTimeに変換
+    // DateTimeオブジェクトを安全に取得
     DateTime? completedAt;
-    DateTime? startedAt;
     
     try {
-      if (history['accountingCompletedAt'] != null) {
-        completedAt = DateTime.parse(history['accountingCompletedAt']);
-      }
-      if (history['accountingStartedAt'] != null) {
-        startedAt = DateTime.parse(history['accountingStartedAt']);
+      if (latestAccountingDate != null && latestAccountingDate is String && latestAccountingDate.isNotEmpty) {
+        // ISO文字列の場合
+        completedAt = DateTime.parse(latestAccountingDate);
+      } else if (latestAccountingDate is DateTime) {
+        completedAt = latestAccountingDate;
       }
     } catch (e) {
-      // パースエラーの場合は現在時刻を使用
-      completedAt = DateTime.now();
+      print('日時変換エラー: $e');
     }
 
     return Card(
       elevation: 4,
       margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => CustomerAccountingDetailPage(customer: customer),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // ヘッダー
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  pokerName,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.green,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    '会計済み',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                Row(
+                  children: [
+                    Text(
+                      customerName,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      Icons.arrow_forward_ios,
+                      size: 16,
+                      color: Colors.grey[600],
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    if (hasCancelled)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'キャンセル済み',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    if (hasCancelled) const SizedBox(width: 8),
+                    if (hasCorrections)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.orange,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          '修正済み',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    if (hasCorrections) const SizedBox(width: 8),
+                    if (hasRefunds)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.purple,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          '返金済み',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    if (hasRefunds) const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '会計済み (${recordCount}回)',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              '完了日時: ${_formatDateTime(completedAt ?? DateTime.now())}',
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 14,
-              ),
-            ),
-            if (startedAt != null) ...[
-              const SizedBox(height: 4),
+            if (completedAt != null)
               Text(
-                '開始日時: ${_formatDateTime(startedAt)}',
+                '完了日時: ${_formatDateTime(completedAt)}',
                 style: TextStyle(
                   color: Colors.grey[600],
                   fontSize: 14,
                 ),
               ),
-            ],
             const SizedBox(height: 16),
 
-            // 会計額表示
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.green[200]!),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    '¥${totalPrice.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                    style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green,
+            // 統計情報
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green[200]!),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '¥${totalAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          '合計会計額',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.green,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '会計額',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.green,
-                      fontWeight: FontWeight.w500,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue[200]!),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '${recordCount}回',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          '会計回数',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.blue,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
 
+
             const SizedBox(height: 16),
 
-            // 処理時間表示
-            if (startedAt != null)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.access_time, color: Colors.blue),
-                    const SizedBox(width: 8),
-                    Text(
-                      '処理時間: ${_calculateProcessingTime(startedAt ?? DateTime.now(), completedAt ?? DateTime.now())}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.blue,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
   int _getTotalAmount() {
-    return _accountingHistory.fold(0, (sum, history) {
-      return sum + (history['totalPrice'] as num? ?? 0).toInt();
+    return _accountingHistory.fold(0, (sum, customer) {
+      // 顧客単位のデータから合計額を取得
+      return sum + (customer['totalAmount'] as num? ?? 0).toInt();
     });
   }
 
@@ -376,14 +484,190 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
     return '${dateTime.month}/${dateTime.day} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
-  String _calculateProcessingTime(DateTime startedAt, DateTime completedAt) {
-    final duration = completedAt.difference(startedAt);
-    if (duration.inMinutes < 1) {
-      return '${duration.inSeconds}秒';
-    } else if (duration.inHours < 1) {
-      return '${duration.inMinutes}分';
-    } else {
-      return '${duration.inHours}時間${duration.inMinutes % 60}分';
+  Widget _buildCorrectionCard(dynamic correction) {
+    // 型安全なキャスト
+    final correctionMap = correction as Map<dynamic, dynamic>? ?? {};
+    final correctedAt = correctionMap['correctedAt'];
+    final reason = correctionMap['reason'] ?? '理由不明';
+    final oldData = correctionMap['oldData'] as Map<dynamic, dynamic>? ?? {};
+    final newData = correctionMap['newData'] as Map<dynamic, dynamic>? ?? {};
+    
+    DateTime? correctedDateTime;
+    if (correctedAt != null && correctedAt is String) {
+      try {
+        correctedDateTime = DateTime.parse(correctedAt);
+      } catch (e) {
+        print('修正日時解析エラー: $e');
+      }
     }
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.orange[300]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '修正内容',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange,
+                ),
+              ),
+              if (correctedDateTime != null)
+                Text(
+                  _formatDateTime(correctedDateTime),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '理由: $reason',
+            style: const TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '修正前: ¥${(oldData['totalPrice'] ?? 0).toString()}',
+            style: const TextStyle(fontSize: 12, color: Colors.red),
+          ),
+          Text(
+            '修正後: ¥${(newData['totalPrice'] ?? 0).toString()}',
+            style: const TextStyle(fontSize: 12, color: Colors.green),
+          ),
+        ],
+      ),
+    );
   }
+
+  Widget _buildCancelRecordCard(dynamic cancelRecord) {
+    // 型安全なキャスト
+    final cancelRecordMap = cancelRecord as Map<dynamic, dynamic>? ?? {};
+    final cancelledAt = cancelRecordMap['cancelledAt'];
+    final reason = cancelRecordMap['reason'] ?? '理由不明';
+    
+    DateTime? cancelledDateTime;
+    if (cancelledAt != null && cancelledAt is String) {
+      try {
+        cancelledDateTime = DateTime.parse(cancelledAt);
+      } catch (e) {
+        print('キャンセル日時解析エラー: $e');
+      }
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.red[300]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'キャンセル詳細',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                ),
+              ),
+              if (cancelledDateTime != null)
+                Text(
+                  _formatDateTime(cancelledDateTime),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '理由: $reason',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRefundRecordCard(dynamic refundRecord) {
+    // 型安全なキャスト
+    final refundRecordMap = refundRecord as Map<dynamic, dynamic>? ?? {};
+    final refundedAt = refundRecordMap['refundedAt'];
+    final amount = refundRecordMap['amount'] ?? 0;
+    final reason = refundRecordMap['reason'] ?? '理由不明';
+    
+    DateTime? refundedDateTime;
+    if (refundedAt != null && refundedAt is String) {
+      try {
+        refundedDateTime = DateTime.parse(refundedAt);
+      } catch (e) {
+        print('返金日時解析エラー: $e');
+      }
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.purple[300]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '返金詳細',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.purple,
+                ),
+              ),
+              if (refundedDateTime != null)
+                Text(
+                  _formatDateTime(refundedDateTime),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '返金額: ¥${amount.toString()}',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.purple),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '理由: $reason',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
 }

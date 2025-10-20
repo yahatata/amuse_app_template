@@ -275,7 +275,7 @@
 
       <!-- 注文履歴画面 -->
       <div id="order-history-page" class="page order-history-page" style="display: none;">
-        <h1>📋 注文履歴</h1>
+        <h1>📋 本日の注文履歴</h1>
         
         <!-- 更新ボタン -->
         <div class="history-actions-top">
@@ -285,11 +285,11 @@
         <!-- 統計情報 -->
         <div id="history-stats" class="history-stats" style="display: none;">
           <div class="stat-item">
-            <span class="stat-label">総注文数:</span>
+            <span class="stat-label">本日の注文数:</span>
             <span id="total-orders" class="stat-value">0</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">総利用金額:</span>
+            <span class="stat-label">本日の利用金額:</span>
             <span id="total-amount" class="stat-value">¥0</span>
           </div>
         </div>
@@ -1108,7 +1108,7 @@
           statsEl.style.display = 'flex';
           
           if (orders.length === 0) {
-            historyListEl.innerHTML = '<p class="empty-history">注文履歴がありません</p>';
+            historyListEl.innerHTML = '<p class="empty-history">本日の注文履歴がありません</p>';
             return;
           }
           
@@ -1151,7 +1151,7 @@
           }).join('');
           
         } catch (error) {
-          historyListEl.innerHTML = `<p class="error-message">注文履歴の読み込みに失敗しました: ${error.message}</p>`;
+          historyListEl.innerHTML = `<p class="error-message">本日の注文履歴の読み込みに失敗しました: ${error.message}</p>`;
         }
       }
       
