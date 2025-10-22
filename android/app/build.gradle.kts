@@ -32,7 +32,7 @@ android {
         applicationId = "com.example.amuse_app_template"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 23  // Firebase Auth 24.0.0 requires API 23 or higher
+        minSdk = flutter.minSdkVersion  // Firebase Auth 24.0.0 requires API 23 or higher
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

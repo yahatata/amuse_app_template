@@ -136,24 +136,26 @@ export const placeOrderByUser = onCall(async (request) => {
         });
       }
 
-      // _TodaysOrders へ行追加（一括注文の場合は1つの注文として記録）
-      const todaysOrderRef = ordersRef.collection("_TodaysOrders").doc();
-      tx.set(todaysOrderRef, {
-        orderDocId,
-        userId,
-        userName: pokerName,
-        items: newEntries,
-        orderingAt: now,
-        status: "preparing",
-        currentTable,
-        currentSeat,
-        createdAt: now,
-        updatedAt: now,
-      });
+      // _TodaysOrders へ行追加（各アイテムごとに個別のドキュメントを作成）
+      for (const item of newEntries) {
+        const todaysOrderRef = ordersRef.collection("_TodaysOrders").doc();
+        tx.set(todaysOrderRef, {
+          orderDocId,
+          userId,
+          userName: pokerName,
+          items: [item], // 単一アイテムを配列で格納
+          orderingAt: now,
+          status: "preparing",
+          currentTable,
+          currentSeat,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
 
-      // 親 orders の集計をインクリメント（注文数は1、金額は合計）
+      // 親 orders の集計をインクリメント（注文数はアイテム数、金額は合計）
       tx.update(ordersRef, {
-        onedayOrderQuantity: FieldValue.increment(1),
+        onedayOrderQuantity: FieldValue.increment(newEntries.length), // アイテム数分インクリメント
         onedayTotalPrice: FieldValue.increment(totalItemsPrice),
         date: dateString,
         updatedAt: now,
@@ -162,7 +164,7 @@ export const placeOrderByUser = onCall(async (request) => {
       return {
         todaysBillsId: billsRef.id,
         ordersDocId: orderDocId,
-        todaysOrderId: todaysOrderRef.id,
+        todaysOrderIds: newEntries.map((_, index) => `generated_${index}`), // 複数の注文IDを返す
         totalPrice: updatedTotal,
         itemsCount: items.length,
         totalItemsPrice: totalItemsPrice,

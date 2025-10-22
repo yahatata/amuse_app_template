@@ -760,8 +760,8 @@
 
           const allMenuItems = result.data.data || [];
           
-          // ユニークなカテゴリーを抽出
-          const categories = [...new Set(allMenuItems.map(item => item.category))].filter(cat => cat);
+          // ユニークなカテゴリーを抽出（Chipカテゴリーは除外）
+          const categories = [...new Set(allMenuItems.map(item => item.category))].filter(cat => cat && cat !== 'Chip');
           
           // カテゴリーボタンを動的に生成
           const categoryContainer = document.querySelector('.menu-categories');
@@ -787,6 +787,11 @@
 
       // カテゴリー表示名を取得
       function getCategoryDisplayName(category) {
+        // Chipカテゴリーは非表示にする
+        if (category === 'Chip') {
+          return null;
+        }
+        
         const categoryNames = {
           'food': '食事',
           'drink': 'ドリンク',

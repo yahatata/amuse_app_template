@@ -5,6 +5,10 @@ import 'package:amuse_app_template/Accounting/accountingHistoryPage.dart';
 import 'package:amuse_app_template/Accounting/accountingEditDialog.dart';
 import 'package:amuse_app_template/Accounting/accountingCancelDialog.dart';
 import 'package:amuse_app_template/Accounting/refundProcessingDialog.dart';
+import 'package:amuse_app_template/Accounting/paymentMethodDialog.dart';
+import 'package:amuse_app_template/Accounting/categoryDetailDialog.dart';
+import 'package:amuse_app_template/Accounting/categoryPaymentMethodDialog.dart';
+import 'package:amuse_app_template/globalConstant.dart';
 
 class AccountingPage extends StatefulWidget {
   const AccountingPage({super.key});
@@ -29,17 +33,32 @@ class _AccountingPageState extends State<AccountingPage> {
     _loadSettledBills();
   }
 
+  // 営業日を計算する関数
+  String _getBusinessDate() {
+    final now = DateTime.now();
+    final closeHour = GlobalConstants.STORE_CLOSE_HOUR;
+    
+    // 現在時刻が店舗締め時間より前の場合は前日の営業日
+    if (now.hour < closeHour) {
+      final businessDate = now.subtract(const Duration(days: 1));
+      return businessDate.toIso8601String().split('T')[0];
+    } else {
+      // 店舗締め時間以降は当日の営業日
+      return now.toIso8601String().split('T')[0];
+    }
+  }
+
   Future<void> _loadActiveBills() async {
     setState(() {
       _isLoading = true;
     });
 
     try {
-      // 今日の未会計の請求書を取得
-      final today = DateTime.now().toIso8601String().split('T')[0];
+      // 営業日の未会計の請求書を取得
+      final businessDate = _getBusinessDate();
       final querySnapshot = await _firestore
           .collection('todaysBills')
-          .where('date', isEqualTo: today)
+          .where('date', isEqualTo: businessDate)
           .where('status', isEqualTo: 'open')
           .get();
 
@@ -69,11 +88,11 @@ class _AccountingPageState extends State<AccountingPage> {
 
   Future<void> _loadSettledBills() async {
     try {
-      // 今日の会計完了済みの請求書を取得
-      final today = DateTime.now().toIso8601String().split('T')[0];
+      // 営業日の会計完了済みの請求書を取得
+      final businessDate = _getBusinessDate();
       final querySnapshot = await _firestore
           .collection('todaysBills')
-          .where('date', isEqualTo: today)
+          .where('date', isEqualTo: businessDate)
           .where('status', isEqualTo: 'settled')
           .orderBy('accountingCompletedAt', descending: true)
           .get();
@@ -97,25 +116,85 @@ class _AccountingPageState extends State<AccountingPage> {
   }
 
   Future<void> _startAccounting(String billId) async {
+    // 請求書データを取得
+    final bill = _activeBills.firstWhere((b) => b['id'] == billId, orElse: () => {});
+    
+    if (bill.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請求書が見つかりません')),
+      );
+      return;
+    }
+
+    // カテゴリ別支払い方法選択ダイアログを表示
+    final selectedPaymentMethodsByCategory = await showDialog<Map<String, String?>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => CategoryPaymentMethodDialog(bill: bill),
+    );
+
+    // キャンセルされた場合は何もしない
+    if (selectedPaymentMethodsByCategory == null) return;
+
+    // ダイアログを閉じた後に会計処理を実行
     try {
       final result = await _functions.httpsCallable('startAccounting').call({
         'billId': billId,
+        'paymentMethodsByCategory': selectedPaymentMethodsByCategory,
       });
 
-      if (result.data['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('会計を開始しました')),
-        );
-        _loadActiveBills(); // データを再読み込み
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('会計開始に失敗しました: ${result.data['message']}')),
-        );
+      if (mounted) {
+        if (result.data['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('会計を開始しました')),
+          );
+          _loadActiveBills(); // データを再読み込み
+        } else {
+          // エラーメッセージをポップアップで表示
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('会計開始エラー'),
+                ],
+              ),
+              content: Text(result.data['message'] ?? '会計開始に失敗しました'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('閉じる'),
+                ),
+              ],
+            ),
+          );
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('会計開始に失敗しました: $e')),
-      );
+      if (mounted) {
+        // エラーをポップアップで表示
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.red),
+                SizedBox(width: 8),
+                Text('会計開始エラー'),
+              ],
+            ),
+            content: Text(_extractUserFriendlyMessage(e.toString())),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('閉じる'),
+              ),
+            ],
+          ),
+        );
+      }
     }
   }
 
@@ -147,6 +226,71 @@ class _AccountingPageState extends State<AccountingPage> {
         SnackBar(content: Text('会計完了に失敗しました: $e')),
       );
     }
+  }
+
+  // 支払い方法の表示名を取得
+  String _getPaymentMethodName(String paymentMethod) {
+    switch (paymentMethod) {
+      case 'cash':
+        return '現金';
+      case 'credit_card':
+        return 'クレジットカード';
+      case 'electronic_money':
+        return '電子マネー';
+      case 'pointA':
+        return 'ポイントA';
+      case 'pointB':
+        return 'ポイントB';
+      case 'sideGameTip':
+        return 'サイドゲームチップ';
+      default:
+        return '現金';
+    }
+  }
+
+  // 支払い方法のアイコンを取得
+  IconData _getPaymentMethodIcon(String paymentMethod) {
+    switch (paymentMethod) {
+      case 'cash':
+        return Icons.attach_money;
+      case 'credit_card':
+        return Icons.credit_card;
+      case 'electronic_money':
+        return Icons.qr_code;
+      case 'pointA':
+        return Icons.star;
+      case 'pointB':
+        return Icons.stars;
+      case 'sideGameTip':
+        return Icons.casino;
+      default:
+        return Icons.attach_money;
+    }
+  }
+
+  // エラーメッセージからユーザーフレンドリーな部分のみを抽出
+  String _extractUserFriendlyMessage(String errorMessage) {
+    // Firebase Functions のエラーメッセージから実際のメッセージ部分を抽出
+    final regex = RegExp(r'の残高が不足しています。現在の残高: \d+円、必要な金額: \d+円');
+    final match = regex.firstMatch(errorMessage);
+    
+    if (match != null) {
+      // マッチした部分の前後を含めて、より自然なメッセージを構築
+      final beforeMatch = errorMessage.substring(0, match.start);
+      final matchedPart = match.group(0)!;
+      
+      // 技術的な部分を除去して、ポイント名と残高不足メッセージのみを抽出
+      if (beforeMatch.contains('ポイントA')) {
+        return 'ポイントA$matchedPart';
+      } else if (beforeMatch.contains('ポイントB')) {
+        return 'ポイントB$matchedPart';
+      } else if (beforeMatch.contains('サイドゲームチップ')) {
+        return 'サイドゲームチップ$matchedPart';
+      }
+    }
+    
+    // マッチしない場合は元のメッセージを返す（フォールバック）
+    return errorMessage;
   }
 
   @override
@@ -407,6 +551,7 @@ class _AccountingPageState extends State<AccountingPage> {
     final pokerName = bill['pokerName'] ?? '不明';
     final accountingCompletedAt = bill['accountingCompletedAt']?.toDate() ?? DateTime.now();
     final refundAmount = bill['refundAmount'] ?? 0;
+    final paymentMethod = bill['paymentMethod'] ?? 'cash';
 
     return Card(
       elevation: 4,
@@ -454,6 +599,28 @@ class _AccountingPageState extends State<AccountingPage> {
                 fontSize: 14,
                 color: Colors.grey.shade600,
               ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // 支払い方法
+            Row(
+              children: [
+                Icon(
+                  _getPaymentMethodIcon(paymentMethod),
+                  size: 20,
+                  color: Colors.blue.shade600,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '支払い方法: ${_getPaymentMethodName(paymentMethod)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
 
             const SizedBox(height: 16),
@@ -541,7 +708,7 @@ class _AccountingPageState extends State<AccountingPage> {
       totalExtraCost += (extraCost['price'] as num? ?? 0).toInt();
     }
     if (totalExtraCost > 0) {
-      breakdown.add(_buildBreakdownItem('入店料', totalExtraCost));
+      breakdown.add(_buildBreakdownItem('入店料', totalExtraCost, bill));
     }
 
     // トーナメント参加費
@@ -560,7 +727,7 @@ class _AccountingPageState extends State<AccountingPage> {
     }
     
     if (totalTournamentFee > 0) {
-      breakdown.add(_buildBreakdownItem('トーナメント参加費', totalTournamentFee));
+      breakdown.add(_buildBreakdownItem('トーナメント参加費', totalTournamentFee, bill));
     }
 
     // フード・ドリンク（items配列から取得）
@@ -572,7 +739,17 @@ class _AccountingPageState extends State<AccountingPage> {
       totalOrderAmount += price * quantity;
     }
     if (totalOrderAmount > 0) {
-      breakdown.add(_buildBreakdownItem('フード・ドリンク', totalOrderAmount));
+      breakdown.add(_buildBreakdownItem('フード・ドリンク', totalOrderAmount, bill));
+    }
+
+    // サイドゲームチップ（sideGameChip配列から取得）
+    final sideGameChips = bill['sideGameChip'] as List<dynamic>? ?? [];
+    int totalSideGameChipAmount = 0;
+    for (final chip in sideGameChips) {
+      totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
+    }
+    if (totalSideGameChipAmount > 0) {
+      breakdown.add(_buildBreakdownItem('サイドゲームチップ', totalSideGameChipAmount, bill));
     }
 
     if (breakdown.isEmpty) {
@@ -598,22 +775,94 @@ class _AccountingPageState extends State<AccountingPage> {
     );
   }
 
-  Widget _buildBreakdownItem(String label, int amount) {
+  Widget _buildBreakdownItem(String label, int amount, Map<String, dynamic> bill) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label),
-          Text(
-            '¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-            style: const TextStyle(fontWeight: FontWeight.w500),
+      child: InkWell(
+        onTap: () => _showCategoryDetail(label, bill),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Text(label),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Colors.grey.shade600,
+                  ),
+                ],
+              ),
+              Text(
+                '¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
+
+  void _showCategoryDetail(String categoryName, Map<String, dynamic> bill) {
+    List<dynamic> items = [];
+    
+    switch (categoryName) {
+      case '入店料':
+        items = bill['extraCost'] as List<dynamic>? ?? [];
+        break;
+      case 'トーナメント参加費':
+        final tournamentsData = bill['tournaments'];
+        if (tournamentsData is Map<String, dynamic>) {
+          items = tournamentsData.values.toList();
+        }
+        break;
+      case 'フード・ドリンク':
+        items = bill['items'] as List<dynamic>? ?? [];
+        break;
+      case 'サイドゲームチップ':
+        items = bill['sideGameChip'] as List<dynamic>? ?? [];
+        break;
+    }
+
+    if (items.isNotEmpty) {
+      showDialog(
+        context: context,
+        builder: (context) => CategoryDetailDialog(
+          categoryName: categoryName,
+          items: items,
+          totalAmount: _calculateCategoryTotal(categoryName, bill),
+        ),
+      );
+    }
+  }
+
+  int _calculateCategoryTotal(String categoryName, Map<String, dynamic> bill) {
+    switch (categoryName) {
+      case '入店料':
+        final extraCosts = bill['extraCost'] as List<dynamic>? ?? [];
+        return extraCosts.fold(0, (sum, item) => sum + ((item['price'] as num? ?? 0).toInt()));
+      case 'トーナメント参加費':
+        final tournamentsData = bill['tournaments'];
+        if (tournamentsData is Map<String, dynamic>) {
+          return tournamentsData.values.fold(0, (sum, item) => sum + ((item['entryFee'] as num? ?? 0).toInt()));
+        }
+        return 0;
+      case 'フード・ドリンク':
+        final items = bill['items'] as List<dynamic>? ?? [];
+        return items.fold(0, (sum, item) => sum + ((item['price'] as num? ?? 0).toInt() * (item['quantity'] as num? ?? 0).toInt()));
+      case 'サイドゲームチップ':
+        final sideGameChips = bill['sideGameChip'] as List<dynamic>? ?? [];
+        return sideGameChips.fold(0, (sum, item) => sum + ((item['price'] as num? ?? 0).toInt()));
+      default:
+        return 0;
+    }
+  }
 
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.month}/${dateTime.day} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';

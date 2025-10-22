@@ -56,5 +56,12 @@ class GlobalConstants {
     'バカラ',
     'アルティメットポーカー',
   ];
-}
 
+  // カテゴリ別支払い方法制限設定（todaysBillsのフィールド名をキーとする）
+  static const Map<String, List<String>> categoryPaymentMethods = {
+    'extraCost': ['cash'], // 入店料
+    'sideGameChip': ['cash', 'credit_card', 'electronic_money'], // サイドゲームチップ
+    'items': ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameTip'], // フード・ドリンク
+    'tournaments': ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB'], // トーナメント参加費
+  };
+}

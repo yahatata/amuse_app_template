@@ -8,6 +8,46 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     required this.customer,
   }) : super(key: key);
 
+  // 支払い方法の表示名を取得
+  String _getPaymentMethodName(String paymentMethod) {
+    switch (paymentMethod) {
+      case 'cash':
+        return '現金';
+      case 'credit_card':
+        return 'クレジットカード';
+      case 'electronic_money':
+        return '電子マネー';
+      case 'pointA':
+        return 'ポイントA';
+      case 'pointB':
+        return 'ポイントB';
+      case 'sideGameTip':
+        return 'サイドゲームチップ';
+      default:
+        return '現金';
+    }
+  }
+
+  // 支払い方法のアイコンを取得
+  IconData _getPaymentMethodIcon(String paymentMethod) {
+    switch (paymentMethod) {
+      case 'cash':
+        return Icons.attach_money;
+      case 'credit_card':
+        return Icons.credit_card;
+      case 'electronic_money':
+        return Icons.qr_code;
+      case 'pointA':
+        return Icons.star;
+      case 'pointB':
+        return Icons.stars;
+      case 'sideGameTip':
+        return Icons.casino;
+      default:
+        return Icons.attach_money;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final customerName = customer['customerName'] ?? '不明';
@@ -38,6 +78,7 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     final corrections = record['corrections'] as List<dynamic>? ?? [];
     final cancelRecord = record['cancelRecord'] as Map<dynamic, dynamic>?;
     final refundRecord = record['refundRecord'] as Map<dynamic, dynamic>?;
+    final paymentMethod = record['paymentMethod'] ?? 'cash';
     
     // 修正後の合計額を計算（キャンセルされた場合は0、修正履歴がある場合は最新の修正後の金額を使用）
     int totalPrice;
@@ -161,6 +202,28 @@ class CustomerAccountingDetailPage extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // 支払い方法
+            Row(
+              children: [
+                Icon(
+                  _getPaymentMethodIcon(paymentMethod),
+                  size: 20,
+                  color: Colors.blue.shade600,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '支払い方法: ${_getPaymentMethodName(paymentMethod)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
