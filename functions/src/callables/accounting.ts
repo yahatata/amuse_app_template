@@ -4,9 +4,26 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 
 const db = admin.firestore();
 
+// 支払い方法の表示名を取得するヘルパー関数
+function _getPaymentMethodDisplayName(paymentMethod: string): string {
+  switch (paymentMethod) {
+    case 'pointA':
+      return 'ポイントA';
+    case 'pointB':
+      return 'ポイントB';
+    case 'sideGameTip':
+      return 'サイドゲームチップ';
+    default:
+      return paymentMethod;
+  }
+}
+
 // Zodスキーマで入力データを検証
 const StartAccountingSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
+  paymentMethod: z.enum(['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameTip'], {
+    errorMap: () => ({ message: '有効な支払い方法を選択してください' }),
+  }),
 });
 
 const CompleteAccountingSchema = z.object({
@@ -39,7 +56,7 @@ export const startAccounting = onCall(async (request) => {
 
     // 入力データの検証
     const validatedData = StartAccountingSchema.parse(request.data);
-    const { billId } = validatedData;
+    const { billId, paymentMethod } = validatedData;
 
     const billRef = db.collection('todaysBills').doc(billId);
 
@@ -57,10 +74,54 @@ export const startAccounting = onCall(async (request) => {
       throw new HttpsError('failed-precondition', 'この請求書は既に会計済みです');
     }
 
-    // 会計開始時刻を記録（statusは変更しない）
+    // pointA、pointB、sideGameTipで支払う場合は残高確認と差し引き処理
+    const userId = billData.userId;
+    const totalPrice = billData.totalPrice || 0;
+
+    if (userId && (paymentMethod === 'pointA' || paymentMethod === 'pointB' || paymentMethod === 'sideGameTip')) {
+      const userRef = db.collection('users').doc(userId);
+      const userDoc = await userRef.get();
+      
+      if (!userDoc.exists) {
+        throw new HttpsError('not-found', 'ユーザー情報が見つかりません');
+      }
+
+      const userData = userDoc.data()!;
+      let currentBalance = 0;
+      let fieldName = '';
+
+      // 支払い方法に応じて残高を取得
+      if (paymentMethod === 'pointA') {
+        currentBalance = userData.pointA || 0;
+        fieldName = 'pointA';
+      } else if (paymentMethod === 'pointB') {
+        currentBalance = userData.pointB || 0;
+        fieldName = 'pointB';
+      } else if (paymentMethod === 'sideGameTip') {
+        currentBalance = userData.sideGameTip || 0;
+        fieldName = 'sideGameTip';
+      }
+
+      // 残高不足チェック
+      if (currentBalance < totalPrice) {
+        throw new HttpsError(
+          'failed-precondition', 
+          `${_getPaymentMethodDisplayName(paymentMethod)}の残高が不足しています。現在の残高: ${currentBalance}円、必要な金額: ${totalPrice}円`
+        );
+      }
+
+      // 残高から差し引き
+      await userRef.update({
+        [fieldName]: admin.firestore.FieldValue.increment(-totalPrice),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    // 会計開始時刻と支払い方法を記録（statusは変更しない）
     await billRef.update({
       accountingStartedAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingStartedBy: adminId,
+      paymentMethod: paymentMethod,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -141,6 +202,7 @@ export const completeAccounting = onCall(async (request) => {
       accountingCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingStartedBy: billData.accountingStartedBy,
       accountingCompletedBy: adminId,
+      paymentMethod: billData.paymentMethod || 'cash', // 支払い方法を記録（デフォルトは現金）
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 

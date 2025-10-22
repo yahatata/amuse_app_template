@@ -5,6 +5,7 @@ import 'package:amuse_app_template/Accounting/accountingHistoryPage.dart';
 import 'package:amuse_app_template/Accounting/accountingEditDialog.dart';
 import 'package:amuse_app_template/Accounting/accountingCancelDialog.dart';
 import 'package:amuse_app_template/Accounting/refundProcessingDialog.dart';
+import 'package:amuse_app_template/Accounting/paymentMethodDialog.dart';
 
 class AccountingPage extends StatefulWidget {
   const AccountingPage({super.key});
@@ -97,25 +98,78 @@ class _AccountingPageState extends State<AccountingPage> {
   }
 
   Future<void> _startAccounting(String billId) async {
+    // 支払い方法選択ダイアログを表示
+    final selectedPaymentMethod = await showDialog<String>(
+      context: context,
+      builder: (context) => PaymentMethodDialog(
+        onSelected: (paymentMethod) {
+          Navigator.of(context).pop(paymentMethod);
+        },
+      ),
+    );
+
+    // キャンセルされた場合は何もしない
+    if (selectedPaymentMethod == null) return;
+
+    // ダイアログを閉じた後に会計処理を実行
     try {
       final result = await _functions.httpsCallable('startAccounting').call({
         'billId': billId,
+        'paymentMethod': selectedPaymentMethod,
       });
 
-      if (result.data['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('会計を開始しました')),
-        );
-        _loadActiveBills(); // データを再読み込み
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('会計開始に失敗しました: ${result.data['message']}')),
-        );
+      if (mounted) {
+        if (result.data['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('会計を開始しました')),
+          );
+          _loadActiveBills(); // データを再読み込み
+        } else {
+          // エラーメッセージをポップアップで表示
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('会計開始エラー'),
+                ],
+              ),
+              content: Text(result.data['message'] ?? '会計開始に失敗しました'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('閉じる'),
+                ),
+              ],
+            ),
+          );
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('会計開始に失敗しました: $e')),
-      );
+      if (mounted) {
+        // エラーをポップアップで表示
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.red),
+                SizedBox(width: 8),
+                Text('会計開始エラー'),
+              ],
+            ),
+            content: Text(_extractUserFriendlyMessage(e.toString())),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('閉じる'),
+              ),
+            ],
+          ),
+        );
+      }
     }
   }
 
@@ -147,6 +201,71 @@ class _AccountingPageState extends State<AccountingPage> {
         SnackBar(content: Text('会計完了に失敗しました: $e')),
       );
     }
+  }
+
+  // 支払い方法の表示名を取得
+  String _getPaymentMethodName(String paymentMethod) {
+    switch (paymentMethod) {
+      case 'cash':
+        return '現金';
+      case 'credit_card':
+        return 'クレジットカード';
+      case 'electronic_money':
+        return '電子マネー';
+      case 'pointA':
+        return 'ポイントA';
+      case 'pointB':
+        return 'ポイントB';
+      case 'sideGameTip':
+        return 'サイドゲームチップ';
+      default:
+        return '現金';
+    }
+  }
+
+  // 支払い方法のアイコンを取得
+  IconData _getPaymentMethodIcon(String paymentMethod) {
+    switch (paymentMethod) {
+      case 'cash':
+        return Icons.attach_money;
+      case 'credit_card':
+        return Icons.credit_card;
+      case 'electronic_money':
+        return Icons.qr_code;
+      case 'pointA':
+        return Icons.star;
+      case 'pointB':
+        return Icons.stars;
+      case 'sideGameTip':
+        return Icons.casino;
+      default:
+        return Icons.attach_money;
+    }
+  }
+
+  // エラーメッセージからユーザーフレンドリーな部分のみを抽出
+  String _extractUserFriendlyMessage(String errorMessage) {
+    // Firebase Functions のエラーメッセージから実際のメッセージ部分を抽出
+    final regex = RegExp(r'の残高が不足しています。現在の残高: \d+円、必要な金額: \d+円');
+    final match = regex.firstMatch(errorMessage);
+    
+    if (match != null) {
+      // マッチした部分の前後を含めて、より自然なメッセージを構築
+      final beforeMatch = errorMessage.substring(0, match.start);
+      final matchedPart = match.group(0)!;
+      
+      // 技術的な部分を除去して、ポイント名と残高不足メッセージのみを抽出
+      if (beforeMatch.contains('ポイントA')) {
+        return 'ポイントA$matchedPart';
+      } else if (beforeMatch.contains('ポイントB')) {
+        return 'ポイントB$matchedPart';
+      } else if (beforeMatch.contains('サイドゲームチップ')) {
+        return 'サイドゲームチップ$matchedPart';
+      }
+    }
+    
+    // マッチしない場合は元のメッセージを返す（フォールバック）
+    return errorMessage;
   }
 
   @override
@@ -407,6 +526,7 @@ class _AccountingPageState extends State<AccountingPage> {
     final pokerName = bill['pokerName'] ?? '不明';
     final accountingCompletedAt = bill['accountingCompletedAt']?.toDate() ?? DateTime.now();
     final refundAmount = bill['refundAmount'] ?? 0;
+    final paymentMethod = bill['paymentMethod'] ?? 'cash';
 
     return Card(
       elevation: 4,
@@ -454,6 +574,28 @@ class _AccountingPageState extends State<AccountingPage> {
                 fontSize: 14,
                 color: Colors.grey.shade600,
               ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // 支払い方法
+            Row(
+              children: [
+                Icon(
+                  _getPaymentMethodIcon(paymentMethod),
+                  size: 20,
+                  color: Colors.blue.shade600,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '支払い方法: ${_getPaymentMethodName(paymentMethod)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
 
             const SizedBox(height: 16),
