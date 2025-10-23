@@ -3,143 +3,143 @@ import { getFirestore } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
 import { logger } from "firebase-functions";
 
-export const generateDummyData = onCall(async (request) => {
+// ランダムな値を生成する関数（-25%〜+25%の範囲）
+function getRandomValue(baseValue: number): number {
+  const variation = 0.5; // ±25%の範囲
+  const randomFactor = 1 + (Math.random() - 0.5) * variation;
+  return Math.round(baseValue * randomFactor);
+}
+
+// 月の日付を生成する関数
+function generateDailySales(month: string): Record<string, number> {
+  const [year, monthNum] = month.split('-');
+  const daysInMonth = new Date(parseInt(year), parseInt(monthNum), 0).getDate();
+  const dailySales: Record<string, number> = {};
+  
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = `${year}-${monthNum}-${day.toString().padStart(2, '0')}`;
+    dailySales[date] = getRandomValue(150000); // ベース値を150,000円に設定
+  }
+  
+  return dailySales;
+}
+
+export const generateDummyData = onCall({
+  timeoutSeconds: 540, // 9分のタイムアウト
+  memory: "1GiB", // メモリを1GBに設定
+}, async (request) => {
   const db = getFirestore();
-  const month = "2025-09";
+  const months = ["2025-05", "2025-06", "2025-07", "2025-08"];
 
   try {
-    logger.info(`ダミーデータ生成開始: ${month}`);
+    logger.info(`4ヶ月分のダミーデータ生成開始: ${months.join(', ')}`);
 
-    // 1. 月次インデックスドキュメントの作成
-    const monthlyRef = db.collection('analyticsMonthly').doc(month);
-    await monthlyRef.set({
-      itemsSales: 1250000,
-      sideGameChipSales: 850000,
-      extraCostSales: 320000,
-      tournamentsSales: 2100000,
-      grossSales: 4520000,
-      orderCount: 1250,
-      avgOrderValue: 3616,
-      dailySales: {
-        "2025-09-01": 145000,
-        "2025-09-02": 152000,
-        "2025-09-03": 138000,
-        "2025-09-04": 167000,
-        "2025-09-05": 189000,
-        "2025-09-06": 201000,
-        "2025-09-07": 195000,
-        "2025-09-08": 143000,
-        "2025-09-09": 156000,
-        "2025-09-10": 174000,
-        "2025-09-11": 182000,
-        "2025-09-12": 198000,
-        "2025-09-13": 215000,
-        "2025-09-14": 203000,
-        "2025-09-15": 179000,
-        "2025-09-16": 186000,
-        "2025-09-17": 192000,
-        "2025-09-18": 208000,
-        "2025-09-19": 221000,
-        "2025-09-20": 234000,
-        "2025-09-21": 198000,
-        "2025-09-22": 187000,
-        "2025-09-23": 201000,
-        "2025-09-24": 213000,
-        "2025-09-25": 226000,
-        "2025-09-26": 245000,
-        "2025-09-27": 238000,
-        "2025-09-28": 192000,
-        "2025-09-29": 178000,
-        "2025-09-30": 165000,
-      },
-      paymentTotals: {
-        cash: 1800000,
-        credit_card: 1200000,
-        electronic_money: 850000,
-        pointA: 450000,
-        pointB: 220000,
-        sideGameTip: 0,
-        sideGameChip: 0,
-      },
+    // 各月のデータを並列生成
+    const monthPromises = months.map(async (month) => {
+      logger.info(`月次データ生成開始: ${month}`);
+      
+      // 1. 月次インデックスドキュメントの作成
+      const monthlyRef = db.collection('analyticsMonthly').doc(month);
+      await monthlyRef.set({
+        itemsSales: getRandomValue(1250000),
+        sideGameChipSales: getRandomValue(850000),
+        extraCostSales: getRandomValue(320000),
+        tournamentsSales: getRandomValue(2100000),
+        grossSales: getRandomValue(4520000),
+        orderCount: getRandomValue(1250),
+        avgOrderValue: getRandomValue(3616),
+        dailySales: generateDailySales(month),
+        paymentTotals: {
+          cash: getRandomValue(1800000),
+          credit_card: getRandomValue(1200000),
+          electronic_money: getRandomValue(850000),
+          pointA: getRandomValue(450000),
+          pointB: getRandomValue(220000),
+          sideGameTip: 0,
+          sideGameChip: 0,
+        },
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 2. daysサブコレクションの作成（30日分）
-    const daysCollection = db.collection('analyticsMonthly').doc(month).collection('days');
-    for (let day = 1; day <= 30; day++) {
-      const dateStr = `2025-09-${day.toString().padStart(2, '0')}`;
-      const dailySales = 120000 + Math.floor(Math.random() * 80000);
-      const orderCount = 15 + Math.floor(Math.random() * 25);
+      // 2. daysサブコレクションの作成
+      const daysCollection = db.collection('analyticsMonthly').doc(month).collection('days');
+      const [year, monthNum] = month.split('-');
+      const daysInMonth = new Date(parseInt(year), parseInt(monthNum), 0).getDate();
       
-      await daysCollection.doc(dateStr).set({
-        itemsSales: Math.floor(dailySales * 0.28),
-        sideGameChipSales: Math.floor(dailySales * 0.19),
-        extraCostSales: Math.floor(dailySales * 0.07),
-        tournamentsSales: Math.floor(dailySales * 0.46),
-        grossSales: dailySales,
-        orderCount: orderCount,
-        byCategory: {
-          items: Math.floor(dailySales * 0.28),
-          sideGameChip: Math.floor(dailySales * 0.19),
-          extraCost: Math.floor(dailySales * 0.07),
-          tournaments: Math.floor(dailySales * 0.46),
-        },
-        byPaymentMethod: {
-          cash: Math.floor(dailySales * 0.40),
-          credit_card: Math.floor(dailySales * 0.27),
-          electronic_money: Math.floor(dailySales * 0.19),
-          pointA: Math.floor(dailySales * 0.10),
-          pointB: Math.floor(dailySales * 0.04),
-        },
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${monthNum}-${day.toString().padStart(2, '0')}`;
+        const dailySales = getRandomValue(150000);
+        const orderCount = getRandomValue(20);
+      
+        await daysCollection.doc(dateStr).set({
+          itemsSales: Math.floor(dailySales * 0.28),
+          sideGameChipSales: Math.floor(dailySales * 0.19),
+          extraCostSales: Math.floor(dailySales * 0.07),
+          tournamentsSales: Math.floor(dailySales * 0.46),
+          grossSales: dailySales,
+          orderCount: orderCount,
+          byCategory: {
+            items: Math.floor(dailySales * 0.28),
+            sideGameChip: Math.floor(dailySales * 0.19),
+            extraCost: Math.floor(dailySales * 0.07),
+            tournaments: Math.floor(dailySales * 0.46),
+          },
+          byPaymentMethod: {
+            cash: Math.floor(dailySales * 0.40),
+            credit_card: Math.floor(dailySales * 0.27),
+            electronic_money: Math.floor(dailySales * 0.19),
+            pointA: Math.floor(dailySales * 0.10),
+            pointB: Math.floor(dailySales * 0.04),
+          },
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-    }
+      }
 
-    // 3. byCategoryサブコレクションの作成
-    const byCategoryRef = db.collection('analyticsMonthly').doc(month).collection('byCategory').doc('summary');
-    await byCategoryRef.set({
-      totals: {
-        items: 1250000,
-        sideGameChip: 850000,
-        extraCost: 320000,
-        tournaments: 2100000,
-      },
-      orderCounts: {
-        items: 850,
-        sideGameChip: 420,
-        extraCost: 180,
-        tournaments: 320,
-      },
-      itemSales: {
-        "menu001": {
-          qty: 45,
-          sales: 67500,
-          name: "ビール",
-          category: "items"
+      // 3. byCategoryサブコレクションの作成
+      const byCategoryRef = db.collection('analyticsMonthly').doc(month).collection('byCategory').doc('summary');
+      await byCategoryRef.set({
+        totals: {
+          items: getRandomValue(1250000),
+          sideGameChip: getRandomValue(850000),
+          extraCost: getRandomValue(320000),
+          tournaments: getRandomValue(2100000),
         },
-        "menu002": {
-          qty: 32,
-          sales: 48000,
-          name: "ハイボール",
-          category: "items"
+        orderCounts: {
+          items: getRandomValue(850),
+          sideGameChip: getRandomValue(420),
+          extraCost: getRandomValue(180),
+          tournaments: getRandomValue(320),
         },
-        "menu003": {
-          qty: 28,
-          sales: 42000,
-          name: "ウイスキー",
-          category: "items"
-        },
-        "menu004": {
-          qty: 55,
-          sales: 82500,
-          name: "チップス",
-          category: "items"
-        },
-        "menu005": {
-          qty: 38,
-          sales: 57000,
+        itemSales: {
+          "menu001": {
+            qty: getRandomValue(45),
+            sales: getRandomValue(67500),
+            name: "ビール",
+            category: "items"
+          },
+          "menu002": {
+            qty: getRandomValue(32),
+            sales: getRandomValue(48000),
+            name: "ハイボール",
+            category: "items"
+          },
+          "menu003": {
+            qty: getRandomValue(28),
+            sales: getRandomValue(42000),
+            name: "ウイスキー",
+            category: "items"
+          },
+          "menu004": {
+            qty: getRandomValue(55),
+            sales: getRandomValue(82500),
+            name: "チップス",
+            category: "items"
+          },
+          "menu005": {
+            qty: getRandomValue(38),
+            sales: getRandomValue(57000),
           name: "ナッツ",
           category: "items"
         },
@@ -148,8 +148,8 @@ export const generateDummyData = onCall(async (request) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 4. byTemplateTournamentsサブコレクションの作成（30個のトーナメントテンプレート）
-    const byTemplateTournamentsCollection = db.collection('analyticsMonthly').doc(month).collection('byTemplateTournaments');
+      // 4. byTemplateTournamentsサブコレクションの作成（30個のトーナメントテンプレート）
+      const byTemplateTournamentsCollection = db.collection('analyticsMonthly').doc(month).collection('byTemplateTournaments');
     const tournamentTemplates = [
       { id: "template001", name: "ポーカーナイト" },
       { id: "template002", name: "トーナメントA" },
@@ -183,25 +183,25 @@ export const generateDummyData = onCall(async (request) => {
       { id: "template030", name: "チャンピオンシップ4" },
     ];
 
-    for (const template of tournamentTemplates) {
-      const entryCount = 15 + Math.floor(Math.random() * 35);
-      const entrySales = entryCount * (5000 + Math.floor(Math.random() * 10000));
-      const reentryCount = Math.floor(entryCount * 0.3);
-      const reentrySales = reentryCount * (3000 + Math.floor(Math.random() * 5000));
-      const addonCount = Math.floor(entryCount * 0.2);
-      const addonSales = addonCount * (2000 + Math.floor(Math.random() * 3000));
+      for (const template of tournamentTemplates.slice(0, 10)) { // 30個から10個に削減
+        const entryCount = getRandomValue(25);
+        const entrySales = getRandomValue(150000);
+        const reentryCount = getRandomValue(8);
+        const reentrySales = getRandomValue(40000);
+        const addonCount = getRandomValue(5);
+        const addonSales = getRandomValue(15000);
       const totalTournamentSales = entrySales + reentrySales + addonSales;
 
-      const dailyData: any = {};
-      for (let day = 1; day <= 30; day++) {
-        const dateStr = `2025-09-${day.toString().padStart(2, '0')}`;
-        const dailyEntryCount = Math.floor(Math.random() * 3);
-        const dailyEntrySales = dailyEntryCount * (5000 + Math.floor(Math.random() * 10000));
-        const dailyReentryCount = Math.floor(dailyEntryCount * 0.3);
-        const dailyReentrySales = dailyReentryCount * (3000 + Math.floor(Math.random() * 5000));
-        const dailyAddonCount = Math.floor(dailyEntryCount * 0.2);
-        const dailyAddonSales = dailyAddonCount * (2000 + Math.floor(Math.random() * 3000));
-        const dailyTotalSales = dailyEntrySales + dailyReentrySales + dailyAddonSales;
+        const dailyData: any = {};
+        for (let day = 1; day <= daysInMonth; day++) {
+          const dateStr = `${year}-${monthNum}-${day.toString().padStart(2, '0')}`;
+          const dailyEntryCount = getRandomValue(2);
+          const dailyEntrySales = getRandomValue(15000);
+          const dailyReentryCount = getRandomValue(1);
+          const dailyReentrySales = getRandomValue(5000);
+          const dailyAddonCount = getRandomValue(1);
+          const dailyAddonSales = getRandomValue(3000);
+          const dailyTotalSales = dailyEntrySales + dailyReentrySales + dailyAddonSales;
 
         dailyData[`${dateStr}.entryCount`] = dailyEntryCount;
         dailyData[`${dateStr}.entrySales`] = dailyEntrySales;
@@ -229,8 +229,8 @@ export const generateDummyData = onCall(async (request) => {
       });
     }
 
-    // 5. byUserサブコレクションの作成（80個のユーザー）
-    const byUserCollection = db.collection('analyticsMonthly').doc(month).collection('byUser');
+      // 5. byUserサブコレクションの作成（80個のユーザー）
+      const byUserCollection = db.collection('analyticsMonthly').doc(month).collection('byUser');
     const pokerNames = [
       "ポーカープレイヤー1", "ポーカープレイヤー2", "ポーカープレイヤー3", "ポーカープレイヤー4", "ポーカープレイヤー5",
       "ポーカープレイヤー6", "ポーカープレイヤー7", "ポーカープレイヤー8", "ポーカープレイヤー9", "ポーカープレイヤー10",
@@ -250,35 +250,35 @@ export const generateDummyData = onCall(async (request) => {
       "ポーカープレイヤー76", "ポーカープレイヤー77", "ポーカープレイヤー78", "ポーカープレイヤー79", "ポーカープレイヤー80"
     ];
 
-    for (let i = 0; i < 80; i++) {
-      const userId = `user${(i + 1).toString().padStart(3, '0')}`;
-      const pokerName = pokerNames[i];
-      const orderCount = 5 + Math.floor(Math.random() * 20);
-      const grossSales = 15000 + Math.floor(Math.random() * 85000);
-      const itemsSales = Math.floor(grossSales * (0.2 + Math.random() * 0.3));
-      const sideGameChipSales = Math.floor(grossSales * (0.1 + Math.random() * 0.2));
-      const extraCostSales = Math.floor(grossSales * (0.05 + Math.random() * 0.1));
-      const tournamentsSales = grossSales - itemsSales - sideGameChipSales - extraCostSales;
+      for (let i = 0; i < 20; i++) { // ユーザー数を80から20に削減
+        const userId = `user${(i + 1).toString().padStart(3, '0')}`;
+        const pokerName = pokerNames[i];
+        const orderCount = getRandomValue(15);
+        const grossSales = getRandomValue(50000);
+        const itemsSales = getRandomValue(Math.floor(grossSales * 0.3));
+        const sideGameChipSales = getRandomValue(Math.floor(grossSales * 0.15));
+        const extraCostSales = getRandomValue(Math.floor(grossSales * 0.08));
+        const tournamentsSales = grossSales - itemsSales - sideGameChipSales - extraCostSales;
 
-      const dailySales: any = {};
-      for (let day = 1; day <= 30; day++) {
-        const dateStr = `2025-09-${day.toString().padStart(2, '0')}`;
-        if (Math.random() > 0.7) { // 30%の確率でその日に来店
-          dailySales[dateStr] = 2000 + Math.floor(Math.random() * 8000);
+        const dailySales: any = {};
+        for (let day = 1; day <= daysInMonth; day++) {
+          const dateStr = `${year}-${monthNum}-${day.toString().padStart(2, '0')}`;
+          if (Math.random() > 0.7) { // 30%の確率でその日に来店
+            dailySales[dateStr] = getRandomValue(5000);
+          }
         }
-      }
 
-      const paymentTotals = {
-        cash: Math.floor(grossSales * (0.3 + Math.random() * 0.2)),
-        credit_card: Math.floor(grossSales * (0.2 + Math.random() * 0.2)),
-        electronic_money: Math.floor(grossSales * (0.1 + Math.random() * 0.2)),
-        pointA: Math.floor(grossSales * (0.05 + Math.random() * 0.15)),
-        pointB: Math.floor(grossSales * (0.02 + Math.random() * 0.08)),
-        sideGameTip: 0,
-        sideGameChip: 0,
-      };
+        const paymentTotals = {
+          cash: getRandomValue(Math.floor(grossSales * 0.4)),
+          credit_card: getRandomValue(Math.floor(grossSales * 0.3)),
+          electronic_money: getRandomValue(Math.floor(grossSales * 0.15)),
+          pointA: getRandomValue(Math.floor(grossSales * 0.1)),
+          pointB: getRandomValue(Math.floor(grossSales * 0.05)),
+          sideGameTip: 0,
+          sideGameChip: 0,
+        };
 
-      await byUserCollection.doc(userId).set({
+        await byUserCollection.doc(userId).set({
         grossSales: grossSales,
         itemsSales: itemsSales,
         extraCostSales: extraCostSales,
@@ -293,21 +293,28 @@ export const generateDummyData = onCall(async (request) => {
       });
     }
 
-    logger.info(`ダミーデータ生成完了: ${month}`);
+      logger.info(`月次データ生成完了: ${month}`);
+      return month;
+    });
+
+    // すべての月の処理を並列実行
+    await Promise.all(monthPromises);
+
+    logger.info(`4ヶ月分のダミーデータ生成完了: ${months.join(', ')}`);
     return {
       success: true,
-      message: `ダミーデータ生成完了: ${month}`,
+      message: `4ヶ月分のダミーデータ生成完了: ${months.join(', ')}`,
       data: {
-        monthlyIndex: 1,
-        days: 30,
-        byCategory: 1,
-        byTemplateTournaments: 30,
-        byUser: 80,
+        monthlyIndex: 4,
+        days: 31 + 30 + 31 + 31, // 5月(31日) + 6月(30日) + 7月(31日) + 8月(31日)
+        byCategory: 4,
+        byTemplateTournaments: 40, // 10 × 4ヶ月
+        byUser: 80, // 20 × 4ヶ月
       }
     };
 
   } catch (error) {
-    logger.error('ダミーデータ生成エラー:', error);
+    logger.error('4ヶ月分のダミーデータ生成エラー:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

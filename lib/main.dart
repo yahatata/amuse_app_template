@@ -5,6 +5,7 @@ import 'package:amuse_app_template/services/device_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'firebase_options.dart';
 import 'Utils/menuItemsManager.dart';
 
@@ -22,7 +23,7 @@ void main() async {
   // How: MenuItemsManager経由でFireStoreからデータを取得
   await MenuItemsManager.fetchMenuItems();
   
-  runApp(MyApp());
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
