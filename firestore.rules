@@ -136,6 +136,53 @@ service cloud.firestore {
       }
     }
 
+    // analyticsMonthly コレクション（開発用：読み取り全許可）
+    match /analyticsMonthly/{monthId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+      
+      // days サブコレクション
+      match /days/{dayId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+      
+      // byCategory サブコレクション
+      match /byCategory/{categoryId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+      
+      // byTemplateTournaments サブコレクション
+      match /byTemplateTournaments/{templateId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+      
+      // byUser サブコレクション
+      match /byUser/{userId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+      
+      // aggregationMarkers サブコレクション
+      match /aggregationMarkers/{markerId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+    }
+
+    // settledBills コレクション（開発用：読み取り全許可）
+    match /settledBills/{dateId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+      
+      match /{billId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+    }
+
     // 管理者コレクション
     match /admins/{adminId} {
       allow read: if request.auth != null && request.auth.uid == adminId;

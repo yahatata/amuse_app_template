@@ -79,7 +79,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
               child: ListTile(
                 leading: const Icon(Icons.data_usage, color: Colors.purple),
                 title: const Text('ダミーデータ生成（テスト用）'),
-                subtitle: const Text('analyticsMonthlyに2025-09のダミーデータを生成します'),
+                subtitle: const Text('analyticsMonthlyに2025-05〜2025-08のダミーデータを生成します'),
                 trailing: _isProcessing
                     ? const SizedBox(
                         width: 20,
@@ -225,13 +225,14 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
         return AlertDialog(
           title: const Text('ダミーデータ生成'),
           content: const Text(
-            'analyticsMonthlyに2025-09のダミーデータを生成しますか？\n\n'
-            '生成されるデータ:\n'
+            'analyticsMonthlyに2025-05〜2025-08のダミーデータを生成しますか？\n\n'
+            '生成されるデータ（各月）:\n'
             '• 月次インデックス: 1件\n'
             '• 日次サマリー: 30件\n'
             '• カテゴリ別: 1件\n'
             '• トーナメントテンプレート別: 30件\n'
             '• ユーザー別: 80件\n\n'
+            '合計: 4ヶ月分のデータ\n'
             '本機能はテスト用です。',
           ),
           actions: [
@@ -277,7 +278,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
             children: [
               CircularProgressIndicator(),
               SizedBox(width: 16),
-              Text('ダミーデータ生成中...'),
+              Text('4ヶ月分のダミーデータ生成中...'),
             ],
           ),
         );
@@ -285,12 +286,12 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
     );
 
     try {
-      debugPrint('ダミーデータ生成開始');
+      debugPrint('4ヶ月分のダミーデータ生成開始');
       
       final callable = _functions.httpsCallable('generateDummyData');
       final result = await callable.call();
 
-      debugPrint('ダミーデータ生成結果: $result');
+      debugPrint('4ヶ月分のダミーデータ生成結果: $result');
 
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
@@ -299,7 +300,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('ダミーデータ生成完了: ${result.data['message'] ?? ''}'),
+              content: Text('4ヶ月分のダミーデータ生成完了: ${result.data['message'] ?? ''}'),
               backgroundColor: Colors.green,
             ),
           );
@@ -308,7 +309,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
         _showErrorDialog(result.data['error'] ?? 'ダミーデータ生成に失敗しました');
       }
     } catch (e) {
-      debugPrint('ダミーデータ生成エラー: $e');
+      debugPrint('4ヶ月分のダミーデータ生成エラー: $e');
       
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
@@ -316,7 +317,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       if (e.toString().contains('UNAUTHENTICATED')) {
         _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
       } else {
-        _showErrorDialog('ダミーデータ生成に失敗しました: $e');
+        _showErrorDialog('4ヶ月分のダミーデータ生成に失敗しました: $e');
       }
     } finally {
       setState(() {
