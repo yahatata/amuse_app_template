@@ -89,9 +89,11 @@ export const startAccounting = onCall(async (request) => {
     const items = billData.items || [];
     categoryAmounts['items'] = items.reduce((sum: number, item: any) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
 
-    // sideGameChip（サイドゲームチップ）
+    // sideGameChip（サイドゲームチップ、action='purchase'のみ）
     const sideGameChips = billData.sideGameChip || [];
-    categoryAmounts['sideGameChip'] = sideGameChips.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
+    categoryAmounts['sideGameChip'] = sideGameChips
+      .filter((item: any) => item.action === 'purchase')
+      .reduce((sum: number, item: any) => sum + (item.price || 0), 0);
 
     // ポイント/サイドゲームチップで支払う場合の残高確認と差し引き処理
     if (userId) {

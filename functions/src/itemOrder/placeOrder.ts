@@ -110,8 +110,18 @@ export const placeOrder = onCall(async (request) => {
 
       // Chipカテゴリーの場合はsideGameChipフィールドに保存、それ以外はitemsフィールドに保存
       if (item.category === 'Chip') {
+        const chipAmount = extractChipAmount(item.name);
+        const totalChipAmount = chipAmount * Number(item.quantity);
+        
+        // sideGameChip用のエントリーを作成（actionとamountフィールドを追加）
+        const sideGameChipEntry = {
+          ...newEntry,
+          action: 'purchase',
+          amount: totalChipAmount,
+        };
+        
         const existingSideGameChips: any[] = Array.isArray(billsData?.sideGameChip) ? billsData.sideGameChip : [];
-        const updatedSideGameChips = [...existingSideGameChips, newEntry];
+        const updatedSideGameChips = [...existingSideGameChips, sideGameChipEntry];
         
         tx.update(billsRef, {
           sideGameChip: updatedSideGameChips,
@@ -119,20 +129,8 @@ export const placeOrder = onCall(async (request) => {
           updatedAt: now,
         });
 
-        // Chip購入の場合はusersコレクションのsideGameTipも更新
-        const chipAmount = extractChipAmount(item.name);
-        const totalChipAmount = chipAmount * Number(item.quantity);
-        
         console.log(`Chip購入処理: name=${item.name}, chipAmount=${chipAmount}, quantity=${item.quantity}, totalChipAmount=${totalChipAmount}`);
-        
-        if (totalChipAmount > 0) {
-          const userRef = db.collection('users').doc(userId);
-          tx.update(userRef, {
-            sideGameTip: FieldValue.increment(totalChipAmount),
-            updatedAt: now,
-          });
-          console.log(`sideGameTip更新予定: userId=${userId}, 加算量=${totalChipAmount}`);
-        }
+        // usersコレクションのsideGameTipへの加算は削除（sideGameChipLogsのみに記録）
       } else {
         const existingItems: any[] = Array.isArray(billsData?.items) ? billsData.items : [];
         const updatedItems = [...existingItems, newEntry];

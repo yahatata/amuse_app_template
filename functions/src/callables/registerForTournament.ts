@@ -161,6 +161,7 @@ export const registerForTournament = onCall(async (request) => {
       const updatedTournamentInfo = {
         startAt: startAt,
         templateName: templateName,
+        templateId: tournamentId, // templateIdを追加
         entryFee: entryFee,
         registeredAt: admin.firestore.FieldValue.serverTimestamp(),
       };

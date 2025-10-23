@@ -44,6 +44,40 @@ export const withdrawTip = onCall(async (request) => {
       updatedAt: new Date(),
     });
 
+    // todaysBillsのsideGameChip配列にwithdrawエントリーを追加
+    const todaysBillsQuery = await db.collection('todaysBills')
+      .where('userId', '==', userId)
+      .where('status', '==', 'open')
+      .limit(1)
+      .get();
+
+    if (!todaysBillsQuery.empty) {
+      const todaysBillsDoc = todaysBillsQuery.docs[0];
+      const todaysBillsData = todaysBillsDoc.data();
+      const existingSideGameChips = Array.isArray(todaysBillsData?.sideGameChip) ? todaysBillsData.sideGameChip : [];
+      
+      const withdrawEntry = {
+        action: 'withdraw',
+        category: 'Chip',
+        menuItemId: null,
+        name: null,
+        orderedAt: new Date(),
+        price: null,
+        quantity: null,
+        totalPrice: null,
+        amount: amount,
+      };
+      
+      const updatedSideGameChips = [...existingSideGameChips, withdrawEntry];
+      
+      await todaysBillsDoc.ref.update({
+        sideGameChip: updatedSideGameChips,
+        updatedAt: new Date(),
+      });
+      
+      console.log(`todaysBillsのsideGameChipにwithdrawエントリーを追加: amount=${amount}`);
+    }
+
     // ログ記録を追加
     await addLogEntry(userId, 'sideGameChipLogs', {
       appliedAt: new Date(),

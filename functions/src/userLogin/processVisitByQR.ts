@@ -137,7 +137,6 @@ export const processVisitByQR = onCall(async (request) => {
               status: 'open',
               userId: parsed.uid,
               items: [],
-              sideGameTip: [],
               tournaments: [],
               extraCost: extraCost, // 入店料を含む
               totalPrice: entranceFee > 0 ? entranceFee : 0, // 入店料を初期値として設定
@@ -147,11 +146,15 @@ export const processVisitByQR = onCall(async (request) => {
               // 会計履歴用フィールド
               accountingStartedAt: null,
               accountingCompletedAt: null,
-               accountingStartedBy: null,
-               accountingCompletedBy: null,
-               accountingHistoryId: null,
-               date: today, // JST日付
-             } as Record<string, unknown>;
+              accountingStartedBy: null,
+              accountingCompletedBy: null,
+              accountingHistoryId: null,
+              date: today, // JST日付
+              // 共通フィールド
+              sideGameChip: [],
+              paymentMethodsByCategory: [],
+              schemaVersion: "1.0", // globalConstant.dartのschemaVersionを参照
+            } as Record<string, unknown>;
 
              const todaysBillsRef = admin.firestore().collection("todaysBills").doc();
              tx.set(todaysBillsRef, todaysBillsData);

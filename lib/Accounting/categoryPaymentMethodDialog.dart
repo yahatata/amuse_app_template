@@ -64,11 +64,14 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
       categoriesWithAmounts['items'] = totalOrderAmount;
     }
 
-    // サイドゲームチップ（sideGameChip）
+    // サイドゲームチップ（sideGameChip、action='purchase'のみ）
     final sideGameChips = widget.bill['sideGameChip'] as List<dynamic>? ?? [];
     int totalSideGameChipAmount = 0;
     for (final chip in sideGameChips) {
-      totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
+      // action='purchase'のデータのみを集計
+      if (chip['action'] == 'purchase') {
+        totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
+      }
     }
     if (totalSideGameChipAmount > 0) {
       categoriesWithAmounts['sideGameChip'] = totalSideGameChipAmount;

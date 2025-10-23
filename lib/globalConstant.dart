@@ -1,5 +1,8 @@
 // カテゴリー一覧（将来的に顧客ごとに調整）
 class GlobalConstants {
+  // スキーマバージョン
+  static const String schemaVersion = "1.0";
+  
   // メニューカテゴリー一覧
   static const List<String> menuCategories = [
     'フード',
