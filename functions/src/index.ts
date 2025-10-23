@@ -32,6 +32,8 @@ export * from "./staff";
 export * from "./attendance";
 // スケジュール済みトーナメント関連関数
 export * from "./callables";
+// アナリティクス関連関数
+export * from "./analytics";
 
 // トーナメント時間管理システム（Phase1）
 import { onRequest } from 'firebase-functions/v2/https';

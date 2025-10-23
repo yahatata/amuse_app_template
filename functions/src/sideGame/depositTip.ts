@@ -39,6 +39,40 @@ export const depositTip = onCall(async (request) => {
       updatedAt: new Date(),
     });
 
+    // todaysBillsのsideGameChip配列にdepositエントリーを追加
+    const todaysBillsQuery = await db.collection('todaysBills')
+      .where('userId', '==', userId)
+      .where('status', '==', 'open')
+      .limit(1)
+      .get();
+
+    if (!todaysBillsQuery.empty) {
+      const todaysBillsDoc = todaysBillsQuery.docs[0];
+      const todaysBillsData = todaysBillsDoc.data();
+      const existingSideGameChips = Array.isArray(todaysBillsData?.sideGameChip) ? todaysBillsData.sideGameChip : [];
+      
+      const depositEntry = {
+        action: 'deposit',
+        category: 'Chip',
+        menuItemId: null,
+        name: null,
+        orderedAt: new Date(),
+        price: null,
+        quantity: null,
+        totalPrice: null,
+        amount: amount,
+      };
+      
+      const updatedSideGameChips = [...existingSideGameChips, depositEntry];
+      
+      await todaysBillsDoc.ref.update({
+        sideGameChip: updatedSideGameChips,
+        updatedAt: new Date(),
+      });
+      
+      console.log(`todaysBillsのsideGameChipにdepositエントリーを追加: amount=${amount}`);
+    }
+
     // ログ記録を追加
     await addLogEntry(userId, 'sideGameChipLogs', {
       appliedAt: new Date(),

@@ -122,6 +122,10 @@ export const manualCheckIn = onCall(async (request) => {
       accountingCompletedBy: null,
       accountingHistoryId: null,
       date: today, // JST日付
+      // 共通フィールド
+      sideGameChip: [],
+      paymentMethodsByCategory: [],
+      schemaVersion: "1.0", // globalConstant.dartのschemaVersionを参照
     } as Record<string, unknown>;
 
     const todaysBillsRef = await db.collection('todaysBills').add(todaysBillsData);

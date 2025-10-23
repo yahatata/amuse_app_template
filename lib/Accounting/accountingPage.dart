@@ -742,11 +742,14 @@ class _AccountingPageState extends State<AccountingPage> {
       breakdown.add(_buildBreakdownItem('フード・ドリンク', totalOrderAmount, bill));
     }
 
-    // サイドゲームチップ（sideGameChip配列から取得）
+    // サイドゲームチップ（sideGameChip配列から取得、action='purchase'のみ）
     final sideGameChips = bill['sideGameChip'] as List<dynamic>? ?? [];
     int totalSideGameChipAmount = 0;
     for (final chip in sideGameChips) {
-      totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
+      // action='purchase'のデータのみを集計
+      if (chip['action'] == 'purchase') {
+        totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
+      }
     }
     if (totalSideGameChipAmount > 0) {
       breakdown.add(_buildBreakdownItem('サイドゲームチップ', totalSideGameChipAmount, bill));
@@ -826,7 +829,9 @@ class _AccountingPageState extends State<AccountingPage> {
         items = bill['items'] as List<dynamic>? ?? [];
         break;
       case 'サイドゲームチップ':
-        items = bill['sideGameChip'] as List<dynamic>? ?? [];
+        final allSideGameChips = bill['sideGameChip'] as List<dynamic>? ?? [];
+        // action='purchase'のデータのみを表示
+        items = allSideGameChips.where((chip) => chip['action'] == 'purchase').toList();
         break;
     }
 
@@ -858,7 +863,10 @@ class _AccountingPageState extends State<AccountingPage> {
         return items.fold(0, (sum, item) => sum + ((item['price'] as num? ?? 0).toInt() * (item['quantity'] as num? ?? 0).toInt()));
       case 'サイドゲームチップ':
         final sideGameChips = bill['sideGameChip'] as List<dynamic>? ?? [];
-        return sideGameChips.fold(0, (sum, item) => sum + ((item['price'] as num? ?? 0).toInt()));
+        // action='purchase'のデータのみを集計
+        return sideGameChips
+            .where((chip) => chip['action'] == 'purchase')
+            .fold(0, (sum, item) => sum + ((item['price'] as num? ?? 0).toInt()));
       default:
         return 0;
     }
