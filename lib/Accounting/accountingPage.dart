@@ -552,22 +552,9 @@ class _AccountingPageState extends State<AccountingPage> {
             const SizedBox(height: 16),
 
             // アクションボタン
-            Row(
-              children: [
-                if (!accountingStarted)
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _startAccounting(bill['id']),
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('会計開始'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                if (accountingStarted)
+            if (accountingStarted)
+              Row(
+                children: [
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () => _completeAccounting(bill['id']),
@@ -580,8 +567,39 @@ class _AccountingPageState extends State<AccountingPage> {
                       ),
                     ),
                   ),
-              ],
-            ),
+                ],
+              )
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showEditDialog(bill),
+                      icon: const Icon(Icons.edit),
+                      label: const Text('修正'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.blue,
+                        side: const BorderSide(color: Colors.blue),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _startAccounting(bill['id']),
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('会計開始'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
       ),

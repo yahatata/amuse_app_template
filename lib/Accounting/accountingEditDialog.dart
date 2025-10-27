@@ -39,10 +39,14 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   List<Map<String, dynamic>> _availableTournaments = [];
   List<Map<String, dynamic>> _availableFoodItems = [];
   List<Map<String, dynamic>> _availableChipItems = [];
+  
+  // 会計前かどうか
+  late bool _isBeforeAccounting;
 
   @override
   void initState() {
     super.initState();
+    _isBeforeAccounting = widget.bill['accountingStartedAt'] == null;
     _initializeData();
     _loadAvailableOptions();
   }
@@ -338,7 +342,9 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
 
   Future<void> _updateAccounting() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_reasonController.text.trim().isEmpty) {
+    
+    // 会計完了済みの場合は修正理由が必要
+    if (!_isBeforeAccounting && _reasonController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('修正理由を入力してください')),
       );
@@ -346,14 +352,22 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
     }
 
     try {
-      final result = await _functions.httpsCallable('updateAccounting').call({
+      // 会計前の場合はupdateActiveBill、会計完了済みの場合はupdateAccountingを使用
+      final functionName = _isBeforeAccounting ? 'updateActiveBill' : 'updateAccounting';
+      final callData = <String, dynamic>{
         'billId': widget.bill['id'],
         'extraCost': _extraCosts,
         'tournaments': _tournaments,
         'items': _items,
         'sideGameChip': _sideGameChips,
-        'reason': _reasonController.text.trim(),
-      });
+      };
+      
+      // 会計完了済みの場合のみ修正理由を追加
+      if (!_isBeforeAccounting) {
+        callData['reason'] = _reasonController.text.trim();
+      }
+
+      final result = await _functions.httpsCallable(functionName).call(callData);
 
       if (result.data['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -404,21 +418,32 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
               ),
               const SizedBox(height: 16),
               
-              // 修正理由
-              TextFormField(
-                controller: _reasonController,
-                decoration: const InputDecoration(
-                  labelText: '修正理由',
-                  border: OutlineInputBorder(),
+              // 修正理由（会計完了済みの場合のみ必須）
+              if (!_isBeforeAccounting) ...[
+                TextFormField(
+                  controller: _reasonController,
+                  decoration: const InputDecoration(
+                    labelText: '修正理由 *',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return '修正理由を入力してください';
+                    }
+                    return null;
+                  },
                 ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return '修正理由を入力してください';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ] else ...[
+                TextFormField(
+                  controller: _reasonController,
+                  decoration: const InputDecoration(
+                    labelText: '修正理由（任意）',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               
               // タブ
               SizedBox(
