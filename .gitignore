@@ -44,6 +44,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Functions build artifacts
+functions/build/
+
 # 環境変数・設定ファイル
 .env
 .env.*

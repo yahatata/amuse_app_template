@@ -141,6 +141,12 @@ service cloud.firestore {
       allow read: if request.auth != null && request.auth.uid == adminId;
     }
 
+    // メニューアイテムコレクション（開発用：読み取り全許可）
+    match /menuItems/{menuItemId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
     // その他のコレクションは読み書き禁止
     match /{document=**} {
       allow read, write: if false;

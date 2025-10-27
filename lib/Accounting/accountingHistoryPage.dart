@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/globalConstant.dart';
 import 'customerAccountingDetailPage.dart';
 
 class AccountingHistoryPage extends StatefulWidget {
@@ -21,7 +22,23 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
   @override
   void initState() {
     super.initState();
+    // 初期化時に営業日を計算
+    _selectedDate = _getBusinessDate();
     _loadAccountingHistory();
+  }
+
+  // 営業日を計算する関数
+  DateTime _getBusinessDate() {
+    final now = DateTime.now();
+    final closeHour = GlobalConstants.STORE_CLOSE_HOUR;
+    
+    // 現在時刻が店舗締め時間より前の場合は前日の営業日
+    if (now.hour < closeHour) {
+      return now.subtract(const Duration(days: 1));
+    } else {
+      // 店舗締め時間以降は当日の営業日
+      return now;
+    }
   }
 
   Future<void> _loadAccountingHistory() async {

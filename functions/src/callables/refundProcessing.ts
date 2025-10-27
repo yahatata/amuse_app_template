@@ -10,6 +10,8 @@ const ProcessRefundSchema = z.object({
   refundAmount: z.number().min(0, '返金額は0以上である必要があります'),
   refundReason: z.string().min(1, '返金理由は必須です'),
   refundMethod: z.enum(['cash', 'bank_transfer', 'other']).optional().default('cash'),
+  // 返金対象カテゴリ（部分返金の場合に指定）
+  refundCategories: z.array(z.enum(['extraCost', 'tournaments', 'items', 'sideGameChip'])).optional(),
 });
 
 /**
@@ -38,7 +40,7 @@ export const processRefund = onCall(async (request) => {
 
     // 入力データの検証
     const validatedData = ProcessRefundSchema.parse(request.data);
-    const { billId, refundAmount, refundReason, refundMethod } = validatedData;
+    const { billId, refundAmount, refundReason, refundMethod, refundCategories } = validatedData;
 
     const billRef = db.collection('todaysBills').doc(billId);
 
@@ -75,6 +77,75 @@ export const processRefund = onCall(async (request) => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
+      // ポイント/サイドゲームチップの返還処理
+      const userId = billData.userId;
+      if (userId) {
+        const paymentMethodsByCategory = billData.paymentMethodsByCategory || {};
+        const categoryAmounts: Record<string, number> = {};
+
+        // 各カテゴリの金額を計算
+        const extraCosts = billData.extraCost || [];
+        categoryAmounts['extraCost'] = extraCosts.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
+
+        const tournaments = billData.tournaments || {};
+        categoryAmounts['tournaments'] = Object.values(tournaments).reduce((sum: number, item: any) => sum + (item.entryFee || 0), 0);
+
+        const items = billData.items || [];
+        categoryAmounts['items'] = items.reduce((sum: number, item: any) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
+
+        const sideGameChips = billData.sideGameChip || [];
+        categoryAmounts['sideGameChip'] = sideGameChips.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
+
+        // 返還する金額を計算
+        const refundAmounts: Record<string, number> = {
+          pointA: 0,
+          pointB: 0,
+          sideGameTip: 0,
+        };
+
+        // 全額返金 または 指定カテゴリの返金
+        const categoriesToRefund = refundCategories && refundCategories.length > 0 
+          ? refundCategories 
+          : Object.keys(categoryAmounts); // 全カテゴリ
+
+        for (const category of categoriesToRefund) {
+          const paymentValue = paymentMethodsByCategory[category];
+          const categoryAmount = categoryAmounts[category] || 0;
+          
+          if (categoryAmount > 0 && paymentValue) {
+            // 文字列の場合（単一支払い方法）
+            if (typeof paymentValue === 'string') {
+              if (paymentValue === 'pointA' || paymentValue === 'pointB' || paymentValue === 'sideGameTip') {
+                refundAmounts[paymentValue] += categoryAmount;
+              }
+            }
+            // 配列の場合（分割支払い）
+            else if (Array.isArray(paymentValue)) {
+              for (const split of paymentValue) {
+                if (split.method === 'pointA' || split.method === 'pointB' || split.method === 'sideGameTip') {
+                  refundAmounts[split.method] += split.amount;
+                }
+              }
+            }
+          }
+        }
+
+        // ユーザーにポイント/サイドゲームチップを返還
+        const userRef = db.collection('users').doc(userId);
+        const userUpdates: Record<string, any> = {};
+
+        for (const [fieldName, amount] of Object.entries(refundAmounts)) {
+          if (amount > 0) {
+            userUpdates[fieldName] = admin.firestore.FieldValue.increment(amount);
+          }
+        }
+
+        if (Object.keys(userUpdates).length > 0) {
+          userUpdates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+          transaction.update(userRef, userUpdates);
+        }
+      }
+
       // accountingHistoryに返金記録を追加
       const accountingHistoryId = billData.accountingHistoryId;
       if (accountingHistoryId) {
@@ -85,6 +156,7 @@ export const processRefund = onCall(async (request) => {
           refundAmount: refundAmount,
           refundReason: refundReason,
           refundMethod: refundMethod,
+          refundCategories: refundCategories || [],
           processedBy: adminId,
           processedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
@@ -104,6 +176,7 @@ export const processRefund = onCall(async (request) => {
         refundAmount: refundAmount,
         refundReason: refundReason,
         refundMethod: refundMethod,
+        refundCategories: refundCategories || [],
         processedBy: adminId,
         processedAt: admin.firestore.FieldValue.serverTimestamp(),
         createdAt: admin.firestore.FieldValue.serverTimestamp(),

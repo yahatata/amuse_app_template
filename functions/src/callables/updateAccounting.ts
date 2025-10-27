@@ -23,12 +23,19 @@ const ItemSchema = z.object({
   quantity: z.number().int().min(1, '数量は1以上である必要があります'),
 });
 
+// サイドゲームチップのスキーマ
+const SideGameChipSchema = z.object({
+  name: z.string().min(1, 'チップ名は必須です'),
+  price: z.number().min(0, '価格は0以上である必要があります'),
+});
+
 // 会計修正のスキーマ
 const UpdateAccountingSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
   extraCost: z.array(ExtraCostSchema).optional(),
   tournaments: z.record(z.string(), TournamentEntrySchema).optional(),
   items: z.array(ItemSchema).optional(),
+  sideGameChip: z.array(SideGameChipSchema).optional(),
   reason: z.string().min(1, '修正理由は必須です'),
 });
 
@@ -58,7 +65,7 @@ export const updateAccounting = onCall(async (request) => {
 
     // 入力データの検証
     const validatedData = UpdateAccountingSchema.parse(request.data);
-    const { billId, extraCost, tournaments, items, reason } = validatedData;
+    const { billId, extraCost, tournaments, items, sideGameChip, reason } = validatedData;
 
     const billRef = db.collection('todaysBills').doc(billId);
 
@@ -81,6 +88,7 @@ export const updateAccounting = onCall(async (request) => {
       extraCost: billData.extraCost || [],
       tournaments: billData.tournaments || {},
       items: billData.items || [],
+      sideGameChip: billData.sideGameChip || [],
       totalPrice: billData.totalPrice || 0,
     };
 
@@ -104,6 +112,11 @@ export const updateAccounting = onCall(async (request) => {
       newData.items = items;
     }
 
+    // サイドゲームチップの更新
+    if (sideGameChip !== undefined) {
+      newData.sideGameChip = sideGameChip;
+    }
+
     // 新しい合計金額を計算
     let newTotalPrice = 0;
 
@@ -123,6 +136,12 @@ export const updateAccounting = onCall(async (request) => {
     const finalItems = items !== undefined ? items : oldData.items;
     for (const item of finalItems) {
       newTotalPrice += item.price * item.quantity;
+    }
+
+    // サイドゲームチップの合計
+    const finalSideGameChip = sideGameChip !== undefined ? sideGameChip : oldData.sideGameChip;
+    for (const chip of finalSideGameChip) {
+      newTotalPrice += chip.price;
     }
 
     newData.totalPrice = newTotalPrice;
@@ -145,6 +164,7 @@ export const updateAccounting = onCall(async (request) => {
             extraCost: finalExtraCost,
             tournaments: finalTournaments,
             items: finalItems,
+            sideGameChip: finalSideGameChip,
             totalPrice: newTotalPrice,
           },
           reason: reason,

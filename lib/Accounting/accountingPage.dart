@@ -127,7 +127,7 @@ class _AccountingPageState extends State<AccountingPage> {
     }
 
     // カテゴリ別支払い方法選択ダイアログを表示
-    final selectedPaymentMethodsByCategory = await showDialog<Map<String, String?>>(
+    final selectedPaymentMethodsByCategory = await showDialog<Map<String, dynamic>>(
       context: context,
       barrierDismissible: false,
       builder: (context) => CategoryPaymentMethodDialog(bill: bill),
@@ -145,10 +145,52 @@ class _AccountingPageState extends State<AccountingPage> {
 
       if (mounted) {
         if (result.data['success'] == true) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('会計を開始しました')),
+          // 会計開始成功 - 会計完了するか確認するダイアログを表示
+          final shouldComplete = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green),
+                  SizedBox(width: 8),
+                  Text('会計開始完了'),
+                ],
+              ),
+              content: const Text(
+                '会計を開始しました。\n\nこのまま会計を完了しますか？',
+                style: TextStyle(fontSize: 16),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text(
+                    '後で',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text(
+                    '会計完了',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
           );
-          _loadActiveBills(); // データを再読み込み
+
+          if (shouldComplete == true) {
+            // 会計完了を実行
+            await _completeAccounting(billId);
+          } else {
+            // 後で完了する場合は、データを再読み込み
+            _loadActiveBills();
+          }
         } else {
           // エラーメッセージをポップアップで表示
           await showDialog(
@@ -547,11 +589,15 @@ class _AccountingPageState extends State<AccountingPage> {
   }
 
   Widget _buildSettledBillCard(Map<String, dynamic> bill) {
+    final billId = bill['id'] ?? 'unknown';
     final totalPrice = bill['totalPrice'] ?? 0;
     final pokerName = bill['pokerName'] ?? '不明';
     final accountingCompletedAt = bill['accountingCompletedAt']?.toDate() ?? DateTime.now();
     final refundAmount = bill['refundAmount'] ?? 0;
     final paymentMethod = bill['paymentMethod'] ?? 'cash';
+    
+    print('=== _buildSettledBillCard ===');
+    print('billId: $billId, pokerName: $pokerName');
 
     return Card(
       elevation: 4,
@@ -599,28 +645,6 @@ class _AccountingPageState extends State<AccountingPage> {
                 fontSize: 14,
                 color: Colors.grey.shade600,
               ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // 支払い方法
-            Row(
-              children: [
-                Icon(
-                  _getPaymentMethodIcon(paymentMethod),
-                  size: 20,
-                  color: Colors.blue.shade600,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '支払い方法: ${_getPaymentMethodName(paymentMethod)}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade700,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
             ),
 
             const SizedBox(height: 16),
@@ -708,7 +732,7 @@ class _AccountingPageState extends State<AccountingPage> {
       totalExtraCost += (extraCost['price'] as num? ?? 0).toInt();
     }
     if (totalExtraCost > 0) {
-      breakdown.add(_buildBreakdownItem('入店料', totalExtraCost, bill));
+      breakdown.add(_buildBreakdownItem('入店料', totalExtraCost, bill, 'extraCost'));
     }
 
     // トーナメント参加費
@@ -727,7 +751,7 @@ class _AccountingPageState extends State<AccountingPage> {
     }
     
     if (totalTournamentFee > 0) {
-      breakdown.add(_buildBreakdownItem('トーナメント参加費', totalTournamentFee, bill));
+      breakdown.add(_buildBreakdownItem('トーナメント参加費', totalTournamentFee, bill, 'tournaments'));
     }
 
     // フード・ドリンク（items配列から取得）
@@ -739,7 +763,7 @@ class _AccountingPageState extends State<AccountingPage> {
       totalOrderAmount += price * quantity;
     }
     if (totalOrderAmount > 0) {
-      breakdown.add(_buildBreakdownItem('フード・ドリンク', totalOrderAmount, bill));
+      breakdown.add(_buildBreakdownItem('フード・ドリンク', totalOrderAmount, bill, 'items'));
     }
 
     // サイドゲームチップ（sideGameChip配列から取得）
@@ -749,7 +773,7 @@ class _AccountingPageState extends State<AccountingPage> {
       totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
     }
     if (totalSideGameChipAmount > 0) {
-      breakdown.add(_buildBreakdownItem('サイドゲームチップ', totalSideGameChipAmount, bill));
+      breakdown.add(_buildBreakdownItem('サイドゲームチップ', totalSideGameChipAmount, bill, 'sideGameChip'));
     }
 
     if (breakdown.isEmpty) {
@@ -775,7 +799,59 @@ class _AccountingPageState extends State<AccountingPage> {
     );
   }
 
-  Widget _buildBreakdownItem(String label, int amount, Map<String, dynamic> bill) {
+  Widget _buildBreakdownItem(String label, int amount, Map<String, dynamic> bill, String categoryKey) {
+    // カテゴリ別支払い方法を取得
+    final paymentMethodsByCategoryData = bill['paymentMethodsByCategory'];
+    Map<String, dynamic> paymentMethodsByCategory = {};
+    
+    // paymentMethodsByCategoryがMapの場合のみ使用
+    if (paymentMethodsByCategoryData is Map<String, dynamic>) {
+      paymentMethodsByCategory = paymentMethodsByCategoryData;
+    }
+    
+    final paymentValue = paymentMethodsByCategory[categoryKey] ?? 'cash';
+
+    // デバッグログ
+    print('=== _buildBreakdownItem ===');
+    print('label: $label, categoryKey: $categoryKey');
+    print('paymentValue type: ${paymentValue.runtimeType}');
+    print('paymentValue: $paymentValue');
+
+    // 支払い方法のバッジを作成
+    List<Widget> paymentBadges = [];
+    
+    // 文字列の場合（単一支払い方法）- 既存の動作
+    if (paymentValue is String) {
+      print('String型の支払い方法: $paymentValue');
+      paymentBadges.add(_buildPaymentBadge(paymentValue, null));
+    }
+    // 配列の場合（分割支払い）- 新機能
+    else if (paymentValue is List) {
+      print('配列型の支払い方法を処理中: ${paymentValue.length}個');
+      for (int i = 0; i < paymentValue.length; i++) {
+        final split = paymentValue[i];
+        print('split[$i]: $split, type: ${split.runtimeType}');
+        
+        if (split is Map) {
+          final method = split['method']?.toString() ?? 'cash';
+          final splitAmount = (split['amount'] as num?)?.toInt();
+          print('  → method: $method, amount: $splitAmount');
+          paymentBadges.add(_buildPaymentBadge(method, splitAmount));
+          
+          if (i < paymentValue.length - 1) {
+            paymentBadges.add(const SizedBox(width: 4));
+            paymentBadges.add(Text('+', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)));
+            paymentBadges.add(const SizedBox(width: 4));
+          }
+        } else {
+          print('  ⚠️ split is not Map: ${split.runtimeType}');
+        }
+      }
+      print('paymentBadges count: ${paymentBadges.length}');
+    } else {
+      print('⚠️ Unknown paymentValue type: ${paymentValue.runtimeType}');
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: InkWell(
@@ -797,13 +873,61 @@ class _AccountingPageState extends State<AccountingPage> {
                   ),
                 ],
               ),
-              Text(
-                '¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                style: const TextStyle(fontWeight: FontWeight.w500),
+              Row(
+                children: [
+                  Text(
+                    '¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(width: 8),
+                  ...paymentBadges,
+                ],
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // 支払い方法バッジを作成
+  Widget _buildPaymentBadge(String method, int? amount) {
+    // サイドゲームチップの場合は換算して表示
+    String displayText;
+    if (method == 'sideGameTip' && amount != null) {
+      final chipValue = (amount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+      displayText = '${_getPaymentMethodName(method)} チップ${amount}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
+    } else if (amount != null) {
+      displayText = '${_getPaymentMethodName(method)} ¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
+    } else {
+      displayText = _getPaymentMethodName(method);
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            _getPaymentMethodIcon(method),
+            size: 14,
+            color: Colors.blue.shade700,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            displayText,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.blue.shade700,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
       ),
     );
   }
