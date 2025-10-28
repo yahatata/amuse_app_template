@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repo/analytics_repository.dart';
 import '../../data/models/analytics_models.dart';
+import '../../app_config/dashboard_config.dart';
 import '../widgets/stacked_bar_chart.dart';
 import '../../core/widgets/skeleton.dart';
 
@@ -72,17 +73,67 @@ class _YearlyOverviewPageState extends ConsumerState<YearlyOverviewPage>
   @override
   Widget build(BuildContext context) {
     final yearlyDataAsync = ref.watch(yearlyDataProvider(_selectedYear));
+    final config = DashboardConfig();
 
     return Scaffold(
+      backgroundColor: config.bodyBackgroundColor,
       appBar: AppBar(
         title: Text('${_selectedYear}年 年間比較'),
-        backgroundColor: Colors.blue[700],
-        foregroundColor: Colors.white,
+        backgroundColor: config.appBarColor,
+        foregroundColor: config.appBarTextColor,
         centerTitle: true,
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabs: _tabs.map((tab) => Tab(text: tab)).toList(),
+        actions: [
+          // 年選択をAppBar右端に配置
+          Container(
+            margin: const EdgeInsets.only(right: 16),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '対象年: ',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                  ),
+                ),
+                DropdownButton<String>(
+                  value: _selectedYear,
+                  dropdownColor: Colors.blue[700],
+                  underline: Container(), // 下線を削除
+                  icon: const Icon(
+                    Icons.arrow_drop_down,
+                    color: Colors.white,
+                  ),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                  ),
+                  onChanged: (String? newValue) {
+                    if (newValue != null) {
+                      setState(() {
+                        _selectedYear = newValue;
+                      });
+                    }
+                  },
+                  items: _generateYearItems(),
+                ),
+              ],
+            ),
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: Container(
+            color: config.tabBackgroundColor,
+            child: TabBar(
+              controller: _tabController,
+              isScrollable: true,
+              labelColor: config.tabTextColor,
+              unselectedLabelColor: Colors.grey[400],
+              indicatorColor: config.tabColor,
+              tabs: _tabs.map((tab) => Tab(text: tab)).toList(),
+            ),
+          ),
         ),
       ),
       body: yearlyDataAsync.when(
@@ -119,64 +170,43 @@ class _YearlyOverviewPageState extends ConsumerState<YearlyOverviewPage>
   }
 
   Widget _buildYearlyContent(BuildContext context, List<MonthlyDoc> yearlyData) {
-    return Column(
+    return TabBarView(
+      controller: _tabController,
       children: [
-        // 年選択
-        _buildYearSelector(context),
-        // タブコンテンツ
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            children: [
-              // 総売上
-              _buildSalesChart(yearlyData),
-              // 決済別
-              _buildPaymentChart(yearlyData),
-              // カテゴリ別
-              _buildCategoryChart(yearlyData),
-              // 来店数
-              _buildOrdersChart(yearlyData),
-              // 平均客単価
-              _buildAvgValueChart(yearlyData),
-            ],
-          ),
-        ),
+        // 総売上
+        _buildSalesChart(yearlyData),
+        // 決済別
+        _buildPaymentChart(yearlyData),
+        // カテゴリ別
+        _buildCategoryChart(yearlyData),
+        // 来店数
+        _buildOrdersChart(yearlyData),
+        // 平均客単価
+        _buildAvgValueChart(yearlyData),
       ],
     );
   }
 
-  Widget _buildYearSelector(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      child: Row(
-        children: [
-          const Text(
-            '対象年: ',
-            style: TextStyle(
+  /// 年選択のアイテムを生成（2025年~現在年まで）
+  List<DropdownMenuItem<String>> _generateYearItems() {
+    final currentYear = DateTime.now().year;
+    final startYear = 2025;
+    
+    return List.generate(
+      currentYear - startYear + 1,
+      (index) {
+        final year = startYear + index;
+        return DropdownMenuItem<String>(
+          value: year.toString(),
+          child: Text(
+            '${year}年',
+            style: const TextStyle(
+              color: Colors.white,
               fontSize: 16,
-              fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(width: 8),
-          DropdownButton<String>(
-            value: _selectedYear,
-            onChanged: (String? newValue) {
-              if (newValue != null) {
-                setState(() {
-                  _selectedYear = newValue;
-                });
-              }
-            },
-            items: List.generate(5, (index) {
-              final year = DateTime.now().year - index;
-              return DropdownMenuItem<String>(
-                value: year.toString(),
-                child: Text('${year}年'),
-              );
-            }),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -186,7 +216,7 @@ class _YearlyOverviewPageState extends ConsumerState<YearlyOverviewPage>
       child: StackedBarChart(
         yearlyData: yearlyData,
         chartType: 'sales',
-        title: '年間総売上推移',
+        title: '月間総売上推移',
         onTap: () {
           // 詳細アクション（必要に応じて実装）
         },
@@ -200,7 +230,7 @@ class _YearlyOverviewPageState extends ConsumerState<YearlyOverviewPage>
       child: StackedBarChart(
         yearlyData: yearlyData,
         chartType: 'payment',
-        title: '年間決済別推移',
+        title: '月間決済別推移',
         onTap: () {
           // 詳細アクション（必要に応じて実装）
         },
@@ -214,7 +244,7 @@ class _YearlyOverviewPageState extends ConsumerState<YearlyOverviewPage>
       child: StackedBarChart(
         yearlyData: yearlyData,
         chartType: 'category',
-        title: '年間カテゴリ別推移',
+        title: '月間カテゴリ別推移',
         onTap: () {
           // 詳細アクション（必要に応じて実装）
         },
@@ -228,7 +258,7 @@ class _YearlyOverviewPageState extends ConsumerState<YearlyOverviewPage>
       child: StackedBarChart(
         yearlyData: yearlyData,
         chartType: 'orders',
-        title: '年間来店数推移',
+        title: '月間来店数推移',
         onTap: () {
           // 詳細アクション（必要に応じて実装）
         },
@@ -242,7 +272,7 @@ class _YearlyOverviewPageState extends ConsumerState<YearlyOverviewPage>
       child: StackedBarChart(
         yearlyData: yearlyData,
         chartType: 'avgValue',
-        title: '年間平均客単価推移',
+        title: '月間平均客単価推移',
         onTap: () {
           // 詳細アクション（必要に応じて実装）
         },

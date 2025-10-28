@@ -31,7 +31,7 @@ class AnalyticsRepository {
   /// 指定年（YYYY）に存在する月次Docをすべて取得（1〜12のうち存在分）
   /// 参照パス: analyticsMonthly/{YYYY-01} 〜 analyticsMonthly/{YYYY-12}
   /// 使用フィールド: grossSales, orderCount, avgOrderValue, paymentTotals
-  /// 戻り値の構造: List<MonthlyDoc>（存在する月のみ、日付昇順）
+  /// 戻り値の構造: List<MonthlyDoc>（12ヶ月分、データなしの月は空のMonthlyDoc）
   Future<List<MonthlyDoc>> fetchYearlyMonthlyDocs(String yyyy) async {
     try {
       final months = <String>[];
@@ -42,7 +42,34 @@ class AnalyticsRepository {
       final futures = months.map((month) => fetchMonthlyDoc(month));
       final results = await Future.wait(futures);
       
-      return results.where((doc) => doc != null).cast<MonthlyDoc>().toList();
+      // 12ヶ月分のデータを作成（データなしの月は空のMonthlyDoc）
+      final yearlyDocs = <MonthlyDoc>[];
+      for (int i = 0; i < 12; i++) {
+        final monthId = months[i];
+        final doc = results[i];
+        
+        if (doc != null) {
+          yearlyDocs.add(doc);
+        } else {
+          // データなしの月は空のMonthlyDocを作成
+          yearlyDocs.add(MonthlyDoc(
+            monthId: monthId,
+            grossSales: 0,
+            orderCount: 0,
+            avgOrderValue: 0.0,
+            itemsSales: 0,
+            sideGameChipSales: 0,
+            tournamentsSales: 0,
+            extraCostSales: 0,
+            dailySales: {},
+            paymentTotals: {},
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ));
+        }
+      }
+      
+      return yearlyDocs;
     } catch (e) {
       throw Exception('年間データの取得に失敗しました: $e');
     }

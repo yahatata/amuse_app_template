@@ -10,6 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// 参照パス: analyticsMonthly/{YYYY-MM}
 /// 使用フィールド: grossSales, orderCount, avgOrderValue, itemsSales, sideGameChipSales, tournamentsSales, extraCostSales, dailySales, paymentTotals
 class MonthlyDoc {
+  final String monthId; // YYYY-MM形式
   final int grossSales;
   final int orderCount;
   final double avgOrderValue;
@@ -23,6 +24,7 @@ class MonthlyDoc {
   final DateTime updatedAt;
 
   MonthlyDoc({
+    required this.monthId,
     required this.grossSales,
     required this.orderCount,
     required this.avgOrderValue,
@@ -39,6 +41,7 @@ class MonthlyDoc {
   factory MonthlyDoc.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     return MonthlyDoc(
+      monthId: doc.id, // ドキュメントID（YYYY-MM形式）
       grossSales: data['grossSales'] ?? 0,
       orderCount: data['orderCount'] ?? 0,
       avgOrderValue: (data['avgOrderValue'] ?? 0).toDouble(),

@@ -29,7 +29,7 @@ class DonutChart extends StatelessWidget {
   Widget build(BuildContext context) {
     // 画面縦幅の13%を円グラフの半径として使用
     final screenHeight = MediaQuery.of(context).size.height;
-    final chartRadius = screenHeight * 0.06;
+    final chartRadius = screenHeight * 0.047;
     
     final data = paymentData ?? categoryData;
     if (data == null || data.isEmpty) {
@@ -52,6 +52,10 @@ class DonutChart extends StatelessWidget {
       );
     }
 
+    // 売上降順（最大を先頭）にソート
+    filteredData.sort((a, b) =>
+        (((b as dynamic).sales) as num).compareTo(((a as dynamic).sales) as num));
+
     final total = filteredData.map((e) => (e as dynamic).sales).reduce((a, b) => a + b);
 
     return GestureDetector(
@@ -73,13 +77,15 @@ class DonutChart extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 1),
                 SizedBox(
                   // ドーナツグラフ全体のサイズ（画面縦幅の13%の直径）
                   width: chartRadius * 2,
                   height: chartRadius * 2,
                   child: PieChart(
                     PieChartData(
+                      // 12時から開始（時計回りに伸びる）
+                      startDegreeOffset: -90,
                       pieTouchData: PieTouchData(
                         enabled: true,
                         touchCallback: (FlTouchEvent event, pieTouchResponse) {
@@ -93,7 +99,7 @@ class DonutChart extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 16),
                 // 合計金額
                 Center(
                   child: Text(
@@ -120,6 +126,7 @@ class DonutChart extends StatelessWidget {
     );
   }
 
+  // data は build 内で降順ソート済み
   List<PieChartSectionData> _buildSections(List<dynamic> data, int total, double chartRadius) {
     final colors = [
       Colors.blue,
@@ -136,7 +143,7 @@ class DonutChart extends StatelessWidget {
       final index = entry.key;
       final item = entry.value;
       final color = colors[index % colors.length];
-      final percentage = ((item as dynamic).sales / total) * 100;
+      final percentage = ((item as dynamic).sales / total) * 100; // 凡例計算用
 
       return PieChartSectionData(
         color: color,

@@ -34,9 +34,23 @@ class LineChart extends StatelessWidget {
       );
     }
 
-    // 最大値を取得（スケール用）
-    final maxValue = dailyData.map((e) => e.sales).reduce((a, b) => a > b ? a : b);
-    final maxScale = (maxValue * 1.1).round();
+    // 最大売上を取得
+    final maxSales = dailyData.map((e) => e.sales).reduce((a, b) => a > b ? a : b);
+    
+    // 最上位補助線の金額を決定（20,000円単位）
+    int topValue;
+    if (maxSales <= 100000) {
+      topValue = 100000; // 100,000円
+    } else if (maxSales <= 200000) {
+      topValue = 200000; // 200,000円
+    } else if (maxSales <= 300000) {
+      topValue = 300000; // 300,000円
+    } else if (maxSales <= 400000) {
+      topValue = 400000; // 400,000円
+    } else {
+      // 400,000円を超える場合は100,000円刻みで増加
+      topValue = ((maxSales / 100000).ceil() * 100000);
+    }
 
     return GestureDetector(
       onTap: onTap,
@@ -82,7 +96,7 @@ class LineChart extends StatelessWidget {
                   gridData: fl_chart.FlGridData(
                     show: true,
                     drawVerticalLine: false,
-                    horizontalInterval: maxScale / 5,
+                    horizontalInterval: topValue / 5, // 5つの間隔で6本の補助線
                     getDrawingHorizontalLine: (value) {
                       return fl_chart.FlLine(
                         color: Colors.grey.withOpacity(0.2),
@@ -126,9 +140,11 @@ class LineChart extends StatelessWidget {
                       sideTitles: fl_chart.SideTitles(
                         showTitles: true,
                         reservedSize: 60,
+                        interval: topValue / 5, // 5つの間隔で6本の補助線
                         getTitlesWidget: (value, meta) {
+                          final intValue = value.toInt();
                           return Text(
-                            Formatters.formatNumber(value.toInt()),
+                            Formatters.formatNumber(intValue),
                             style: const TextStyle(
                               fontSize: 10,
                               color: Colors.grey,
@@ -148,7 +164,7 @@ class LineChart extends StatelessWidget {
                   minX: 0,
                   maxX: (dailyData.length - 1).toDouble(),
                   minY: 0,
-                  maxY: maxScale.toDouble(),
+                  maxY: topValue.toDouble(),
                   lineBarsData: [
                     fl_chart.LineChartBarData(
                       spots: _buildSpots(),

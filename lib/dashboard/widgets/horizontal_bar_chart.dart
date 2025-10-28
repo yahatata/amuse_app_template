@@ -34,9 +34,9 @@ class HorizontalBarChart extends StatelessWidget {
       );
     }
 
-    // 最大値を取得（スケール用）
+    // 最上位補助線を計算（15万円単位）
     final maxValue = categoryData.map((e) => e.sales).reduce((a, b) => a > b ? a : b);
-    final maxScale = (maxValue * 1.05).round();
+    final topValue = _calculateTopValue(maxValue);
 
     return GestureDetector(
       onTap: onTap,
@@ -46,7 +46,7 @@ class HorizontalBarChart extends StatelessWidget {
         child: BarChart(
           BarChartData(
             alignment: BarChartAlignment.spaceAround,
-            maxY: maxScale.toDouble(),
+            maxY: topValue.toDouble(),
             barTouchData: BarTouchData(
               enabled: true,
                   touchTooltipData: BarTouchTooltipData(
@@ -94,6 +94,7 @@ class HorizontalBarChart extends StatelessWidget {
                 sideTitles: SideTitles(
                   showTitles: true,
                   reservedSize: 60,
+                  interval: topValue / 3, // 補助線と同期
                   getTitlesWidget: (value, meta) {
                     return Text(
                       Formatters.formatNumber(value.toInt()),
@@ -111,7 +112,7 @@ class HorizontalBarChart extends StatelessWidget {
             gridData: FlGridData(
               show: true,
               drawVerticalLine: false,
-              horizontalInterval: maxScale / 5,
+              horizontalInterval: topValue / 3, // 4本の補助線（0, 1/3, 2/3, 1）
               getDrawingHorizontalLine: (value) {
                 return FlLine(
                   color: Colors.grey.withOpacity(0.2),
@@ -123,6 +124,21 @@ class HorizontalBarChart extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// 最上位補助線を計算（15万円単位）
+  int _calculateTopValue(int maxValue) {
+    if (maxValue <= 150000) {
+      return 150000; // 15万円
+    } else if (maxValue <= 300000) {
+      return 300000; // 30万円
+    } else if (maxValue <= 450000) {
+      return 450000; // 45万円
+    } else if (maxValue <= 600000) {
+      return 600000; // 60万円
+    } else {
+      return ((maxValue / 150000).ceil() * 150000);
+    }
   }
 
   List<BarChartGroupData> _buildBarGroups() {
