@@ -67,4 +67,8 @@ class GlobalConstants {
     'items': ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameTip'], // フード・ドリンク
     'tournaments': ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB'], // トーナメント参加費
   };
+
+  // サイドゲームチップ換算率設定
+  static const double SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0; // サイドゲームチップ1 = 10円相当
+  static const String SIDE_GAME_CHIP_DESCRIPTION = "サイドゲームチップ1枚 = ¥${SIDE_GAME_CHIP_EXCHANGE_RATE}相当";
 }

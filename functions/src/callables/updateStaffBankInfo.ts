@@ -15,6 +15,7 @@ const bankInfoSchema = z.object({
 });
 
 /**
+ * 本番環境では銀行口座情報を暗号化して保存することを推奨!!
  * スタッフの銀行口座情報を更新するCloud Function
  * 
  * @param data - スタッフIDと銀行口座情報

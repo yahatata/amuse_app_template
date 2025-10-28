@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/globalConstant.dart';
 
 class CustomerAccountingDetailPage extends StatelessWidget {
   final Map<String, dynamic> customer;
@@ -208,30 +209,8 @@ class CustomerAccountingDetailPage extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // 支払い方法
-            Row(
-              children: [
-                Icon(
-                  _getPaymentMethodIcon(paymentMethod),
-                  size: 20,
-                  color: Colors.blue.shade600,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '支払い方法: ${_getPaymentMethodName(paymentMethod)}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade700,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // 注文商品の表示
-            _buildOrderItems(record),
+            // カテゴリ別内訳の表示
+            _buildCategoryBreakdown(record),
 
             const SizedBox(height: 16),
 
@@ -359,12 +338,77 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     );
   }
 
-  Widget _buildOrderItems(Map<String, dynamic> record) {
-    final items = record['items'] as List<dynamic>? ?? [];
-    final extraCosts = record['extraCost'] as List<dynamic>? ?? [];
-    final tournamentsData = record['tournaments'];
+  Widget _buildCategoryBreakdown(Map<String, dynamic> record) {
+    // paymentMethodsByCategoryを安全に取得（Map<Object?, Object?>からMap<String, dynamic>への変換）
+    final rawPaymentMethods = record['paymentMethodsByCategory'];
+    final Map<String, dynamic> paymentMethodsByCategory = {};
+    
+    if (rawPaymentMethods != null && rawPaymentMethods is Map) {
+      rawPaymentMethods.forEach((key, value) {
+        if (key != null && value != null) {
+          // 配列の場合（分割支払い）はそのまま保存、文字列の場合は文字列のまま
+          if (value is List) {
+            paymentMethodsByCategory[key.toString()] = value;
+          } else {
+            paymentMethodsByCategory[key.toString()] = value.toString();
+          }
+        }
+      });
+    }
+    
+    final breakdown = <Widget>[];
 
-    if (items.isEmpty && extraCosts.isEmpty && tournamentsData == null) {
+    // 入店料
+    final extraCosts = record['extraCost'] as List<dynamic>? ?? [];
+    int totalExtraCost = 0;
+    for (final extraCost in extraCosts) {
+      totalExtraCost += (extraCost['price'] as num? ?? 0).toInt();
+    }
+    if (totalExtraCost > 0) {
+      final paymentValue = paymentMethodsByCategory['extraCost'] ?? 'cash';
+      breakdown.add(_buildBreakdownItem('入店料', totalExtraCost, paymentValue));
+    }
+
+    // トーナメント参加費
+    final tournamentsData = record['tournaments'];
+    int totalTournamentFee = 0;
+    if (tournamentsData != null && tournamentsData is Map) {
+      for (final tournamentEntry in tournamentsData.values) {
+        if (tournamentEntry is Map) {
+          totalTournamentFee += ((tournamentEntry['entryFee'] as num?) ?? 0).toInt();
+        }
+      }
+    }
+    if (totalTournamentFee > 0) {
+      final paymentValue = paymentMethodsByCategory['tournaments'] ?? 'cash';
+      breakdown.add(_buildBreakdownItem('トーナメント参加費', totalTournamentFee, paymentValue));
+    }
+
+    // フード・ドリンク
+    final items = record['items'] as List<dynamic>? ?? [];
+    int totalOrderAmount = 0;
+    for (final item in items) {
+      final price = (item['price'] as num? ?? 0).toInt();
+      final quantity = (item['quantity'] as num? ?? 0).toInt();
+      totalOrderAmount += price * quantity;
+    }
+    if (totalOrderAmount > 0) {
+      final paymentValue = paymentMethodsByCategory['items'] ?? 'cash';
+      breakdown.add(_buildBreakdownItem('フード・ドリンク', totalOrderAmount, paymentValue));
+    }
+
+    // サイドゲームチップ
+    final sideGameChips = record['sideGameChip'] as List<dynamic>? ?? [];
+    int totalSideGameChipAmount = 0;
+    for (final chip in sideGameChips) {
+      totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
+    }
+    if (totalSideGameChipAmount > 0) {
+      final paymentValue = paymentMethodsByCategory['sideGameChip'] ?? 'cash';
+      breakdown.add(_buildBreakdownItem('サイドゲームチップ', totalSideGameChipAmount, paymentValue));
+    }
+
+    if (breakdown.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -380,7 +424,7 @@ class CustomerAccountingDetailPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            '注文内容',
+            'カテゴリ別内訳',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -388,46 +432,103 @@ class CustomerAccountingDetailPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          
-          // 入店料
-          if (extraCosts.isNotEmpty) ...[
-            const Text(
-              '入店料:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            ...extraCosts.map((extraCost) => Padding(
-              padding: const EdgeInsets.only(left: 16, top: 4),
-              child: Text('¥${extraCost['price']} - ${extraCost['name'] ?? '入店料'}'),
-            )),
-            const SizedBox(height: 8),
-          ],
+          ...breakdown,
+        ],
+      ),
+    );
+  }
 
-          // トーナメント参加費
-          if (tournamentsData != null) ...[
-            const Text(
-              'トーナメント参加費:',
-              style: TextStyle(fontWeight: FontWeight.bold),
+  Widget _buildBreakdownItem(String label, int amount, dynamic paymentValue) {
+    // 支払い方法のバッジを作成
+    List<Widget> paymentBadges = [];
+    
+    // 文字列の場合（単一支払い方法）- 既存の動作
+    if (paymentValue is String) {
+      paymentBadges.add(_buildPaymentBadge(paymentValue, null));
+    }
+    // 配列の場合（分割支払い）- 新機能
+    else if (paymentValue is List) {
+      for (final split in paymentValue) {
+        if (split is Map) {
+          final method = split['method']?.toString() ?? 'cash';
+          final splitAmount = (split['amount'] as num?)?.toInt();
+          paymentBadges.add(_buildPaymentBadge(method, splitAmount));
+          if (split != paymentValue.last) {
+            paymentBadges.add(const SizedBox(width: 4));
+            paymentBadges.add(Text('+', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)));
+            paymentBadges.add(const SizedBox(width: 4));
+          }
+        }
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
             ),
-            if (tournamentsData is Map<String, dynamic>) ...[
-              ...tournamentsData.entries.map((entry) => Padding(
-                padding: const EdgeInsets.only(left: 16, top: 4),
-                child: Text('¥${entry.value['entryFee']} - ${entry.value['tournamentName'] ?? entry.key}'),
-              )),
+          ),
+          Row(
+            children: [
+              Text(
+                '¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 8),
+              ...paymentBadges,
             ],
-            const SizedBox(height: 8),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
 
-          // フード・ドリンク
-          if (items.isNotEmpty) ...[
-            const Text(
-              'フード・ドリンク:',
-              style: TextStyle(fontWeight: FontWeight.bold),
+  // 支払い方法バッジを作成
+  Widget _buildPaymentBadge(String method, int? amount) {
+    // サイドゲームチップの場合は換算して表示
+    String displayText;
+    if (method == 'sideGameTip' && amount != null) {
+      final chipValue = (amount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+      displayText = '${_getPaymentMethodName(method)} チップ${amount}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
+    } else if (amount != null) {
+      displayText = '${_getPaymentMethodName(method)} ¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
+    } else {
+      displayText = _getPaymentMethodName(method);
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            _getPaymentMethodIcon(method),
+            size: 14,
+            color: Colors.blue.shade700,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            displayText,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.blue.shade700,
+              fontWeight: FontWeight.bold,
             ),
-            ...items.map((item) => Padding(
-              padding: const EdgeInsets.only(left: 16, top: 4),
-              child: Text('${item['quantity']}個 × ¥${item['price']} - ${item['name']}'),
-            )),
-          ],
+          ),
         ],
       ),
     );

@@ -91,14 +91,70 @@ export const cancelAccounting = onCall(async (request) => {
         });
       }
 
-      // ユーザーの退店状態を復元
+      // ユーザーの退店状態を復元 & ポイント/サイドゲームチップを返還
       const userId = billData.userId;
       if (userId) {
         const userRef = db.collection('users').doc(userId);
-        transaction.update(userRef, {
+        
+        // ポイント/サイドゲームチップの返還処理
+        const paymentMethodsByCategory = billData.paymentMethodsByCategory || {};
+        const categoryAmounts: Record<string, number> = {};
+
+        // 各カテゴリの金額を計算
+        const extraCosts = billData.extraCost || [];
+        categoryAmounts['extraCost'] = extraCosts.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
+
+        const tournaments = billData.tournaments || {};
+        categoryAmounts['tournaments'] = Object.values(tournaments).reduce((sum: number, item: any) => sum + (item.entryFee || 0), 0);
+
+        const items = billData.items || [];
+        categoryAmounts['items'] = items.reduce((sum: number, item: any) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
+
+        const sideGameChips = billData.sideGameChip || [];
+        categoryAmounts['sideGameChip'] = sideGameChips.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
+
+        // 返還する金額を計算
+        const refundAmounts: Record<string, number> = {
+          pointA: 0,
+          pointB: 0,
+          sideGameTip: 0,
+        };
+
+        for (const [category, paymentValue] of Object.entries(paymentMethodsByCategory)) {
+          const categoryAmount = categoryAmounts[category] || 0;
+          
+          if (categoryAmount > 0) {
+            // 文字列の場合（単一支払い方法）
+            if (typeof paymentValue === 'string') {
+              if (paymentValue === 'pointA' || paymentValue === 'pointB' || paymentValue === 'sideGameTip') {
+                refundAmounts[paymentValue] += categoryAmount;
+              }
+            }
+            // 配列の場合（分割支払い）
+            else if (Array.isArray(paymentValue)) {
+              for (const split of paymentValue) {
+                if (split.method === 'pointA' || split.method === 'pointB' || split.method === 'sideGameTip') {
+                  refundAmounts[split.method] += split.amount;
+                }
+              }
+            }
+          }
+        }
+
+        // ユーザーの状態を更新
+        const userUpdates: Record<string, any> = {
           isStaying: true,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        };
+
+        // ポイント/サイドゲームチップを返還
+        for (const [fieldName, amount] of Object.entries(refundAmounts)) {
+          if (amount > 0) {
+            userUpdates[fieldName] = admin.firestore.FieldValue.increment(amount);
+          }
+        }
+
+        transaction.update(userRef, userUpdates);
 
         // visitLogsの最新の完了ログを未完了に戻す
         const visitLogsSnapshot = await userRef.collection('visitLogs')

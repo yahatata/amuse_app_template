@@ -1,6 +1,6 @@
 import * as admin from 'firebase-admin';
-import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { HttpsError, onCall } from 'firebase-functions/v2/https';
 
 const db = admin.firestore();
 
@@ -29,21 +29,21 @@ const SideGameChipSchema = z.object({
   price: z.number().min(0, '価格は0以上である必要があります'),
 });
 
-// 会計修正のスキーマ
-const UpdateAccountingSchema = z.object({
+// 会計前修正のスキーマ
+const UpdateActiveBillSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
   extraCost: z.array(ExtraCostSchema).optional(),
   tournaments: z.record(z.string(), TournamentEntrySchema).optional(),
   items: z.array(ItemSchema).optional(),
   sideGameChip: z.array(SideGameChipSchema).optional(),
-  reason: z.string().min(1, '修正理由は必須です'),
 });
 
 /**
- * 会計内容を修正するCloud Function
+ * 会計前の請求書内容を修正するCloud Function
+ * accountingStartedAtがnull（会計開始前）の場合のみ修正可能
  * 管理者権限を持つユーザーのみが実行可能
  */
-export const updateAccounting = onCall(async (request) => {
+export const updateActiveBill = onCall(async (request) => {
   // 認証チェック
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
@@ -64,8 +64,8 @@ export const updateAccounting = onCall(async (request) => {
     }
 
     // 入力データの検証
-    const validatedData = UpdateAccountingSchema.parse(request.data);
-    const { billId, extraCost, tournaments, items, sideGameChip, reason } = validatedData;
+    const validatedData = UpdateActiveBillSchema.parse(request.data);
+    const { billId, extraCost, tournaments, items, sideGameChip } = validatedData;
 
     const billRef = db.collection('todaysBills').doc(billId);
 
@@ -76,14 +76,13 @@ export const updateAccounting = onCall(async (request) => {
     }
 
     const billData = billDoc.data()!;
-    const currentStatus = billData.status || 'open';
-
-    // 会計完了済みの場合のみ修正可能
-    if (currentStatus !== 'settled') {
-      throw new HttpsError('failed-precondition', '会計完了済みの請求書のみ修正可能です');
+    
+    // 会計前（accountingStartedAt === null）の場合のみ修正可能
+    if (billData.accountingStartedAt) {
+      throw new HttpsError('failed-precondition', '会計開始前の請求書のみ修正可能です');
     }
 
-    // 修正前のデータを保存
+    // 修正前のデータを保存（ログ用）
     const oldData = {
       extraCost: billData.extraCost || [],
       tournaments: billData.tournaments || {},
@@ -97,22 +96,16 @@ export const updateAccounting = onCall(async (request) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    // 入店料の更新
+    // 各フィールドの更新
     if (extraCost !== undefined) {
       newData.extraCost = extraCost;
     }
-
-    // トーナメント参加費の更新
     if (tournaments !== undefined) {
       newData.tournaments = tournaments;
     }
-
-    // フード・ドリンクの更新
     if (items !== undefined) {
       newData.items = items;
     }
-
-    // サイドゲームチップの更新
     if (sideGameChip !== undefined) {
       newData.sideGameChip = sideGameChip;
     }
@@ -146,43 +139,13 @@ export const updateAccounting = onCall(async (request) => {
 
     newData.totalPrice = newTotalPrice;
 
-    // トランザクションで更新
-    await db.runTransaction(async (transaction) => {
-      // todaysBillsを更新
-      transaction.update(billRef, newData);
+    // todaysBillsを更新
+    await billRef.update(newData);
 
-      // accountingHistoryに修正記録を追加
-      const accountingHistoryId = billData.accountingHistoryId;
-      if (accountingHistoryId) {
-        const accountingHistoryRef = db.collection('accountingHistory').doc(accountingHistoryId);
-        
-        // 修正履歴を追加
-        const correctionRecord = {
-          type: 'correction',
-          oldData: oldData,
-          newData: {
-            extraCost: finalExtraCost,
-            tournaments: finalTournaments,
-            items: finalItems,
-            sideGameChip: finalSideGameChip,
-            totalPrice: newTotalPrice,
-          },
-          reason: reason,
-          correctedBy: adminId,
-          correctedAt: new Date(), // FieldValue.serverTimestamp()の代わりにDateオブジェクトを使用
-        };
-
-        transaction.update(accountingHistoryRef, {
-          corrections: admin.firestore.FieldValue.arrayUnion(correctionRecord),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-    });
-
-    console.log('会計修正成功 - 戻り値を返します');
+    console.log('会計前修正成功 - billId:', billId);
     return {
       success: true,
-      message: '会計内容を修正しました',
+      message: '請求書内容を修正しました',
       billId: billId,
       oldTotalPrice: oldData.totalPrice,
       newTotalPrice: newTotalPrice,
@@ -196,7 +159,8 @@ export const updateAccounting = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('会計修正エラー:', error);
-    throw new HttpsError('internal', '会計修正に失敗しました', error.message);
+    console.error('会計前修正エラー:', error);
+    throw new HttpsError('internal', '請求書修正に失敗しました', error.message);
   }
 });
+

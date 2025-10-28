@@ -33,20 +33,28 @@ export const getAccountingHistory = onCall(async (request) => {
       throw new HttpsError('invalid-argument', '日付パラメータが必要です');
     }
 
-    // 指定された日付の会計履歴を取得（JST時間で設定）
-    // JST時間の00:00:00をUTC時間に変換（9時間引く）
-    const startOfDay = new Date(`${date}T00:00:00`);
-    startOfDay.setHours(startOfDay.getHours() - 9);
+    // 営業日の概念を適用（店舗締め時間は9:00）
+    // 営業日の開始: 指定日のSTORE_CLOSE_HOUR（9:00）
+    // 営業日の終了: 翌日のSTORE_CLOSE_HOUR（9:00）の直前
+    const STORE_CLOSE_HOUR = 9; // globalConstant.dartと同期
     
-    // JST時間の23:59:59をUTC時間に変換（9時間引く）
-    const endOfDay = new Date(`${date}T23:59:59`);
-    endOfDay.setHours(endOfDay.getHours() - 9);
+    // JST時間で営業日の開始時刻を作成（例: 2025-10-22 09:00:00 JST）
+    const businessDayStart = new Date(`${date}T${STORE_CLOSE_HOUR.toString().padStart(2, '0')}:00:00+09:00`);
     
-    console.log('クエリ日付範囲:', { date, startOfDay, endOfDay });
+    // 営業日の終了時刻（翌日の9:00直前 = 翌日の8:59:59 JST）
+    const nextDay = new Date(businessDayStart);
+    nextDay.setDate(nextDay.getDate() + 1);
+    nextDay.setSeconds(-1); // 8:59:59
+    
+    console.log('営業日クエリ範囲:', { 
+      date, 
+      businessDayStart: businessDayStart.toISOString(), 
+      businessDayEnd: nextDay.toISOString() 
+    });
 
     const querySnapshot = await db.collection('accountingHistory')
-      .where('accountingCompletedAt', '>=', admin.firestore.Timestamp.fromDate(startOfDay))
-      .where('accountingCompletedAt', '<=', admin.firestore.Timestamp.fromDate(endOfDay))
+      .where('accountingCompletedAt', '>=', admin.firestore.Timestamp.fromDate(businessDayStart))
+      .where('accountingCompletedAt', '<=', admin.firestore.Timestamp.fromDate(nextDay))
       .orderBy('accountingCompletedAt', 'desc')
       .get();
 
