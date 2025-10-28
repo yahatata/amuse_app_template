@@ -108,7 +108,6 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
     // メニューアイテムを取得
     final menuItemsSnapshot = await _firestore
         .collection('menuItems')
-        .where('isArchive', isEqualTo: false)
         .get();
 
     final foodItems = <Map<String, dynamic>>[];
@@ -116,6 +115,11 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
 
     for (final doc in menuItemsSnapshot.docs) {
       final data = doc.data();
+      final isArchive = data['isArchive'] ?? false;
+      
+      // isArchiveがfalseのもののみ追加
+      if (isArchive) continue;
+      
       final category = data['category'] ?? '';
       final item = {
         'id': doc.id,
