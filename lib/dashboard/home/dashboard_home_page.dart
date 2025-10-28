@@ -6,6 +6,7 @@ import '../../data/repo/analytics_repository.dart';
 import '../../data/models/analytics_models.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/skeleton.dart';
+import '../../app_config/dashboard_config.dart';
 import '../widgets/horizontal_bar_chart.dart';
 import '../widgets/donut_chart.dart';
 import '../widgets/line_chart.dart';
@@ -50,27 +51,30 @@ final lastSixMonthsProvider = FutureProvider<List<Map<String, dynamic>>>((ref) a
 class DashboardHomePage extends ConsumerWidget {
   const DashboardHomePage({super.key});
 
-  /// 月の表示形式をフォーマット（YYYY-MM → YYYY年MM月）
+  /// 月の表示形式をフォーマット（YYYY-MM → YYYY/MM）
   String _formatMonthDisplay(String monthId) {
     if (monthId.isEmpty) return '';
     final parts = monthId.split('-');
     if (parts.length != 2) return monthId;
     final year = parts[0];
     final month = parts[1];
-    return '${year}年${month}月';
+    return '$year/$month';
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final monthlyDataAsync = ref.watch(monthlyDataProvider);
 
+    final config = DashboardConfig();
+    
     return Scaffold(
+      backgroundColor: config.bodyBackgroundColor,
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(MediaQuery.of(context).size.height * 0.08),
         child: AppBar(
           title: const Text('売上ダッシュボード'),
-          backgroundColor: Colors.blue[700],
-          foregroundColor: Colors.white,
+          backgroundColor: config.appBarColor,
+          foregroundColor: config.appBarTextColor,
           centerTitle: true,
           actions: [
             Consumer(
@@ -120,18 +124,24 @@ class DashboardHomePage extends ConsumerWidget {
           ],
         ),
       ),
-      body: monthlyDataAsync.when(
-        data: (monthlyData) {
-          if (monthlyData == null) {
-            return const Center(
-              child: Text('データが見つかりません'),
-            );
-          }
-          return _buildDashboardContent(context, monthlyData);
-        },
-        loading: () => _buildSkeletonContent(context),
-        error: (error, stack) => Center(
-          child: Text('エラーが発生しました: $error'),
+      body: Padding(
+        padding: EdgeInsets.only(
+          top: MediaQuery.of(context).size.height * 0.01,
+          left: MediaQuery.of(context).size.width * 0.01,
+        ),
+        child: monthlyDataAsync.when(
+          data: (monthlyData) {
+            if (monthlyData == null) {
+              return const Center(
+                child: Text('データが見つかりません'),
+              );
+            }
+            return _buildDashboardContent(context, monthlyData);
+          },
+          loading: () => _buildSkeletonContent(context),
+          error: (error, stack) => Center(
+            child: Text('エラーが発生しました: $error'),
+          ),
         ),
       ),
     );
@@ -227,7 +237,7 @@ class DashboardHomePage extends ConsumerWidget {
           // 当月日次推移
           Container(
             margin: EdgeInsets.all(screenWidth * 0.005),
-            width: screenWidth * 0.98,
+            width: screenWidth * 0.97,
             height: screenHeight * 0.40,
             child: const SkeletonChart(),
           ),
@@ -346,7 +356,7 @@ class DashboardHomePage extends ConsumerWidget {
           // 当月日次推移
           Container(
             margin: EdgeInsets.all(screenWidth * 0.005),
-            width: screenWidth * 0.98,
+            width: screenWidth * 0.96,
             height: screenHeight * 0.40,
             child: _buildDailyTrendChart(context, monthlyData),
           ),
@@ -452,36 +462,12 @@ class DashboardHomePage extends ConsumerWidget {
 
     // 最大値を取得（Y軸のスケール用）
     final maxValue = data.map((e) => e['grossSales'] as int).reduce((a, b) => a > b ? a : b);
-    final minValue = data.map((e) => e['grossSales'] as int).reduce((a, b) => a < b ? a : b);
-    final range = maxValue - minValue;
-    final padding = range * 0.1; // 10%のパディング
+    final maxScale = (maxValue * 1.1).round();
 
-    return Row(
-      children: [
-        // 縦軸用のスペース（倍のサイズ）
-        SizedBox(
-          width: 60, // 縦軸用のスペースを倍のサイズに
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: List.generate(5, (index) {
-              final value = (maxValue / 4) * (4 - index);
-              return Text(
-                value == 0 ? '0円' : '${(value / 10000).floor()}万円',
-                style: const TextStyle(fontSize: 10),
-                textAlign: TextAlign.right,
-              );
-            }),
-          ),
-        ),
-        // グラフ部分
-        Expanded(
-          child: _buildThreeMonthsLineChart(data),
-        ),
-      ],
-    );
+    return _buildThreeMonthsLineChart(data, maxScale);
   }
 
-  Widget _buildThreeMonthsLineChart(List<Map<String, dynamic>> data) {
+  Widget _buildThreeMonthsLineChart(List<Map<String, dynamic>> data, int maxScale) {
     if (data.isEmpty) {
       return const Center(
         child: Text('データがありません'),
@@ -491,50 +477,130 @@ class DashboardHomePage extends ConsumerWidget {
     // デバッグ用ログ
     print('グラフ表示用データ: ${data.map((e) => '${e['monthId']}(${e['monthName']}): ${e['grossSales']}').join(', ')}');
 
-    // データを月順にソート
-    data.sort((a, b) => a['monthId'].compareTo(b['monthId']));
-
-    // 最大値を取得（Y軸のスケール用）
-    final maxValue = data.map((e) => e['grossSales'] as int).reduce((a, b) => a > b ? a : b);
-    final minValue = data.map((e) => e['grossSales'] as int).reduce((a, b) => a < b ? a : b);
-    final range = maxValue - minValue;
-    final padding = range * 0.1; // 10%のパディング
+    // 最大売上を取得
+    final maxSales = data.map((e) => e['grossSales'] as int).reduce((a, b) => a > b ? a : b);
+    
+    // 最上位補助線の金額を決定（50万円単位）
+    int topValue;
+    if (maxSales <= 2500000) {
+      topValue = 2500000; // 250万円
+    } else if (maxSales <= 5000000) {
+      topValue = 5000000; // 500万円
+    } else if (maxSales <= 7500000) {
+      topValue = 7500000; // 750万円
+    } else if (maxSales <= 10000000) {
+      topValue = 10000000; // 1000万円
+    } else {
+      // 1000万円を超える場合は250万円刻みで増加
+      topValue = ((maxSales / 2500000).ceil() * 2500000);
+    }
 
     return fl_chart.LineChart(
       fl_chart.LineChartData(
+        lineTouchData: fl_chart.LineTouchData(
+          enabled: true,
+          touchTooltipData: fl_chart.LineTouchTooltipData(
+            tooltipRoundedRadius: 8,
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((touchedSpot) {
+                final index = touchedSpot.x.toInt();
+                if (index >= 0 && index < data.length) {
+                  final monthData = data[index];
+                  return fl_chart.LineTooltipItem(
+                    '${monthData['monthName']}\n${Formatters.formatCurrency(monthData['grossSales'])}',
+                    const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                    ),
+                  );
+                }
+                return null;
+              }).toList();
+            },
+          ),
+        ),
         gridData: fl_chart.FlGridData(
           show: true,
           drawVerticalLine: false,
-          horizontalInterval: (maxValue - minValue) / 4, // 4つの水平線を表示
+          horizontalInterval: topValue / 5, // 5つの間隔で6本の補助線
+          getDrawingHorizontalLine: (value) {
+            return fl_chart.FlLine(
+              color: Colors.grey.withOpacity(0.2),
+              strokeWidth: 1,
+            );
+          },
         ),
         titlesData: fl_chart.FlTitlesData(
-          leftTitles: const fl_chart.AxisTitles(
+          show: true,
+          rightTitles: const fl_chart.AxisTitles(
             sideTitles: fl_chart.SideTitles(showTitles: false),
           ),
           topTitles: const fl_chart.AxisTitles(
             sideTitles: fl_chart.SideTitles(showTitles: false),
           ),
-          rightTitles: const fl_chart.AxisTitles(
-            sideTitles: fl_chart.SideTitles(showTitles: false),
-          ),
           bottomTitles: fl_chart.AxisTitles(
             sideTitles: fl_chart.SideTitles(
               showTitles: true,
+              reservedSize: 30,
+              interval: 1,
               getTitlesWidget: (value, meta) {
                 final index = value.toInt();
                 if (index >= 0 && index < data.length) {
-                  return Text(
-                    data[index]['monthName'],
-                    style: const TextStyle(fontSize: 12),
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      data[index]['monthName'],
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey,
+                      ),
+                    ),
                   );
                 }
                 return const Text('');
               },
-              interval: 1, // 各データポイントにラベルを表示
+            ),
+          ),
+          leftTitles: fl_chart.AxisTitles(
+            sideTitles: fl_chart.SideTitles(
+              showTitles: true,
+              reservedSize: 60,
+              interval: topValue / 5, // 5つの間隔で6本の補助線
+              getTitlesWidget: (value, meta) {
+                final intValue = value.toInt();
+                if (intValue == 0) {
+                  return const Text(
+                    '0',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey,
+                    ),
+                  );
+                }
+                // 万円表記に変換
+                final manValue = intValue ~/ 10000;
+                return Text(
+                  '${manValue}万',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey,
+                  ),
+                );
+              },
             ),
           ),
         ),
-        borderData: fl_chart.FlBorderData(show: false),
+        borderData: fl_chart.FlBorderData(
+          show: true,
+          border: Border.all(
+            color: Colors.grey.withOpacity(0.2),
+            width: 1,
+          ),
+        ),
+        minX: 0,
+        maxX: (data.length - 1).toDouble(),
+        minY: 0,
+        maxY: topValue.toDouble(),
         lineBarsData: [
           fl_chart.LineChartBarData(
             spots: data.asMap().entries.map((entry) {
@@ -544,17 +610,23 @@ class DashboardHomePage extends ConsumerWidget {
             color: Colors.blue,
             barWidth: 3,
             isStrokeCapRound: true,
-            dotData: const fl_chart.FlDotData(show: true),
+            dotData: fl_chart.FlDotData(
+              show: true,
+              getDotPainter: (spot, percent, barData, index) {
+                return fl_chart.FlDotCirclePainter(
+                  radius: 4,
+                  color: Colors.blue,
+                  strokeWidth: 2,
+                  strokeColor: Colors.white,
+                );
+              },
+            ),
             belowBarData: fl_chart.BarAreaData(
               show: true,
-              color: Colors.blue.withValues(alpha: 0.1),
+              color: Colors.blue.withOpacity(0.1),
             ),
           ),
         ],
-        minY: 0, // 最小値を0に設定
-        maxY: maxValue.toDouble(), // 最大値を最も売り上げの多い月の価格に設定
-        minX: 0,
-        maxX: (data.length - 1).toDouble(),
       ),
     );
   }
@@ -588,14 +660,19 @@ class DashboardHomePage extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           Expanded(
-            child: HorizontalBarChart(
-              categoryData: monthlyData.categorySales,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const CategoryOverviewPage(),
-                  ),
+            child: Consumer(
+              builder: (context, ref, child) {
+                final selectedMonth = ref.watch(selectedMonthProvider);
+                return HorizontalBarChart(
+                  categoryData: monthlyData.categorySales,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CategoryOverviewPage(month: selectedMonth),
+                      ),
+                    );
+                  },
                 );
               },
             ),
@@ -620,17 +697,66 @@ class DashboardHomePage extends ConsumerWidget {
           ),
         ],
       ),
-      child: DonutChart(
-        paymentData: monthlyData.paymentMethodSales,
-        title: '支払手段',
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const PaymentBreakdownPage(),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '支払手段',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Consumer(
+                builder: (context, ref, child) {
+                  final selectedMonth = ref.watch(selectedMonthProvider);
+                  return GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => PaymentBreakdownPage(month: selectedMonth),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[100],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        '詳細',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+          Expanded(
+            child: Consumer(
+              builder: (context, ref, child) {
+                final selectedMonth = ref.watch(selectedMonthProvider);
+                return DonutChart(
+                  paymentData: monthlyData.paymentMethodSales,
+                  title: '',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => PaymentBreakdownPage(month: selectedMonth),
+                      ),
+                    );
+                  },
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
@@ -650,17 +776,61 @@ class DashboardHomePage extends ConsumerWidget {
           ),
         ],
       ),
-      child: DonutChart(
-        categoryData: monthlyData.categorySales,
-        title: 'カテゴリ構成',
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const CategoryOverviewPage(),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'カテゴリ構成',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Consumer(
+                builder: (context, ref, child) {
+                  final selectedMonth = ref.watch(selectedMonthProvider);
+                  return GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => CategoryOverviewPage(month: selectedMonth),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[100],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        '詳細',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+          Expanded(
+            child: DonutChart(
+              categoryData: monthlyData.categorySales,
+              title: '',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const CategoryOverviewPage(),
+                  ),
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
@@ -680,17 +850,66 @@ class DashboardHomePage extends ConsumerWidget {
           ),
         ],
       ),
-      child: LineChart(
-        dailyData: monthlyData.dailySalesList,
-        title: '当月日次推移',
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const DailyTrendPage(),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '当月日次推移',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Consumer(
+                builder: (context, ref, child) {
+                  final selectedMonth = ref.watch(selectedMonthProvider);
+                  return GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => DailyTrendPage(month: selectedMonth),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[100],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        '詳細',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+          Expanded(
+            child: Consumer(
+              builder: (context, ref, child) {
+                final selectedMonth = ref.watch(selectedMonthProvider);
+                return LineChart(
+                  dailyData: monthlyData.dailySalesList,
+                  title: '',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => DailyTrendPage(month: selectedMonth),
+                      ),
+                    );
+                  },
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }

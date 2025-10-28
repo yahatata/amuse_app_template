@@ -6,12 +6,29 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../data/repo/analytics_repository.dart';
 import '../../data/models/analytics_models.dart';
 import '../../core/utils/formatters.dart';
+import '../../app_config/dashboard_config.dart';
 import '../../core/widgets/skeleton.dart';
 
 // region Riverpod Providers
+
+/// 利用可能な月のリストのProvider
+final availableMonthsProvider = FutureProvider<List<String>>((ref) async {
+  final firestore = FirebaseFirestore.instance;
+  final snapshot = await firestore.collection('analyticsMonthly').get();
+  final months = snapshot.docs.map((doc) => doc.id).toList();
+  months.sort((a, b) => b.compareTo(a)); // 新しい順にソート
+  return months;
+});
+
+/// 選択された月のProvider
+final selectedMonthProvider = StateProvider<String>((ref) {
+  final repository = AnalyticsRepository();
+  return repository.getCurrentYearMonth();
+});
 
 /// カテゴリサマリーのProvider
 final categorySummaryProvider = FutureProvider.family<CategorySummaryDoc?, String>((ref, yyyymm) async {
@@ -41,16 +58,85 @@ class _CategoryItemBreakdownPageState extends ConsumerState<CategoryItemBreakdow
   final List<String> _categoryOptions = ['全て', '商品', 'サイドゲームチップ', '追加料金', 'トーナメント'];
 
   @override
-  Widget build(BuildContext context) {
-    final currentMonth = widget.month ?? AnalyticsRepository().getCurrentYearMonth();
-    final categorySummaryAsync = ref.watch(categorySummaryProvider(currentMonth));
+  void initState() {
+    super.initState();
+    // 遷移時に渡された月をデフォルト値として設定
+    if (widget.month != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(selectedMonthProvider.notifier).state = widget.month!;
+      });
+    }
+  }
 
+  /// 月の表示形式をフォーマット（YYYY-MM → YYYY/MM）
+  String _formatMonthDisplay(String monthId) {
+    if (monthId.isEmpty) return '';
+    final parts = monthId.split('-');
+    if (parts.length != 2) return monthId;
+    final year = parts[0];
+    final month = parts[1];
+    return '$year/$month';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedMonth = ref.watch(selectedMonthProvider);
+    final categorySummaryAsync = ref.watch(categorySummaryProvider(selectedMonth));
+
+    final config = DashboardConfig();
+    
     return Scaffold(
+      backgroundColor: config.bodyBackgroundColor,
       appBar: AppBar(
-        title: Text('商品別詳細 - ${Formatters.formatYearMonth(currentMonth)}'),
-        backgroundColor: Colors.blue[700],
-        foregroundColor: Colors.white,
+        title: Text('商品別詳細 - ${Formatters.formatYearMonth(selectedMonth)}'),
+        backgroundColor: config.appBarColor,
+        foregroundColor: config.appBarTextColor,
         centerTitle: true,
+        actions: [
+          Consumer(
+            builder: (context, ref, child) {
+              final availableMonthsAsync = ref.watch(availableMonthsProvider);
+              
+              return availableMonthsAsync.when(
+                data: (availableMonths) {
+                  if (availableMonths.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  
+                  final displayText = _formatMonthDisplay(selectedMonth);
+                  
+                  return PopupMenuButton<String>(
+                    onSelected: (month) {
+                      ref.read(selectedMonthProvider.notifier).state = month;
+                    },
+                    itemBuilder: (context) {
+                      return availableMonths.map((month) {
+                        return PopupMenuItem<String>(
+                          value: month,
+                          child: Text(_formatMonthDisplay(month)),
+                        );
+                      }).toList();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Text(
+                        displayText,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          decoration: TextDecoration.underline,
+                          decorationColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                loading: () => const SizedBox.shrink(),
+                error: (error, stack) => const SizedBox.shrink(),
+              );
+            },
+          ),
+        ],
       ),
       body: categorySummaryAsync.when(
         data: (categorySummary) {
