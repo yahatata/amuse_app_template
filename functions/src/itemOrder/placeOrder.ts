@@ -130,7 +130,7 @@ export const placeOrder = onCall(async (request) => {
         });
 
         console.log(`Chip購入処理: name=${item.name}, chipAmount=${chipAmount}, quantity=${item.quantity}, totalChipAmount=${totalChipAmount}`);
-        // usersコレクションのsideGameTipへの加算は削除（sideGameChipLogsのみに記録）
+        // usersコレクションのsideGameChipへの加算は削除（sideGameChipLogsのみに記録）
       } else {
         const existingItems: any[] = Array.isArray(billsData?.items) ? billsData.items : [];
         const updatedItems = [...existingItems, newEntry];

@@ -42,8 +42,8 @@ export function distributePaymentMethods(
     categoryAmounts.forEach((amount, category) => {
       const method = paymentMethodsByCategory[category];
       if (method && typeof method === 'string') {
-        // 有効な支払い方法のリスト（sideGameChipを追加）
-        const validMethods = ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameTip', 'sideGameChip'];
+        // 有効な支払い方法のリスト
+        const validMethods = ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'];
         const validMethod = validMethods.includes(method) ? method : defaultPaymentMethod;
         
         const currentTotal = paymentTotals.get(validMethod) || 0;

@@ -13,9 +13,9 @@ Future<void> showSideGameTipWithdrawDialog({
 
   if (userId.isEmpty) {
     if (outerCtx.mounted) {
-      ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('ユーザー識別子が見つかりません')),
-      );
+      ScaffoldMessenger.of(
+        outerCtx,
+      ).showSnackBar(const SnackBar(content: Text('ユーザー識別子が見つかりません')));
     }
     return;
   }
@@ -23,10 +23,8 @@ Future<void> showSideGameTipWithdrawDialog({
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
-    builder: (ctx) => _SideGameTipWithdrawDialog(
-      userId: userId,
-      pokerName: pokerName,
-    ),
+    builder: (ctx) =>
+        _SideGameTipWithdrawDialog(userId: userId, pokerName: pokerName),
   );
 }
 
@@ -40,10 +38,12 @@ class _SideGameTipWithdrawDialog extends StatefulWidget {
   });
 
   @override
-  State<_SideGameTipWithdrawDialog> createState() => _SideGameTipWithdrawDialogState();
+  State<_SideGameTipWithdrawDialog> createState() =>
+      _SideGameTipWithdrawDialogState();
 }
 
-class _SideGameTipWithdrawDialogState extends State<_SideGameTipWithdrawDialog> {
+class _SideGameTipWithdrawDialogState
+    extends State<_SideGameTipWithdrawDialog> {
   final TextEditingController _amountController = TextEditingController();
   bool _isLoading = false;
   num _currentTip = 0;
@@ -77,12 +77,12 @@ class _SideGameTipWithdrawDialogState extends State<_SideGameTipWithdrawDialog> 
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
+                  return const Center(child: CircularProgressIndicator());
                 }
 
-                if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
+                if (snapshot.hasError ||
+                    !snapshot.hasData ||
+                    !snapshot.data!.exists) {
                   return Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
@@ -109,7 +109,7 @@ class _SideGameTipWithdrawDialogState extends State<_SideGameTipWithdrawDialog> 
                 }
 
                 final userData = snapshot.data!.data() as Map<String, dynamic>;
-                _currentTip = userData['sideGameTip'] as num? ?? 0;
+                _currentTip = userData['sideGameChip'] as num? ?? 0;
 
                 return Container(
                   width: double.infinity,
@@ -121,11 +121,7 @@ class _SideGameTipWithdrawDialogState extends State<_SideGameTipWithdrawDialog> 
                   ),
                   child: Column(
                     children: [
-                      const Icon(
-                        Icons.person,
-                        color: Colors.blue,
-                        size: 32,
-                      ),
+                      const Icon(Icons.person, color: Colors.blue, size: 32),
                       const SizedBox(height: 8),
                       Text(
                         widget.pokerName,
@@ -137,10 +133,7 @@ class _SideGameTipWithdrawDialogState extends State<_SideGameTipWithdrawDialog> 
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '現在の残高: ${_currentTip.toString().replaceAllMapped(
-                          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-                          (Match m) => '${m[1]},',
-                        )} Tip',
+                        '現在の残高: ${_currentTip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Tip',
                         style: const TextStyle(
                           fontSize: 14,
                           color: Colors.grey,
@@ -178,7 +171,11 @@ class _SideGameTipWithdrawDialogState extends State<_SideGameTipWithdrawDialog> 
           child: const Text('キャンセル'),
         ),
         ElevatedButton(
-          onPressed: _isLoading ? null : _canWithdraw() ? _showConfirmDialog : null,
+          onPressed: _isLoading
+              ? null
+              : _canWithdraw()
+              ? _showConfirmDialog
+              : null,
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.red,
             foregroundColor: Colors.white,
@@ -205,16 +202,13 @@ class _SideGameTipWithdrawDialogState extends State<_SideGameTipWithdrawDialog> 
 
   Future<void> _showConfirmDialog() async {
     final amount = int.parse(_amountController.text);
-    
+
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('引き出し確認'),
         content: Text(
-          '${widget.pokerName}様の${amount.toString().replaceAllMapped(
-            RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-            (Match m) => '${m[1]},',
-          )} Tipの引き出し処理を開始してよろしいですか？',
+          '${widget.pokerName}様の${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Tipの引き出し処理を開始してよろしいですか？',
         ),
         actions: [
           TextButton(
@@ -273,15 +267,12 @@ class _SideGameTipWithdrawDialogState extends State<_SideGameTipWithdrawDialog> 
       if (mounted) {
         // 引き出しポップアップを閉じる
         Navigator.of(context).pop();
-        
+
         // 成功メッセージを表示
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '引き出し処理が完了しました${widget.pokerName}様に${amount.toString().replaceAllMapped(
-                RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-                (Match m) => '${m[1]},',
-              )}のTipをお渡しください。',
+              '引き出し処理が完了しました${widget.pokerName}様に${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}のTipをお渡しください。',
             ),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 5),
@@ -292,7 +283,7 @@ class _SideGameTipWithdrawDialogState extends State<_SideGameTipWithdrawDialog> 
       // 処理中ダイアログを閉じる
       if (mounted) {
         Navigator.of(context).pop();
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('引き出し処理に失敗しました: $e'),

@@ -14,29 +14,82 @@ function _getPaymentMethodDisplayName(paymentMethod: string): string {
       return 'ポイントA';
     case 'pointB':
       return 'ポイントB';
-    case 'sideGameTip':
+    case 'sideGameChip':
       return 'サイドゲームチップ';
     default:
       return paymentMethod;
   }
 }
 
-// 支払い分割のスキーマ
-const PaymentSplitSchema = z.object({
-  method: z.enum(['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameTip']),
-  amount: z.number().min(0, '金額は0以上である必要があります'),
-});
+function normalizePaymentMethods(options: {
+  paymentMethodsByAmount?: Record<string, number>;
+  paymentMethodsByCategory?: Record<string, any>;
+  categoryAmounts: Record<string, number>;
+}): Record<string, number> {
+  const { paymentMethodsByAmount, paymentMethodsByCategory, categoryAmounts } = options;
+
+  if (paymentMethodsByAmount && Object.keys(paymentMethodsByAmount).length > 0) {
+    const normalized: Record<string, number> = {};
+    for (const [method, amount] of Object.entries(paymentMethodsByAmount)) {
+      if (amount > 0) {
+        normalized[method] = Math.floor(amount);
+      }
+    }
+    return normalized;
+  }
+
+  if (paymentMethodsByCategory && Object.keys(paymentMethodsByCategory).length > 0) {
+    const normalized: Record<string, number> = {};
+
+    for (const [category, paymentValue] of Object.entries(paymentMethodsByCategory)) {
+      const categoryAmount = categoryAmounts[category] || 0;
+      if (categoryAmount <= 0) continue;
+
+      if (typeof paymentValue === 'string') {
+        if (paymentValue === 'pointA' || paymentValue === 'pointB') {
+          normalized[paymentValue] = (normalized[paymentValue] || 0) + categoryAmount;
+        } else if (paymentValue === 'sideGameChip') {
+          const requiredChips = Math.ceil(categoryAmount / SIDE_GAME_CHIP_EXCHANGE_RATE);
+          normalized[paymentValue] = (normalized[paymentValue] || 0) + requiredChips;
+        }
+      } else if (Array.isArray(paymentValue)) {
+        for (const split of paymentValue) {
+          if (!split || typeof split !== 'object') continue;
+          const method = split.method;
+          const amount = Number(split.amount) || 0;
+          if (amount <= 0) continue;
+
+          if (method === 'pointA' || method === 'pointB') {
+            normalized[method] = (normalized[method] || 0) + amount;
+          } else if (method === 'sideGameChip') {
+            const chips = amount % SIDE_GAME_CHIP_EXCHANGE_RATE === 0
+              ? Math.round(amount / SIDE_GAME_CHIP_EXCHANGE_RATE)
+              : Math.ceil(amount / SIDE_GAME_CHIP_EXCHANGE_RATE);
+            normalized[method] = (normalized[method] || 0) + chips;
+          }
+        }
+      }
+    }
+
+    return normalized;
+  }
+
+  return {};
+}
 
 // Zodスキーマで入力データを検証
 const StartAccountingSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
-  // 後方互換性のため string | PaymentSplit[] の両方を許可
+  paymentMethodsByAmount: z.record(z.number().nonnegative()).optional(),
   paymentMethodsByCategory: z.record(
     z.union([
-      z.enum(['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameTip']),
-      z.array(PaymentSplitSchema)
+      z.enum(['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip']),
+      z.array(z.object({
+        method: z.enum(['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip']),
+        amount: z.number().nonnegative(),
+      })),
     ])
-  ),
+  ).optional(),
 });
 
 const CompleteAccountingSchema = z.object({
@@ -69,7 +122,11 @@ export const startAccounting = onCall(async (request) => {
 
     // 入力データの検証
     const validatedData = StartAccountingSchema.parse(request.data);
-    const { billId, paymentMethodsByCategory } = validatedData;
+    const {
+      billId,
+      paymentMethodsByAmount: inputPaymentMethodsByAmount,
+      paymentMethodsByCategory,
+    } = validatedData;
 
     const billRef = db.collection('todaysBills').doc(billId);
 
@@ -110,80 +167,61 @@ export const startAccounting = onCall(async (request) => {
       .filter((item: any) => item.action === 'purchase')
       .reduce((sum: number, item: any) => sum + (item.price || 0), 0);
 
+    const normalizedPaymentMethods = normalizePaymentMethods({
+      paymentMethodsByAmount: inputPaymentMethodsByAmount,
+      paymentMethodsByCategory,
+      categoryAmounts,
+    });
+
+    if (Object.keys(normalizedPaymentMethods).length === 0) {
+      throw new HttpsError('invalid-argument', '支払い方法が指定されていません');
+    }
+
+    const totalExpected = Object.values(categoryAmounts).reduce((sum, value) => sum + value, 0);
+    const totalPaid = Object.entries(normalizedPaymentMethods).reduce((sum, [method, amount]) => {
+      if (amount <= 0) return sum;
+      if (method === 'sideGameChip') {
+        return sum + amount * SIDE_GAME_CHIP_EXCHANGE_RATE;
+      }
+      return sum + amount;
+    }, 0);
+
+    if (Math.abs(totalPaid - totalExpected) > 1) {
+      throw new HttpsError(
+        'failed-precondition',
+        `支払い総額が一致しません。入力合計: ${totalPaid}円, 伝票合計: ${totalExpected}円`,
+      );
+    }
+
     // ポイント/サイドゲームチップで支払う場合の残高確認と差し引き処理
     if (userId) {
       const userRef = db.collection('users').doc(userId);
       const userDoc = await userRef.get();
-      
+
       if (!userDoc.exists) {
         throw new HttpsError('not-found', 'ユーザー情報が見つかりません');
       }
 
       const userData = userDoc.data()!;
       const balanceDeductions: Record<string, number> = {
-        pointA: 0,
-        pointB: 0,
-        sideGameTip: 0,
+        pointA: Math.floor(normalizedPaymentMethods['pointA'] || 0),
+        pointB: Math.floor(normalizedPaymentMethods['pointB'] || 0),
+        sideGameChip: Math.floor(normalizedPaymentMethods['sideGameChip'] || 0),
       };
 
-      // カテゴリごとに支払い方法を確認し、差し引く金額を計算
-      for (const [category, paymentValue] of Object.entries(paymentMethodsByCategory)) {
-        const categoryAmount = categoryAmounts[category] || 0;
-        
-        if (categoryAmount > 0) {
-          // 文字列の場合（単一支払い方法）- 既存の動作
-          if (typeof paymentValue === 'string') {
-            if (paymentValue === 'pointA' || paymentValue === 'pointB' || paymentValue === 'sideGameTip') {
-              // サイドゲームチップの場合は円→チップ枚数に換算
-              if (paymentValue === 'sideGameTip') {
-                const requiredChips = Math.ceil(categoryAmount / SIDE_GAME_CHIP_EXCHANGE_RATE);
-                balanceDeductions[paymentValue] += requiredChips;
-              } else {
-                balanceDeductions[paymentValue] += categoryAmount;
-              }
-            }
-          }
-          // 配列の場合（分割支払い）- 新機能
-          else if (Array.isArray(paymentValue)) {
-            for (const split of paymentValue) {
-              if (split.method === 'pointA' || split.method === 'pointB' || split.method === 'sideGameTip') {
-                // split.amountはすでにFlutter側で換算済み
-                balanceDeductions[split.method] += split.amount;
-              }
-            }
-          }
-        }
-      }
-
-      // 残高確認
       for (const [fieldName, amount] of Object.entries(balanceDeductions)) {
         if (amount > 0) {
           const currentBalance = userData[fieldName] || 0;
           if (currentBalance < amount) {
-            // サイドゲームチップの場合、チップ枚数を表示
-            let displayAmount = amount;
-            let displayBalance = currentBalance;
-            let unit = '';
-            
-            if (fieldName === 'sideGameTip') {
-              unit = '枚';
-              displayAmount = amount;
-              displayBalance = currentBalance;
-            } else {
-              unit = '円';
-              displayAmount = amount;
-              displayBalance = currentBalance;
-            }
-            
+            const unit = fieldName === 'sideGameChip' ? '枚' : '円';
             throw new HttpsError(
-              'failed-precondition', 
-              `${_getPaymentMethodDisplayName(fieldName)}の残高が不足しています。現在の残高: ${displayBalance}${unit}、必要な金額: ${displayAmount}${unit}`
+              'failed-precondition',
+              `${_getPaymentMethodDisplayName(fieldName)}の残高が不足しています。現在の残高: ${currentBalance}${unit}、必要な金額: ${amount}${unit}`,
             );
           }
         }
       }
 
-      // 残高から差し引き
       const updates: Record<string, any> = {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       };
@@ -192,7 +230,7 @@ export const startAccounting = onCall(async (request) => {
           updates[fieldName] = admin.firestore.FieldValue.increment(-amount);
         }
       }
-      if (Object.keys(updates).length > 1) { // updatedAt以外にフィールドがある場合のみ更新
+      if (Object.keys(updates).length > 1) {
         await userRef.update(updates);
       }
     }
@@ -201,7 +239,7 @@ export const startAccounting = onCall(async (request) => {
     await billRef.update({
       accountingStartedAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingStartedBy: adminId,
-      paymentMethodsByCategory: paymentMethodsByCategory,
+      paymentMethodsByAmount: normalizedPaymentMethods,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -282,7 +320,7 @@ export const completeAccounting = onCall(async (request) => {
       accountingCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingStartedBy: billData.accountingStartedBy,
       accountingCompletedBy: adminId,
-      paymentMethodsByCategory: billData.paymentMethodsByCategory || {}, // カテゴリ別支払い方法を記録
+      paymentMethodsByAmount: billData.paymentMethodsByAmount || {},
       // カテゴリ別の詳細データも保存
       extraCost: billData.extraCost || [],
       tournaments: billData.tournaments || {},

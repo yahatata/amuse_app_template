@@ -12,9 +12,9 @@ Future<void> showSideGameTipViewDialog({
 
   if (userId.isEmpty) {
     if (outerCtx.mounted) {
-      ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('ユーザー識別子が見つかりません')),
-      );
+      ScaffoldMessenger.of(
+        outerCtx,
+      ).showSnackBar(const SnackBar(content: Text('ユーザー識別子が見つかりません')));
     }
     return;
   }
@@ -22,10 +22,8 @@ Future<void> showSideGameTipViewDialog({
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
-    builder: (ctx) => _SideGameTipViewDialog(
-      userId: userId,
-      pokerName: pokerName,
-    ),
+    builder: (ctx) =>
+        _SideGameTipViewDialog(userId: userId, pokerName: pokerName),
   );
 }
 
@@ -33,10 +31,7 @@ class _SideGameTipViewDialog extends StatelessWidget {
   final String userId;
   final String pokerName;
 
-  const _SideGameTipViewDialog({
-    required this.userId,
-    required this.pokerName,
-  });
+  const _SideGameTipViewDialog({required this.userId, required this.pokerName});
 
   @override
   Widget build(BuildContext context) {
@@ -55,9 +50,7 @@ class _SideGameTipViewDialog extends StatelessWidget {
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
           if (snapshot.hasError) {
@@ -103,7 +96,7 @@ class _SideGameTipViewDialog extends StatelessWidget {
           }
 
           final userData = snapshot.data!.data() as Map<String, dynamic>;
-          final sideGameTip = userData['sideGameTip'] as num? ?? 0;
+          final sideGameChip = userData['sideGameChip'] as num? ?? 0;
 
           return Column(
             mainAxisSize: MainAxisSize.min,
@@ -111,7 +104,10 @@ class _SideGameTipViewDialog extends StatelessWidget {
               // ユーザー名表示
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 16,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(8),
@@ -119,11 +115,7 @@ class _SideGameTipViewDialog extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    const Icon(
-                      Icons.person,
-                      color: Colors.blue,
-                      size: 32,
-                    ),
+                    const Icon(Icons.person, color: Colors.blue, size: 32),
                     const SizedBox(height: 8),
                     Text(
                       pokerName,
@@ -137,11 +129,14 @@ class _SideGameTipViewDialog extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 20),
-              
+
               // Tip残高表示
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 20,
+                  horizontal: 16,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.orange.shade50,
                   borderRadius: BorderRadius.circular(12),
@@ -165,10 +160,7 @@ class _SideGameTipViewDialog extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '${sideGameTip.toString().replaceAllMapped(
-                        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-                        (Match m) => '${m[1]},',
-                      )}',
+                      '${sideGameChip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
                       style: const TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.bold,

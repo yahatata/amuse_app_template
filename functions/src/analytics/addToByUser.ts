@@ -64,7 +64,6 @@ export async function addToByUser(
         electronic_money: 0,
         pointA: 0,
         pointB: 0,
-        sideGameTip: 0,
         sideGameChip: 0,
       },
       pokerName: billData.pokerName || '', // pokerNameを初期化時にも保存

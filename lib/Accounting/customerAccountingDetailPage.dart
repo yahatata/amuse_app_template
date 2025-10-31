@@ -4,10 +4,8 @@ import 'package:amuse_app_template/globalConstant.dart';
 class CustomerAccountingDetailPage extends StatelessWidget {
   final Map<String, dynamic> customer;
 
-  const CustomerAccountingDetailPage({
-    Key? key,
-    required this.customer,
-  }) : super(key: key);
+  const CustomerAccountingDetailPage({Key? key, required this.customer})
+    : super(key: key);
 
   // 支払い方法の表示名を取得
   String _getPaymentMethodName(String paymentMethod) {
@@ -22,7 +20,7 @@ class CustomerAccountingDetailPage extends StatelessWidget {
         return 'ポイントA';
       case 'pointB':
         return 'ポイントB';
-      case 'sideGameTip':
+      case 'sideGameChip':
         return 'サイドゲームチップ';
       default:
         return '現金';
@@ -42,7 +40,7 @@ class CustomerAccountingDetailPage extends StatelessWidget {
         return Icons.star;
       case 'pointB':
         return Icons.stars;
-      case 'sideGameTip':
+      case 'sideGameChip':
         return Icons.casino;
       default:
         return Icons.attach_money;
@@ -52,7 +50,8 @@ class CustomerAccountingDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final customerName = customer['customerName'] ?? '不明';
-    final accountingRecords = customer['accountingRecords'] as List<dynamic>? ?? [];
+    final accountingRecords =
+        customer['accountingRecords'] as List<dynamic>? ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -65,8 +64,8 @@ class CustomerAccountingDetailPage extends StatelessWidget {
         itemCount: accountingRecords.length,
         itemBuilder: (context, index) {
           final recordData = accountingRecords[index];
-          final record = recordData is Map<String, dynamic> 
-              ? recordData 
+          final record = recordData is Map<String, dynamic>
+              ? recordData
               : Map<String, dynamic>.from(recordData as Map);
           return _buildAccountingRecordCard(record);
         },
@@ -80,7 +79,7 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     final cancelRecord = record['cancelRecord'] as Map<dynamic, dynamic>?;
     final refundRecord = record['refundRecord'] as Map<dynamic, dynamic>?;
     final paymentMethod = record['paymentMethod'] ?? 'cash';
-    
+
     // 修正後の合計額を計算（キャンセルされた場合は0、修正履歴がある場合は最新の修正後の金額を使用）
     int totalPrice;
     if (cancelRecord != null) {
@@ -88,7 +87,8 @@ class CustomerAccountingDetailPage extends StatelessWidget {
       totalPrice = 0;
     } else if (corrections.isNotEmpty) {
       final latestCorrection = corrections.last as Map<dynamic, dynamic>;
-      final newData = latestCorrection['newData'] as Map<dynamic, dynamic>? ?? {};
+      final newData =
+          latestCorrection['newData'] as Map<dynamic, dynamic>? ?? {};
       totalPrice = (newData['totalPrice'] ?? 0).toInt();
     } else {
       totalPrice = (record['totalPrice'] ?? 0).toInt();
@@ -97,7 +97,9 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     // 日時を取得
     DateTime? completedAt;
     try {
-      if (accountingCompletedAt != null && accountingCompletedAt is String && accountingCompletedAt.isNotEmpty) {
+      if (accountingCompletedAt != null &&
+          accountingCompletedAt is String &&
+          accountingCompletedAt.isNotEmpty) {
         completedAt = DateTime.parse(accountingCompletedAt);
       } else if (accountingCompletedAt is DateTime) {
         completedAt = accountingCompletedAt;
@@ -129,16 +131,16 @@ class CustomerAccountingDetailPage extends StatelessWidget {
                 else
                   const Text(
                     '日時不明',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 Row(
                   children: [
                     if (cancelRecord != null)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.red,
                           borderRadius: BorderRadius.circular(12),
@@ -155,7 +157,10 @@ class CustomerAccountingDetailPage extends StatelessWidget {
                     if (cancelRecord != null) const SizedBox(width: 8),
                     if (corrections.isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.orange,
                           borderRadius: BorderRadius.circular(12),
@@ -172,7 +177,10 @@ class CustomerAccountingDetailPage extends StatelessWidget {
                     if (corrections.isNotEmpty) const SizedBox(width: 8),
                     if (refundRecord != null)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.purple,
                           borderRadius: BorderRadius.circular(12),
@@ -188,7 +196,10 @@ class CustomerAccountingDetailPage extends StatelessWidget {
                       ),
                     if (refundRecord != null) const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.green,
                         borderRadius: BorderRadius.circular(12),
@@ -236,7 +247,9 @@ class CustomerAccountingDetailPage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    ...corrections.map((correction) => _buildCorrectionCard(correction)).toList(),
+                    ...corrections
+                        .map((correction) => _buildCorrectionCard(correction))
+                        .toList(),
                   ],
                 ),
               ),
@@ -342,7 +355,7 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     // paymentMethodsByCategoryを安全に取得（Map<Object?, Object?>からMap<String, dynamic>への変換）
     final rawPaymentMethods = record['paymentMethodsByCategory'];
     final Map<String, dynamic> paymentMethodsByCategory = {};
-    
+
     if (rawPaymentMethods != null && rawPaymentMethods is Map) {
       rawPaymentMethods.forEach((key, value) {
         if (key != null && value != null) {
@@ -355,7 +368,7 @@ class CustomerAccountingDetailPage extends StatelessWidget {
         }
       });
     }
-    
+
     final breakdown = <Widget>[];
 
     // 入店料
@@ -375,13 +388,16 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     if (tournamentsData != null && tournamentsData is Map) {
       for (final tournamentEntry in tournamentsData.values) {
         if (tournamentEntry is Map) {
-          totalTournamentFee += ((tournamentEntry['entryFee'] as num?) ?? 0).toInt();
+          totalTournamentFee += ((tournamentEntry['entryFee'] as num?) ?? 0)
+              .toInt();
         }
       }
     }
     if (totalTournamentFee > 0) {
       final paymentValue = paymentMethodsByCategory['tournaments'] ?? 'cash';
-      breakdown.add(_buildBreakdownItem('トーナメント参加費', totalTournamentFee, paymentValue));
+      breakdown.add(
+        _buildBreakdownItem('トーナメント参加費', totalTournamentFee, paymentValue),
+      );
     }
 
     // フード・ドリンク
@@ -394,7 +410,9 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     }
     if (totalOrderAmount > 0) {
       final paymentValue = paymentMethodsByCategory['items'] ?? 'cash';
-      breakdown.add(_buildBreakdownItem('フード・ドリンク', totalOrderAmount, paymentValue));
+      breakdown.add(
+        _buildBreakdownItem('フード・ドリンク', totalOrderAmount, paymentValue),
+      );
     }
 
     // サイドゲームチップ
@@ -405,7 +423,9 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     }
     if (totalSideGameChipAmount > 0) {
       final paymentValue = paymentMethodsByCategory['sideGameChip'] ?? 'cash';
-      breakdown.add(_buildBreakdownItem('サイドゲームチップ', totalSideGameChipAmount, paymentValue));
+      breakdown.add(
+        _buildBreakdownItem('サイドゲームチップ', totalSideGameChipAmount, paymentValue),
+      );
     }
 
     if (breakdown.isEmpty) {
@@ -441,7 +461,7 @@ class CustomerAccountingDetailPage extends StatelessWidget {
   Widget _buildBreakdownItem(String label, int amount, dynamic paymentValue) {
     // 支払い方法のバッジを作成
     List<Widget> paymentBadges = [];
-    
+
     // 文字列の場合（単一支払い方法）- 既存の動作
     if (paymentValue is String) {
       paymentBadges.add(_buildPaymentBadge(paymentValue, null));
@@ -455,7 +475,12 @@ class CustomerAccountingDetailPage extends StatelessWidget {
           paymentBadges.add(_buildPaymentBadge(method, splitAmount));
           if (split != paymentValue.last) {
             paymentBadges.add(const SizedBox(width: 4));
-            paymentBadges.add(Text('+', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)));
+            paymentBadges.add(
+              Text(
+                '+',
+                style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+              ),
+            );
             paymentBadges.add(const SizedBox(width: 4));
           }
         }
@@ -469,10 +494,7 @@ class CustomerAccountingDetailPage extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
           ),
           Row(
             children: [
@@ -496,15 +518,18 @@ class CustomerAccountingDetailPage extends StatelessWidget {
   Widget _buildPaymentBadge(String method, int? amount) {
     // サイドゲームチップの場合は換算して表示
     String displayText;
-    if (method == 'sideGameTip' && amount != null) {
-      final chipValue = (amount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
-      displayText = '${_getPaymentMethodName(method)} チップ${amount}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
+    if (method == 'sideGameChip' && amount != null) {
+      final chipValue = (amount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE)
+          .toInt();
+      displayText =
+          '${_getPaymentMethodName(method)} チップ${amount}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
     } else if (amount != null) {
-      displayText = '${_getPaymentMethodName(method)} ¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
+      displayText =
+          '${_getPaymentMethodName(method)} ¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
     } else {
       displayText = _getPaymentMethodName(method);
     }
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -575,18 +600,12 @@ class CustomerAccountingDetailPage extends StatelessWidget {
               if (correctedDateTime != null)
                 Text(
                   _formatDateTime(correctedDateTime),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            '理由: $reason',
-            style: const TextStyle(fontSize: 12),
-          ),
+          Text('理由: $reason', style: const TextStyle(fontSize: 12)),
           const SizedBox(height: 4),
           Text(
             '修正前: ¥${(oldData['totalPrice'] ?? 0).toString()}',
@@ -639,18 +658,12 @@ class CustomerAccountingDetailPage extends StatelessWidget {
               if (cancelledDateTime != null)
                 Text(
                   _formatDateTime(cancelledDateTime),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            '理由: $reason',
-            style: const TextStyle(fontSize: 12),
-          ),
+          Text('理由: $reason', style: const TextStyle(fontSize: 12)),
         ],
       ),
     );
@@ -695,23 +708,21 @@ class CustomerAccountingDetailPage extends StatelessWidget {
               if (refundedDateTime != null)
                 Text(
                   _formatDateTime(refundedDateTime),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
             ],
           ),
           const SizedBox(height: 4),
           Text(
             '返金額: ¥${amount.toString()}',
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.purple),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Colors.purple,
+            ),
           ),
           const SizedBox(height: 4),
-          Text(
-            '理由: $reason',
-            style: const TextStyle(fontSize: 12),
-          ),
+          Text('理由: $reason', style: const TextStyle(fontSize: 12)),
         ],
       ),
     );
