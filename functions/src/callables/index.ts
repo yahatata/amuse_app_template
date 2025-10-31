@@ -25,6 +25,7 @@ export { getRankingData } from './getRankingData';
 export { setRankingData } from './setRankingData';
 export { endTournament } from './endTournament';
 export { startAccounting, completeAccounting } from './accounting';
+export { verifyPaymentSplit } from './verifyPaymentSplit';
 export { updateActiveBill } from './updateActiveBill';
 export { migrateTodaysBillsAccountingFields } from './migrateTodaysBills';
 export { getAccountingHistory } from './getAccountingHistory';

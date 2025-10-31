@@ -39,7 +39,7 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   List<Map<String, dynamic>> _availableTournaments = [];
   List<Map<String, dynamic>> _availableFoodItems = [];
   List<Map<String, dynamic>> _availableChipItems = [];
-  
+
   // 会計前かどうか
   late bool _isBeforeAccounting;
 
@@ -424,20 +424,20 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
               
               // 修正理由（会計完了済みの場合のみ必須）
               if (!_isBeforeAccounting) ...[
-                TextFormField(
-                  controller: _reasonController,
-                  decoration: const InputDecoration(
+              TextFormField(
+                controller: _reasonController,
+                decoration: const InputDecoration(
                     labelText: '修正理由 *',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return '修正理由を入力してください';
-                    }
-                    return null;
-                  },
+                  border: OutlineInputBorder(),
                 ),
-                const SizedBox(height: 16),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return '修正理由を入力してください';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
               ] else ...[
                 TextFormField(
                   controller: _reasonController,

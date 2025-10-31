@@ -410,27 +410,6 @@
         pageElement.classList.add('active');
       }
 
-      // URLハッシュナビゲーション処理
-      function handleHashNavigation() {
-        const hash = window.location.hash;
-        
-        // ハッシュに応じてページ遷移
-        if (hash === '#qr') {
-          showQRCode();
-        } else if (hash === '#order') {
-          showOrderPage();
-        } else if (hash === '#history') {
-          window.showOrderHistory();
-        } else if (hash === '#tournament') {
-          window.showTournament();
-        } else if (hash === '#profile') {
-          window.showProfilePage();
-        } else {
-          // ハッシュがない場合はホームページを表示
-          showPage(homePageEl);
-        }
-      }
-
       // store登録確認関数
       async function checkStoreRegistration() {
         try {
@@ -471,19 +450,12 @@
             
             await updateUserLoginStatus(user.uid);
             
+            showPage(homePageEl);
+            
             // 入店状態を定期的に更新（永続化のため）
             setInterval(() => {
               updateCheckinStatusUI(user.uid);
             }, 30000); // 30秒ごとに更新
-            
-            // URLハッシュをチェックして適切なページに遷移
-            try {
-              handleHashNavigation();
-            } catch (error) {
-              // ハッシュナビゲーションでエラーが発生した場合はホームページを表示
-              console.error('Hash navigation error:', error);
-              showPage(homePageEl);
-            }
           } else {
             // 未登録の場合
             showPage(registrationPageEl);
@@ -637,18 +609,7 @@
       // ページ遷移関数
       window.showHomePage = () => showPage(homePageEl);
       window.showQRPage = () => showPage(qrPageEl);
-      window.showOrderPage = async () => {
-        showPage(orderPageEl);
-        
-        // カテゴリー情報とメニューデータを動的に取得
-        const menuData = await loadCategoriesAndMenuData();
-        
-        if (menuData && menuData.categories.length > 0) {
-          // デフォルトで最初のカテゴリを表示
-          const defaultCategory = menuData.categories[0];
-          loadMenuItems(defaultCategory, menuData.allMenuItems);
-        }
-      };
+      window.showOrderPage = () => showPage(orderPageEl);
       window.showOrderHistory = () => {
         showPage(orderHistoryPageEl);
         loadOrderHistory();
@@ -1454,7 +1415,7 @@
                 <p><strong>誕生日:</strong> ${userData.birthMonthDay || '未設定'}</p>
                 <p><strong>ポイントA:</strong> ${userData.pointA || 0}</p>
                 <p><strong>ポイントB:</strong> ${userData.pointB || 0}</p>
-                <p><strong>サイドゲームチップ:</strong> ${userData.sideGameTip || 0}</p>
+                <p><strong>サイドゲームチップ:</strong> ${userData.sideGameChip || 0}</p>
               </div>
             `;
           }

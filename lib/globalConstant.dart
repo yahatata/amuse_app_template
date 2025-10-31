@@ -50,7 +50,7 @@ class GlobalConstants {
   static const String STORE_CLOSE_DESCRIPTION = "$STORE_CLOSE_HOUR:00までの打刻は日付跨ぎ勤務として記録されます";
   
   // ポイントタイプ選択肢（フィールド名のみ）
-  static const List<String> pointTypes = ['pointA', 'pointB', 'sideGameTip'];//createUserAccount.tsやcreateUserByApp.tsについては直接コード内で修正する必要がある
+  static const List<String> pointTypes = ['pointA', 'pointB', 'sideGameChip'];//createUserAccount.tsやcreateUserByApp.tsについては直接コード内で修正する必要がある
   
   // サイドゲーム選択肢
   static const List<String> sideGameTypes = [
@@ -62,13 +62,17 @@ class GlobalConstants {
 
   // カテゴリ別支払い方法制限設定（todaysBillsのフィールド名をキーとする）
   static const Map<String, List<String>> categoryPaymentMethods = {
-    'extraCost': ['cash'], // 入店料
+    'extraCost': ['cash', 'credit_card', 'electronic_money'], // 入店料
     'sideGameChip': ['cash', 'credit_card', 'electronic_money'], // サイドゲームチップ
-    'items': ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameTip'], // フード・ドリンク
+    'items': ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'], // フード・ドリンク
     'tournaments': ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB'], // トーナメント参加費
   };
 
   // サイドゲームチップ換算率設定
   static const double SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0; // サイドゲームチップ1 = 10円相当
   static const String SIDE_GAME_CHIP_DESCRIPTION = "サイドゲームチップ1枚 = ¥${SIDE_GAME_CHIP_EXCHANGE_RATE}相当";
+
+  // ポイント使用優先順位（支払い分割計算用）
+  // Cloud Functions側（functions/src/utils/paymentSplitCalculator.ts）と同期必須
+  static const List<String> POINT_PRIORITY = ['pointA', 'pointB', 'sideGameChip'];
 }

@@ -4,6 +4,8 @@ import { z } from 'zod';
 
 const db = admin.firestore();
 
+const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0;
+
 // 会計キャンセルのスキーマ
 const CancelAccountingSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
@@ -97,6 +99,7 @@ export const cancelAccounting = onCall(async (request) => {
         const userRef = db.collection('users').doc(userId);
         
         // ポイント/サイドゲームチップの返還処理
+        const paymentMethodsByAmount = billData.paymentMethodsByAmount || {};
         const paymentMethodsByCategory = billData.paymentMethodsByCategory || {};
         const categoryAmounts: Record<string, number> = {};
 
@@ -115,26 +118,37 @@ export const cancelAccounting = onCall(async (request) => {
 
         // 返還する金額を計算
         const refundAmounts: Record<string, number> = {
-          pointA: 0,
-          pointB: 0,
-          sideGameTip: 0,
+          pointA: Math.floor(paymentMethodsByAmount.pointA ?? 0),
+          pointB: Math.floor(paymentMethodsByAmount.pointB ?? 0),
+          sideGameChip: Math.floor(paymentMethodsByAmount.sideGameChip ?? 0),
         };
 
-        for (const [category, paymentValue] of Object.entries(paymentMethodsByCategory)) {
-          const categoryAmount = categoryAmounts[category] || 0;
-          
-          if (categoryAmount > 0) {
-            // 文字列の場合（単一支払い方法）
+        if (Object.keys(paymentMethodsByAmount).length === 0 && Object.keys(paymentMethodsByCategory).length > 0) {
+          for (const [category, paymentValue] of Object.entries(paymentMethodsByCategory)) {
+            const categoryAmount = categoryAmounts[category] || 0;
+            if (categoryAmount <= 0) continue;
+
             if (typeof paymentValue === 'string') {
-              if (paymentValue === 'pointA' || paymentValue === 'pointB' || paymentValue === 'sideGameTip') {
+              if (paymentValue === 'pointA' || paymentValue === 'pointB') {
                 refundAmounts[paymentValue] += categoryAmount;
+              } else if (paymentValue === 'sideGameChip') {
+                const chips = Math.ceil(categoryAmount /  SIDE_GAME_CHIP_EXCHANGE_RATE);
+                refundAmounts.sideGameChip += chips;
               }
-            }
-            // 配列の場合（分割支払い）
-            else if (Array.isArray(paymentValue)) {
+            } else if (Array.isArray(paymentValue)) {
               for (const split of paymentValue) {
-                if (split.method === 'pointA' || split.method === 'pointB' || split.method === 'sideGameTip') {
-                  refundAmounts[split.method] += split.amount;
+                if (!split || typeof split !== 'object') continue;
+                const method = split.method;
+                const amount = Number(split.amount) || 0;
+                if (amount <= 0) continue;
+
+                if (method === 'pointA' || method === 'pointB') {
+                  refundAmounts[method] += amount;
+                } else if (method === 'sideGameChip') {
+                  const chips = amount % SIDE_GAME_CHIP_EXCHANGE_RATE === 0
+                    ? Math.round(amount / SIDE_GAME_CHIP_EXCHANGE_RATE)
+                    : Math.ceil(amount / SIDE_GAME_CHIP_EXCHANGE_RATE);
+                  refundAmounts.sideGameChip += chips;
                 }
               }
             }

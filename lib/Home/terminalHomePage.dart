@@ -8,6 +8,7 @@ import 'package:amuse_app_template/tournament/scheduling/pages/scheduled_tournam
 import 'package:amuse_app_template/Home/systemSettingsPage.dart';
 import 'package:amuse_app_template/tournament/scheduling/pages/tournament_creation_menu_page.dart';
 import 'package:amuse_app_template/Accounting/accountingPage.dart';
+import 'package:amuse_app_template/Accounting/payment_split_test_page.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_list.dart';
 import 'package:amuse_app_template/OrderView/OrderManagement/order_management_page.dart';
 import 'package:amuse_app_template/dashboard/home/dashboard_home_page.dart';
@@ -39,6 +40,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: 'スタッフ打刻', destination: const StaffAttendancePage()),
       (label: '会計管理', destination: const AccountingPage()),
       (label: '売上ダッシュボード', destination: const DashboardHomePage()),
+      (label: '支払い分割テスト', destination: const PaymentSplitTestPage()),
     ];
 
     return Scaffold(

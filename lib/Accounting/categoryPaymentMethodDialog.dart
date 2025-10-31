@@ -5,23 +5,23 @@ import 'package:amuse_app_template/globalConstant.dart';
 class CategoryPaymentMethodDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
 
-  const CategoryPaymentMethodDialog({
-    Key? key,
-    required this.bill,
-  }) : super(key: key);
+  const CategoryPaymentMethodDialog({Key? key, required this.bill})
+    : super(key: key);
 
   @override
-  State<CategoryPaymentMethodDialog> createState() => _CategoryPaymentMethodDialogState();
+  State<CategoryPaymentMethodDialog> createState() =>
+      _CategoryPaymentMethodDialogState();
 }
 
-class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialog> {
+class _CategoryPaymentMethodDialogState
+    extends State<CategoryPaymentMethodDialog> {
   // カテゴリごとに選択された支払い方法を保持
   final Map<String, String?> _selectedPaymentMethods = {};
-  
+
   // ユーザーの残高を保持
   int _pointABalance = 0;
   int _pointBBalance = 0;
-  int _sideGameTipBalance = 0;
+  int _sideGameChipBalance = 0;
   bool _isLoadingBalance = true;
 
   @override
@@ -56,7 +56,8 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
         setState(() {
           _pointABalance = (userData['pointA'] as num? ?? 0).toInt();
           _pointBBalance = (userData['pointB'] as num? ?? 0).toInt();
-          _sideGameTipBalance = (userData['sideGameTip'] as num? ?? 0).toInt();
+          _sideGameChipBalance = (userData['sideGameChip'] as num? ?? 0)
+              .toInt();
           _isLoadingBalance = false;
         });
       } else {
@@ -155,7 +156,7 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
         return 'ポイントA';
       case 'pointB':
         return 'ポイントB';
-      case 'sideGameTip':
+      case 'sideGameChip':
         return 'サイドゲームチップ';
       default:
         return paymentMethod;
@@ -175,7 +176,7 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
         return Icons.star;
       case 'pointB':
         return Icons.stars;
-      case 'sideGameTip':
+      case 'sideGameChip':
         return Icons.casino;
       default:
         return Icons.payment;
@@ -217,7 +218,8 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
     Set<String>? commonMethods;
 
     for (final category in categories.keys) {
-      final availableMethods = GlobalConstants.categoryPaymentMethods[category] ?? [];
+      final availableMethods =
+          GlobalConstants.categoryPaymentMethods[category] ?? [];
       final methodsSet = availableMethods.toSet();
 
       if (commonMethods == null) {
@@ -243,17 +245,17 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
   @override
   Widget build(BuildContext context) {
     final categoriesWithAmounts = _getCategoriesWithAmounts();
-    final totalAmount = categoriesWithAmounts.values.fold(0, (sum, amount) => sum + amount);
+    final totalAmount = categoriesWithAmounts.values.fold(
+      0,
+      (sum, amount) => sum + amount,
+    );
     // 将来、一括支払いボタンを有効化する場合に使用
     // final commonPaymentMethods = _getCommonPaymentMethods();
 
     return AlertDialog(
       title: const Text(
         'カテゴリ別支払い方法選択',
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-        ),
+        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
       ),
       content: SizedBox(
         width: double.maxFinite,
@@ -311,7 +313,8 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
               ...categoriesWithAmounts.entries.map((entry) {
                 final category = entry.key;
                 final amount = entry.value;
-                final availablePaymentMethods = GlobalConstants.categoryPaymentMethods[category] ?? [];
+                final availablePaymentMethods =
+                    GlobalConstants.categoryPaymentMethods[category] ?? [];
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -352,20 +355,27 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
                         const SizedBox(height: 12),
                         // 支払い方法選択
                         ...availablePaymentMethods.map((paymentMethod) {
-                          final isSelected = _selectedPaymentMethods[category] == paymentMethod;
+                          final isSelected =
+                              _selectedPaymentMethods[category] ==
+                              paymentMethod;
                           return InkWell(
                             onTap: () {
                               setState(() {
-                                _selectedPaymentMethods[category] = paymentMethod;
+                                _selectedPaymentMethods[category] =
+                                    paymentMethod;
                               });
                             },
                             child: Container(
                               margin: const EdgeInsets.only(bottom: 8),
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: isSelected ? Colors.blue.shade50 : Colors.grey.shade50,
+                                color: isSelected
+                                    ? Colors.blue.shade50
+                                    : Colors.grey.shade50,
                                 border: Border.all(
-                                  color: isSelected ? Colors.blue : Colors.grey.shade300,
+                                  color: isSelected
+                                      ? Colors.blue
+                                      : Colors.grey.shade300,
                                   width: isSelected ? 2 : 1,
                                 ),
                                 borderRadius: BorderRadius.circular(8),
@@ -375,19 +385,26 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
                                   Icon(
                                     _getPaymentMethodIcon(paymentMethod),
                                     size: 20,
-                                    color: isSelected ? Colors.blue : Colors.grey.shade600,
+                                    color: isSelected
+                                        ? Colors.blue
+                                        : Colors.grey.shade600,
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           _getPaymentMethodName(paymentMethod),
                                           style: TextStyle(
                                             fontSize: 14,
-                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                            color: isSelected ? Colors.blue : Colors.black87,
+                                            fontWeight: isSelected
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
+                                            color: isSelected
+                                                ? Colors.blue
+                                                : Colors.black87,
                                           ),
                                         ),
                                         if (_shouldShowBalance(paymentMethod))
@@ -395,7 +412,10 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
                                             _getBalanceText(paymentMethod),
                                             style: TextStyle(
                                               fontSize: 12,
-                                              color: _getBalanceColor(paymentMethod, category),
+                                              color: _getBalanceColor(
+                                                paymentMethod,
+                                                category,
+                                              ),
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
@@ -425,10 +445,7 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
                 children: [
                   const Text(
                     '合計',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   Text(
                     '¥${totalAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
@@ -478,11 +495,13 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
       if (selectedMethod == null) continue;
 
       // ポイント/サイドゲームチップの場合、残高チェック
-      if (selectedMethod == 'pointA' || selectedMethod == 'pointB' || selectedMethod == 'sideGameTip') {
+      if (selectedMethod == 'pointA' ||
+          selectedMethod == 'pointB' ||
+          selectedMethod == 'sideGameChip') {
         int balance = 0;
         double availableValue = 0;
         int availableChips = 0;
-        
+
         switch (selectedMethod) {
           case 'pointA':
             balance = _pointABalance;
@@ -494,17 +513,20 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
             availableValue = balance.toDouble();
             availableChips = balance;
             break;
-          case 'sideGameTip':
-            balance = _sideGameTipBalance;
-            availableValue = balance * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE;
-            availableChips = (availableValue / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
+          case 'sideGameChip':
+            balance = _sideGameChipBalance;
+            availableValue =
+                balance * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE;
+            availableChips =
+                (availableValue / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE)
+                    .round();
             break;
         }
 
         // 残高が十分な場合
         if (availableValue >= categoryAmount) {
           result[category] = selectedMethod; // 文字列のまま（既存互換）
-        } 
+        }
         // 残高不足の場合
         else {
           // 不足分の支払い方法を選択
@@ -545,22 +567,27 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
   ) async {
     // 利用可能な金額を計算（サイドゲームチップの場合は換算）
     final double availableValue;
-    if (originalMethod == 'sideGameTip') {
-      availableValue = availableChips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE;
+    if (originalMethod == 'sideGameChip') {
+      availableValue =
+          availableChips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE;
     } else {
       availableValue = availableChips.toDouble();
     }
-    
+
     final shortfall = totalAmount - availableValue.toInt();
-    final availableMethods = GlobalConstants.categoryPaymentMethods[category] ?? [];
-    
+    final availableMethods =
+        GlobalConstants.categoryPaymentMethods[category] ?? [];
+
     // 不足分に使える支払い方法（元の方法とポイント系を除外）
-    final shortfallOptions = availableMethods.where((method) =>
-      method != originalMethod &&
-      method != 'pointA' &&
-      method != 'pointB' &&
-      method != 'sideGameTip'
-    ).toList();
+    final shortfallOptions = availableMethods
+        .where(
+          (method) =>
+              method != originalMethod &&
+              method != 'pointA' &&
+              method != 'pointB' &&
+              method != 'sideGameChip',
+        )
+        .toList();
 
     return showDialog<String>(
       context: context,
@@ -579,10 +606,7 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
           children: [
             Text(
               _getCategoryDisplayName(category),
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             Text(
@@ -599,16 +623,34 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('必要金額: ¥${totalAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
-                  if (originalMethod == 'sideGameTip')
-                    Text('${_getPaymentMethodName(originalMethod)}残高: ${availableChips}枚 (¥${availableValue.toInt().toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})', 
-                      style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.bold))
+                  Text(
+                    '必要金額: ¥${totalAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                  ),
+                  if (originalMethod == 'sideGameChip')
+                    Text(
+                      '${_getPaymentMethodName(originalMethod)}残高: ${availableChips}枚 (¥${availableValue.toInt().toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})',
+                      style: TextStyle(
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    )
                   else
-                    Text('${_getPaymentMethodName(originalMethod)}残高: ¥${availableChips.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}', 
-                      style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.bold)),
+                    Text(
+                      '${_getPaymentMethodName(originalMethod)}残高: ¥${availableChips.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                      style: TextStyle(
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   const Divider(),
-                  Text('不足分: ¥${shortfall.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}', 
-                    style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text(
+                    '不足分: ¥${shortfall.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                    style: TextStyle(
+                      color: Colors.red.shade700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -626,10 +668,16 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
                   icon: Icon(_getPaymentMethodIcon(method), size: 20),
                   label: Text(
                     _getPaymentMethodName(method),
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
                     minimumSize: const Size(double.infinity, 48),
                     backgroundColor: Colors.blue.shade600,
                     foregroundColor: Colors.white,
@@ -651,9 +699,9 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
 
   // 残高を表示すべき支払い方法かどうか
   bool _shouldShowBalance(String paymentMethod) {
-    return paymentMethod == 'pointA' || 
-           paymentMethod == 'pointB' || 
-           paymentMethod == 'sideGameTip';
+    return paymentMethod == 'pointA' ||
+        paymentMethod == 'pointB' ||
+        paymentMethod == 'sideGameChip';
   }
 
   // 残高のテキストを取得
@@ -661,7 +709,7 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
     if (_isLoadingBalance) {
       return '残高: 読込中...';
     }
-    
+
     int balance = 0;
     switch (paymentMethod) {
       case 'pointA':
@@ -670,9 +718,10 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
       case 'pointB':
         balance = _pointBBalance;
         return '残高: ¥${balance.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
-      case 'sideGameTip':
-        balance = _sideGameTipBalance;
-        final chipValue = (balance * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+      case 'sideGameChip':
+        balance = _sideGameChipBalance;
+        final chipValue =
+            (balance * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
         return '残高: ${balance.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
       default:
         return '残高: ¥0';
@@ -684,13 +733,13 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
     if (_isLoadingBalance) {
       return Colors.grey;
     }
-    
+
     final categoriesWithAmounts = _getCategoriesWithAmounts();
     final requiredAmount = categoriesWithAmounts[category] ?? 0;
-    
+
     int balance = 0;
     double availableValue = 0;
-    
+
     switch (paymentMethod) {
       case 'pointA':
         balance = _pointABalance;
@@ -700,16 +749,17 @@ class _CategoryPaymentMethodDialogState extends State<CategoryPaymentMethodDialo
         balance = _pointBBalance;
         availableValue = balance.toDouble();
         break;
-      case 'sideGameTip':
-        balance = _sideGameTipBalance;
+      case 'sideGameChip':
+        balance = _sideGameChipBalance;
         availableValue = balance * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE;
         break;
       default:
         return Colors.grey.shade600;
     }
-    
+
     // 残高が足りない場合は赤色、足りる場合は緑色
-    return availableValue >= requiredAmount ? Colors.green.shade700 : Colors.red.shade700;
+    return availableValue >= requiredAmount
+        ? Colors.green.shade700
+        : Colors.red.shade700;
   }
 }
-

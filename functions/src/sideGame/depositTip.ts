@@ -27,7 +27,7 @@ export const depositTip = onCall(async (request) => {
     }
 
     const userData = userDoc.data();
-    const currentTip = userData?.sideGameTip as number || 0;
+    const currentTip = userData?.sideGameChip as number || 0;
 
     console.log(`現在のTip残高: ${currentTip}`);
     console.log(`預入予定額: ${amount}`);
@@ -35,7 +35,7 @@ export const depositTip = onCall(async (request) => {
     // Tipを預入
     const newTipAmount = currentTip + amount;
     await db.collection('users').doc(userId).update({
-      sideGameTip: newTipAmount,
+      sideGameChip: newTipAmount,
       updatedAt: new Date(),
     });
 

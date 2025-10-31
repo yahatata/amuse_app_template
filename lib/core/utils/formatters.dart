@@ -1,5 +1,5 @@
 /// 売上ダッシュボード用フォーマッター
-/// 
+///
 /// 責務: 金額・日付・数値の表示フォーマット
 /// 参照フィールド: なし（純粋なユーティリティ）
 /// 遅延ロード: なし
@@ -26,7 +26,7 @@ class Formatters {
   static String formatCurrencyShort(int amount) {
     if (amount < 0) return "0円";
     if (amount < 10000) return formatCurrency(amount);
-    
+
     final man = amount / 10000;
     if (man < 100) {
       return '${(man * 10).round() / 10}万円';
@@ -132,7 +132,7 @@ class Formatters {
         return 'ポイントB';
       case 'sideGameChip':
         return 'サイドゲームチップ';
-      case 'sideGameTip':
+      case 'sideGameChip':
         return 'サイドゲームチップ';
       default:
         return method;

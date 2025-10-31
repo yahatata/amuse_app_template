@@ -55,7 +55,6 @@ export const generateDummyData = onCall({
           electronic_money: getRandomValue(850000),
           pointA: getRandomValue(450000),
           pointB: getRandomValue(220000),
-          sideGameTip: 0,
           sideGameChip: 0,
         },
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -274,7 +273,6 @@ export const generateDummyData = onCall({
           electronic_money: getRandomValue(Math.floor(grossSales * 0.15)),
           pointA: getRandomValue(Math.floor(grossSales * 0.1)),
           pointB: getRandomValue(Math.floor(grossSales * 0.05)),
-          sideGameTip: 0,
           sideGameChip: 0,
         };
 

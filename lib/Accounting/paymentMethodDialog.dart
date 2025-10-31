@@ -5,10 +5,7 @@ import 'package:flutter/material.dart';
 class PaymentMethodDialog extends StatelessWidget {
   final Function(String) onSelected;
 
-  const PaymentMethodDialog({
-    super.key,
-    required this.onSelected,
-  });
+  const PaymentMethodDialog({super.key, required this.onSelected});
 
   @override
   Widget build(BuildContext context) {
@@ -62,7 +59,7 @@ class PaymentMethodDialog extends StatelessWidget {
               context,
               icon: Icons.casino,
               title: 'サイドゲームチップ',
-              paymentMethod: 'sideGameTip',
+              paymentMethod: 'sideGameChip',
               color: Colors.teal,
             ),
           ],
@@ -88,10 +85,7 @@ class PaymentMethodDialog extends StatelessWidget {
       leading: Icon(icon, color: color, size: 32),
       title: Text(
         title,
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-        ),
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
       ),
       onTap: () {
         onSelected(paymentMethod);
@@ -101,4 +95,3 @@ class PaymentMethodDialog extends StatelessWidget {
     );
   }
 }
-
