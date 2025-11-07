@@ -91,6 +91,42 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
               ),
             ),
             const SizedBox(height: 16),
+            
+            // 全テーブルリセット機能
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.refresh, color: Colors.teal),
+                title: const Text('全テーブルリセット'),
+                subtitle: const Text('全テーブルのステータスをopenに戻します'),
+                trailing: _isProcessing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.arrow_forward_ios),
+                onTap: _isProcessing ? null : _showResetTablesDialog,
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // 全サイドゲームリセット機能
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.casino, color: Colors.indigo),
+                title: const Text('全サイドゲームリセット'),
+                subtitle: const Text('全サイドゲームをクリアします'),
+                trailing: _isProcessing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.arrow_forward_ios),
+                onTap: _isProcessing ? null : _showResetSideGamesDialog,
+              ),
+            ),
+            const SizedBox(height: 16),
             const Text(
               '注意事項',
               style: TextStyle(
@@ -104,6 +140,8 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
               '• 一時テーブル作成: トーナメント用のテーブルを動的に作成\n'
               '• settledBills移管: 本機能は開発用です\n'
               '• ダミーデータ生成: テスト用のダミーデータを生成します\n'
+              '• 全テーブルリセット: 全テーブルのステータスをopenにリセット\n'
+              '• 全サイドゲームリセット: 全サイドゲームをクリア\n'
               '• 本番環境では自動バッチ処理で実行されます\n'
               '• 処理中は他の操作を行わないでください',
               style: TextStyle(color: Colors.red),
@@ -318,6 +356,210 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
         _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
       } else {
         _showErrorDialog('4ヶ月分のダミーデータ生成に失敗しました: $e');
+      }
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+  void _showResetTablesDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('最終確認'),
+          content: const Text(
+            '全テーブルのステータスをopenにリセットしますか？\n\n'
+            'すべてのテーブルが開店状態に戻ります。\n'
+            '処理中は他の操作を行わないでください。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: _executeResetTables,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('実行'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _executeResetTables() async {
+    Navigator.of(context).pop(); // ダイアログを閉じる
+    
+    // 認証状態を確認
+    final user = _auth.currentUser;
+    if (user == null) {
+      _showErrorDialog('認証が必要です。ログインしてから再度お試しください。');
+      return;
+    }
+    
+    setState(() {
+      _isProcessing = true;
+    });
+
+    // ローディングダイアログを表示
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('全テーブルリセット中...'),
+            ],
+          ),
+        );
+      },
+    );
+
+    try {
+      debugPrint('全テーブルリセット開始');
+      
+      final callable = _functions.httpsCallable('resetAllTables');
+      final result = await callable.call();
+
+      debugPrint('全テーブルリセット結果: $result');
+
+      // ローディングダイアログを閉じる
+      Navigator.of(context).pop();
+
+      if (result.data['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('全テーブルリセット完了: ${result.data['message'] ?? ''}'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        _showErrorDialog(result.data['error'] ?? '全テーブルリセットに失敗しました');
+      }
+    } catch (e) {
+      debugPrint('全テーブルリセットエラー: $e');
+      
+      // ローディングダイアログを閉じる
+      Navigator.of(context).pop();
+      
+      if (e.toString().contains('UNAUTHENTICATED')) {
+        _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
+      } else {
+        _showErrorDialog('全テーブルリセットに失敗しました: $e');
+      }
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+  void _showResetSideGamesDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('最終確認'),
+          content: const Text(
+            '全サイドゲームをリセットしますか？\n\n'
+            'すべてのサイドゲームの座席情報とゲーム情報がクリアされます。\n'
+            '処理中は他の操作を行わないでください。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: _executeResetSideGames,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('実行'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _executeResetSideGames() async {
+    Navigator.of(context).pop(); // ダイアログを閉じる
+    
+    // 認証状態を確認
+    final user = _auth.currentUser;
+    if (user == null) {
+      _showErrorDialog('認証が必要です。ログインしてから再度お試しください。');
+      return;
+    }
+    
+    setState(() {
+      _isProcessing = true;
+    });
+
+    // ローディングダイアログを表示
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('全サイドゲームリセット中...'),
+            ],
+          ),
+        );
+      },
+    );
+
+    try {
+      debugPrint('全サイドゲームリセット開始');
+      
+      final callable = _functions.httpsCallable('resetAllSideGames');
+      final result = await callable.call();
+
+      debugPrint('全サイドゲームリセット結果: $result');
+
+      // ローディングダイアログを閉じる
+      Navigator.of(context).pop();
+
+      if (result.data['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('全サイドゲームリセット完了: ${result.data['message'] ?? ''}'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        _showErrorDialog(result.data['error'] ?? '全サイドゲームリセットに失敗しました');
+      }
+    } catch (e) {
+      debugPrint('全サイドゲームリセットエラー: $e');
+      
+      // ローディングダイアログを閉じる
+      Navigator.of(context).pop();
+      
+      if (e.toString().contains('UNAUTHENTICATED')) {
+        _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
+      } else {
+        _showErrorDialog('全サイドゲームリセットに失敗しました: $e');
       }
     } finally {
       setState(() {

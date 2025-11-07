@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/globalConstant.dart';
 
 class PrizeSetupPage extends StatefulWidget {
@@ -33,6 +34,9 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
   // 計算結果
   int _totalRevenue = 0; // 売上合計
   int _totalPrizePool = 0; // プライズプール合計
+  
+  // 既存プライズ情報
+  Map<String, int>? _existingPrizes; // 既存のXstPrize情報
   
   @override
   void initState() {
@@ -90,6 +94,7 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
           }
           
           _calculateInitialValues();
+          _checkExistingPrizes();
         });
         print('=== End PrizeSetup データ型デバッグ ===');
       } else {
@@ -206,6 +211,21 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
     _updatePrizeDistribution();
   }
   
+  void _checkExistingPrizes() {
+    // XstPrizeフィールドの存在確認
+    _existingPrizes = {};
+    
+    if (_mainViewData != null) {
+      for (int i = 1; i <= 10; i++) {
+        final prizeKey = '${i}stPrize';
+        final prizeValue = _mainViewData![prizeKey];
+        if (prizeValue != null && prizeValue is num) {
+          _existingPrizes![prizeKey] = prizeValue.toInt();
+        }
+      }
+    }
+  }
+  
   void _updatePrizeDistribution() {
     print('=== _updatePrizeDistribution デバッグ ===');
     print('_totalRevenue: $_totalRevenue');
@@ -249,6 +269,50 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
         _isLoading = true;
         _errorMessage = null;
       });
+      
+      // プライズ受け取り人数とusersフィールドの個数をチェック
+      final usersListDoc = await FirebaseFirestore.instance
+          .collection('scheduledTournaments')
+          .doc(widget.tournamentId)
+          .collection('views')
+          .doc('usersList')
+          .get();
+      
+      if (usersListDoc.exists) {
+        final usersListData = usersListDoc.data();
+        final users = usersListData?['users'];
+        
+        if (users is Map) {
+          final usersCount = users.length;
+          
+          if (_prizeReceiverCount > usersCount) {
+            // エラーダイアログを表示
+            if (mounted) {
+              await showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('エラー'),
+                  content: Text(
+                    'プライズ受け取り人数（$_prizeReceiverCount人）が'
+                    '参加者数（$usersCount人）を上回っています。\n'
+                    'プライズ受け取り人数を参加者数以下に設定してください。',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
+            }
+            setState(() {
+              _isLoading = false;
+            });
+            return;
+          }
+        }
+      }
       
       // プライズデータを準備
       Map<String, dynamic> prizeData = {
@@ -332,6 +396,11 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // 既存プライズ警告
+                      if (_existingPrizes != null && _existingPrizes!.isNotEmpty)
+                        _buildExistingPrizeWarning(),
+                      if (_existingPrizes != null && _existingPrizes!.isNotEmpty)
+                        const SizedBox(height: 16),
                       // 売上情報
                       _buildRevenueSection(),
                       const SizedBox(height: 24),
@@ -544,6 +613,56 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
                 ),
               );
             }),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildExistingPrizeWarning() {
+    // 既存のプライズ情報を順番に表示
+    final sortedPrizes = _existingPrizes!.entries.toList()
+      ..sort((a, b) {
+        // "1stPrize", "2stPrize" などの順位を抽出してソート
+        final aRank = int.tryParse(a.key.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        final bRank = int.tryParse(b.key.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        return aRank.compareTo(bRank);
+      });
+    
+    String prizeText = 'すでにプライズが確定しています。\n'
+        '※修正する場合にのみ、パラメータ等を修正し確定ボタンを押下してください。\n\n';
+    
+    for (final entry in sortedPrizes) {
+      final rank = entry.key.replaceAll(RegExp(r'[^0-9]'), '');
+      prizeText += '${rank}st: ${entry.value}\n';
+    }
+    
+    return Card(
+      color: Colors.orange.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.warning, color: Colors.orange.shade700),
+                const SizedBox(width: 8),
+                Text(
+                  '既存プライズ情報',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange.shade700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              prizeText,
+              style: TextStyle(color: Colors.orange.shade900),
+            ),
           ],
         ),
       ),
