@@ -34,6 +34,8 @@ export * from "./attendance";
 export * from "./callables";
 // アナリティクス関連関数
 export * from "./analytics";
+// クロージング処理関連関数
+export * from "./close_process";
 
 // トーナメント時間管理システム（Phase1）
 import { onRequest } from 'firebase-functions/v2/https';
