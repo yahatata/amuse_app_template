@@ -24,6 +24,7 @@ export { setPrizeData } from './setPrizeData';
 export { getRankingData } from './getRankingData';
 export { setRankingData } from './setRankingData';
 export { endTournament } from './endTournament';
+export { validateEndTournament } from './validateEndTournament';
 export { startAccounting, completeAccounting } from './accounting';
 export { verifyPaymentSplit } from './verifyPaymentSplit';
 export { updateActiveBill } from './updateActiveBill';

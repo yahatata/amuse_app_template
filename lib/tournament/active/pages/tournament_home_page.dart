@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/add_table_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/assign_seat_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/reseat_all_dialog.dart';
@@ -215,14 +214,81 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
     );
   }
 
-  void _confirmPrizes() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => PrizeSetupPage(
-          tournamentId: widget.tournamentId,
+  void _confirmPrizes() async {
+    // 遷移前にstatusをチェック
+    try {
+      final tournamentDoc = await FirebaseFirestore.instance
+          .collection('scheduledTournaments')
+          .doc(widget.tournamentId)
+          .get();
+      
+      if (!tournamentDoc.exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('トーナメントデータが見つかりません')),
+        );
+        return;
+      }
+      
+      final tournamentData = tournamentDoc.data();
+      final status = tournamentData?['status'] ?? '';
+      
+      if (status == 'ended') {
+        // 既に終了済み
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('エラー'),
+            content: const Text(
+              'すでに終了済みのためプライズを変更できません。\n'
+              '付与するポイントを修正する場合は該当のuser情報を直接修正してください',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      } else if (status == 'scheduled' || status == 'running') {
+        // レジスト前または実行中の確認
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('確認'),
+            content: const Text('レジスト前ですがプライズを確定してよろしいですか？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('キャンセル'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('確認'),
+              ),
+            ],
+          ),
+        );
+        
+        if (confirmed != true) {
+          return;
+        }
+      }
+      // status == 'registered' の場合はそのまま遷移
+      
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => PrizeSetupPage(
+            tournamentId: widget.tournamentId,
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('エラーが発生しました: $e')),
+      );
+    }
   }
 
   void _confirmRankings() async {
@@ -267,13 +333,191 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
     }
   }
 
+  bool _isEndingTournament = false;
+
   void _endTournament() async {
-    // 確認ダイアログを表示
-    final confirmed = await showDialog<bool>(
+    // 二重押下防止
+    if (_isEndingTournament) return;
+    
+    // 検証処理を実行
+    await _validateAndEndTournament();
+  }
+
+  Future<void> _validateAndEndTournament() async {
+    setState(() {
+      _isEndingTournament = true;
+    });
+
+    try {
+      // 検証ダイアログを表示（画面中央）
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // 1. 終了前検証
+      final functions = FirebaseFunctions.instance;
+      final validateCallable = functions.httpsCallable('validateEndTournament');
+      final validateResult = await validateCallable.call({
+        'tournamentId': widget.tournamentId,
+      });
+      
+      Navigator.of(context).pop(); // 検証ダイアログを閉じる
+      
+      if (validateResult.data['success'] != true) {
+        final errorType = validateResult.data['errorType'];
+        final message = validateResult.data['message'] ?? '検証に失敗しました';
+        
+        if (errorType == 'ended') {
+          // 既に終了済み
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('エラー'),
+              content: Text(message),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+          return;
+        } else if (errorType == 'not_registered') {
+          // レジスト前の確認
+          final shouldForceEnd = await _showNotRegisteredDialog(message, validateResult.data['status']);
+          if (!shouldForceEnd) {
+            return;
+          }
+          // 強制終了の場合、さらに確認
+          final confirmed = await _showForceEndConfirmationDialog(
+            'レジスト前のトーナメントの終了処理を行って問題ないでしょうか？',
+          );
+          if (!confirmed) {
+            return;
+          }
+        } else if (errorType == 'no_prize') {
+          // プライズ未確定
+          final action = await _showNoPrizeDialog();
+          if (action == 'cancel') {
+            return;
+          } else if (action == 'prize') {
+            // プライズ確定画面へ遷移
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => PrizeSetupPage(
+                  tournamentId: widget.tournamentId,
+                ),
+              ),
+            );
+            return;
+          }
+          // action == 'force_end' の場合は処理を続ける
+          final confirmed = await _showForceEndConfirmationDialog(
+            'プライズ未確定のトーナメントの強制終了処理を実行しますか？',
+          );
+          if (!confirmed) {
+            return;
+          }
+        } else if (errorType == 'no_ranking') {
+          // 順位未確定
+          final rankingData = validateResult.data['rankingData'];
+          final action = await _showNoRankingDialog(rankingData);
+          if (action == 'cancel') {
+            return;
+          } else if (action == 'ranking') {
+            // 順位確定画面へ遷移
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => RankingSetupPage(
+                  tournamentId: widget.tournamentId,
+                ),
+              ),
+            );
+            return;
+          }
+          // action == 'force_end' の場合は処理を続ける
+          final confirmed = await _showForceEndConfirmationDialog(
+            '順位未確定のトーナメントの強制終了処理を実行しますか？',
+          );
+          if (!confirmed) {
+            return;
+          }
+        } else {
+          // その他のエラー
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('エラー'),
+              content: Text(message),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+      } else {
+        // 検証成功 - 順位情報を表示して最終確認
+        final rankingData = validateResult.data['rankingData'];
+        final confirmed = await _showFinalConfirmationDialog(rankingData);
+        if (!confirmed) {
+          return;
+        }
+      }
+      
+      // 処理中ダイアログを表示（画面中央）
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+      
+      // 終了処理を実行
+      final endCallable = functions.httpsCallable('endTournament');
+      final endResult = await endCallable.call({
+        'tournamentId': widget.tournamentId,
+      });
+      
+      Navigator.of(context).pop(); // 処理中ダイアログを閉じる
+      
+      if (endResult.data['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('トーナメントを終了しました')),
+        );
+        Navigator.of(context).pop();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(endResult.data['error'] ?? '終了処理に失敗しました')),
+        );
+      }
+    } catch (e) {
+      Navigator.of(context).pop(); // ダイアログを閉じる
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('エラーが発生しました: $e')),
+      );
+    } finally {
+      setState(() {
+        _isEndingTournament = false;
+      });
+    }
+  }
+
+  Future<bool> _showNotRegisteredDialog(String message, String status) async {
+    return await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('トーナメント終了'),
-        content: const Text('トーナメントの終了処理を行いますか？'),
+        title: const Text('確認'),
+        content: Text('$message\n\n強制終了しますか？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -281,37 +525,138 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('終了処理を行う'),
+            child: const Text('強制終了'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
           ),
         ],
       ),
-    );
+    ) ?? false;
+  }
+
+  Future<bool> _showForceEndConfirmationDialog(String message) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('最終確認'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('確認'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
+  Future<String> _showNoPrizeDialog() async {
+    return await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('プライズ未確定'),
+        content: const Text('プライズの確定が行われていない状態です。\nプライズの確定を行ってください'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('cancel'),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('prize'),
+            child: const Text('プライズ確定画面へ'),
+            style: TextButton.styleFrom(foregroundColor: Colors.purple),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('force_end'),
+            child: const Text('強制終了'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+        ],
+      ),
+    ) ?? 'cancel';
+  }
+
+  Future<String> _showNoRankingDialog(dynamic rankingData) async {
+    final pointType = rankingData?['pointType'] ?? 'pointA';
+    final existingRankings = rankingData?['existingRankings'] ?? [];
+    final missingRanks = rankingData?['missingRanks'] ?? [];
     
-    if (confirmed != true) return;
+    String content = '順位情報が未確定です。\n\n';
     
-    try {
-      // 終了処理を実行
-      final functions = FirebaseFunctions.instance;
-      final callable = functions.httpsCallable('endTournament');
-      final result = await callable.call({
-        'tournamentId': widget.tournamentId,
-      });
-      
-      if (result.data['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('トーナメントを終了しました')),
-        );
-        Navigator.of(context).pop();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.data['error'] ?? '終了処理に失敗しました')),
-        );
+    if (existingRankings.isNotEmpty) {
+      content += '確定済み順位:\n';
+      for (final ranking in existingRankings) {
+        final playerName = ranking['playerName'] ?? '（未設定）';
+        content += '${ranking['rank']}位: $playerName　$pointType: ${ranking['prize']}\n';
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('エラーが発生しました: $e')),
-      );
     }
+    
+    if (missingRanks.isNotEmpty) {
+      final rankTexts = missingRanks.map((rank) => '${rank}位').join('、');
+      content += '\n$rankTextsのプレイヤーが未確定です。';
+    }
+    
+    return await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('順位未確定'),
+        content: SingleChildScrollView(
+          child: Text(content),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('cancel'),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('ranking'),
+            child: const Text('順位確定'),
+            style: TextButton.styleFrom(foregroundColor: Colors.indigo),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('force_end'),
+            child: const Text('強制終了'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+        ],
+      ),
+    ) ?? 'cancel';
+  }
+
+  Future<bool> _showFinalConfirmationDialog(dynamic rankingData) async {
+    final pointType = rankingData?['pointType'] ?? 'pointA';
+    final rankings = rankingData?['rankings'] ?? [];
+    
+    String content = 'pointを付与し、トーナメントの終了処理を進めますか？\n\n';
+    content += '順位:\n';
+    for (final ranking in rankings) {
+      final playerName = ranking['playerName'] ?? '（未設定）';
+      content += '${ranking['rank']}位: $playerName　$pointType: ${ranking['prize']}\n';
+    }
+    
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('最終確認'),
+        content: SingleChildScrollView(
+          child: Text(content),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('確認'),
+          ),
+        ],
+      ),
+    ) ?? false;
   }
 
   /// 統計アイテムを構築
@@ -645,7 +990,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
-                    onPressed: () => _endTournament(),
+                    onPressed: _isEndingTournament ? null : () => _endTournament(),
                     icon: const Icon(Icons.stop),
                     label: const Text('終了処理'),
                     style: ElevatedButton.styleFrom(
