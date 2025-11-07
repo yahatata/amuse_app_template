@@ -12,6 +12,7 @@ import 'package:amuse_app_template/Accounting/payment_split_test_page.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_list.dart';
 import 'package:amuse_app_template/OrderView/OrderManagement/order_management_page.dart';
 import 'package:amuse_app_template/dashboard/home/dashboard_home_page.dart';
+import 'package:amuse_app_template/Utils/firestore_size_page.dart';
 import 'package:flutter/material.dart';
 
 class terminalHomePage extends StatefulWidget {
@@ -41,6 +42,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: '会計管理', destination: const AccountingPage()),
       (label: '売上ダッシュボード', destination: const DashboardHomePage()),
       (label: '支払い分割テスト', destination: const PaymentSplitTestPage()),
+      (label: 'Firestoreサイズ計算', destination: const FirestoreSizePage()),
     ];
 
     return Scaffold(

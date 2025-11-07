@@ -11,7 +11,8 @@ import * as admin from "firebase-admin";
  */
 export const getUpcomingTournaments = onCall(async (request) => {
   try {
-    console.log('getUpcomingTournaments called for LIFF');
+    const { includeAll = false } = request.data || {};
+    console.log('getUpcomingTournaments called for LIFF, includeAll:', includeAll);
     
     // 既存のgetScheduledTournaments関数のロジックを流用
     // const { period = 'all' } = request.data || {};
@@ -35,10 +36,29 @@ export const getUpcomingTournaments = onCall(async (request) => {
     console.log('jstTodayUTC:', jstTodayUTC.toISOString());
     
     // 当日以降のトーナメントを取得
-    // Timestampオブジェクトでのクエリ
     const todayTimestamp = admin.firestore.Timestamp.fromDate(jstTodayUTC);
     
-    query = query.where('startAt', '>=', todayTimestamp);
+    if (!includeAll) {
+      // 1週間先まで（既存ロジック）
+      const jstNext7Days = new Date(jstToday);
+      jstNext7Days.setDate(jstNext7Days.getDate() + 7);
+      const jstNext7DaysUTC = new Date(jstNext7Days.getTime() - jstOffset * 60 * 1000);
+      const next7DaysTimestamp = admin.firestore.Timestamp.fromDate(jstNext7DaysUTC);
+      
+      console.log('=== 1週間先フィルタリング ===');
+      console.log('今日:', jstToday.toISOString());
+      console.log('7日後:', jstNext7Days.toISOString());
+      console.log('todayTimestamp:', todayTimestamp);
+      console.log('next7DaysTimestamp:', next7DaysTimestamp);
+      
+      query = query
+        .where('startAt', '>=', todayTimestamp)
+        .where('startAt', '<', next7DaysTimestamp);
+    } else {
+      // 全件（新規）
+      console.log('=== 全トーナメント取得モード ===');
+      query = query.where('startAt', '>=', todayTimestamp);
+    }
     
     console.log('=== 当日以降フィルタリング ===');
     console.log('todayTimestamp:', todayTimestamp);
@@ -47,8 +67,14 @@ export const getUpcomingTournaments = onCall(async (request) => {
     // 開始時刻で昇順ソート
     query = query.orderBy('startAt', 'asc');
     
-    // 最大100件まで取得
-    query = query.limit(100);
+    // 最大件数の制限
+    if (!includeAll) {
+      // 1週間先まで: 100件まで
+      query = query.limit(100);
+    } else {
+      // 全件: 500件まで（実用上十分な数）
+      query = query.limit(500);
+    }
     
     console.log('=== クエリ実行 ===');
     const snapshot = await query.get();
@@ -213,20 +239,24 @@ export const getUpcomingTournaments = onCall(async (request) => {
       };
     }));
     
-    // 結果を降順でソート（メモリ上でソート）
+    // 結果を昇順でソート（メモリ上でソート）
     tournaments.sort((a, b) => {
       const dateA = new Date(a.startAt);
       const dateB = new Date(b.startAt);
-      return dateB.getTime() - dateA.getTime();
+      return dateA.getTime() - dateB.getTime();
     });
     
-    console.log(`Retrieved ${tournaments.length} upcoming tournaments`);
+    const message = includeAll 
+      ? `${tournaments.length}件の全トーナメントを取得しました` 
+      : `${tournaments.length}件の開催予定トーナメント（1週間先まで）を取得しました`;
+    
+    console.log(message);
     
     return {
       success: true,
-      data: tournaments, // LIFF用の形式
+      tournaments: tournaments, // LIFF用の形式（"data"から"tournaments"に変更）
       count: tournaments.length,
-      message: `${tournaments.length}件の開催予定トーナメントを取得しました`
+      message: message
     };
     
   } catch (error) {
@@ -235,7 +265,7 @@ export const getUpcomingTournaments = onCall(async (request) => {
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred',
-      data: [],
+      tournaments: [],
       count: 0,
       message: '開催予定トーナメントの取得に失敗しました'
     };
