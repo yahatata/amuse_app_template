@@ -27,6 +27,7 @@ export { endTournament } from './endTournament';
 export { validateEndTournament } from './validateEndTournament';
 export { startAccounting, completeAccounting } from './accounting';
 export { verifyPaymentSplit } from './verifyPaymentSplit';
+export { calculateFirestoreSize } from './calculateFirestoreSize';
 export { updateActiveBill } from './updateActiveBill';
 export { migrateTodaysBillsAccountingFields } from './migrateTodaysBills';
 export { getAccountingHistory } from './getAccountingHistory';

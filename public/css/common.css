@@ -22,17 +22,22 @@ body {
   flex-direction: column;
   justify-content: center;
   box-sizing: border-box;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 .page {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-radius: 20px;
-  padding: 25px;
+  padding: 20px 15px;
   margin: 15px 0;
   box-shadow: 0 20px 40px rgba(0,0,0,0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   animation: slideUp 0.6s ease-out;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 @keyframes slideUp {
@@ -1848,4 +1853,377 @@ body {
 .form-actions .secondary-btn:hover {
   background: #5a6268;
   transform: translateY(-2px);
+}
+
+/* ==================================================
+   トーナメントカレンダー専用スタイル
+   ================================================== */
+
+.all-tournament-calendar-page {
+  max-width: 100vw;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+.all-tournament-calendar-page .calendar-container {
+  margin: 20px 0;
+  padding: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.all-tournament-calendar-page .tournament-calendar {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.all-tournament-calendar-page .calendar-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 10px;
+}
+
+.all-tournament-calendar-page .calendar-controls h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #333;
+  flex: 1;
+  text-align: center;
+}
+
+.all-tournament-calendar-page .calendar-controls .btn {
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.all-tournament-calendar-page .calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background-color: #ddd;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.all-tournament-calendar-page .weekday {
+  background-color: #f0f0f0;
+  padding: 6px 1px;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: bold;
+  color: #333;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.all-tournament-calendar-page .calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background-color: #ddd;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.all-tournament-calendar-page .calendar-day {
+  background-color: white;
+  padding: 4px 1px;
+  text-align: center;
+  min-height: 45px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.all-tournament-calendar-page .calendar-day:hover {
+  background-color: #f5f5f5;
+  transform: scale(1.02);
+}
+
+.all-tournament-calendar-page .calendar-day.other-month {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.all-tournament-calendar-page .calendar-day.other-month:hover {
+  background-color: white;
+  transform: none;
+}
+
+.all-tournament-calendar-page .calendar-day.today {
+  background-color: #e3f2fd !important;
+  font-weight: bold;
+  border: 2px solid #2196f3;
+}
+
+.all-tournament-calendar-page .calendar-day.has-tournament {
+  background-color: #fff9c4 !important;
+}
+
+.all-tournament-calendar-page .calendar-day.has-tournament:hover {
+  background-color: #fff59d !important;
+}
+
+.all-tournament-calendar-page .day-number {
+  font-size: 0.9rem;
+  color: #333;
+  line-height: 1;
+  display: block;
+}
+
+.all-tournament-calendar-page .tournament-markers {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  margin-top: 2px;
+  min-height: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.all-tournament-calendar-page .tournament-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.all-tournament-calendar-page .tournament-dot.regular {
+  background-color: #2196f3; /* 青丸 - 定期開催 */
+}
+
+.all-tournament-calendar-page .tournament-dot.one-time {
+  background-color: #4caf50; /* 緑丸 - 単発開催 */
+}
+
+.all-tournament-calendar-page .selected-date-tournaments {
+  background-color: #f8f9fa;
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 20px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.all-tournament-calendar-page .selected-date-tournaments h3 {
+  margin: 0 0 15px 0;
+  color: #333;
+  font-size: 1.3rem;
+  border-bottom: 2px solid #667eea;
+  padding-bottom: 8px;
+}
+
+.all-tournament-calendar-page .tournament-item {
+  background-color: white;
+  padding: 15px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.all-tournament-calendar-page .tournament-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.all-tournament-calendar-page .tournament-item h3 {
+  margin: 0 0 8px 0;
+  font-size: 1.1rem;
+  color: #667eea;
+  border: none;
+  padding: 0;
+}
+
+.all-tournament-calendar-page .tournament-item p {
+  margin: 4px 0;
+  color: #666;
+  line-height: 1.6;
+}
+
+.all-tournament-calendar-page .tournament-item strong {
+  color: #333;
+}
+
+.all-tournament-calendar-page .tournament-actions {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.all-tournament-calendar-page .tournament-actions .btn {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 12px 8px;
+  font-size: 0.95rem;
+}
+
+/* 1週間先トーナメントページのボタンも同様に */
+.weekly-tournament-page .tournament-actions .btn {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 12px 8px;
+  font-size: 0.95rem;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+  .all-tournament-calendar-page .calendar-controls h2 {
+    font-size: 1.1rem;
+  }
+
+  .all-tournament-calendar-page .calendar-controls .btn {
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
+
+  .all-tournament-calendar-page .weekday {
+    font-size: 0.7rem;
+    padding: 4px 1px;
+  }
+
+  .all-tournament-calendar-page .calendar-day {
+    min-height: 38px;
+    padding: 3px 1px;
+  }
+
+  .all-tournament-calendar-page .day-number {
+    font-size: 0.85rem;
+  }
+
+  .all-tournament-calendar-page .tournament-badge {
+    font-size: 0.6rem;
+    padding: 1px 3px;
+  }
+
+  .all-tournament-calendar-page .selected-date-tournaments {
+    padding: 15px;
+  }
+
+  .all-tournament-calendar-page .selected-date-tournaments h3 {
+    font-size: 1.1rem;
+  }
+
+  .all-tournament-calendar-page .tournament-item {
+    padding: 12px;
+  }
+
+  .all-tournament-calendar-page .tournament-item h3 {
+    font-size: 1rem;
+  }
+}
+
+/* ==================================================
+   トーナメントカード（1週間先ページ用）
+   ================================================== */
+
+.tournament-card {
+  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+
+.tournament-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+  border-color: #667eea;
+}
+
+.tournament-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.tournament-card-title {
+  flex: 1;
+}
+
+.tournament-card-title h3 {
+  margin: 0 0 6px 0;
+  font-size: 1.1rem;
+  color: #667eea;
+  font-weight: bold;
+}
+
+.tournament-card-date {
+  font-size: 0.9rem;
+  color: #666;
+  display: block;
+}
+
+.tournament-card-arrow {
+  font-size: 1rem;
+  color: #999;
+  transition: transform 0.3s;
+  user-select: none;
+}
+
+.tournament-card-details {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 0.95rem;
+}
+
+.detail-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.detail-value {
+  color: #333;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* 空メッセージ */
+.empty-message {
+  text-align: center;
+  color: #999;
+  font-size: 1rem;
+  padding: 40px 20px;
+}
+
+.error-message {
+  text-align: center;
+  color: #ff6b6b;
+  font-size: 0.95rem;
+  padding: 20px;
+  background-color: #fee;
+  border-radius: 8px;
 }
