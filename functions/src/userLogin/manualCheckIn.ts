@@ -124,7 +124,7 @@ export const manualCheckIn = onCall(async (request) => {
       date: today, // JST日付
       // 共通フィールド
       sideGameChip: [],
-      paymentMethodsByCategory: [],
+      paymentMethodsByAmount: {},
       schemaVersion: "1.0", // globalConstant.dartのschemaVersionを参照
     } as Record<string, unknown>;
 
