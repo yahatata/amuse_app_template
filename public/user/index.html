@@ -155,7 +155,7 @@
               </div>
             </button>
             
-            <button id="order-btn" class="function-btn order-btn" onclick="showOrderMenu()">
+            <button id="order-btn" class="function-btn order-btn" onclick="showOrderPage()">
               <div class="btn-icon">🍽️</div>
               <div class="btn-text">
                 <h3>注文</h3>
@@ -451,6 +451,27 @@
         pageElement.classList.add('active');
       }
 
+      // URLハッシュナビゲーション処理
+      async function handleHashNavigation() {
+        const hash = window.location.hash;
+        
+        // ハッシュに応じてページ遷移
+        if (hash === '#qr') {
+          await showQRCode();
+        } else if (hash === '#order') {
+          await showOrderPage();
+        } else if (hash === '#history') {
+          window.showOrderHistory();
+        } else if (hash === '#tournament') {
+          window.showTournament();
+        } else if (hash === '#profile') {
+          window.showProfilePage();
+        } else {
+          // ハッシュがない場合はホームページを表示
+          showPage(homePageEl);
+        }
+      }
+
       // store登録確認関数
       async function checkStoreRegistration() {
         try {
@@ -491,12 +512,18 @@
             
             await updateUserLoginStatus(user.uid);
             
-            showPage(homePageEl);
-            
             // 入店状態を定期的に更新（永続化のため）
             setInterval(() => {
               updateCheckinStatusUI(user.uid);
             }, 30000); // 30秒ごとに更新
+            
+            // URLハッシュをチェックして適切なページに遷移
+            try {
+              handleHashNavigation();
+            } catch (error) {
+              // ハッシュナビゲーションでエラーが発生した場合はホームページを表示
+              showPage(homePageEl);
+            }
           } else {
             // 未登録の場合
             showPage(registrationPageEl);
@@ -650,7 +677,18 @@
       // ページ遷移関数
       window.showHomePage = () => showPage(homePageEl);
       window.showQRPage = () => showPage(qrPageEl);
-      window.showOrderPage = () => showPage(orderPageEl);
+      window.showOrderPage = async () => {
+        showPage(orderPageEl);
+        
+        // カテゴリー情報とメニューデータを動的に取得
+        const menuData = await loadCategoriesAndMenuData();
+        
+        if (menuData && menuData.categories.length > 0) {
+          // デフォルトで最初のカテゴリを表示
+          const defaultCategory = menuData.categories[0];
+          loadMenuItems(defaultCategory, menuData.allMenuItems);
+        }
+      };
       window.showOrderHistory = () => {
         showPage(orderHistoryPageEl);
         loadOrderHistory();
@@ -772,18 +810,6 @@
       }
 
       // 注文メニュー関連関数
-      window.showOrderMenu = async () => {
-        showPage(orderPageEl);
-        
-        // カテゴリー情報とメニューデータを動的に取得
-        const menuData = await loadCategoriesAndMenuData();
-        
-        if (menuData && menuData.categories.length > 0) {
-          // デフォルトで最初のカテゴリを表示
-          const defaultCategory = menuData.categories[0];
-          loadMenuItems(defaultCategory, menuData.allMenuItems);
-        }
-      };
 
       // カテゴリー情報とメニューデータを動的に取得・表示
       async function loadCategoriesAndMenuData() {

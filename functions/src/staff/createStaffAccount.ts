@@ -54,6 +54,9 @@ export const createStaffAccount = onCall(
 
     try {
       const uid = request.auth.uid;
+      
+      // LINE User IDを取得（カスタムクレームから）
+      const lineUserId = request.auth.token.lineUserId || null;
 
       // スタッフ名重複チェック
       const existing = await admin
@@ -86,6 +89,7 @@ export const createStaffAccount = onCall(
         .doc(uid)
         .set({
           uid: uid,
+          lineUserId: lineUserId, // LINE User IDを保存
           fullName: fullName,
           fullNameKana: fullNameKana,
           email: email,
