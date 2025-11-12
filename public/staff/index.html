@@ -467,6 +467,25 @@
     pageElement.classList.add('active');
   }
 
+  // URLハッシュナビゲーション処理
+  async function handleHashNavigation() {
+    const hash = window.location.hash;
+    
+    // ハッシュに応じてページ遷移
+    if (hash === '#qr') {
+      showStaffQRCode();
+    } else if (hash === '#shift') {
+      openShiftManagement();
+    } else if (hash === '#attendance') {
+      openAttendanceManagement();
+    } else if (hash === '#profile') {
+      openProfileManagement();
+    } else {
+      // ハッシュがない場合はホームページを表示
+      showPage(homePageEl);
+    }
+  }
+
   // store登録確認関数（スタッフ用）
   async function checkStaffRegistration() {
     try {
@@ -520,7 +539,14 @@
                 </div>
               </div>
         `;
-        showPage(homePageEl);
+        
+        // URLハッシュをチェックして適切なページに遷移
+        try {
+          await handleHashNavigation();
+        } catch (error) {
+          // ハッシュナビゲーションでエラーが発生した場合はホームページを表示
+          showPage(homePageEl);
+        }
       } else {
             // 未登録の場合
         showPage(registrationPageEl);
