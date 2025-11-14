@@ -1023,11 +1023,17 @@
           return;
         }
 
+        // YYYY-MM-DD形式の日付文字列を作成
+        const year = currentMonth.getFullYear();
+        const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
+        const day = String(selectedDate).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
+
         const shiftData = {
-          date: selectedDate,
+          date: dateStr,
           start: start,
           end: end,
-          displayText: `${selectedDate} ${start} - ${end}`
+          displayText: `${dateStr} ${start} - ${end}`
         };
 
         // 重複チェック
