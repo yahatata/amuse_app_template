@@ -88,7 +88,7 @@
       };
   </script>
 
-  <link rel="stylesheet" href="../css/common.css">
+  <link rel="stylesheet" href="../css/common.css?v=20251114-01">
     <style>
       html, body {
         max-width: 100vw;
@@ -108,6 +108,14 @@
     <div class="spinner"></div>
     <h2>読み込み中...</h2>
     <p>スタッフ認証情報を確認しています</p>
+  </div>
+  
+  <!-- グローバルローディングオーバーレイ（処理中表示用） -->
+  <div id="global-loading-overlay" class="global-loading-overlay" style="display: none;">
+    <div class="global-loading-content">
+      <div class="spinner"></div>
+      <p class="global-loading-message">処理中...</p>
+    </div>
   </div>
 
   <!-- ホーム画面 -->
@@ -170,14 +178,20 @@
     <p>初回利用のため、スタッフ情報を登録してください。</p>
     <form id="registration-form">
       <div class="form-group">
-        <label for="name">お名前</label>
-        <input type="text" id="name" placeholder="山田太郎" required>
+        <label>お名前</label>
+        <div style="display: flex; gap: 10px;">
+          <input type="text" id="lastName" placeholder="山田" required style="flex: 1;">
+          <input type="text" id="firstName" placeholder="太郎" required style="flex: 1;">
+        </div>
       </div>
           
-          <div class="form-group">
-            <label for="kana">かな</label>
-            <input type="text" id="kana" placeholder="やまだたろう" required>
-          </div>
+      <div class="form-group">
+        <label>かな</label>
+        <div style="display: flex; gap: 10px;">
+          <input type="text" id="lastNameKana" placeholder="やまだ" required style="flex: 1;">
+          <input type="text" id="firstNameKana" placeholder="たろう" required style="flex: 1;">
+        </div>
+      </div>
           
           <div class="form-group">
             <label>誕生日</label>
@@ -311,9 +325,9 @@
         <h1>シフト管理</h1>
         
         <!-- シフト管理メニュー -->
-        <div class="shift-menu-container">
-          <button class="btn primary-btn" id="shift-application-btn">シフト申請</button>
-          <button class="btn secondary-btn" id="confirmed-shifts-btn">確定シフト</button>
+        <div class="shift-menu-container" style="display: flex; gap: 10px; margin-bottom: 20px;">
+          <button class="btn primary-btn" id="shift-application-btn" style="flex: 1;">シフト申請</button>
+          <button class="btn secondary-btn" id="confirmed-shifts-btn" style="flex: 1;">確定シフト</button>
         </div>
         
         
@@ -339,25 +353,27 @@
                           <div class="time-inputs flexible-container">
                 <div class="form-group flexible-container">
                   <label>開始時刻</label>
-                  <div class="custom-time-selector">
-                    <select id="shift-start-hour" required style="width: 45%; margin-right: 5%; height: 40px; font-size: 16px; padding: 8px;">
+                  <div class="custom-time-selector" style="display: flex; gap: 10px; align-items: center;">
+                    <select id="shift-start-hour" required style="flex: 1; height: 40px; font-size: 16px; padding: 8px;">
                       <option value="">時</option>
                     </select>
-                    <select id="shift-start-minute" required style="width: 45%; margin-left: 5%; height: 40px; font-size: 16px; padding: 8px;">
+                    <span style="font-weight: bold;">:</span>
+                    <select id="shift-start-minute" required style="flex: 1; height: 40px; font-size: 16px; padding: 8px;">
                       <option value="">分</option>
-        </select>
+                    </select>
                   </div>
-      </div>
+                </div>
 
                 <div class="form-group flexible-container">
                   <label>終了時刻</label>
-                  <div class="custom-time-selector">
-                    <select id="shift-end-hour" required style="width: 45%; margin-right: 5%; height: 40px; font-size: 16px; padding: 8px;">
+                  <div class="custom-time-selector" style="display: flex; gap: 10px; align-items: center;">
+                    <select id="shift-end-hour" required style="flex: 1; height: 40px; font-size: 16px; padding: 8px;">
                       <option value="">時</option>
                     </select>
-                    <select id="shift-end-minute" required style="width: 45%; margin-left: 5%; height: 40px; font-size: 16px; padding: 8px;">
+                    <span style="font-weight: bold;">:</span>
+                    <select id="shift-end-minute" required style="flex: 1; height: 40px; font-size: 16px; padding: 8px;">
                       <option value="">分</option>
-        </select>
+                    </select>
                   </div>
                 </div>
       </div>
@@ -396,13 +412,13 @@
               <div id="shift-details-content" class="flexible-container-center">
                 <p>日付を選択してください</p>
               </div>
-
             </div>
-            
-
           </div>
           
-
+          <!-- ホームに戻るボタン -->
+          <div style="margin-top: 20px;">
+            <button class="btn" onclick="showStaffHomePage()">ホームに戻る</button>
+          </div>
         </div>
   </div>
 
@@ -442,6 +458,59 @@
     setTimeout(() => {
       successEl.style.display = 'none';
     }, 3000);
+  }
+
+  // === ローディング制御用の共通関数 ===
+  
+  // グローバルローディングオーバーレイ表示
+  function showGlobalLoading(message = '処理中...') {
+    const overlay = document.getElementById('global-loading-overlay');
+    const messageEl = overlay.querySelector('.global-loading-message');
+    messageEl.textContent = message;
+    overlay.style.display = 'flex';
+  }
+  
+  // グローバルローディングオーバーレイ非表示
+  function hideGlobalLoading() {
+    const overlay = document.getElementById('global-loading-overlay');
+    overlay.style.display = 'none';
+  }
+  
+  // ボタン付き処理のローディング制御
+  async function executeWithButtonLoading(asyncFunction, button, loadingText = '処理中...') {
+    if (!button) {
+      throw new Error('Button element is required');
+    }
+    
+    const originalText = button.textContent;
+    const originalDisabled = button.disabled;
+    
+    try {
+      button.disabled = true;
+      button.textContent = loadingText;
+      
+      const result = await asyncFunction();
+      return result;
+      
+    } catch (error) {
+      throw error;
+    } finally {
+      button.disabled = originalDisabled;
+      button.textContent = originalText;
+    }
+  }
+  
+  // グローバルローディング付き処理の実行
+  async function executeWithGlobalLoading(asyncFunction, message = '処理中...') {
+    try {
+      showGlobalLoading(message);
+      const result = await asyncFunction();
+      return result;
+    } catch (error) {
+      throw error;
+    } finally {
+      hideGlobalLoading();
+    }
   }
 
   // ページ表示関数
@@ -590,10 +659,21 @@
   // 登録フォーム処理
   registrationFormEl.addEventListener('submit', async (e) => {
     e.preventDefault();
+    
+    const submitBtn = e.target.querySelector('button[type="submit"]');
         
     try {
-      const fullName = document.getElementById('name').value;
-      const fullNameKana = document.getElementById('kana').value;
+      await executeWithButtonLoading(async () => {
+      // 苗字と名前を結合
+      const lastName = document.getElementById('lastName').value.trim();
+      const firstName = document.getElementById('firstName').value.trim();
+      const fullName = lastName + '　' + firstName; // 全角スペースで結合
+      
+      // かな（苗字と名前）を結合
+      const lastNameKana = document.getElementById('lastNameKana').value.trim();
+      const firstNameKana = document.getElementById('firstNameKana').value.trim();
+      const fullNameKana = lastNameKana + firstNameKana; // スペースなしで結合
+      
       const birthMonth = document.getElementById('birthMonth').value;
       const birthDay = document.getElementById('birthDay').value;
       const email = document.getElementById('email').value;
@@ -633,12 +713,14 @@
         birthMonthDay: birthMonthDay,
       });
 
-      showSuccess('スタッフ登録が完了しました！');
-          
-      // ホームページに遷移
-      setTimeout(() => {
-        checkStaffRegistration();
-      }, 1000);
+        showSuccess('スタッフ登録が完了しました！');
+            
+        // ホームページに遷移
+        setTimeout(() => {
+          checkStaffRegistration();
+        }, 1000);
+      }, submitBtn, '登録中...');
+      
     } catch (error) {
       showError('登録に失敗しました: ' + error.message);
     }
@@ -704,10 +786,8 @@
               }
               
               // デバッグ情報を表示
-              qrDisplay.innerHTML = '<p>QRコード情報取得成功<br>qrCodeUrl: ' + staffData.qrCodeUrl + '<br>有効期限: ' + new Date(expMs).toLocaleString('ja-JP') + '</p>';
-              
               // 有効なQRコードを表示
-              qrDisplay.innerHTML = `<img src="${staffData.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;" onerror="this.style.display='none'; this.parentNode.innerHTML+='<p style=\'color:red;\'>画像の読み込みに失敗しました<br>URL: ' + staffData.qrCodeUrl + '</p>';">`;
+              qrDisplay.innerHTML = `<img src="${staffData.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;" onerror="this.style.display='none'; this.parentNode.innerHTML='<p style=\'color:red;\'>画像の読み込みに失敗しました</p>';">`;
               expiryTime.textContent = new Date(expMs).toLocaleString('ja-JP');
             } else {
               qrDisplay.innerHTML = '<p>QRコード情報が見つかりません。新しく生成します...</p>';
@@ -727,24 +807,23 @@
       async function maybeRegenerateStaffQR() {
         const now = Date.now();
         
-        // デバッグ情報を画面に表示
+        // QRコード生成中表示
         const qrDisplay = document.getElementById('qr-code-display');
-        qrDisplay.innerHTML = '<p>🔍 QR再生成開始<br>時刻: ' + new Date(now).toLocaleString('ja-JP') + '<br>regenInFlight: ' + regenInFlight + '<br>lastRegenAtMs: ' + (lastRegenAtMs ? new Date(lastRegenAtMs).toLocaleString('ja-JP') : 'なし') + '</p>';
+        qrDisplay.innerHTML = '<p>QRコードを生成中...</p>';
         
         // 再生成中フラグとクールダウンチェック
         if (regenInFlight) {
-          qrDisplay.innerHTML += '<p>⚠️ 再生成中です。スキップします。</p>';
+          qrDisplay.innerHTML = '<p>QRコードを生成中...</p>';
           return;
         }
         if (lastRegenAtMs > 0 && now - lastRegenAtMs < 60000) {
-          qrDisplay.innerHTML += '<p>⏰ クールダウン中です。60秒待機が必要です。</p>';
+          const remainingSec = Math.ceil((60000 - (now - lastRegenAtMs)) / 1000);
+          qrDisplay.innerHTML = '<p>QRコードは60秒間隔で再生成できます。<br>あと' + remainingSec + '秒お待ちください。</p>';
           return;
         }
         
         regenInFlight = true;
         lastRegenAtMs = now;
-        
-        qrDisplay.innerHTML += '<p>🚀 Cloud Function呼び出し開始...</p>';
         
         try {
           // 新しいQRコードを生成
@@ -752,33 +831,24 @@
           const functions = getFunctions(window.Firebase.app);
           const generateQRCode = httpsCallable(functions, 'generateQRCode');
           
-          qrDisplay.innerHTML += '<p>📞 generateQRCode呼び出し中...</p>';
-          
           const result = await generateQRCode({ type: 'staff' });
-          
-          qrDisplay.innerHTML += '<p>✅ Cloud Function完了<br>結果: ' + JSON.stringify(result.data) + '</p>';
           
           if (result.data.qrCode) {
             const expectedExpMs = result.data.expiresAt || 0;
-            qrDisplay.innerHTML += '<p>⏳ サーバ反映待機開始<br>期待値: ' + new Date(expectedExpMs).toLocaleString('ja-JP') + '</p>';
             
             // サーバ反映を1回待ってから判定再開
             await waitUntilServerUpdated(expectedExpMs, 10000);
             
-            qrDisplay.innerHTML += '<p>✅ サーバ反映完了</p>';
-            
-
             // 生成完了後、保存されたQRコードを再表示
             await displayStoredStaffQRCode();
           } else {
             throw new Error('QRコードの生成に失敗しました');
           }
         } catch (error) {
-          qrDisplay.innerHTML += '<p>❌ エラー発生: ' + error.message + '<br>スタック: ' + error.stack + '</p>';
+          qrDisplay.innerHTML = '<p>QRコードの生成に失敗しました</p>';
           alert('QRコード生成エラー: ' + error.message);
         } finally {
           regenInFlight = false;
-          qrDisplay.innerHTML += '<p>🏁 再生成処理完了</p>';
         }
       }
 
@@ -786,28 +856,20 @@
       // サーバ反映を待つ関数
       async function waitUntilServerUpdated(expectedExpMs, timeoutMs = 5000) {
         return new Promise(async (resolve, reject) => {
-          const qrDisplay = document.getElementById('qr-code-display');
-          qrDisplay.innerHTML += '<p>🔄 waitUntilServerUpdated開始<br>タイムアウト: ' + timeoutMs + 'ms<br>期待値: ' + new Date(expectedExpMs).toLocaleString('ja-JP') + '</p>';
-          
           const timeout = setTimeout(() => {
-            qrDisplay.innerHTML += '<p>⏰ タイムアウト発生</p>';
             reject(new Error('タイムアウト'));
           }, timeoutMs);
           
           const { db } = window.Firebase;
           const { doc, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
           
-          qrDisplay.innerHTML += '<p>👂 Firestore監視開始...</p>';
-          
           const unsubscribe = onSnapshot(doc(db, 'staffs', window.Firebase.auth.currentUser.uid), 
             { includeMetadataChanges: true }, 
             (snap) => {
               const isFromCache = snap.metadata.fromCache;
-              qrDisplay.innerHTML += '<p>📡 スナップショット受信<br>fromCache: ' + isFromCache + '<br>時刻: ' + new Date().toLocaleString('ja-JP') + '</p>';
               
               // キャッシュの瞬間は無視（サーバ反映のみ見る）
               if (isFromCache) {
-                qrDisplay.innerHTML += '<p>💾 キャッシュデータ - スキップ</p>';
                 return;
               }
               
@@ -815,15 +877,10 @@
               const expMs = data?.qrExpiresAtMs || 
                            (data?.qrExpiresAt?.toDate ? data.qrExpiresAt.toDate().getTime() : 0);
               
-              qrDisplay.innerHTML += '<p>📊 データ比較<br>期待値: ' + new Date(expectedExpMs).toLocaleString('ja-JP') + '<br>実際値: ' + new Date(expMs).toLocaleString('ja-JP') + '<br>差分: ' + (expMs - expectedExpMs) + 'ms</p>';
-              
               if (expMs >= expectedExpMs) {
-                qrDisplay.innerHTML += '<p>✅ 条件満足 - 完了</p>';
                 clearTimeout(timeout);
                 unsubscribe();
                 resolve();
-              } else {
-                qrDisplay.innerHTML += '<p>⏳ 条件未満足 - 継続監視</p>';
               }
             }
           );
@@ -832,12 +889,6 @@
 
       // 既存の関数名を保持（後方互換性）
       window.generateNewStaffQR = maybeRegenerateStaffQR;
-
-      // デバッグ情報クリア関数
-      window.clearDebugInfo = function() {
-        const qrDisplay = document.getElementById('qr-code-display');
-        qrDisplay.innerHTML = '<p>🧹 デバッグ情報をクリアしました</p>';
-      };
 
 
       // ダッシュボード機能（グローバルに公開）
@@ -950,14 +1001,21 @@
           return;
         }
 
-        const start = document.getElementById('shift-start').value;
-        const end = document.getElementById('shift-end').value;
+        // セレクトボックスから値を取得
+        const startHour = document.getElementById('shift-start-hour').value;
+        const startMinute = document.getElementById('shift-start-minute').value;
+        const endHour = document.getElementById('shift-end-hour').value;
+        const endMinute = document.getElementById('shift-end-minute').value;
         
-        if (!start || !end) {
+        if (!startHour || !startMinute || !endHour || !endMinute) {
           showError('開始時刻と終了時刻を入力してください');
           alert('❌ エラー！\n\n開始時刻と終了時刻を入力してください。');
           return;
         }
+        
+        // HH:MM形式に変換
+        const start = `${startHour}:${startMinute}`;
+        const end = `${endHour}:${endMinute}`;
         
         if (start >= end) {
           showError('開始時刻は終了時刻より前である必要があります');
@@ -965,11 +1023,17 @@
           return;
         }
 
+        // YYYY-MM-DD形式の日付文字列を作成
+        const year = currentMonth.getFullYear();
+        const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
+        const day = String(selectedDate).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
+
         const shiftData = {
-          date: selectedDate,
+          date: dateStr,
           start: start,
           end: end,
-          displayText: `${selectedDate} ${start} - ${end}`
+          displayText: `${dateStr} ${start} - ${end}`
         };
 
         // 重複チェック
@@ -985,8 +1049,10 @@
         updateSubmitButton();
         
         // フォームをリセット
-        document.getElementById('shift-start').value = '';
-        document.getElementById('shift-end').value = '';
+        document.getElementById('shift-start-hour').value = '';
+        document.getElementById('shift-start-minute').value = '';
+        document.getElementById('shift-end-hour').value = '';
+        document.getElementById('shift-end-minute').value = '';
         
         // 成功通知
         showSuccess('シフトが追加されました');
@@ -1066,6 +1132,7 @@
         }
 
         try {
+          await executeWithGlobalLoading(async () => {
           const { auth } = window.Firebase;
           const currentUser = auth.currentUser;
           
@@ -1100,6 +1167,7 @@
             // 失敗時のポップアップ通知
             alert(`❌ シフト申請失敗！\n\nエラー: ${errorMessage}\n\nシフトは保存されていません。\n再度お試しください。`);
           }
+          }, 'シフト申請中...');
           
         } catch (error) {
           const errorMessage = error.message || '不明なエラーが発生しました';
@@ -1178,7 +1246,19 @@
           if (result.data.success) {
             // 却下済み（confirmed: false）以外のシフトを取得
             const allShifts = result.data.shifts || [];
-            const confirmedShifts = allShifts.filter(shift => shift.confirmed !== false);
+            
+            // 当日以降のシフトのみフィルタリング
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // 今日の0時0分0秒
+            const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD形式
+            
+            const confirmedShifts = allShifts.filter(shift => {
+              // 却下済みを除外
+              if (shift.confirmed === false) return false;
+              
+              // 当日以降のシフトのみ
+              return shift.date >= todayStr;
+            });
             
             // カレンダーを表示
             renderConfirmedShiftsCalendar(confirmedShifts);
