@@ -99,7 +99,7 @@ describe('placeOrder', () => {
       } as any;
 
       // onCall 関数の run メソッドを呼び出す
-      const result = await placeOrder.run(mockRequest);
+      const result = await (placeOrder as any).run(mockRequest);
 
       if (!result.success) {
         console.error('placeOrder failed:', result.error);
@@ -167,7 +167,7 @@ describe('placeOrder', () => {
         auth: null,
       } as any;
 
-      const result = await placeOrder.run(mockRequest);
+      const result = await (placeOrder as any).run(mockRequest);
 
       expect(result.success).toBe(true);
 
@@ -210,7 +210,7 @@ describe('placeOrder', () => {
       } as any;
 
       // 1回目実行
-      const result1 = await placeOrder.run(mockRequest);
+      const result1 = await (placeOrder as any).run(mockRequest);
       expect(result1.success).toBe(true);
 
       const now = new Date();
@@ -225,7 +225,7 @@ describe('placeOrder', () => {
       expect(ordersData1.onedayTotalPrice).toBe(500);
 
       // 2回目実行（同一 clientNonce）
-      const result2 = await placeOrder.run(mockRequest);
+      const result2 = await (placeOrder as any).run(mockRequest);
       expect(result2.success).toBe(true);
       expect(result2.data).toBeDefined();
       expect(result2.data!.reused).toBe(true); // reused フラグが立っている
@@ -264,7 +264,7 @@ describe('placeOrder', () => {
         auth: null,
       } as any;
 
-      const result1 = await placeOrder.run(mockRequest1);
+      const result1 = await (placeOrder as any).run(mockRequest1);
       expect(result1.success).toBe(true);
 
       const now = new Date();
@@ -291,7 +291,7 @@ describe('placeOrder', () => {
         auth: null,
       } as any;
 
-      const result2 = await placeOrder.run(mockRequest2);
+      const result2 = await (placeOrder as any).run(mockRequest2);
       expect(result2.success).toBe(true);
       expect(result2.data).toBeDefined();
       expect(result2.data!.reused).toBe(false); // reused フラグが立っていない
@@ -342,7 +342,7 @@ describe('placeOrder', () => {
         auth: null,
       } as any;
 
-      const result = await placeOrder.run(mockRequest);
+      const result = await (placeOrder as any).run(mockRequest);
 
       expect(result.success).toBe(true);
       expect(result.data).toBeDefined();
@@ -393,7 +393,7 @@ describe('placeOrder', () => {
         auth: null,
       } as any;
 
-      const result = await placeOrder.run(mockRequest);
+      const result = await (placeOrder as any).run(mockRequest);
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('status');
@@ -428,7 +428,7 @@ describe('placeOrder', () => {
         auth: null,
       } as any;
 
-      const result = await placeOrder.run(mockRequest);
+      const result = await (placeOrder as any).run(mockRequest);
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('status');
@@ -463,10 +463,219 @@ describe('placeOrder', () => {
         auth: null,
       } as any;
 
-      const result = await placeOrder.run(mockRequest);
+      const result = await (placeOrder as any).run(mockRequest);
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('status');
+    });
+  });
+
+  describe('placeOrder × Chip（P1-03新規追加）', () => {
+    it('Chipカテゴリのメニューを注文した場合、/bills/{billId}/sideGameChips に記録され、/items には記録されないこと', async () => {
+      const userId = 'user_test_chip_001';
+      const billId = 'bill_test_chip_001';
+      const menuItemId = 'menu_test_chip_001';
+      const clientNonce = 'nonce_test_chip_001';
+
+      // テストデータ準備
+      await createTestMenuItem(menuItemId, 'SideGame 1000', 'Chip', 5000);
+      
+      // 伝票を作成
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: 'テスト太郎',
+        idempotencyKey: 'idem_test_chip_001',
+      });
+
+      const mockRequest = {
+        data: {
+          userId,
+          item: {
+            menuItemId,
+            quantity: 2,
+          },
+          clientNonce,
+        },
+        auth: null,
+      } as any;
+
+      const result = await (placeOrder as any).run(mockRequest);
+
+      expect(result.success).toBe(true);
+      expect(result.data!.billId).toBe(billId);
+      expect(result.data!.itemId).toBeDefined();
+      expect(result.data!.orderedAt).toBeDefined();
+      expect(result.data!.reused).toBe(false);
+      // ChipのときのitemIdはclientNonceをそのまま返す仕様に変更
+      expect(result.data!.itemId).toBe(clientNonce);
+
+      // /bills/{billId}/sideGameChips の doc をコレクションから取得して検証
+      const chipsSnapshot = await db.collection('bills').doc(billId)
+        .collection('sideGameChips').get();
+
+      expect(chipsSnapshot.size).toBe(1);
+      const chipDoc = chipsSnapshot.docs[0];
+      const chipId = chipDoc.id;
+      const chipData = chipDoc.data();
+
+      expect(chipData.action).toBe('purchase');
+      expect(chipData.chipQty).toBe(2000); // 1000 * 2
+      expect(chipData.amountIncl).toBe(10000); // 5000 * 2
+      expect(chipData.menuItemId).toBe(menuItemId);
+      expect(chipData.name).toBe('SideGame 1000');
+
+      // /bills/{billId}/items は増えない
+      const itemsSnapshot = await db.collection('bills').doc(billId)
+        .collection('items').get();
+      expect(itemsSnapshot.size).toBe(0);
+
+      // orders/{YYYYMMDD}/_TodaysOrders には何も書かれない（現行ロジックどおり）
+      const billDoc = await db.collection('bills').doc(billId).get();
+      const businessDate = billDoc.data()!.businessDate as string;
+      const orderDocId = businessDate.replace(/-/g, '');
+      const todaysOrderDoc = await db.collection('orders').doc(orderDocId)
+        .collection('_TodaysOrders').doc(chipId).get();
+      expect(todaysOrderDoc.exists).toBe(false);
+
+      // sideGameChipLogs に purchase ログが1件追加されている
+      const today = new Date().toISOString().split('T')[0];
+      const logsDoc = await db.collection('users').doc(userId)
+        .collection('sideGameChipLogs').doc(today).get();
+      expect(logsDoc.exists).toBe(true);
+      const logsData = logsDoc.data()!;
+      expect(logsData.logs).toBeDefined();
+      const logEntries = Object.values(logsData.logs || {});
+      const purchaseLogs = logEntries.filter((log: any) => log.category === 'purchase');
+      expect(purchaseLogs.length).toBe(1);
+      const purchaseLog = purchaseLogs[0] as any;
+      expect(purchaseLog.amountDelta).toBe(2000); // chipQty と同じ値
+      expect(purchaseLog.reasonType).toBe('sideGame');
+    });
+
+    it('同一 clientNonce で同じ Chipメニューを2回連続で呼び出すと、/sideGameChips の doc 数は1つのまま、2回目のレスポンスには reused: true が含まれること', async () => {
+      const userId = 'user_test_chip_idempotent_001';
+      const billId = 'bill_test_chip_idempotent_001';
+      const menuItemId = 'menu_test_chip_idempotent_001';
+      const clientNonce = 'nonce_test_chip_idempotent_001';
+
+      await createTestMenuItem(menuItemId, 'SideGame 1000', 'Chip', 5000);
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: 'テスト太郎',
+        idempotencyKey: 'idem_test_chip_idempotent_001',
+      });
+
+      const mockRequest = {
+        data: {
+          userId,
+          item: {
+            menuItemId,
+            quantity: 1,
+          },
+          clientNonce,
+        },
+        auth: null,
+      } as any;
+
+      // 1回目の実行
+      const result1 = await (placeOrder as any).run(mockRequest);
+      expect(result1.success).toBe(true);
+      expect(result1.data!.reused).toBe(false);
+      expect(result1.data!.itemId).toBe(clientNonce);
+
+      // 1回目のchip docを取得
+      const chipsSnap1 = await db.collection('bills').doc(billId)
+        .collection('sideGameChips').get();
+      expect(chipsSnap1.size).toBe(1);
+      const chipDoc1 = chipsSnap1.docs[0];
+      const chipId1 = chipDoc1.id;
+
+      // 親 updatedAt を記録
+      const billDoc1 = await db.collection('bills').doc(billId).get();
+      const updatedAt1 = billDoc1.data()!.updatedAt;
+
+      // 少し待つ
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // 2回目の実行（同一 clientNonce）
+      const result2 = await (placeOrder as any).run(mockRequest);
+      expect(result2.success).toBe(true);
+      expect(result2.data!.reused).toBe(true); // 2回目は reused: true
+      expect(result2.data!.itemId).toBe(clientNonce); // itemIdはclientNonceで安定している
+
+      // chip doc が増えていないこと
+      const chipsSnap2 = await db.collection('bills').doc(billId)
+        .collection('sideGameChips').get();
+      expect(chipsSnap2.size).toBe(1);
+      const chipDoc2 = chipsSnap2.docs[0];
+      expect(chipDoc2.id).toBe(chipId1); // 同じchipIdであること
+
+      // 親 updatedAt は変更されていない
+      const billDoc2 = await db.collection('bills').doc(billId).get();
+      const updatedAt2 = billDoc2.data()!.updatedAt;
+      expect(updatedAt2).toEqual(updatedAt1);
+
+      // sideGameChipLogs の件数は1件のまま（2回目で増えない）
+      const today = new Date().toISOString().split('T')[0];
+      const logsDoc2 = await db.collection('users').doc(userId)
+        .collection('sideGameChipLogs').doc(today).get();
+      expect(logsDoc2.exists).toBe(true);
+      const logsData2 = logsDoc2.data()!;
+      const logEntries2 = Object.values(logsData2.logs || {});
+      const purchaseLogs2 = logEntries2.filter((log: any) => log.category === 'purchase');
+      expect(purchaseLogs2.length).toBe(1); // 2回目で増えていない
+    });
+
+    it('非Chipメニューを注文した場合、従来通り /bills/{billId}/items と orders/_TodaysOrders に記録されること（リグレッションテスト）', async () => {
+      const userId = 'user_test_nonchip_001';
+      const billId = 'bill_test_nonchip_001';
+      const menuItemId = 'menu_test_nonchip_001';
+      const clientNonce = 'nonce_test_nonchip_001';
+
+      await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: 'テスト太郎',
+        idempotencyKey: 'idem_test_nonchip_001',
+      });
+
+      const mockRequest = {
+        data: {
+          userId,
+          item: {
+            menuItemId,
+            quantity: 2,
+          },
+          clientNonce,
+        },
+        auth: null,
+      } as any;
+
+      const result = await (placeOrder as any).run(mockRequest);
+
+      expect(result.success).toBe(true);
+      const itemId = result.data!.itemId;
+
+      // /bills/{billId}/items に記録されている
+      const itemDoc = await db.collection('bills').doc(billId)
+        .collection('items').doc(itemId).get();
+      expect(itemDoc.exists).toBe(true);
+
+      // orders/{YYYYMMDD}/_TodaysOrders に記録されている
+      const billDoc = await db.collection('bills').doc(billId).get();
+      const businessDate = billDoc.data()!.businessDate as string;
+      const orderDocId = businessDate.replace(/-/g, '');
+      const todaysOrderDoc = await db.collection('orders').doc(orderDocId)
+        .collection('_TodaysOrders').doc(itemId).get();
+      expect(todaysOrderDoc.exists).toBe(true);
+
+      // /bills/{billId}/sideGameChips には何も書かれない
+      const chipsSnapshot = await db.collection('bills').doc(billId)
+        .collection('sideGameChips').get();
+      expect(chipsSnapshot.size).toBe(0);
     });
   });
 });

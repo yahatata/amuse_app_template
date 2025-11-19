@@ -1,224 +1,200 @@
+/**
+ * placeOrder
+ * 
+ * スタッフが注文確定ボタンを押下したとき
+ * 
+ * 新スキーマ対応:
+ * - getActiveBillByUser で billId を取得
+ * - Chip以外: appendItem で /bills/{billId}/items/{itemId} に追加、orders/_TodaysOrders に記録
+ * - Chip: appendSideGameChip で /bills/{billId}/sideGameChips/{chipId} に追加（orders/_TodaysOrders には書かない）
+ */
+
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getActiveBillByUser } from "../helpers/billsApi/getActiveBillByUser";
+import { appendItem } from "../helpers/billsApi/appendItem";
+import { appendSideGameChip } from "../helpers/billsApi/appendSideGameChip";
+import { resolveMenuItem } from "../helpers/billsApi/resolveMenuItem";
 import { addLogEntry } from "../utils/logUtils";
 
-/**
- * Chip名から数値部分を抽出する
- * 例: "side game chip ：1000" -> 1000
- * 例: "チップ 500" -> 500
- */
-function extractChipAmount(chipName: string): number {
-  console.log(`extractChipAmount: 入力="${chipName}"`);
-  
-  // 文字列から数値部分を抽出（最後の数値部分を取得）
-  const match = chipName.match(/(\d+)(?!.*\d)/);
-  if (match) {
-    const amount = parseInt(match[1], 10);
-    console.log(`extractChipAmount: 抽出結果=${amount}`);
-    return amount;
-  }
-  
-  console.log(`extractChipAmount: 数値が見つかりません`);
-  return 0;
-}
-
-/**
- * When: スタッフが注文確定ボタンを押下したとき
- * Where: Cloud Functions (src/itemOrder/placeOrder.ts)
- * What: 指定ユーザーのtodaysBillsにアイテムを追加し、同時にordersコレクションへ当日の注文記録を作成
- * How:
- *  - 引数で受け取った userId と 注文アイテム情報 (menuItemId, category, name, price, quantity) を使用
- *  - status=open の todaysBills を userId で特定
- *  - トランザクションで以下を実行
- *    1) todaysBills.items へ注文アイテムを追記し、totalPrice を加算
- *    2) orders/{YYYYMMDD} ドキュメントを作成/更新し、_TodaysOrders に注文行を作成
- */
 export const placeOrder = onCall(async (request) => {
   const db = getFirestore();
 
   try {
-    const { userId, item } = request.data as {
+    const { userId, item, clientNonce } = request.data as {
       userId: string;
       item: {
         menuItemId: string;
-        category: string;
-        name: string;
-        price: number;
         quantity: number;
+        // name/category/price は無視（サーバ側で解決）
       };
+      clientNonce: string; // 画面セッションで固定
     };
 
     // 入力バリデーション
     if (!userId) {
       return { success: false, error: "userIdが指定されていません" };
     }
-    if (!item || !item.menuItemId || !item.name || typeof item.price !== "number" || typeof item.quantity !== "number") {
+    if (!item || !item.menuItemId || typeof item.quantity !== "number") {
       return { success: false, error: "アイテム情報が不正です" };
     }
-    if (item.quantity <= 0 || item.price < 0) {
-      return { success: false, error: "数量または価格が不正です" };
+    if (item.quantity <= 0) {
+      return { success: false, error: "数量が不正です" };
+    }
+    if (!clientNonce) {
+      return { success: false, error: "clientNonceが指定されていません" };
     }
 
-    const now = new Date();
-    const yyyy = String(now.getFullYear());
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    const dd = String(now.getDate()).padStart(2, "0");
-    const orderDocId = `${yyyy}${mm}${dd}`; // 親ドキュメントID: YYYYMMDD
-    const dateString = `${yyyy}-${mm}-${dd}`; // 表示/集計用: YYYY-MM-DD
+    // 1. getActiveBillByUser で billId を取得
+    const { billId, billData } = await getActiveBillByUser(userId);
 
-    // 対象ユーザーの open な todaysBills を特定
-    const billsSnap = await db
-      .collection("todaysBills")
-      .where("userId", "==", userId)
-      .where("status", "==", "open")
-      .limit(1)
-      .get();
+    // 2. メニューアイテムを解決（カテゴリ判定用）
+    const resolved = await resolveMenuItem(item.menuItemId);
 
-    if (billsSnap.empty) {
-      return { success: false, error: "対象ユーザーのオープンな伝票が見つかりません" };
-    }
+    // 3. カテゴリによって分岐
+    const isChip = resolved.category === 'Chip' || resolved.category === 'chip';
 
-    const billsDoc = billsSnap.docs[0];
-    const billsRef = billsDoc.ref;
+    if (isChip) {
+      // Chipカテゴリの場合: appendSideGameChip を使用
+      // Chip名から数値部分を抽出（1メニューあたりのチップ枚数）
+      const chipName = resolved.name;
+      const match = chipName.match(/(\d+)(?!.*\d)/);
+      const perUnitChip = match ? parseInt(match[1], 10) : 0;
+      const chipQty = perUnitChip * item.quantity;
+      const amountIncl = resolved.unitPriceIncl * item.quantity;
 
-    // トランザクションで整合性を保つ
-    const result = await db.runTransaction(async (tx) => {
-      // すべての読み取りは書き込みより前に実行する
-      const ordersRef = db.collection("orders").doc(orderDocId);
-      const [billsSnapInTx, ordersSnap] = await Promise.all([
-        tx.get(billsRef),
-        tx.get(ordersRef),
-      ]);
-
-      // 1) todaysBills 更新用データの計算
-      const billsData = billsSnapInTx.data() as any;
-      const pokerName: string = billsData?.pokerName || "";
-      const currentTable: string | null = billsData?.currentTable ?? null;
-      const currentSeat: string | null = billsData?.currentSeat ?? null;
-
-      const orderedAt = now;
-      const itemTotal = Number(item.price) * Number(item.quantity);
-      const newEntry = {
-        menuItemId: item.menuItemId,
-        category: item.category,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        totalPrice: itemTotal,
-        orderedAt,
-      };
-
-      // Chipカテゴリーの場合はsideGameChipフィールドに保存、それ以外はitemsフィールドに保存
-      if (item.category === 'Chip') {
-        const chipAmount = extractChipAmount(item.name);
-        const totalChipAmount = chipAmount * Number(item.quantity);
-        
-        // sideGameChip用のエントリーを作成（actionとamountフィールドを追加）
-        const sideGameChipEntry = {
-          ...newEntry,
-          action: 'purchase',
-          amount: totalChipAmount,
-        };
-        
-        const existingSideGameChips: any[] = Array.isArray(billsData?.sideGameChip) ? billsData.sideGameChip : [];
-        const updatedSideGameChips = [...existingSideGameChips, sideGameChipEntry];
-        
-        tx.update(billsRef, {
-          sideGameChip: updatedSideGameChips,
-          totalPrice: (Number(billsData?.totalPrice) || 0) + itemTotal,
-          updatedAt: now,
-        });
-
-        console.log(`Chip購入処理: name=${item.name}, chipAmount=${chipAmount}, quantity=${item.quantity}, totalChipAmount=${totalChipAmount}`);
-        // usersコレクションのsideGameChipへの加算は削除（sideGameChipLogsのみに記録）
-      } else {
-        const existingItems: any[] = Array.isArray(billsData?.items) ? billsData.items : [];
-        const updatedItems = [...existingItems, newEntry];
-        
-        tx.update(billsRef, {
-          items: updatedItems,
-          totalPrice: (Number(billsData?.totalPrice) || 0) + itemTotal,
-          updatedAt: now,
-        });
-      }
-
-      // 2) orders/{YYYYMMDD} と _TodaysOrders の作成/更新
-
-      if (!ordersSnap.exists) {
-        tx.set(ordersRef, {
-          date: dateString,
-          onedayOrderQuantity: 0,
-          onedayTotalPrice: 0,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-
-      // _TodaysOrders へ行追加
-      const todaysOrderRef = ordersRef.collection("_TodaysOrders").doc();
-      tx.set(todaysOrderRef, {
-        orderDocId,
-        userId,
-        userName: pokerName,
-        items: [newEntry],
-        orderingAt: now,
-        status: "preparing",
-        currentTable,
-        currentSeat,
-        createdAt: now,
-        updatedAt: now,
+      // appendSideGameChip を呼び出す
+      const idempotencyKey = `${billId}:appendSideGameChip:${clientNonce}`;
+      const appendResult = await appendSideGameChip({
+        billId,
+        action: 'purchase',
+        chipQty,
+        amountIncl,
+        menuItemId: resolved.menuItemId,
+        name: resolved.name,
+        idempotencyKey,
       });
 
-      // 親 orders の集計をインクリメント
-      tx.update(ordersRef, {
-        onedayOrderQuantity: FieldValue.increment(1),
-        onedayTotalPrice: FieldValue.increment(itemTotal),
-        date: dateString,
-        updatedAt: now,
+      // sideGameChipLogs に purchase ログ追加（idempotent replay 時はスキップ）
+      const isReplay = appendResult.diagnostics?.reused === true;
+      if (!isReplay) {
+        try {
+          if (chipQty > 0) {
+            await addLogEntry(userId, 'sideGameChipLogs', {
+              appliedAt: new Date(),
+              category: 'purchase',
+              amountDelta: chipQty, // appendSideGameChip で計算した chipQty を使用
+              reasonType: 'sideGame',
+              actor: 'tablet_front',
+            });
+          }
+        } catch (logError) {
+          console.error('Chip購入ログ記録エラー:', logError);
+          // ログ記録の失敗は注文処理を止めない
+        }
+      }
+
+      // レスポンス: 従来通り { billId, itemId, orderedAt, reused } を返す
+      // chipId はクライアントに返さない（内部識別子）
+      // Chipの注文IDとしては clientNonce をそのまま返す
+      return {
+        success: true,
+        data: {
+          billId,
+          itemId: clientNonce, // Chipの場合も clientNonce を返す（chipId は返さない）
+          orderedAt: appendResult.orderedAt,
+          reused: appendResult.diagnostics?.reused || false,
+        },
+      };
+    } else {
+      // Chip以外の場合: 従来通り appendItem を使用
+      const idempotencyKey = `appendItem:${billId}:${clientNonce}`;
+      const appendResult = await appendItem({
+        billId,
+        item: {
+          menuItemId: item.menuItemId,
+          quantity: item.quantity,
+          clientNonce,
+        },
+        idempotencyKey,
+      });
+
+      // 4. orders/_TodaysOrders に記録（提供動線専用、Chips除外、docId = itemId、親集計は初回のみ）
+      // calcBusinessDate は使用しない（SSoTは bill.businessDate）
+      const now = new Date();
+      const biz = billData.businessDate as string;  // "2025-11-15" (SSoT)
+      const orderDocId = biz.replace(/-/g, "");     // "20251115"
+      const dateString = biz;                       // "2025-11-15"
+
+      await db.runTransaction(async (tx) => {
+        const ordersRef = db.collection("orders").doc(orderDocId);
+        // すべての読み取りを先に実行
+        const ordersSnap = await tx.get(ordersRef);
+        const todaysOrderRef = ordersRef.collection("_TodaysOrders").doc(appendResult.itemId);
+        const todaysOrderSnap = await tx.get(todaysOrderRef);
+        
+        // 存在しない時だけ set + 親集計 increment、存在時は上書きのみで親集計スキップ
+        const isNew = !todaysOrderSnap.exists;
+        
+        // すべての書き込みを読み取りの後に実行
+        if (!ordersSnap.exists) {
+          tx.set(ordersRef, {
+            date: dateString,
+            onedayOrderQuantity: 0,
+            onedayTotalPrice: 0,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+
+        // _TodaysOrders に1種類=1ドキュメントを作成（docId = itemId）
+        tx.set(todaysOrderRef, {
+          orderDocId,
+          billId,
+          userId,
+          userName: (billData.party?.pokerName as string) || "",
+          menuItemId: resolved.menuItemId,
+          name: resolved.name,
+          category: resolved.category,
+          quantity: item.quantity,
+          status: "preparing",
+          orderedAt: FieldValue.serverTimestamp(),
+          currentTable: (billData.place?.table as string) || null,
+          currentSeat: (billData.place?.seat as number) || null,
+        }, { merge: true });
+
+        // 親 orders の集計は初回のみインクリメント
+        if (isNew) {
+          tx.update(ordersRef, {
+            onedayOrderQuantity: FieldValue.increment(1),
+            onedayTotalPrice: FieldValue.increment(resolved.unitPriceIncl * item.quantity),
+            date: dateString,
+            updatedAt: now,
+          });
+        }
       });
 
       return {
-        todaysBillsId: billsRef.id,
-        ordersDocId: orderDocId,
-        todaysOrderId: todaysOrderRef.id,
-        totalPrice: (Number(billsData?.totalPrice) || 0) + itemTotal,
+        success: true,
+        data: {
+          billId,
+          itemId: appendResult.itemId,
+          orderedAt: appendResult.orderedAt,
+          reused: appendResult.diagnostics?.reused || false,
+        },
       };
-    });
-
-    // Chip購入の場合はログ記録を追加（トランザクション外で実行）
-    if (item.category === 'Chip') {
-      try {
-        // Chip名から数値部分を抽出
-        const chipAmount = extractChipAmount(item.name);
-        const totalChipAmount = chipAmount * Number(item.quantity);
-        
-        console.log(`Chip購入ログ記録: name=${item.name}, chipAmount=${chipAmount}, quantity=${item.quantity}, totalChipAmount=${totalChipAmount}`);
-        
-        if (totalChipAmount > 0) {
-          // ログ記録を追加（amountDeltaはChip量を使用）
-          await addLogEntry(userId, 'sideGameChipLogs', {
-            appliedAt: new Date(),
-            category: 'purchase',
-            amountDelta: totalChipAmount, // Chip量を使用（価格ではない）
-            reasonType: 'sideGame',
-            actor: 'tablet_front', // 実際の端末IDに置き換え可能
-          });
-          console.log(`Chip購入ログ記録完了: userId=${userId}, chipAmount=${totalChipAmount}`);
-        } else {
-          console.warn(`Chip量が0のためログ記録をスキップ: name=${item.name}`);
-        }
-      } catch (logError) {
-        console.error('Chip購入ログ記録エラー:', logError);
-        // ログ記録の失敗は注文処理を止めないが、エラーを記録
-        throw new Error(`Chip購入ログ記録に失敗しました: ${logError instanceof Error ? logError.message : String(logError)}`);
-      }
     }
-
-    return { success: true, data: result };
   } catch (error) {
     console.error("placeOrder エラー:", error);
-    return { success: false, error: "注文の登録に失敗しました" };
+    
+    // HttpsError の場合はそのまま返す
+    if (error && typeof error === 'object' && 'code' in error) {
+      const errorMessage = (error as any).message || String(error);
+      return { success: false, error: errorMessage };
+    }
+    
+    // エラーの詳細を返す（デバッグ用）
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage || "注文の登録に失敗しました" };
   }
 });
-
-

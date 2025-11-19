@@ -1,6 +1,6 @@
 # テスト計画
 
-_最終更新: 2025-11-10 (JST)_
+_最終更新: 2025-11-19 (JST)_
 
 ## 目的
 - `bills` 移行に伴う機能・データ整合性・分析結果の品質を保証する。
@@ -100,6 +100,18 @@ beforeEach(async () => {
     - 統合テスト（`placeOrder.boundary-dates.spec.ts`）: 12件全て成功（境界日付、年跨ぎ・月跨ぎ・うるう年・平年・閉店時刻差分）
     - 統合テスト（`businessDate.immutability.spec.ts`）: 1件スキップ（P1-06/P1-11へ移管）
     - 詳細は `p1_02_test_results_summary.md` を参照
+- **サイドゲームフロー（`appendSideGameChip`）**: サイドゲームのすべての出入り（purchase/deposit/withdraw）を `/bills/{billId}/sideGameChips` に集約、deterministic idempotencyKey（`${billId}:${op}:${clientNonce}`）、idempotent replay時のログ重複防止（`appendResult.diagnostics?.reused === true` のときは `sideGameChipLogs` へのログ追加をスキップ）、DualWriteはトランザクション外でベストエフォート実行、`placeOrder.ts` でChipカテゴリのみ `/sideGameChips` へ記録（Chip以外は従来通り `/items` と `orders/_TodaysOrders`）。
+  - **実施済みテスト（P1-03完了）**:
+    - 統合テスト（`appendSideGameChip.spec.ts`）: 20件全て成功
+      - happy path（withdraw/deposit/purchase）、invalid-argument（chipQty/amountIncl/action/billId/idempotencyKey）、not-found（billId）、failed-precondition（status=settling/settled/voided）、idempotent-replay（reused: true、updatedAt不変）、idempotent-replay（requestHash不一致）、DualWrite ON/OFF
+    - 統合テスト（`placeOrder.spec.ts`）: 11件全て成功（Chip関連含む）
+      - Chipカテゴリの注文で `/sideGameChips` に記録、`/items` には記録されない、`sideGameChipLogs` にpurchaseログ追加、idempotent replay時にログ重複なし、非Chipメニューは従来通り `/items` と `orders/_TodaysOrders` に記録
+    - 統合テスト（`withdrawTip.spec.ts`）: 2件全て成功
+      - 正常系（初回呼び出し）、idempotent replay（同じclientNonceで2回呼び出し、残高とログが1回分のみ）
+    - 統合テスト（`depositTip.spec.ts`）: 2件全て成功
+      - 正常系（初回呼び出し）、idempotent replay（同じclientNonceで2回呼び出し、残高とログが1回分のみ）
+    - 全テストファイル（20ファイル）をdualWrite ON/OFF両方で実行し、全て正常動作確認（Test Suites: 19 passed, 1 skipped / Tests: 136 passed, 1 skipped）
+    - 詳細は `changespecs/P1-03_change_spec.md` を参照
 
 ### DualWrite ログ契約仕様
 

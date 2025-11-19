@@ -35,6 +35,7 @@
 - **P1-01（入店フロー）**: 完了。`createBillWithActiveStay` ヘルパAPI実装、`manualCheckIn.ts`/`processVisitByQR.ts` を新スキーマ対応、デュアルライト制御導入。テスト完了（単体テスト9件、統合テスト10件、合計19件全て成功）。
 - **P1-02（注文フロー）**: 完了。`getActiveBillByUser`, `appendItem`, `resolveMenuItem` ヘルパAPI実装、`placeOrder.ts`/`placeOrderByUser.ts` を新スキーマ対応、強い冪等（時間窓なし、expiresAt廃止）、サーバ側メニュー情報正規化、`orders/_TodaysOrders` スキーマ確定（Chips除外、1種類=1doc）。テスト完了（単体テスト4件、統合テスト41件、合計45件全て成功）。詳細は `p1_02_test_results_summary.md` を参照。
 - **P1-02.1（注文フロー仕上げ）**: 完了。ordersキー=businessDate統一（SSoT原則）、DualWrite失敗耐性テスト、並行競合テスト、appendのrequestHash不一致テスト、並行リプレイテスト、境界日付テスト、DualWrite三分岐ログの厳密一致検証テストを追加。businessDate不変化テストは一時スキップ（P1-06/P1-11へ移管）。詳細は `p1_02_test_results_summary.md` を参照。
+- **P1-03（サイドゲームフロー）**: 完了。`appendSideGameChip` ヘルパAPI実装、`withdrawTip.ts`/`depositTip.ts`/`placeOrder.ts`（Chip購入）を新スキーマ対応、サイドゲームのすべての出入り（purchase/deposit/withdraw）を `/bills/{billId}/sideGameChips` に集約、deterministic idempotencyKey、idempotent replay時のログ重複防止。テスト完了（`appendSideGameChip.spec.ts`: 20テスト、`placeOrder.spec.ts`: 11テスト、`withdrawTip.spec.ts`: 2テスト、`depositTip.spec.ts`: 2テスト、合計35テスト全て成功、dualWrite ON/OFF両方で正常動作確認）。詳細は `changespecs/P1-03_change_spec.md` を参照。
 
 ## 実行再現方法（P1-02.1）
 

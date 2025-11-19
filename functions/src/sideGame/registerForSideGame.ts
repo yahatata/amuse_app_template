@@ -1,5 +1,17 @@
+/**
+ * registerForSideGame
+ * 
+ * サイドゲームへの参加登録
+ * 
+ * 新スキーマ対応（最小限）:
+ * - getActiveBillByUser で billId を取得
+ * - bills.place を更新（updatePlace ヘルパAPI利用はP1-04で実装予定）
+ */
+
 import { onCall } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getActiveBillByUser } from '../helpers/billsApi/getActiveBillByUser';
+import * as admin from 'firebase-admin';
 
 export const registerForSideGame = onCall(async (request) => {
   const db = getFirestore();
@@ -66,6 +78,21 @@ export const registerForSideGame = onCall(async (request) => {
 
     await todaysBillsDoc.ref.update(todaysBillsUpdateData);
     console.log(`todaysBills更新完了: ${userId}`);
+
+    // 5. bills.place を更新（最小限の実装、updatePlace ヘルパAPI利用はP1-04で実装予定）
+    try {
+      const { billId } = await getActiveBillByUser(userId);
+      const billRef = db.collection('bills').doc(billId);
+      await billRef.update({
+        'place.table': tableId,
+        'place.seat': seatNumber,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log(`bills.place更新完了: ${billId}`);
+    } catch (billError) {
+      console.warn('bills.place更新失敗（最小限実装のため警告のみ）:', billError);
+      // エラーをthrowしない（最小限の実装のため）
+    }
 
     return {
       success: true,

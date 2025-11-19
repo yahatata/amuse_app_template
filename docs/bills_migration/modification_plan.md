@@ -1,6 +1,6 @@
 # 改修計画
 
-_最終更新: 2025-11-15 (JST)_
+_最終更新: 2025-11-19 (JST)_
 
 ## 全体像
 - **主目的**: `todaysBills` / `settledBills` から `bills`＋サブコレクション＋`activeStays` への統合移行。
@@ -141,7 +141,8 @@ Cursorは実装コードを提案する前に必ず「ChangeSpec」を出力し�
 | P1-02 | 注文 | `placeOrder.ts`, `placeOrderByUser.ts` を `/items` 書き込みに変更。合計金額更新は廃止。 | `functions/src/itemOrder/**` | フラグ対応 | 完了 |
 | | | **仕様差分**: `appendItem` ヘルパAPIで強い冪等（時間窓なし、expiresAt廃止）、サーバ側でメニュー情報正規化、`orders/_TodaysOrders` スキーマ確定（Chips除外、1種類=1doc）。**テスト完了**: 単体テスト4件、統合テスト41件、合計45件全て成功。詳細は `p1_02_test_results_summary.md` を参照。 | | | |
 | P1-02.1 | 注文（仕上げ） | ordersキー=businessDate統一／DualWrite失敗耐性テスト／並行競合テスト／appendのrequestHash不一致テストを追加（仕様は不変・小差分）。**注意**: businessDate不変化テストは一時スキップ（P1-06/P1-11へ移管）。 | tests + 小改修（itemOrder/appendItem） | フラグ対応 | 完了 |
-| P1-03 | サイドゲーム | `withdrawTip.ts`, `depositTip.ts` 等を `/sideGameChips` 書き込み＋`place` 更新へ。 | `functions/src/sideGame/**` | idempotency 要検討 | 未着手 |
+| P1-03 | サイドゲーム | `withdrawTip.ts`, `depositTip.ts` 等を `/sideGameChips` 書き込み＋`place` 更新へ。 | `functions/src/sideGame/**` | idempotency 要検討 | 完了 |
+| | | **仕様差分**: `appendSideGameChip` ヘルパAPI実装、サイドゲームのすべての出入り（purchase/deposit/withdraw）を `/bills/{billId}/sideGameChips` に集約、`placeOrder.ts` でChipカテゴリのみ `/sideGameChips` へ記録（Chip以外は従来通り `/items` と `orders/_TodaysOrders`）、deterministic idempotencyKey（`${billId}:${op}:${clientNonce}`）、idempotent replay時のログ重複防止（`appendResult.diagnostics?.reused === true` のときは `sideGameChipLogs` へのログ追加をスキップ）、DualWriteはトランザクション外でベストエフォート実行。**テスト完了**: `appendSideGameChip.spec.ts` 20テスト、`placeOrder.spec.ts` 11テスト（Chip関連含む）、`withdrawTip.spec.ts` 2テスト、`depositTip.spec.ts` 2テスト、合計35テスト全て成功、dualWrite ON/OFF両方で正常動作確認。詳細は `changespecs/P1-03_change_spec.md` を参照。 | | | |
 | P1-04 | 座席管理 | `reseatAllPlayers.ts`, `assignSeatToPlayer.ts`, `bustAndExit.ts` 等を `activeStays` 起点に再設計。 | `functions/src/callables/**` | Flutter 側連携 | 未着手 |
 | P1-05 | トーナメント | 参加・リバイ・アドオン系 callables を `/tournaments/{tplId}` upsert へ変更。 | callables/tournament 系 | ポイント/賞金対応 | 未着手 |
 | P1-06 | 会計開始 | `accounting.ts`, `updateAccounting.ts`, `updateActiveBill.ts` をステータス／ops 更新に限定。**追加**: `helpers/billsApi/updateBill.ts` で businessDate 変更拒否（パターンA）。→ 対応テスト: `__tests__/bills/businessDate.immutability.spec.ts`（skip解除予定） | `functions/src/callables/**`, `functions/src/helpers/billsApi/updateBill.ts` | トリガ連携 | 未着手 |
