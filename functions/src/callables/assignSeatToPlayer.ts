@@ -1,6 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
 
 // 入力スキーマ
 const assignSeatToPlayerSchema = z.object({
@@ -10,7 +11,25 @@ const assignSeatToPlayerSchema = z.object({
   seatNumber: z.number().int().positive(),
 });
 
-export const assignSeatToPlayer = functions.https.onCall(async (data, context) => {
+export const assignSeatToPlayer = functions.https.onCall(async (data, context: any) => {
+  // 認証チェック
+  if (!context || !context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const callerUid = context.auth.uid;
+
+  // デバイス権限の確認（role: admin または options.tournament: true）
+  const device = await getCallerDeviceByUid(callerUid);
+  if (!device || !isActive(device.status)) {
+    throw new functions.https.HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+  }
+
+  const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+  if (!hasPermission) {
+    throw new functions.https.HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+  }
+
   try {
     // 正しいデータの場所を取得
     const actualData = data.data || data;

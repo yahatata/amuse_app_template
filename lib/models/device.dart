@@ -11,6 +11,8 @@ class Device {
   final DateTime createdAt;
   final DateTime updatedAt;
   final String status;
+  final Map<String, bool> options;
+  final Map<String, Map<String, dynamic>> optionParams;
 
   const Device({
     required this.id,
@@ -22,11 +24,38 @@ class Device {
     required this.createdAt,
     required this.updatedAt,
     required this.status,
+    this.options = const {},
+    this.optionParams = const {},
   });
 
   /// Firestore ドキュメントから Device オブジェクトを作成
   factory Device.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final rawOptions = (data['options'] as Map<String, dynamic>?) ?? {};
+    final mappedOptions = <String, bool>{};
+    rawOptions.forEach((key, value) {
+      if (value is bool) {
+        mappedOptions[key] = value;
+      } else if (value is num) {
+        // 0/1 などを受けた場合に防御的にboolへ
+        mappedOptions[key] = value != 0;
+      } else if (value is String) {
+        // "true"/"false" を防御的にboolへ
+        mappedOptions[key] = (value.toLowerCase() == 'true');
+      }
+    });
+
+    // optionParams の読み込み
+    final rawOptionParams = (data['optionParams'] as Map<String, dynamic>?) ?? {};
+    final mappedOptionParams = <String, Map<String, dynamic>>{};
+    rawOptionParams.forEach((key, value) {
+      if (value is Map<String, dynamic>) {
+        mappedOptionParams[key] = value;
+      } else if (value is Map) {
+        mappedOptionParams[key] = Map<String, dynamic>.from(value);
+      }
+    });
+
     return Device(
       id: doc.id,
       name: data['name'] ?? '',
@@ -37,6 +66,8 @@ class Device {
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       updatedAt: (data['updatedAt'] as Timestamp).toDate(),
       status: data['status'] ?? 'active',
+      options: mappedOptions,
+      optionParams: mappedOptionParams,
     );
   }
 
@@ -51,7 +82,14 @@ class Device {
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
       'status': status,
+      'options': options,
+      'optionParams': optionParams,
     };
+  }
+
+  /// 指定オプションに紐づく卓IDを取得（なければnull）
+  String? getTableIdForOption(String optionKey) {
+    return optionParams[optionKey]?['tableId'] as String?;
   }
 
   /// デバッグ用の文字列表現
@@ -71,6 +109,8 @@ class Device {
     DateTime? createdAt,
     DateTime? updatedAt,
     String? status,
+    Map<String, bool>? options,
+    Map<String, Map<String, dynamic>>? optionParams,
   }) {
     return Device(
       id: id ?? this.id,
@@ -82,6 +122,8 @@ class Device {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       status: status ?? this.status,
+      options: options ?? this.options,
+      optionParams: optionParams ?? this.optionParams,
     );
   }
 
@@ -98,7 +140,9 @@ class Device {
         other.platform == platform &&
         other.createdAt == createdAt &&
         other.updatedAt == updatedAt &&
-        other.status == status;
+        other.status == status &&
+        _mapEquals(other.options, options) &&
+        _mapEquals(other.optionParams, optionParams);
   }
 
   /// ハッシュコード
@@ -114,7 +158,18 @@ class Device {
       createdAt,
       updatedAt,
       status,
+      options.hashCode,
+      optionParams.hashCode,
     );
+  }
+
+  /// Map の簡易比較（浅い比較）
+  static bool _mapEquals(Map a, Map b) {
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || a[key] != b[key]) return false;
+    }
+    return true;
   }
 }
 

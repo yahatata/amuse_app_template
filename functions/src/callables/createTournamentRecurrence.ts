@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { enqueueStartTask, enqueueRegistTask } from "../lib/tasks";
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
 
 // 入力スキーマの定義
 const createTournamentRecurrenceSchema = z.object({
@@ -26,6 +27,24 @@ const createTournamentRecurrenceSchema = z.object({
 });
 
 export const createTournamentRecurrence = onCall(async (request) => {
+  // 認証チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const callerUid = request.auth.uid;
+
+  // デバイス権限の確認（role: admin または options.tournament: true）
+  const device = await getCallerDeviceByUid(callerUid);
+  if (!device || !isActive(device.status)) {
+    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+  }
+
+  const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+  if (!hasPermission) {
+    throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+  }
+
   try {
     console.log('=== 定期開催トーナメント作成開始 ===');
     console.log('受信データ:', JSON.stringify(request.data, null, 2));

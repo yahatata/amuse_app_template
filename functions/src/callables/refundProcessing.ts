@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
 
 const db = admin.firestore();
 
@@ -26,18 +27,18 @@ export const processRefund = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const adminId = request.auth.uid;
+  const callerUid = request.auth.uid;
 
   try {
-    // デバイス権限の確認（role: adminのみ）
-    const deviceQuery = await db.collection('devices')
-      .where('uid', '==', adminId)
-      .where('role', '==', 'admin')
-      .limit(1)
-      .get();
+    // デバイス権限の確認（role: admin または options.accounting: true）
+    const device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
 
-    if (deviceQuery.empty) {
-      throw new HttpsError('permission-denied', '管理者権限がありません');
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'accounting');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', '会計管理の権限がありません');
     }
 
     // 入力データの検証
@@ -74,7 +75,7 @@ export const processRefund = onCall(async (request) => {
         refundAmount: refundAmount,
         refundReason: refundReason,
         refundMethod: refundMethod,
-        refundProcessedBy: adminId,
+        refundProcessedBy: callerUid,
         refundProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -171,7 +172,7 @@ export const processRefund = onCall(async (request) => {
           refundReason: refundReason,
           refundMethod: refundMethod,
           refundCategories: refundCategories || [],
-          processedBy: adminId,
+          processedBy: callerUid,
           processedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
 
@@ -191,7 +192,7 @@ export const processRefund = onCall(async (request) => {
         refundReason: refundReason,
         refundMethod: refundMethod,
         refundCategories: refundCategories || [],
-        processedBy: adminId,
+        processedBy: callerUid,
         processedAt: admin.firestore.FieldValue.serverTimestamp(),
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -230,18 +231,18 @@ export const getRefundHistory = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const adminId = request.auth.uid;
+  const callerUid = request.auth.uid;
 
   try {
-    // デバイス権限の確認（role: adminのみ）
-    const deviceQuery = await db.collection('devices')
-      .where('uid', '==', adminId)
-      .where('role', '==', 'admin')
-      .limit(1)
-      .get();
+    // デバイス権限の確認（role: admin または options.accounting: true）
+    const device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
 
-    if (deviceQuery.empty) {
-      throw new HttpsError('permission-denied', '管理者権限がありません');
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'accounting');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', '会計管理の権限がありません');
     }
 
     // 日付範囲の取得（デフォルトは過去30日）

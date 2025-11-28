@@ -1,6 +1,7 @@
-import { onCall } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { addLogEntry } from "../utils/logUtils";
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
 
 /**
  * Chip名から数値部分を抽出する
@@ -36,7 +37,25 @@ function extractChipAmount(chipName: string): number {
 export const placeOrder = onCall(async (request) => {
   const db = getFirestore();
 
+  // 認証チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const callerUid = request.auth.uid;
+
   try {
+    // デバイス権限の確認（role: admin または options.order: true）
+    const device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
+
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'order');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', '注文操作の権限がありません');
+    }
+
     const { userId, item } = request.data as {
       userId: string;
       item: {

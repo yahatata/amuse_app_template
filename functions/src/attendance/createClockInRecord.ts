@@ -1,8 +1,27 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
 
 export const createClockInRecord = onCall(async (request: CallableRequest) => {
+  // 認証チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const callerUid = request.auth.uid;
+
+  // デバイス権限の確認（role: admin または options.staff_entry_exit: true）
+  const device = await getCallerDeviceByUid(callerUid);
+  if (!device || !isActive(device.status)) {
+    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+  }
+
+  const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'staff_entry_exit');
+  if (!hasPermission) {
+    throw new HttpsError('permission-denied', 'スタッフ出退勤操作の権限がありません');
+  }
+
   try {
     const { data } = request;
     
