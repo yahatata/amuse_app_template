@@ -1,17 +1,33 @@
-import { onCall } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
 
 export const createMenuItem = onCall(async (request) => {
+  // 認証チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const callerUid = request.auth.uid;
+
+  // デバイス権限の確認（role: admin または options.kitchen: true）
+  const device = await getCallerDeviceByUid(callerUid);
+  if (!device || !isActive(device.status)) {
+    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+  }
+
+  const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'kitchen');
+  if (!hasPermission) {
+    throw new HttpsError('permission-denied', 'キッチン画面操作の権限がありません');
+  }
+
   try {
     const { name, price, category, description, imageBase64, isArchive, isSoldOut } = request.data;
 
     // バリデーション
     if (!name || !price || !category) {
-      return {
-        success: false,
-        error: '必須項目が不足しています'
-      };
+      throw new HttpsError('invalid-argument', '必須項目が不足しています');
     }
 
     const db = getFirestore();
@@ -44,10 +60,7 @@ export const createMenuItem = onCall(async (request) => {
         await file.makePublic();
       } catch (error) {
         console.error('画像アップロードエラー:', error);
-        return {
-          success: false,
-          error: '画像のアップロードに失敗しました'
-        };
+        throw new HttpsError('internal', '画像のアップロードに失敗しました');
       }
     }
 
@@ -77,9 +90,11 @@ export const createMenuItem = onCall(async (request) => {
 
   } catch (error) {
     console.error('メニュー作成エラー:', error);
-    return {
-      success: false,
-      error: 'メニューの作成に失敗しました'
-    };
+    
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    
+    throw new HttpsError('internal', 'メニューの作成に失敗しました');
   }
 });

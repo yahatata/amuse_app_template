@@ -1,6 +1,7 @@
-import { onCall } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { parseQRData, verifyQRData } from "../utils/qrCodeUtils";
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
 
 /**
  * 入店処理（QRスキャン起点）
@@ -13,7 +14,23 @@ import { parseQRData, verifyQRData } from "../utils/qrCodeUtils";
  * How: verifyQRData → parseQRData → Firestore トランザクションで現在状態を参照し更新（入店のみ）
  */
 export const processVisitByQR = onCall(async (request) => {
-  // 認証チェックを削除（注文処理と同様に認証なしで動作）
+  // 認証チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const callerUid = request.auth.uid;
+
+  // デバイス権限の確認（role: admin または options.user_entry_exit: true）
+  const device = await getCallerDeviceByUid(callerUid);
+  if (!device || !isActive(device.status)) {
+    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+  }
+
+  const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'user_entry_exit');
+  if (!hasPermission) {
+    throw new HttpsError('permission-denied', 'お客様入退店操作の権限がありません');
+  }
 
   // 入力取り出し
   const { qrData, entranceFee = 1000, entranceFeeDescription = "入店料" } = request.data ?? {};

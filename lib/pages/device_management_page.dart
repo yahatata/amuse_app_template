@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/device_service.dart';
 import '../models/device.dart';
+import '../services/device_options.dart';
+
+/// 卓情報の簡易モデル
+class _TableItem {
+  final String id;
+  final String name;
+  const _TableItem({required this.id, required this.name});
+}
 
 /// デバイス管理画面（管理者用）
 class DeviceManagementPage extends StatefulWidget {
@@ -12,6 +21,7 @@ class DeviceManagementPage extends StatefulWidget {
 
 class _DeviceManagementPageState extends State<DeviceManagementPage> {
   final DeviceService _deviceService = DeviceService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<Device> _devices = [];
   bool _isLoading = true;
   String? _error;
@@ -96,6 +106,255 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('デバイス「${device.name}」を削除しました'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('エラー: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  /// 卓一覧を取得（逆用途に指定された卓を除外）
+  Future<List<_TableItem>> _getAvailableTablesForOption(
+    String optionKey,
+    String currentDeviceId,
+  ) async {
+    try {
+      // 1. tables コレクションから有効な卓を取得
+      final tablesSnap = await _firestore
+          .collection('tables')
+          .where('isEnabled', isEqualTo: true)
+          .get();
+
+      // 2. 全デバイスの optionParams を取得
+      final devicesSnap = await _firestore.collection('devices').get();
+
+      // 3. 逆用途に指定されている卓IDを収集
+      final excludedTableIds = <String>{};
+      final oppositeKey = optionKey == DeviceOptionKeys.tournamentTable
+          ? DeviceOptionKeys.sideGame
+          : DeviceOptionKeys.tournamentTable;
+
+      for (final doc in devicesSnap.docs) {
+        // 自分自身は除外対象外
+        if (doc.id == currentDeviceId) continue;
+        final params = doc.data()['optionParams'] as Map<String, dynamic>?;
+        final tableId = params?[oppositeKey]?['tableId'] as String?;
+        if (tableId != null) {
+          excludedTableIds.add(tableId);
+        }
+      }
+
+      // 4. 除外してリスト返却
+      return tablesSnap.docs
+          .where((doc) => !excludedTableIds.contains(doc.id))
+          .map((doc) {
+            final data = doc.data();
+            return _TableItem(
+              id: doc.id,
+              name: data['name'] as String? ?? doc.id,
+            );
+          })
+          .toList();
+    } catch (e) {
+      print('卓一覧取得エラー: $e');
+      return [];
+    }
+  }
+
+  Future<void> _editOptions(Device device) async {
+    final presetKeys = DeviceOptionKeys.all;
+    // 現在のオプションを編集用にコピー
+    final Map<String, bool> working = {...device.options};
+    // optionParams も編集用にコピー
+    final Map<String, Map<String, dynamic>> workingParams = {
+      for (final entry in device.optionParams.entries)
+        entry.key: Map<String, dynamic>.from(entry.value),
+    };
+
+    // 卓紐づけ可能なオプション用の選択状態
+    final Map<String, String?> selectedTableIds = {};
+    for (final key in DeviceOptionKeys.tableBindableOptions) {
+      selectedTableIds[key] = workingParams[key]?['tableId'] as String?;
+    }
+
+    // 卓一覧のキャッシュ
+    final Map<String, List<_TableItem>> tableCache = {};
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          // 排他制御: 選択時に排他グループの他のオプションをOFFにする
+          void handleOptionChange(String key, bool? value) {
+            setState(() {
+              working[key] = value == true;
+              if (value == true) {
+                // 排他グループの他のオプションをOFF
+                for (final exclusiveKey in DeviceOptionKeys.getExclusiveKeys(key)) {
+                  working[exclusiveKey] = false;
+                  // 排他されたオプションの卓紐づけもクリア
+                  if (DeviceOptionKeys.isTableBindable(exclusiveKey)) {
+                    selectedTableIds[exclusiveKey] = null;
+                    workingParams.remove(exclusiveKey);
+                  }
+                }
+              }
+              // OFFにした場合は卓紐づけもクリア
+              if (value != true && DeviceOptionKeys.isTableBindable(key)) {
+                selectedTableIds[key] = null;
+                workingParams.remove(key);
+              }
+            });
+          }
+
+          return AlertDialog(
+            title: Text('オプション編集: ${device.name}'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'プリセット',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  ...presetKeys.map((key) {
+                    final value = working[key] == true;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CheckboxListTile(
+                          value: value,
+                          onChanged: (v) => handleOptionChange(key, v),
+                          title: Text(DeviceOptionKeys.label(key)),
+                          secondary: IconButton(
+                            icon: const Icon(Icons.info_outline, color: Colors.blueAccent),
+                            tooltip: '説明を表示',
+                            onPressed: () {
+                              showDialog<void>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: Text(DeviceOptionKeys.label(key)),
+                                  content: Text(DeviceOptionKeys.description(key)),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(ctx).pop(),
+                                      child: const Text('OK'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                        ),
+                        // 卓紐づけUI（有効かつ卓紐づけ可能な場合のみ表示）
+                        if (value && DeviceOptionKeys.isTableBindable(key))
+                          Padding(
+                            padding: const EdgeInsets.only(left: 48, bottom: 8),
+                            child: FutureBuilder<List<_TableItem>>(
+                              future: tableCache.containsKey(key)
+                                  ? Future.value(tableCache[key])
+                                  : _getAvailableTablesForOption(key, device.id).then((tables) {
+                                      tableCache[key] = tables;
+                                      return tables;
+                                    }),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState == ConnectionState.waiting) {
+                                  return const SizedBox(
+                                    height: 48,
+                                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                  );
+                                }
+                                final tables = snapshot.data ?? [];
+                                return DropdownButtonFormField<String?>(
+                                  value: selectedTableIds[key],
+                                  decoration: const InputDecoration(
+                                    labelText: '卓を指定（任意）',
+                                    border: OutlineInputBorder(),
+                                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  ),
+                                  items: [
+                                    const DropdownMenuItem<String?>(
+                                      value: null,
+                                      child: Text('指定なし（全卓操作可）'),
+                                    ),
+                                    ...tables.map((t) => DropdownMenuItem<String?>(
+                                      value: t.id,
+                                      child: Text(t.name),
+                                    )),
+                                  ],
+                                  onChanged: (tableId) {
+                                    setState(() {
+                                      selectedTableIds[key] = tableId;
+                                      if (tableId != null) {
+                                        workingParams[key] = {'tableId': tableId};
+                                      } else {
+                                        workingParams.remove(key);
+                                      }
+                                    });
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                      ],
+                    );
+                  }),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('キャンセル'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (result == true) {
+      try {
+        // プリセットのみを送信（全置換）
+        final Map<String, bool> presetOnly = {
+          for (final key in presetKeys) key: (working[key] == true)
+        };
+        // optionParams を構築
+        final Map<String, Map<String, dynamic>> finalParams = {};
+        for (final key in DeviceOptionKeys.tableBindableOptions) {
+          if (presetOnly[key] == true && selectedTableIds[key] != null) {
+            finalParams[key] = {'tableId': selectedTableIds[key]};
+          }
+        }
+        await _deviceService.updateDeviceOptions(
+          targetDeviceId: device.id,
+          options: presetOnly,
+          optionParams: finalParams,
+        );
+        await _loadDevices();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('オプションを更新しました'),
               backgroundColor: Colors.green,
             ),
           );
@@ -365,6 +624,12 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                       child: const Text('退役'),
                     ),
                     const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed: () => _editOptions(device),
+                      icon: const Icon(Icons.tune),
+                      label: const Text('オプション編集'),
+                    ),
+                    const SizedBox(width: 8),
                     IconButton(
                       onPressed: () => _deleteDevice(device),
                       icon: const Icon(Icons.delete),
@@ -373,6 +638,29 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                if (device.options.isNotEmpty) ...[
+                  const Text(
+                    '付与済みオプション',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: device.options.entries
+                        .where((e) => e.value == true && DeviceOptionKeys.all.contains(e.key))
+                        .map((e) {
+                          // 卓紐づけがある場合は表示
+                          final tableId = device.getTableIdForOption(e.key);
+                          final label = tableId != null
+                              ? '${DeviceOptionKeys.label(e.key)} ($tableId)'
+                              : DeviceOptionKeys.label(e.key);
+                          return Chip(label: Text(label));
+                        })
+                        .toList(),
+                  ),
+                ],
               ],
             ),
           ),

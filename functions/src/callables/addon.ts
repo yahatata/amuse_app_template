@@ -1,6 +1,7 @@
-import { onCall } from 'firebase-functions/v2/https';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
 
 const addonSchema = z.object({
   tournamentId: z.string(),
@@ -9,7 +10,25 @@ const addonSchema = z.object({
 });
 
 export const addon = onCall(async (request) => {
+  // 認証チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const callerUid = request.auth.uid;
+
   try {
+    // デバイス権限の確認（role: admin または options.tournament: true）
+    const device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
+
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+    }
+
     console.log('=== Addon処理開始 ===');
     // 循環参照を避けるため、必要なデータのみをログ出力
     const { data } = request;

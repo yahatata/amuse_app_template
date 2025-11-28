@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
 
 const db = admin.firestore();
 
@@ -24,18 +25,18 @@ export const cancelAccounting = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const adminId = request.auth.uid;
+  const callerUid = request.auth.uid;
 
   try {
-    // デバイス権限の確認（role: adminのみ）
-    const deviceQuery = await db.collection('devices')
-      .where('uid', '==', adminId)
-      .where('role', '==', 'admin')
-      .limit(1)
-      .get();
+    // デバイス権限の確認（role: admin または options.accounting: true）
+    const device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
 
-    if (deviceQuery.empty) {
-      throw new HttpsError('permission-denied', '管理者権限がありません');
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'accounting');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', '会計管理の権限がありません');
     }
 
     // 入力データの検証
@@ -80,7 +81,7 @@ export const cancelAccounting = onCall(async (request) => {
         const cancelRecord = {
           type: 'cancel',
           reason: reason,
-          cancelledBy: adminId,
+          cancelledBy: callerUid,
           cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
           includeRefund: includeRefund,
           refundAmount: includeRefund ? refundAmount : 0,
@@ -193,7 +194,7 @@ export const cancelAccounting = onCall(async (request) => {
         transaction.update(billRef, {
           refundAmount: refundAmount,
           refundedAt: admin.firestore.FieldValue.serverTimestamp(),
-          refundedBy: adminId,
+          refundedBy: callerUid,
         });
 
         // accountingHistoryに返金記録を追加
@@ -202,7 +203,7 @@ export const cancelAccounting = onCall(async (request) => {
           const refundRecord = {
             type: 'refund',
             amount: refundAmount,
-            refundedBy: adminId,
+            refundedBy: callerUid,
             refundedAt: admin.firestore.FieldValue.serverTimestamp(),
             reason: `キャンセルに伴う返金: ${reason}`,
           };

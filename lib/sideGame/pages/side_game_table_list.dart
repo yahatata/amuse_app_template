@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_home.dart';
+import 'package:amuse_app_template/services/device_service.dart';
+import 'package:amuse_app_template/services/device_options.dart';
 
 class SideGameTableListPage extends StatefulWidget {
   const SideGameTableListPage({super.key});
@@ -12,6 +14,51 @@ class SideGameTableListPage extends StatefulWidget {
 
 class _SideGameTableListPageState extends State<SideGameTableListPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final DeviceService _deviceService = DeviceService();
+
+  String? _myTableId;
+  Set<String> _excludedTableIds = {};
+  bool _isLoadingPermissions = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPermissions();
+  }
+
+  Future<void> _loadPermissions() async {
+    try {
+      // 1. 現在のデバイス情報を取得
+      final device = await _deviceService.getCurrentDevice();
+      _myTableId = device?.getTableIdForOption(DeviceOptionKeys.sideGame);
+
+      // 2. 他デバイスでtournament_table用に指定された卓を除外リストに追加
+      final devicesSnap = await _firestore.collection('devices').get();
+      final excluded = <String>{};
+      for (final doc in devicesSnap.docs) {
+        if (doc.id == device?.id) continue; // 自分自身は除外対象外
+        final params = doc.data()['optionParams'] as Map<String, dynamic>?;
+        final tableId = params?[DeviceOptionKeys.tournamentTable]?['tableId'] as String?;
+        if (tableId != null) {
+          excluded.add(tableId);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _excludedTableIds = excluded;
+          _isLoadingPermissions = false;
+        });
+      }
+    } catch (e) {
+      print('権限読み込みエラー: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingPermissions = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,29 +67,50 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
         title: const Text('サイドゲーム テーブル選択'),
         centerTitle: true,
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _firestore.collection('tables').snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('エラーが発生しました: ${snapshot.error}'),
-            );
-          }
+      body: _isLoadingPermissions
+          ? const Center(child: CircularProgressIndicator())
+          : StreamBuilder<QuerySnapshot>(
+              stream: _firestore.collection('tables').snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('エラーが発生しました: ${snapshot.error}'),
+                  );
+                }
 
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-          final tables = snapshot.data!.docs
-              .where((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                return data['isEnabled'] == true;
-              })
-              .toList();
+                final tables = snapshot.data!.docs
+                    .where((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      if (data['isEnabled'] != true) return false;
 
-          return _buildTableGrid(tables);
-        },
-      ),
+                      // 自分に卓番付与がある場合はその卓のみ
+                      if (_myTableId != null && doc.id != _myTableId) return false;
+
+                      // 他デバイスでtournament_table用に指定された卓は除外
+                      if (_excludedTableIds.contains(doc.id)) return false;
+
+                      return true;
+                    })
+                    .toList();
+
+                if (tables.isEmpty) {
+                  return Center(
+                    child: Text(
+                      _myTableId != null
+                          ? '指定された卓が見つかりません'
+                          : '利用可能な卓がありません',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                  );
+                }
+
+                return _buildTableGrid(tables);
+              },
+            ),
     );
   }
 

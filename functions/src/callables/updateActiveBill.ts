@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
 
 const db = admin.firestore();
 
@@ -49,18 +50,18 @@ export const updateActiveBill = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const adminId = request.auth.uid;
+  const callerUid = request.auth.uid;
 
   try {
-    // デバイス権限の確認（role: adminのみ）
-    const deviceQuery = await db.collection('devices')
-      .where('uid', '==', adminId)
-      .where('role', '==', 'admin')
-      .limit(1)
-      .get();
+    // デバイス権限の確認（role: admin または options.accounting: true）
+    const device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
 
-    if (deviceQuery.empty) {
-      throw new HttpsError('permission-denied', '管理者権限がありません');
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'accounting');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', '会計管理の権限がありません');
     }
 
     // 入力データの検証

@@ -1,6 +1,7 @@
-import { onCall } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import * as bcrypt from "bcryptjs";
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
 
 /**
  * 手動チェックイン（店舗端末でのログインID + PIN 認証）
@@ -11,7 +12,25 @@ import * as bcrypt from "bcryptjs";
  * How: Firestore 検索 → PIN 検証 → users 更新 → todaysBills 作成
  */
 export const manualCheckIn = onCall(async (request) => {
+  // 認証チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const callerUid = request.auth.uid;
+
   try {
+    // デバイス権限の確認（role: admin または options.user_entry_exit: true）
+    const device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
+
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'user_entry_exit');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', 'お客様入退店操作の権限がありません');
+    }
+
     const { loginId, pin, entranceFee, entranceFeeDescription } = request.data;
 
     // バリデーション

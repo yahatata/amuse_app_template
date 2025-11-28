@@ -1,12 +1,30 @@
-import { onCall } from 'firebase-functions/v2/https';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { addLogEntry } from '../utils/logUtils';
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
 
 export const depositTip = onCall(async (request) => {
+  // 認証チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const callerUid = request.auth.uid;
+
   const db = getFirestore();
   const { userId, amount } = request.data;
 
   try {
+    // デバイス権限の確認（role: admin または options.side_game: true）
+    const device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
+
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'side_game');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', 'サイドゲーム操作の権限がありません');
+    }
     console.log(`=== depositTip開始 ===`);
     console.log(`userId: ${userId}`);
     console.log(`amount: ${amount}`);

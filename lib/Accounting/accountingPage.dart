@@ -181,8 +181,6 @@ class _AccountingPageState extends State<AccountingPage> {
     final List<dynamic> items = bill['items'] as List<dynamic>? ?? [];
     final List<dynamic> sideGameChip =
         bill['sideGameChip'] as List<dynamic>? ?? [];
-    final Map<String, dynamic> tournaments =
-        bill['tournaments'] as Map<String, dynamic>? ?? {};
 
     int extraCostAmount = 0;
     for (var cost in extraCost) {
@@ -207,9 +205,13 @@ class _AccountingPageState extends State<AccountingPage> {
     }
 
     int tournamentsAmount = 0;
-    for (var tournament in tournaments.values) {
-      if (tournament is Map<String, dynamic>) {
-        tournamentsAmount += (tournament['entryFee'] as num?)?.toInt() ?? 0;
+    // tournamentsは初期状態では空配列、登録後はMapになる可能性がある
+    final tournamentsData = bill['tournaments'];
+    if (tournamentsData is Map<String, dynamic>) {
+      for (var tournament in tournamentsData.values) {
+        if (tournament is Map<String, dynamic>) {
+          tournamentsAmount += (tournament['entryFee'] as num?)?.toInt() ?? 0;
+        }
       }
     }
 
@@ -450,8 +452,6 @@ class _AccountingPageState extends State<AccountingPage> {
     final List<dynamic> items = bill['items'] as List<dynamic>? ?? [];
     final List<dynamic> sideGameChip =
         bill['sideGameChip'] as List<dynamic>? ?? [];
-    final Map<String, dynamic> tournaments =
-        bill['tournaments'] as Map<String, dynamic>? ?? {};
 
     int extraCostAmount = 0;
     for (var cost in extraCost) {
@@ -479,10 +479,14 @@ class _AccountingPageState extends State<AccountingPage> {
     }
 
     int tournamentsAmount = 0;
-    for (var tournament in tournaments.values) {
-      if (tournament is Map<String, dynamic>) {
-        final price = (tournament['entryFee'] as num?)?.toInt() ?? 0;
-        tournamentsAmount += price;
+    // tournamentsは初期状態では空配列、登録後はMapになる可能性がある
+    final tournamentsData = bill['tournaments'];
+    if (tournamentsData is Map<String, dynamic>) {
+      for (var tournament in tournamentsData.values) {
+        if (tournament is Map<String, dynamic>) {
+          final price = (tournament['entryFee'] as num?)?.toInt() ?? 0;
+          tournamentsAmount += price;
+        }
       }
     }
 
@@ -563,16 +567,20 @@ class _AccountingPageState extends State<AccountingPage> {
       }
     }
 
-    final Map<String, dynamic> tournaments =
-        bill['tournaments'] as Map<String, dynamic>? ?? {};
-    for (final tournament in tournaments.values) {
-      if (tournament is Map<String, dynamic>) {
-        final amount = (tournament['entryFee'] as num?)?.toInt() ?? 0;
-        displayValues['tournaments'] =
-            (displayValues['tournaments'] ?? 0) + amount;
-        monetaryValues['tournaments'] =
-            (monetaryValues['tournaments'] ?? 0) + amount;
+    // tournamentsは初期状態では空配列、登録後はMapになる可能性がある
+    final tournamentsData = bill['tournaments'];
+    if (tournamentsData is Map<String, dynamic>) {
+      for (final tournament in tournamentsData.values) {
+        if (tournament is Map<String, dynamic>) {
+          final amount = (tournament['entryFee'] as num?)?.toInt() ?? 0;
+          displayValues['tournaments'] =
+              (displayValues['tournaments'] ?? 0) + amount;
+          monetaryValues['tournaments'] =
+              (monetaryValues['tournaments'] ?? 0) + amount;
+        }
       }
+    } else if (tournamentsData is List) {
+      // 初期状態の空配列の場合は何もしない
     }
 
     final List<dynamic> items = bill['items'] as List<dynamic>? ?? [];
@@ -1494,41 +1502,44 @@ class _AccountingPageState extends State<AccountingPage> {
               // 内訳
               _buildBillBreakdown(bill),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        final ok = await _revertAccountingStart(bill['id']);
-                        if (ok) {
-                          // 戻したら再編集フローへ
-                          await _startAccounting(bill['id']);
-                        }
-                      },
-                      icon: const Icon(Icons.edit),
-                      label: const Text('支払い方法変更'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.blue,
-                        side: const BorderSide(color: Colors.blue),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _revertAccountingStart(bill['id']),
-                      icon: const Icon(Icons.undo),
-                      label: const Text('会計開始前に戻る'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.red,
-                        side: const BorderSide(color: Colors.red),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              // TODO: revertAccountingStart CFが未実装のため一時的に無効化
+              // 再実装後にコメントを解除すること
+              // Row(
+              //   children: [
+              //     Expanded(
+              //       child: OutlinedButton.icon(
+              //         onPressed: () async {
+              //           final ok = await _revertAccountingStart(bill['id']);
+              //           if (ok) {
+              //             // 戻したら再編集フローへ
+              //             await _startAccounting(bill['id']);
+              //           }
+              //         },
+              //         icon: const Icon(Icons.edit),
+              //         label: const Text('支払い方法変更'),
+              //         style: OutlinedButton.styleFrom(
+              //           foregroundColor: Colors.blue,
+              //           side: const BorderSide(color: Colors.blue),
+              //           padding: const EdgeInsets.symmetric(vertical: 12),
+              //         ),
+              //       ),
+              //     ),
+              //     const SizedBox(width: 8),
+              //     Expanded(
+              //       child: OutlinedButton.icon(
+              //         onPressed: () => _revertAccountingStart(bill['id']),
+              //         icon: const Icon(Icons.undo),
+              //         label: const Text('会計開始前に戻る'),
+              //         style: OutlinedButton.styleFrom(
+              //           foregroundColor: Colors.red,
+              //           side: const BorderSide(color: Colors.red),
+              //           padding: const EdgeInsets.symmetric(vertical: 12),
+              //         ),
+              //       ),
+              //     ),
+              //   ],
+              // ),
+              const SizedBox.shrink(), // 一時的なプレースホルダー
             ] else
               Row(
                 children: [
@@ -1566,28 +1577,30 @@ class _AccountingPageState extends State<AccountingPage> {
     );
   }
 
+  // TODO: revertAccountingStart CFが未実装のため一時的に無効化
+  // 再実装後にコメントを解除すること
   // 会計開始前に戻す（Cloud Function 呼び出し）
-  Future<bool> _revertAccountingStart(String billId) async {
-    try {
-      final result = await _functions
-          .httpsCallable('revertAccountingStart')
-          .call({'billId': billId});
-      if (mounted) {
-        _loadActiveBills();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.data['message'] ?? '会計開始を取り消しました')),
-        );
-      }
-      return true;
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('取り消しに失敗しました: $e')));
-      }
-      return false;
-    }
-  }
+  // Future<bool> _revertAccountingStart(String billId) async {
+  //   try {
+  //     final result = await _functions
+  //         .httpsCallable('revertAccountingStart')
+  //         .call({'billId': billId});
+  //     if (mounted) {
+  //       _loadActiveBills();
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         SnackBar(content: Text(result.data['message'] ?? '会計開始を取り消しました')),
+  //       );
+  //     }
+  //     return true;
+  //   } catch (e) {
+  //     if (mounted) {
+  //       ScaffoldMessenger.of(
+  //         context,
+  //       ).showSnackBar(SnackBar(content: Text('取り消しに失敗しました: $e')));
+  //     }
+  //     return false;
+  //   }
+  // }
 
   Widget _buildSettledBillCard(Map<String, dynamic> bill) {
     final billId = bill['id'] ?? 'unknown';

@@ -16,6 +16,9 @@ class DeviceService {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  /// 直近取得したデバイスの簡易キャッシュ（任意）
+  Device? _cachedDevice;
+
 
   /// デバイスが登録済みかチェック
   Future<bool> isDeviceRegistered() async {
@@ -51,7 +54,9 @@ class DeviceService {
         return null;
       }
 
-      return Device.fromFirestore(doc);
+      final device = Device.fromFirestore(doc);
+      _cachedDevice = device;
+      return device;
     } catch (e) {
       print('デバイス情報取得エラー: $e');
       return null;
@@ -99,7 +104,9 @@ class DeviceService {
 
       // デバイス情報を取得して返す
       final doc = await _firestore.collection('devices').doc(deviceId).get();
-      return Device.fromFirestore(doc);
+      final device = Device.fromFirestore(doc);
+      _cachedDevice = device;
+      return device;
     } catch (e) {
       print('デバイス登録エラー: $e');
       
@@ -140,6 +147,11 @@ class DeviceService {
       }
 
       await _firestore.collection('devices').doc(deviceId).update(updateData);
+      // 更新後の最新を反映
+      final refreshed = await _firestore.collection('devices').doc(deviceId).get();
+      if (refreshed.exists) {
+        _cachedDevice = Device.fromFirestore(refreshed);
+      }
     } catch (e) {
       print('デバイス更新エラー: $e');
       rethrow;
@@ -168,6 +180,11 @@ class DeviceService {
         'status': status,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+      // キャッシュ更新
+      final refreshed = await _firestore.collection('devices').doc(deviceId).get();
+      if (refreshed.exists) {
+        _cachedDevice = Device.fromFirestore(refreshed);
+      }
     } catch (e) {
       print('デバイスステータス更新エラー: $e');
       rethrow;
@@ -178,6 +195,7 @@ class DeviceService {
   Future<void> deleteDevice(String deviceId) async {
     try {
       await _firestore.collection('devices').doc(deviceId).delete();
+      _cachedDevice = null;
     } catch (e) {
       print('デバイス削除エラー: $e');
       rethrow;
@@ -220,6 +238,94 @@ class DeviceService {
     final random = Random();
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     return List.generate(22, (index) => chars[random.nextInt(chars.length)]).join();
+  }
+
+  /// 最新デバイス情報を再取得してキャッシュに反映
+  Future<Device?> refreshDevice() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final deviceId = prefs.getString(_deviceIdKey);
+      if (deviceId == null) {
+        return null;
+      }
+      final doc = await _firestore.collection('devices').doc(deviceId).get();
+      if (!doc.exists) {
+        _cachedDevice = null;
+        return null;
+      }
+      final device = Device.fromFirestore(doc);
+      _cachedDevice = device;
+      return device;
+    } catch (e) {
+      print('デバイス再取得エラー: $e');
+      return null;
+    }
+  }
+
+  /// デバイスが指定オプションを保持しているかチェック（adminは常に許可する運用）
+  Future<bool> hasOption(String optionKey, {bool adminBypass = true}) async {
+    try {
+      final device = _cachedDevice ?? await getCurrentDevice();
+      if (device == null) return false;
+      if (adminBypass && device.role == 'admin') return true;
+      return device.options[optionKey] == true;
+    } catch (e) {
+      print('オプションチェックエラー: $e');
+      return false;
+    }
+  }
+
+  /// 管理者用：端末のオプションを更新（CF経由）
+  Future<Map<String, bool>> updateDeviceOptions({
+    required String targetDeviceId,
+    required Map<String, bool> options,
+    Map<String, Map<String, dynamic>>? optionParams,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable('updateDeviceOptions');
+      final callData = <String, dynamic>{
+        'deviceId': targetDeviceId,
+        'options': options,
+      };
+      if (optionParams != null) {
+        callData['optionParams'] = optionParams;
+      }
+      final result = await callable.call(callData);
+      final data = (result.data as Map).cast<String, dynamic>();
+      final updated = (data['options'] as Map).cast<String, bool>();
+      // 自分自身を更新した場合はキャッシュも更新
+      final prefs = await SharedPreferences.getInstance();
+      final myId = prefs.getString(_deviceIdKey);
+      if (myId != null && myId == targetDeviceId) {
+        _cachedDevice = await getCurrentDevice();
+      }
+      return updated;
+    } catch (e) {
+      print('オプション更新エラー: $e');
+      rethrow;
+    }
+  }
+
+  /// 指定オプションに紐づく卓IDを取得（キャッシュから）
+  String? getTableIdForOption(String optionKey) {
+    return _cachedDevice?.getTableIdForOption(optionKey);
+  }
+
+  /// 全デバイスのoptionParamsを取得（卓除外用）
+  Future<List<Map<String, dynamic>>> getAllDeviceOptionParams() async {
+    try {
+      final snapshot = await _firestore.collection('devices').get();
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'deviceId': doc.id,
+          'optionParams': data['optionParams'] ?? {},
+        };
+      }).toList();
+    } catch (e) {
+      print('全デバイスoptionParams取得エラー: $e');
+      return [];
+    }
   }
 
   /// デバイスが管理者かチェック
