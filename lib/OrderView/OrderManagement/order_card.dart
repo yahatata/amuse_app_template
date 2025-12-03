@@ -25,52 +25,12 @@ class OrderCard extends StatelessWidget {
     final createdAt = order['createdAt'] as Timestamp?;
     final updatedAt = order['updatedAt'] as Timestamp?;
     
-    return Dismissible(
-      key: Key(order['id'] ?? ''),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        color: Colors.green,
-        child: const Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.check_circle, color: Colors.white, size: 32),
-            Text(
-              '提供済み',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-      ),
-      confirmDismiss: (direction) async {
-        return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('提供済みにしますか？'),
-            content: const Text('この注文を提供済みとしてマークします。'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('キャンセル'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('確定'),
-              ),
-            ],
-          ),
-        );
-      },
-      onDismissed: (direction) async {
-        await _markAsServed(context);
-      },
-      child: Card(
+    return Card(
         margin: const EdgeInsets.only(bottom: 8),
         child: InkWell(
           onTap: () => _handleCardTap(context),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -119,13 +79,16 @@ class OrderCard extends StatelessWidget {
                   ],
                 ),
                 
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 
                 // 注文アイテム一覧
-                ...items.map<Widget>((item) {
+                ...items.asMap().entries.map<Widget>((entry) {
+                  final index = entry.key;
+                  final item = entry.value;
                   final name = item['name'] ?? '';
                   final quantity = item['quantity'] ?? 1;
                   final category = item['category'] ?? '';
+                  final isLastItem = index == items.length - 1;
                   
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 4),
@@ -147,12 +110,11 @@ class OrderCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            name,
-                            style: const TextStyle(fontSize: 14),
-                          ),
+                        Text(
+                          name,
+                          style: const TextStyle(fontSize: 14),
                         ),
+                        const SizedBox(width: 8),
                         Text(
                           '×$quantity',
                           style: TextStyle(
@@ -161,12 +123,27 @@ class OrderCard extends StatelessWidget {
                             color: Colors.blue[700],
                           ),
                         ),
+                        // 最後のアイテムに提供ボタンを表示
+                        if (isLastItem && (status == 'preparing' || status == 'in_progress')) ...[
+                          const Spacer(),
+                          ElevatedButton.icon(
+                            onPressed: () => _showServedConfirmation(context),
+                            icon: const Icon(Icons.check_circle, size: 27),
+                            label: const Text('提供'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
+                              textStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   );
                 }).toList(),
                 
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 
                 // 時間表示
                 Row(
@@ -186,7 +163,6 @@ class OrderCard extends StatelessWidget {
             ),
           ),
         ),
-      ),
     );
   }
 
@@ -292,6 +268,41 @@ class OrderCard extends StatelessWidget {
           backgroundColor: Colors.blue,
         ),
       );
+    }
+  }
+
+  /// 提供済み確認ダイアログを表示
+  Future<void> _showServedConfirmation(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green),
+            SizedBox(width: 8),
+            Text('提供済みにしますか？'),
+          ],
+        ),
+        content: const Text('この注文を提供済みとしてマークします。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('提供済みにする'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      await _markAsServed(context);
     }
   }
 
