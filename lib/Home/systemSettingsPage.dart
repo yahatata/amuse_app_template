@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../globalConstant.dart';
+import 'createTemporaryTablePage.dart';
 
 class SystemSettingsPage extends StatefulWidget {
   const SystemSettingsPage({super.key});
@@ -23,11 +24,12 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
         backgroundColor: Colors.blue[700],
         foregroundColor: Colors.white,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             const Text(
               'データ管理',
               style: TextStyle(
@@ -44,11 +46,10 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
                 subtitle: const Text('トーナメント用の一時テーブルを作成します'),
                 trailing: const Icon(Icons.arrow_forward_ios),
                 onTap: () {
-                  // TODO: 一時テーブル作成機能の実装
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('一時テーブル作成機能は準備中です'),
-                      backgroundColor: Colors.blue,
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const CreateTemporaryTablePage(),
                     ),
                   );
                 },
@@ -148,6 +149,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

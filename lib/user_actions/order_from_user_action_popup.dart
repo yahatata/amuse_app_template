@@ -261,6 +261,14 @@ Future<void> _showQuantityAndConfirm({
                     }
                   } catch (e) {
                     if (pageContext.mounted) {
+                      // エラーの詳細をログ出力
+                      debugPrint('[OrderPop] ERROR: ${e.toString()}');
+                      debugPrint('[OrderPop] ERROR Type: ${e.runtimeType}');
+                      if (e is FirebaseFunctionsException) {
+                        debugPrint('[OrderPop] Functions Error Code: ${e.code}');
+                        debugPrint('[OrderPop] Functions Error Message: ${e.message}');
+                        debugPrint('[OrderPop] Functions Error Details: ${e.details}');
+                      }
                       ScaffoldMessenger.of(pageContext).showSnackBar(
                         SnackBar(content: Text('注文に失敗しました: $e')),
                       );
