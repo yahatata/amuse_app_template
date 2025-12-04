@@ -44,6 +44,17 @@
             return;
           }
 
+          // ミニアプリ用：profile権限の確認と要求
+          try {
+            const permissionStatus = await liff.permission.query("profile");
+            if (permissionStatus.state === "prompt") {
+              await liff.permission.requestAll();
+            }
+          } catch (permError) {
+            console.warn("Permission check not supported or failed:", permError);
+            // LIFF環境では権限APIが使えない場合があるため、エラーは無視して続行
+          }
+
           const idToken = await liff.getIDToken();
           if (!idToken) {
             throw new Error("LIFFのIDトークン取得に失敗しました。");
