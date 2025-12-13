@@ -33,6 +33,8 @@ class _StayingUsersListPageState extends State<StayingUsersListPage> {
       if (data is Map && data['success'] == true) {
         final list = data['data'];
         if (list is List) {
+          // getOpenBills のレスポンスには billId が含まれている（P1-08で実装済み）
+          // user オブジェクトには billId, userId, pokerName, currentTable, currentSeat が含まれる
           _users = list
               .whereType<Map>()
               .map((e) => Map<String, dynamic>.from(e))

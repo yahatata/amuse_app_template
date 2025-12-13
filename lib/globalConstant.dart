@@ -46,8 +46,28 @@ class GlobalConstants {
   static const String PAYROLL_PERIOD_DESCRIPTION = "給与計算期間は$PAYROLL_START_DAY日〜翌月$PAYROLL_END_DAY日です。変更する場合は、このファイルの数値を変更してアプリを再起動してください。";
   
   // 店舗締め時間設定
+  // STORE_CLOSE_HOUR の意味:
+  // - 0-23: 「当日の何時まで」を指定（例: 9 → 当日の9:00まで）
+  // - 24-48: 「翌日の何時まで」を指定（例: 25 → 翌日の1:00まで、27 → 翌日の3:00まで）
+  //   24以上を指定した場合、normalizeStoreCloseHour() で正規化して使用
+  // 例: STORE_CLOSE_HOUR=9 → 当日の9:00まで（9:00以降は当日の営業日）
+  // 例: STORE_CLOSE_HOUR=25 → 翌日の1:00まで（当日の1:00以降は当日の営業日）
+  // 例: STORE_CLOSE_HOUR=27 → 翌日の3:00まで（当日の3:00以降は当日の営業日）
   static const int STORE_CLOSE_HOUR = 9; // 9:00まで（日付跨ぎ勤務可能）
   static const String STORE_CLOSE_DESCRIPTION = "$STORE_CLOSE_HOUR:00までの打刻は日付跨ぎ勤務として記録されます";
+  
+  /// STORE_CLOSE_HOUR を正規化（24以上は翌日繰り上がりとして扱う）
+  /// @param hour 0-48 の整数
+  ///   - 0-23: 当日の時刻としてそのまま使用
+  ///   - 24-48: 翌日の時刻として扱い、24で割った余りを使用（例: 25 → 1, 27 → 3, 48 → 0）
+  /// @returns 0-23 の整数（営業日判定で使用する時刻）
+  /// 
+  /// 注意: 24以上を指定した場合、元の値が「翌日の何時まで」を意味することを示す。
+  /// 例: hour=25 → 1（翌日の1:00まで）、hour=27 → 3（翌日の3:00まで）
+  static int normalizeStoreCloseHour(int hour) {
+    // 24以上は翌日繰り上がりとして扱い、24で割った余りを使用
+    return hour % 24;
+  }
   
   // ポイントタイプ選択肢（フィールド名のみ）
   static const List<String> pointTypes = ['pointA', 'pointB', 'sideGameChip'];//createUserAccount.tsやcreateUserByApp.tsについては直接コード内で修正する必要がある
@@ -60,7 +80,7 @@ class GlobalConstants {
     'アルティメットポーカー',
   ];
 
-  // カテゴリ別支払い方法制限設定（todaysBillsのフィールド名をキーとする）
+  // カテゴリ別支払い方法制限設定（bills スキーマのカテゴリ名をキーとする）
   static const Map<String, List<String>> categoryPaymentMethods = {
     'extraCost': ['cash', 'credit_card', 'electronic_money'], // 入店料
     'sideGameChip': ['cash', 'credit_card', 'electronic_money'], // サイドゲームチップ

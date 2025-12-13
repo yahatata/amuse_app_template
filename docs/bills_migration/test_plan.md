@@ -1,6 +1,6 @@
 # テスト計画
 
-_最終更新: 2025-11-19 (JST)_
+_最終更新: 2025-12-02 (JST)_
 
 ## 目的
 - `bills` 移行に伴う機能・データ整合性・分析結果の品質を保証する。
@@ -112,6 +112,75 @@ beforeEach(async () => {
       - 正常系（初回呼び出し）、idempotent replay（同じclientNonceで2回呼び出し、残高とログが1回分のみ）
     - 全テストファイル（20ファイル）をdualWrite ON/OFF両方で実行し、全て正常動作確認（Test Suites: 19 passed, 1 skipped / Tests: 136 passed, 1 skipped）
     - 詳細は `changespecs/P1-03_change_spec.md` を参照
+- **座席管理フロー（`updatePlace`）**: LWW方式（serverTimestamp()到着順で最終値を採用）、idempotencyKeyは任意（/idempotencyには保存しない）、座席管理系callableが `activeStays/{userId}` から `billId` を取得（存在チェックは本callable側の責務）、`pokerName` は `activeStays/{userId}.pokerName` から取得（未設定時は `Player_{userId}` をフォールバック、`todaysBills` には依存しない）、DualWriteはトランザクション外でベストエフォート実行、`scheduledTournaments` への書き込み構造は変更しない、`bustAndExit.ts` で `tablesSeat/busted` ドキュメントが存在しない場合でも例外にならず自己修復（`transaction.set(..., { merge: true })` を使用）。
+  - **実施済みテスト（P1-04完了）**:
+    - 統合テスト（`updatePlace.spec.ts`）: 11件全て成功
+      - happy path（正常更新、null更新）、invalid-argument（billId未指定、table/seat型不正）、not-found（billId不存在）、failed-precondition（status=settled）、LWW動作（複数端末から同時更新）、idempotencyKey指定時の動作（/idempotencyには保存されず、通常のLWWとして上書き）、DualWrite ON/OFF（3件）
+    - 統合テスト（`assignSeatToPlayer.spec.ts`）: 7件全て成功
+      - happy path（正常更新、pokerNameフォールバック）、エラーハンドリング（activeStays不存在、billId未設定、isEnabled=false、seat既使用）、waitingドキュメント不存在時の挙動
+    - 統合テスト（`bustAndExit.spec.ts`）: 5件全て成功
+      - happy path（正常退席）、エラーハンドリング（activeStays不存在、billId未設定、userId不一致）、bustedドキュメント不存在時の自己修復
+    - 詳細は `changespecs/P1-04_change_spec.md` を参照
+- **トーナメント管理フロー（`recordTournamentAction`）**: 強い冪等性（requestHash保存、/idempotencyに保存）、トーナメント系callable（`registerForTournament.ts`, `bustAndReentry.ts`, `addon.ts`, `bulkAddon.ts`）が `activeStays/{userId}` から `billId` を取得（存在チェックは本callable側の責務）、`recordTournamentAction` ヘルパAPIを使用して `/bills/{billId}/tournaments/{tplId}` にupsert（entry/reentry/addonアクションごとに適切なフィールドを更新）、`todaysBills.tournaments` への直接更新を削除（DualWriteは `recordTournamentAction` ヘルパAPI内でベストエフォート実行、idempotent replay時はDualWriteをスキップして完全no-op保証）、`scheduledTournaments` への書き込み構造は変更しない、`todaysBills.tournaments` のフィールド名は既存スキーマに合わせて `entryFee`/`reentryFee`/`addonFee` を使用（`/bills/{billId}/tournaments/{tplId}` は `entryFeeIncl`/`reentryFeeIncl`/`addonFeeIncl`）。
+  - **実施済みテスト（P1-05完了）**:
+    - 統合テスト（`recordTournamentAction.spec.ts`）: 13件全て成功
+      - happy path（entry/reentry/addon）、invalid-argument（billId/templateId/action/idempotencyKey未指定）、not-found（billId不存在）、failed-precondition（status=settled、requestHash不一致）、idempotent replay（reused: true、updatedAt不変、DualWrite完全no-op保証）、DualWrite ON/OFF（2件）
+    - 統合テスト（`registerForTournament.spec.ts`）: 5件全て成功
+      - happy path（正常エントリー、scheduledTournaments更新）、エラーハンドリング（activeStays不存在、billId未設定）、todaysBills直接更新削除確認
+    - 統合テスト（`bustAndReentry.spec.ts`）: 4件全て成功
+      - happy path（正常リエントリー）、エラーハンドリング（activeStays不存在、billId未設定、maxReentriesPerPlayer制限）
+    - 統合テスト（`addon.spec.ts`）: 4件全て成功
+      - happy path（正常アドオン）、エラーハンドリング（activeStays不存在、billId未設定、isAddon: false）
+    - 統合テスト（`bulkAddon.spec.ts`）: 3件全て成功
+      - happy path（複数ユーザー一括アドオン）、エラーハンドリング（activeStays不存在ユーザー含む）、既にAddon済みユーザーのスキップ
+    - 詳細は `changespecs/P1-05_change_spec.md` を参照
+- **会計開始・会計前編集フロー（`startAccounting`, `updateBill`, `updateActiveBill`）**: `startAccounting` ヘルパAPI実装（強い冪等性、`/idempotency`コレクション使用、requestHash保存、expiresAt=now+48h、idempotent replay時はupdatedAt変更なし、DualWriteはidempotent replay時はスキップ）、`updateBill` ヘルパAPI実装（安全フィールドのみ更新、businessDate変更拒否パターンA、LWW方式、idempotencyKey不使用）、`updateActiveBill` callable再設計（会計前の明細編集API、サブコレクション編集のみ、親フィールドは更新しない、実行条件: status in {'open','in_progress'} かつ ops.accountingStartedAt == null）、`accounting.ts` の `startAccounting` callable更新（新ヘルパAPI使用、支払方法処理とユーザー残高差し引きは現状維持、billsのサブコレクションから金額計算）。
+  - **実施済みテスト（P1-06完了）**:
+    - 単体テスト（`startAccounting.spec.ts`）: 13件全て成功
+      - happy path（正常な会計開始、status=in_progressの場合も会計開始可能）、invalid-argument（billId未指定、idempotencyKey未指定、accountingStartedBy未指定）、not-found（billId不存在）、failed-precondition（status=settled/settling、requestHash不一致）、idempotent-replay（reused: true、updatedAt不変）、DualWrite ON/OFF（3件、idempotent replay時はDualWriteをスキップ）
+    - 単体テスト（`updateBill.spec.ts`）: 12件全て成功
+      - happy path（status更新、ops.*更新、meta.*更新）、invalid-argument（billId未指定、updatesが空、businessDate変更拒否、amounts.*変更拒否、categoryBreakdown変更拒否）、not-found（billId不存在）、LWW動作（複数端末からの同時更新で最終値が採用）、DualWrite ON/OFF（2件）
+    - 統合テスト（`businessDate.immutability.spec.ts`）: 1件全て成功（skip解除、パターンA検証）
+      - `updateBill` ヘルパAPI経由でbusinessDate変更拒否を検証（パターンA）、パターンB（トリガによる巻き戻し）はP1-11で別テストに切り出す
+    - 統合テスト（`updateActiveBill.spec.ts`）: 9件全て成功
+      - happy path（会計前請求書の明細編集、既存のリクエストスキーマからサブコレクションへの変換）、エラーハンドリング（権限不足、billId不存在、accountingStartedAtがnull以外、statusがopen/in_progress以外）、親フィールド更新拒否（businessDate, amounts.*, categoryBreakdown, postEvents.*, paymentsSummary.*が更新されない）、DualWrite ON/OFF（2件、totalPriceは更新されない）
+    - 統合テスト（`accounting.spec.ts` startAccounting部分）: 7件全て成功
+      - happy path（会計開始、status=settling、ops.accountingStartedAt設定）、エラーハンドリング（権限不足、billId不存在、statusがsettledの場合）、支払方法処理とユーザー残高差し引きが現状維持で動作すること、DualWrite ON/OFF（2件）
+    - 詳細は `changespecs/P1-06_change_spec.md` を参照
+- **事後イベント & 会計後調整フロー（`postEventRefund`, `postEventAdjustment`, `postEventCancel`, `postEventReopen`, `bills.events.onCreate` トリガ）**: `/events` ベースの会計後調整API（旧 `updateAccounting.ts` 相当）実装、`cancelAccounting.ts` をpre-settlement専用APIとして再設計、`refundProcessing.ts` の `processRefund` callable更新、`updateAccounting.ts` を新世界版として再設計、`bills.events.onCreate` トリガ実装、Flutter UI実装。
+  - **実施済みテスト（P1-07完了）**:
+    - 統合テスト（`postEventRefund.spec.ts`）: 20件全て成功
+      - happy path（部分返金、全額返金、status遷移）、invalid-argument（amountIncl<=0、billId/idempotencyKey未指定）、not-found（billId不存在）、failed-precondition（pre-settlement status、返金累計超過、balanceDueIncl<0、status=refundedからの追加返金）、idempotent replay（reused: true、updatedAt不変）、DualWrite ON/OFF（2件）
+    - 統合テスト（`postEventAdjustment.spec.ts`）: 18件全て成功
+      - happy path（追加徴収、減額、status遷移）、invalid-argument（amountIncl<=0、sign不正、billId/idempotencyKey未指定）、not-found（billId不存在）、failed-precondition（pre-settlement status、netSalesIncl<0、balanceDueIncl<0、status=refundedからの調整）、idempotent replay（reused: true、updatedAt不変）、DualWrite ON/OFF（2件）
+    - 統合テスト（`postEventCancel.spec.ts`）: 12件全て成功
+      - happy path（正常キャンセル、status=voided）、invalid-argument（billId/idempotencyKey未指定）、not-found（billId不存在）、failed-precondition（pre-settlement status、status=partially_refunded/refunded/voidedからのキャンセル、paidTotalIncl!=0、totalRefundedIncl!=0）、idempotent replay（reused: true、updatedAt不変）、DualWrite ON/OFF（2件）
+    - 統合テスト（`postEventReopen.spec.ts`）: 10件全て成功
+      - happy path（正常再開、status=in_progress）、invalid-argument（billId/idempotencyKey未指定）、not-found（billId不存在）、failed-precondition（pre-settlement status、status=partially_refunded/refunded/voidedからの再開）、idempotent replay（reused: true、updatedAt不変）、DualWrite ON/OFF（2件）
+    - 統合テスト（`bills.events.onCreate.spec.ts`）: 15件全て成功
+      - refundイベント処理（部分返金、全額返金、status遷移、balanceDueIncl更新）、adjustmentイベント処理（追加徴収、減額、netSalesIncl更新、balanceDueIncl更新）、cancelイベント処理（status=voided）、reopenイベント処理（status=in_progress）、pre-settlement statusやvoidedの場合はno-op、appliedAtフラグで冪等性保証、バリデーション（netSalesIncl<0、balanceDueIncl<0）
+    - 統合テスト（`refundProcessing.spec.ts`）: 7件全て成功
+      - happy path（正常返金）、エラーハンドリング（認証なし、権限不足、billId不存在、postEventRefundエラー）、レスポンス形式確認
+    - 統合テスト（`updateAccounting.spec.ts`）: 9件全て成功
+      - happy path（adjustment/cancel/reopen）、エラーハンドリング（認証なし、権限不足、billId不存在、eventType不正、adjustment時のsign/amountIncl未指定）、レスポンス形式確認
+    - 統合テスト（`cancelAccounting.spec.ts`）: 8件全て成功
+      - happy path（正常キャンセル、status=open/in_progress/settling、ops.accountingStartedAt/Byクリア）、エラーハンドリング（認証なし、権限不足、billId不存在、statusが条件外）、startAccounting再実行可能、`/events` への書込なし
+    - UIとFunctionsの紐付け確認完了（`processRefund` callable ↔ `postAccountingRefundDialog.dart`、`updateAccounting` callable ↔ `postAccountingAdjustmentDialog.dart`/`postAccountingCancelDialog.dart`/`postAccountingReopenDialog.dart`）
+    - 詳細は `changespecs/P1-07_change_spec.md` および `P1-07_test_report.md` を参照
+- **読み取り（Functions）フロー（`getUserOrderHistory`, `verifyPaymentSplit`, `getOpenBills`）**: `getUserOrderHistory.ts` を確定済み履歴専用APIとして再定義（status ∈ {"settled","partially_refunded","refunded","voided"} のみ取得、businessDateフィルタ追加、statusフィルタはFirestoreクエリ側で絞り込み、amounts.grandTotalRoundedをtotalPriceとして返却、itemsは常に空配列[]を返す、itemCountは/itemsサブコレクションの件数から計算）、`verifyPaymentSplit.ts` をbills参照に変更（サブコレクションからextras/items/sideGameChips/tournamentsを取得してカテゴリ別金額を計算）、`getOpenBills.ts` をbillsクエリに移行（businessDateフィルタ追加、todaysBillsId→billIdに変更、party.userId/party.pokerName/place.table/place.seatにマッピング）。
+  - **実施済みテスト（P1-08完了）**:
+    - 統合テスト（`getUserOrderHistory.spec.ts`）: 10件全て成功
+      - happy path（正常な注文履歴取得、複数の確定済み伝票、0件パターン、amounts.grandTotalRoundedがtotalPriceとして返却、itemCount計算）、invalid-argument（認証なし）、businessDateフィルタ（当日の営業日のみ取得、前日の営業日の伝票は取得されない）、statusフィルタ（確定済み伝票のみ取得、進行中の伝票は取得されない）
+    - 統合テスト（`verifyPaymentSplit.spec.ts`）: 8件全て成功
+      - happy path（正常な支払い分割計算の照合、クライアント側とサーバー側の結果が一致/不一致の場合）、invalid-argument（認証なし、billId未指定）、not-found（指定された請求書が見つからない場合）、サブコレクション取得（extras/tournaments/items/sideGameChipsが正しく取得される、空のサブコレクションの場合の処理確認）
+    - 統合テスト（`getOpenBills.spec.ts`）: 8件全て成功
+      - happy path（正常な入店中ユーザー一覧取得、status="open"の伝票のみ取得、ソート確認（pokerName順））、empty（入店中ユーザーがいない場合の空配列返却）、レスポンス形式（billIdフィールドが正しく返却、party.userId/party.pokerName/place.table/place.seatが正しくマッピング）、businessDateフィルタ（当日の営業日のstatus="open" billのみ取得、前日のbusinessDateを持つbillは含まれない）
+    - 詳細は `changespecs/P1-08_change_spec.md` を参照
+- **読み取り（Flutter）フロー（`accountingPage`, `ActiveStaysService`, `getBillPreviewTotals`）**: Flutter側の読み取り処理を `todaysBills` から `bills` コレクション＋サブコレクション対応へ移行、`getOpenBills` のレスポンス形式変更（`todaysBillsId` → `billId`）に対応、`activeStays` をアプリ全体で1本だけの単一長寿命リスナーで購読する仕組みを導入（P1-13の内容を統合）、`getBillPreviewTotals` Cloud Function を前倒しして導入。
+  - **実施済みテスト（P1-09完了）**:
+    - 統合テスト（`getBillPreviewTotals.spec.ts`）: 8件全て成功
+      - happy path（全サブコレクションから正しく金額を計算、itemsでtotalPriceInclがない場合はunitPriceIncl*quantityで計算、sideGameChipでchipCountがない場合はamountIncl/SIDE_GAME_CHIP_EXCHANGE_RATEから算出）、not-found（存在しないbillIdを渡すとHttpsErrorがスローされる）、サブコレクションが空の場合でも0で返る、不正な値が含まれるケース（amountInclにnullが含まれていても0として扱う）、invalid-argument（billIdが空文字列/未指定の場合）
+    - 詳細は `changespecs/P1-09_change_spec.md` を参照
 
 ### DualWrite ログ契約仕様
 

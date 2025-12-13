@@ -58,7 +58,7 @@ class _AccountingPageState extends State<AccountingPage> {
   // 営業日を計算する関数
   String _getBusinessDate() {
     final now = DateTime.now();
-    final closeHour = GlobalConstants.STORE_CLOSE_HOUR;
+    final closeHour = GlobalConstants.normalizeStoreCloseHour(GlobalConstants.STORE_CLOSE_HOUR);
 
     // 現在時刻が店舗締め時間より前の場合は前日の営業日
     if (now.hour < closeHour) {
@@ -79,15 +79,36 @@ class _AccountingPageState extends State<AccountingPage> {
       // 営業日の未会計の請求書を取得
       final businessDate = _getBusinessDate();
       final querySnapshot = await _firestore
-          .collection('todaysBills')
-          .where('date', isEqualTo: businessDate)
+          .collection('bills')
+          .where('businessDate', isEqualTo: businessDate)
           .where('status', isEqualTo: 'open')
           .get();
 
       setState(() {
         _activeBills = querySnapshot.docs.map((doc) {
           final data = doc.data();
-          return {'id': doc.id, ...data};
+          // レスポンス形式のマッピング
+          final ops = data['ops'] as Map<String, dynamic>?;
+          final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>?;
+          
+          final mappedData = <String, dynamic>{
+            'id': doc.id,
+            'userId': (data['party'] as Map<String, dynamic>?)?['userId'],
+            'pokerName': (data['party'] as Map<String, dynamic>?)?['pokerName'],
+            'currentTable': (data['place'] as Map<String, dynamic>?)?['table'],
+            'currentSeat': (data['place'] as Map<String, dynamic>?)?['seat'],
+            'status': data['status'],
+            'createdAt': data['createdAt'],
+            'updatedAt': data['updatedAt'],
+            // accountingStartedAt: ops.accountingStartedAt (Functions側のstartAccounting.tsで設定)
+            'accountingStartedAt': ops?['accountingStartedAt'],
+            // paymentMethodsByAmount: paymentsSummary.paymentMethodsByAmount (会計開始時は通常null)
+            'paymentMethodsByAmount': paymentsSummary?['paymentMethodsByAmount'],
+            // totalPrice は一覧表示では簡易的な参考値（または非表示）
+            // 厳密な計算は「現在の合計金額を計算」ボタン押下時のみ
+            'totalPrice': null, // 一覧表示では非表示または簡易値
+          };
+          return mappedData;
         }).toList();
       });
     } catch (e) {
@@ -110,16 +131,30 @@ class _AccountingPageState extends State<AccountingPage> {
       // 営業日の会計完了済みの請求書を取得
       final businessDate = _getBusinessDate();
       final querySnapshot = await _firestore
-          .collection('todaysBills')
-          .where('date', isEqualTo: businessDate)
+          .collection('bills')
+          .where('businessDate', isEqualTo: businessDate)
           .where('status', isEqualTo: 'settled')
-          .orderBy('accountingCompletedAt', descending: true)
+          .orderBy('ops.accountingCompletedAt', descending: true)
           .get();
 
       setState(() {
         _settledBills = querySnapshot.docs.map((doc) {
           final data = doc.data();
-          return {'id': doc.id, ...data};
+          // レスポンス形式のマッピング
+          final mappedData = <String, dynamic>{
+            'id': doc.id,
+            'userId': (data['party'] as Map<String, dynamic>?)?['userId'],
+            'pokerName': (data['party'] as Map<String, dynamic>?)?['pokerName'],
+            'currentTable': (data['place'] as Map<String, dynamic>?)?['table'],
+            'currentSeat': (data['place'] as Map<String, dynamic>?)?['seat'],
+            'status': data['status'],
+            'createdAt': data['createdAt'],
+            'updatedAt': data['updatedAt'],
+            // 確定済み伝票の場合は amounts.grandTotalRounded を使用
+            'totalPrice': (data['amounts'] as Map<String, dynamic>?)?['grandTotalRounded'],
+            'accountingCompletedAt': (data['ops'] as Map<String, dynamic>?)?['accountingCompletedAt'],
+          };
+          return mappedData;
         }).toList();
       });
     } catch (e) {
@@ -127,6 +162,149 @@ class _AccountingPageState extends State<AccountingPage> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('会計完了データの取得に失敗しました: $e')));
+      }
+    }
+  }
+
+  // カテゴリ別金額計算ダイアログを表示（ボタン押下時のみサブコレクションを読み取る）
+  Future<void> _showCategoryBreakdownDialog(String billId) async {
+    try {
+      final billRef = _firestore.collection('bills').doc(billId);
+
+      // extras サブコレクション
+      final extrasSnapshot = await billRef.collection('extras').get();
+      int extraCostAmount = extrasSnapshot.docs.fold(0, (sum, doc) {
+        return sum + ((doc.data()['amountIncl'] as num?)?.toInt() ?? 0);
+      });
+
+      // items サブコレクション
+      final itemsSnapshot = await billRef.collection('items').get();
+      int itemsAmount = itemsSnapshot.docs.fold(0, (sum, doc) {
+        return sum + ((doc.data()['totalPriceIncl'] as num?)?.toInt() ?? 0);
+      });
+
+      // sideGameChips サブコレクション（action='purchase'のみ）
+      final sideGameChipsSnapshot = await billRef.collection('sideGameChips').get();
+      int sideGameChipAmount = sideGameChipsSnapshot.docs
+          .where((doc) => doc.data()['action'] == 'purchase')
+          .fold(0, (sum, doc) {
+            return sum + ((doc.data()['amountIncl'] as num?)?.toInt() ?? 0);
+          });
+
+      // tournaments サブコレクション
+      final tournamentsSnapshot = await billRef.collection('tournaments').get();
+      int tournamentsAmount = tournamentsSnapshot.docs.fold(0, (sum, doc) {
+        final data = doc.data();
+        return sum +
+            ((data['entryFeeIncl'] as num?)?.toInt() ?? 0) * ((data['entryCount'] as num?)?.toInt() ?? 0) +
+            ((data['reentryFeeIncl'] as num?)?.toInt() ?? 0) * ((data['reentryCount'] as num?)?.toInt() ?? 0) +
+            ((data['addonFeeIncl'] as num?)?.toInt() ?? 0) * ((data['addonCount'] as num?)?.toInt() ?? 0);
+      });
+
+      final grandTotal = extraCostAmount + itemsAmount + sideGameChipAmount + tournamentsAmount;
+
+      if (!mounted) return;
+
+      // ダイアログで表示
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.calculate, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('現在の合計金額'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'カテゴリ別内訳',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (extraCostAmount > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(_getCategoryName('extraCost')),
+                        Text('¥${extraCostAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
+                      ],
+                    ),
+                  ),
+                if (itemsAmount > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(_getCategoryName('items')),
+                        Text('¥${itemsAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
+                      ],
+                    ),
+                  ),
+                if (sideGameChipAmount > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(_getCategoryName('sideGameChip')),
+                        Text('¥${sideGameChipAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
+                      ],
+                    ),
+                  ),
+                if (tournamentsAmount > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(_getCategoryName('tournaments')),
+                        Text('¥${tournamentsAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
+                      ],
+                    ),
+                  ),
+                const Divider(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      '合計',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      '¥${grandTotal.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '※この表示は UI補助用途のみです。金額の正は amounts.* および verifyPaymentSplit にあります。',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('閉じる'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('合計金額の計算に失敗しました: $e')),
+        );
       }
     }
   }
@@ -1447,37 +1625,51 @@ class _AccountingPageState extends State<AccountingPage> {
             ),
             const SizedBox(height: 16),
 
-            // 会計額表示
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue[200]!),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    '¥${totalPrice.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                    style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
+            // 会計額表示（open 伝票の場合は簡易表示または非表示）
+            if (totalPrice != null && totalPrice > 0)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue[200]!),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      '¥${totalPrice.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '会計額',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.blue,
-                      fontWeight: FontWeight.w500,
+                    const SizedBox(height: 8),
+                    const Text(
+                      '会計額（参考値）',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.blue,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
+                  ],
+                ),
+              )
+            else
+              // 現在の合計金額を計算ボタン
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _showCategoryBreakdownDialog(bill['id']),
+                  icon: const Icon(Icons.calculate),
+                  label: const Text('現在の合計金額を計算'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                ],
+                ),
               ),
-            ),
 
             const SizedBox(height: 16),
 
