@@ -46,7 +46,20 @@
 
         if (!liff.isLoggedIn()) {
           liff.login();
-            return;
+          // ログイン画面にリダイレクトされるため、ここで処理を終了
+          // ログイン後、ページがリロードされて再度初期化処理が実行される
+          return;
+        }
+
+        // ミニアプリ用：profile権限の確認と要求
+        try {
+          const permissionStatus = await liff.permission.query("profile");
+          if (permissionStatus.state === "prompt") {
+            await liff.permission.requestAll();
+          }
+        } catch (permError) {
+          console.warn("Permission check not supported or failed:", permError);
+          // LIFF環境では権限APIが使えない場合があるため、エラーは無視して続行
         }
 
         const idToken = await liff.getIDToken();
@@ -83,7 +96,9 @@
             user: auth.currentUser
         };
       } catch (e) {
-          // UIにアラートは出さない
+          // エラーを再スローして呼び出し側で処理できるようにする
+          console.error("LIFF認証エラー:", e);
+          throw e;
       }
       };
   </script>
@@ -98,6 +113,15 @@
         padding: 0;
       }
 
+      /* エラーメッセージのスタイル改善 */
+      #error-message {
+        max-height: 200px;
+        overflow-y: auto;
+        font-size: 14px;
+        line-height: 1.5;
+        padding: 10px;
+        word-break: break-word;
+      }
 
     </style>
 </head>
@@ -120,16 +144,10 @@
 
   <!-- ホーム画面 -->
   <div id="home-page" class="page home-page">
-    <h1>スタッフダッシュボード</h1>
-    <p>スタッフ専用の管理画面です。</p>
-
-        <div id="staff-info" class="user-info">
-      <p>スタッフ情報を読み込み中...</p>
-    </div>
+    <h1>スタッフ管理画面</h1>
 
         <!-- メイン機能ボタン -->
         <div class="main-functions">
-          <h2>メイン機能</h2>
           <div class="function-grid">
             <button class="function-btn qr-btn" onclick="showStaffQRCode()">
               <div class="btn-icon">📱</div>
@@ -164,12 +182,6 @@
             </button>
       </div>
     </div>
-
-        <button class="btn logout-btn" onclick="logout()">ログアウト</button>
-        
-        <!-- デバッグ用: 手動QR生成ボタン -->
-        <button class="btn" onclick="debugGenerateQR()" style="margin-top: 10px; background-color: #ff6b6b;">🔍 デバッグ: QR生成</button>
-        <button class="btn" onclick="clearDebugInfo()" style="margin-top: 10px; background-color: #4ecdc4;">🧹 デバッグ情報クリア</button>
   </div>
 
   <!-- 登録画面 -->
@@ -339,15 +351,20 @@
         <div class="calendar-container flexible-container">
           <h2>翌月シフト申請</h2>
           <div class="month-info" id="current-month">2024年9月</div>
-          <p class="note">※来月分のシフトのみ申請可能です</p>
+          <p class="note">※来月分のシフトのみ申請可能です<br>※日付選択後に時間入力が可能です</p>
           
 
           <div id="calendar" class="calendar flexible-container">
             <!-- カレンダーが動的に生成される -->
           </div>
+          
+          <!-- ホームに戻るボタン -->
+          <div style="margin-top: 20px; text-align: center;">
+            <button onclick="showStaffHomePage()" class="btn secondary-btn">ホームに戻る</button>
+          </div>
         </div>
         <!-- シフト時間入力 -->
-        <div class="shift-input-container flexible-container">
+        <div id="shift-input-container" class="shift-input-container flexible-container" style="display: none;">
           <h3>シフト時間入力</h3>
                       <div class="shift-input-form flexible-container">
                           <div class="time-inputs flexible-container">
@@ -383,7 +400,7 @@
         </div>
         
         <!-- 未提出シフト一覧 -->
-        <div class="pending-shifts-container flexible-container">
+        <div id="pending-shifts-container" class="pending-shifts-container flexible-container" style="display: none;">
           <h3>未提出シフト一覧</h3>
                       <div id="pending-shifts-list" class="pending-shifts-list flexible-container">
             <p>未提出のシフトはありません</p>
@@ -405,6 +422,12 @@
           <!-- 確定シフト表示エリア -->
           <div id="confirmed-shifts-display" class="flexible-container-flex" style="display: none;">
             <div class="calendar-container flexible-container-flex">
+              <!-- 月切り替えボタン -->
+              <div style="display: flex; gap: 10px; margin-bottom: 10px; width: 100%;">
+                <button id="confirmed-current-month-btn" class="btn primary-btn" style="flex: 1;">今月</button>
+                <button id="confirmed-next-month-btn" class="btn secondary-btn" style="flex: 1;">来月</button>
+              </div>
+              <h3 id="confirmed-current-month-display" style="text-align: center; margin: 10px 0;"></h3>
               <div id="calendar-grid" class="calendar-grid flexible-container-flex"></div>
             </div>
             
@@ -422,6 +445,17 @@
         </div>
   </div>
 
+  <!-- プロフィール画面 -->
+  <div id="profile-page" class="page profile-page" style="display: none;">
+    <h1>プロフィール</h1>
+    <div id="profile-info" class="user-info">
+      <p>スタッフ情報を読み込み中...</p>
+    </div>
+    <div style="margin-top: 20px;">
+      <button class="btn secondary-btn" onclick="showStaffHomePage()">ホームに戻る</button>
+    </div>
+  </div>
+
   <!-- エラー表示 -->
   <div id="error-message" class="error" style="display: none;"></div>
 
@@ -436,16 +470,29 @@
   const registrationPageEl = document.getElementById('registration-page');
       const qrPageEl = document.getElementById('qr-page');
       const shiftPageEl = document.getElementById('shift-page');
+  const profilePageEl = document.getElementById('profile-page');
   const errorEl = document.getElementById('error-message');
       const successEl = document.getElementById('error-message');
-  const staffInfoEl = document.getElementById('staff-info');
+  const profileInfoEl = document.getElementById('profile-info');
   const registrationFormEl = document.getElementById('registration-form');
       const shiftFormEl = document.getElementById('shift-form');
 
   // エラー表示関数
-  function showError(message) {
-    errorEl.textContent = message;
+  function showError(message, error = null) {
+    let errorMessage = message;
+    if (error) {
+      // エラーオブジェクトの詳細情報を追加
+      errorMessage += '\n\n詳細: ';
+      if (error.message) {
+        errorMessage += error.message;
+      }
+      if (error.stack) {
+        errorMessage += '\n\nスタック: ' + error.stack.split('\n').slice(0, 3).join('\n');
+      }
+    }
+    errorEl.textContent = errorMessage;
     errorEl.style.display = 'block';
+    errorEl.style.whiteSpace = 'pre-wrap'; // 改行を保持
     successEl.style.display = 'none';
     loadingEl.style.display = 'none';
   }
@@ -515,25 +562,33 @@
 
   // ページ表示関数
   function showPage(pageElement) {
-    loadingEl.style.display = 'none';
-        
-        // 全てのページを非表示
-        homePageEl.style.display = 'none';
-        registrationPageEl.style.display = 'none';
-        qrPageEl.style.display = 'none';
-        shiftPageEl.style.display = 'none';
-        document.getElementById('attendance-page').style.display = 'none';
-        
-        // 指定されたページを表示
-        pageElement.style.display = 'block';
-        
-        // activeクラスの管理
-    homePageEl.classList.remove('active');
-    registrationPageEl.classList.remove('active');
-        qrPageEl.classList.remove('active');
-        shiftPageEl.classList.remove('active');
-        document.getElementById('attendance-page').classList.remove('active');
-    pageElement.classList.add('active');
+    // ローディング画面を確実に非表示にする
+    if (loadingEl) {
+      loadingEl.style.display = 'none';
+    }
+    
+    // レンダリングタイミングを調整して確実にUIを更新
+    requestAnimationFrame(() => {
+      // 全てのページを非表示
+      homePageEl.style.display = 'none';
+      registrationPageEl.style.display = 'none';
+      qrPageEl.style.display = 'none';
+      shiftPageEl.style.display = 'none';
+      profilePageEl.style.display = 'none';
+      document.getElementById('attendance-page').style.display = 'none';
+      
+      // 指定されたページを表示
+      pageElement.style.display = 'block';
+      
+      // activeクラスの管理
+      homePageEl.classList.remove('active');
+      registrationPageEl.classList.remove('active');
+      qrPageEl.classList.remove('active');
+      shiftPageEl.classList.remove('active');
+      profilePageEl.classList.remove('active');
+      document.getElementById('attendance-page').classList.remove('active');
+      pageElement.classList.add('active');
+    });
   }
 
   // URLハッシュナビゲーション処理
@@ -575,54 +630,31 @@
 
       if (staffDoc.exists()) {
             // 登録済みの場合
-        const staffData = staffDoc.data();
-            
-            // データの存在確認と安全なアクセス
-        const name = staffData?.name || '未設定';
-        const email = staffData?.email || '未設定';
-        const position = staffData?.position || '未設定';
-        const department = staffData?.department || '未設定';
-
-        staffInfoEl.innerHTML = `
-              <div class="info-card">
-          <h3>スタッフ情報</h3>
-                <div class="info-grid">
-                  <div class="info-item">
-                    <strong>名前:</strong> ${staffData.fullName || ''}
-                  </div>
-                  <div class="info-item">
-                    <strong>かな:</strong> ${staffData.fullNameKana || ''}
-                  </div>
-                  <div class="info-item">
-                    <strong>誕生日（月日）:</strong> ${staffData.birthMonthDay || ''}
-                  </div>
-                  <div class="info-item">
-                    <strong>ログインID:</strong> ${staffData.loginId || ''}
-                  </div>
-                  <div class="info-item">
-                    <strong>メール:</strong> ${staffData.email || ''}
-                  </div>
-                  <div class="info-item">
-                    <strong>電話番号:</strong> ${staffData.phoneNumber || ''}
-                  </div>
-                </div>
-              </div>
-        `;
+        // スタッフ情報はプロフィール画面で表示するため、ここでは何もしない
+        
+        // ローディング画面を非表示にする（必ず実行）
+        loadingEl.style.display = 'none';
         
         // URLハッシュをチェックして適切なページに遷移
         try {
           await handleHashNavigation();
         } catch (error) {
+          console.error("ハッシュナビゲーションエラー:", error);
           // ハッシュナビゲーションでエラーが発生した場合はホームページを表示
           showPage(homePageEl);
         }
       } else {
             // 未登録の場合
+        // ローディング画面を非表示にする（必ず実行）
+        loadingEl.style.display = 'none';
         showPage(registrationPageEl);
 
       }
     } catch (error) {
-      showError('スタッフ情報の確認に失敗しました: ' + error.message);
+      console.error("スタッフ登録確認エラー:", error);
+      // エラーが発生した場合でもローディング画面を非表示にする
+      loadingEl.style.display = 'none';
+      showError('スタッフ情報の確認に失敗しました', error);
     }
   }
 
@@ -974,13 +1006,13 @@
         calendar.addEventListener('click', (e) => {
           if (e.target.classList.contains('calendar-day') && !e.target.classList.contains('other-month')) {
             const date = e.target.textContent;
-            selectDate(date);
+            selectDate(date, e.target);
           }
         });
       }
 
       // 日付選択
-      function selectDate(date) {
+      function selectDate(date, targetElement) {
         selectedDate = date;
         
         // カレンダーの選択状態を更新
@@ -989,8 +1021,20 @@
         });
         
         // 選択された日付にselectedクラスを追加
-        event.target.classList.add('selected');
+        if (targetElement) {
+          targetElement.classList.add('selected');
+        }
         
+        // シフト時間入力と未提出シフト一覧を表示
+        const shiftInputContainer = document.getElementById('shift-input-container');
+        const pendingShiftsContainer = document.getElementById('pending-shifts-container');
+        
+        if (shiftInputContainer) {
+          shiftInputContainer.style.display = 'block';
+        }
+        if (pendingShiftsContainer) {
+          pendingShiftsContainer.style.display = 'block';
+        }
       }
 
       // シフトを追加
@@ -1188,9 +1232,38 @@
 
       // シフト申請セクションを表示
       function showShiftApplication() {
+        // ボタンのクラスを切り替え（選択中を緑、非選択中を灰色）
+        const shiftApplicationBtn = document.getElementById('shift-application-btn');
+        const confirmedShiftsBtn = document.getElementById('confirmed-shifts-btn');
+        if (shiftApplicationBtn) {
+          shiftApplicationBtn.classList.remove('secondary-btn');
+          shiftApplicationBtn.classList.add('primary-btn');
+        }
+        if (confirmedShiftsBtn) {
+          confirmedShiftsBtn.classList.remove('primary-btn');
+          confirmedShiftsBtn.classList.add('secondary-btn');
+        }
 
         document.getElementById('shift-application-section').style.display = 'block';
         document.getElementById('confirmed-shifts-section').style.display = 'none';
+        
+        // シフト時間入力と未提出シフト一覧を非表示
+        const shiftInputContainer = document.getElementById('shift-input-container');
+        const pendingShiftsContainer = document.getElementById('pending-shifts-container');
+        if (shiftInputContainer) {
+          shiftInputContainer.style.display = 'none';
+        }
+        if (pendingShiftsContainer) {
+          pendingShiftsContainer.style.display = 'none';
+        }
+        
+        // 選択された日付をリセット
+        selectedDate = null;
+        
+        // カレンダーの選択状態をクリア
+        document.querySelectorAll('.calendar-day').forEach(day => {
+          day.classList.remove('selected');
+        });
         
         // カレンダーを初期化
         initializeCalendar();
@@ -1198,6 +1271,17 @@
 
       // 確定シフトセクションを表示
       function showConfirmedShifts() {
+        // ボタンのクラスを切り替え（選択中を緑、非選択中を灰色）
+        const shiftApplicationBtn = document.getElementById('shift-application-btn');
+        const confirmedShiftsBtn = document.getElementById('confirmed-shifts-btn');
+        if (shiftApplicationBtn) {
+          shiftApplicationBtn.classList.remove('primary-btn');
+          shiftApplicationBtn.classList.add('secondary-btn');
+        }
+        if (confirmedShiftsBtn) {
+          confirmedShiftsBtn.classList.remove('secondary-btn');
+          confirmedShiftsBtn.classList.add('primary-btn');
+        }
 
         document.getElementById('shift-application-section').style.display = 'none';
         document.getElementById('confirmed-shifts-section').style.display = 'block';
@@ -1210,6 +1294,34 @@
       function openConfirmedShiftsPage() {
         // 確定シフト表示エリアを表示
         document.getElementById('confirmed-shifts-display').style.display = 'block';
+        
+        // 現在表示している月を初期化（今月）
+        const now = new Date();
+        window.currentDisplayMonth = now.getMonth();
+        window.currentDisplayYear = now.getFullYear();
+        
+        // ボタンの色を初期化（今月が選択中）
+        // ボタンが存在する場合のみ初期化（存在しない場合はrenderConfirmedShiftsCalendar内で設定）
+        try {
+          const currentMonthBtn = document.getElementById('confirmed-current-month-btn');
+          const nextMonthBtn = document.getElementById('confirmed-next-month-btn');
+          if (currentMonthBtn) {
+            currentMonthBtn.classList.remove('secondary-btn');
+            currentMonthBtn.classList.add('primary-btn');
+          }
+          if (nextMonthBtn) {
+            nextMonthBtn.classList.remove('primary-btn');
+            nextMonthBtn.classList.add('secondary-btn');
+          }
+          } catch (error) {
+            console.error("ボタン初期化エラー:", error);
+            // エラーが発生しても処理を続行
+          }
+        
+        // イベントリスナーを設定（ボタンが表示された直後に設定）
+        setTimeout(() => {
+          setupMonthNavigationButtons();
+        }, 100);
         
         // シフトデータを読み込み
         loadConfirmedShifts();
@@ -1274,158 +1386,277 @@
       
       // 確定シフトカレンダーの表示
       function renderConfirmedShiftsCalendar(shifts) {
-        const calendarGrid = document.getElementById('calendar-grid');
-        const detailsContent = document.getElementById('shift-details-content');
+        try {
+          const calendarGrid = document.getElementById('calendar-grid');
+          const detailsContent = document.getElementById('shift-details-content');
+          const currentMonthDisplay = document.getElementById('confirmed-current-month-display');
+          
+          if (!calendarGrid || !detailsContent) {
+            console.error("カレンダー要素が見つかりません");
+            return;
+          }
+          
+          // 現在表示している月を取得（初期化されていない場合は今月）
+          const now = new Date();
+          const currentMonth = window.currentDisplayMonth !== undefined ? window.currentDisplayMonth : now.getMonth();
+          const currentYear = window.currentDisplayYear !== undefined ? window.currentDisplayYear : now.getFullYear();
+          
+          // 表示月の日数を取得
+          const displayMonthDate = new Date(currentYear, currentMonth + 1, 0);
+          const daysInMonth = displayMonthDate.getDate();
+          
+          // 表示月の最初の曜日を取得
+          const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+          
+          // 今日の日付を取得（今月の場合、今日以降のみ表示）
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const isCurrentMonth = currentMonth === today.getMonth() && currentYear === today.getFullYear();
+          const todayDay = today.getDate();
+          
+          // 月表示を更新
+          if (currentMonthDisplay) {
+            currentMonthDisplay.textContent = currentYear + '年' + (currentMonth + 1) + '月';
+          }
+          
+          // ボタンの色を更新（今月か来月かで判定）
+          try {
+            const currentMonthBtn = document.getElementById('confirmed-current-month-btn');
+            const nextMonthBtn = document.getElementById('confirmed-next-month-btn');
+            const isCurrentMonthDisplay = currentMonth === today.getMonth() && currentYear === today.getFullYear();
+            
+            if (currentMonthBtn && nextMonthBtn) {
+              // すべてのクラスを一度削除してから追加（確実に更新）
+              currentMonthBtn.classList.remove('primary-btn', 'secondary-btn');
+              nextMonthBtn.classList.remove('primary-btn', 'secondary-btn');
+              
+              if (isCurrentMonthDisplay) {
+                // 今月を表示している場合
+                currentMonthBtn.classList.add('primary-btn');
+                nextMonthBtn.classList.add('secondary-btn');
+              } else {
+                // 来月を表示している場合
+                currentMonthBtn.classList.add('secondary-btn');
+                nextMonthBtn.classList.add('primary-btn');
+              }
+            }
+          } catch (error) {
+            console.error("ボタンの色更新エラー:", error);
+            // エラーが発生しても処理を続行
+          }
+          
+          // カレンダーHTMLを生成
+          let calendarHTML = '';
+          
+          calendarHTML += '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
+          const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+          weekdays.forEach(day => {
+            calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">' + day + '</div>';
+          });
+          calendarHTML += '</div>';
+          
+          calendarHTML += '<div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
+          
+          // 前月の日付を埋める
+          for (let i = 0; i < firstDayOfMonth; i++) {
+            calendarHTML += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
+          }
+          
+          // 表示月の日付を表示
+          for (let day = 1; day <= daysInMonth; day++) {
+            // 今月が選択されている場合、今日以降のみ表示
+            if (isCurrentMonth && day < todayDay) {
+              calendarHTML += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
+              continue;
+            }
+            
+            const dateStr = currentYear + '-' + 
+                           String(currentMonth + 1).padStart(2, '0') + '-' + 
+                           String(day).padStart(2, '0');
+            
+            // その日のシフトがあるかチェック
+            const dayShifts = shifts.filter(shift => shift.date === dateStr);
+            let dayClass = 'calendar-day';
+            let shiftInfo = '';
+            
+            if (dayShifts.length > 0) {
+              const confirmedShift = dayShifts.find(shift => shift.confirmed === true);
+              const pendingShift = dayShifts.find(shift => shift.confirmed === null);
+              
+              if (confirmedShift) {
+                dayClass += ' has-confirmed-shift';
+                shiftInfo = '✓';
+              } else if (pendingShift) {
+                dayClass += ' has-pending-shift';
+                shiftInfo = '?';
+              }
+            }
+            
+            calendarHTML += '<div class="' + dayClass + '" data-date="' + dateStr + '" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;">';
+            calendarHTML += '<span class="day-number">' + day + '</span>';
+            if (shiftInfo) {
+              calendarHTML += '<span class="shift-indicator">' + shiftInfo + '</span>';
+            }
+            calendarHTML += '</div>';
+          }
+          
+          calendarHTML += '</div>';
+          
+          calendarGrid.innerHTML = calendarHTML;
+          
+          // シフト詳細の表示
+          if (shifts.length > 0) {
+            let detailsHTML = '<h4>シフト詳細</h4>';
+            
+            // シフトを日付の古い順（昇順）にソート
+            const sortedShifts = [...shifts].sort((a, b) => {
+              const dateA = new Date(a.date);
+              const dateB = new Date(b.date);
+              return dateA - dateB; // 昇順（古い日付が上）
+            });
+            
+            sortedShifts.forEach(shift => {
+              const status = shift.confirmed === true ? '確定' : '申請中';
+              const statusClass = shift.confirmed === true ? 'confirmed' : 'pending';
+              
+              // 時間を適切にフォーマット
+              let startTime = '不明';
+              let endTime = '不明';
+              
+              // 様々なフィールド名に対応
+              if (shift.start) {
+                if (shift.start.seconds) {
+                  // Firestore Timestamp形式
+                  const startDate = new Date(shift.start.seconds * 1000);
+                  startTime = startDate.getHours().toString().padStart(2, '0') + ':' + 
+                             startDate.getMinutes().toString().padStart(2, '0');
+                } else if (shift.start.toDate) {
+                  // Firestore Timestamp形式（toDate()メソッドあり）
+                  const startDate = shift.start.toDate();
+                  startTime = startDate.getHours().toString().padStart(2, '0') + ':' + 
+                             startDate.getMinutes().toString().padStart(2, '0');
+                } else if (typeof shift.start === 'string') {
+                  // 文字列形式
+                  startTime = shift.start;
+                }
+              }
+              
+              if (shift.end) {
+                if (shift.end.seconds) {
+                  // Firestore Timestamp形式
+                  const endDate = new Date(shift.end.seconds * 1000);
+                  endTime = endDate.getHours().toString().padStart(2, '0') + ':' + 
+                           endDate.getMinutes().toString().padStart(2, '0');
+                } else if (shift.end.toDate) {
+                  // Firestore Timestamp形式（toDate()メソッドあり）
+                  const endDate = shift.end.toDate();
+                  endTime = endDate.getHours().toString().padStart(2, '0') + ':' + 
+                           endDate.getMinutes().toString().padStart(2, '0');
+                } else if (typeof shift.end === 'string') {
+                  // 文字列形式
+                  endTime = shift.end;
+                }
+              }
+              
+              detailsHTML += '<div class="shift-detail ' + statusClass + ' flexible-container-flex" style="box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; justify-content: center;">';
+              detailsHTML += '<div class="shift-date flexible-container-center" style="min-width: 0; flex: 1; word-wrap: break-word;">' + shift.date + '</div>';
+              detailsHTML += '<div class="shift-time flexible-container-center" style="min-width: 0; flex: 1; word-wrap: break-word;">' + startTime + ' - ' + endTime + '</div>';
+              detailsHTML += '<div class="shift-status flexible-container-center" style="min-width: 0; flex-shrink: 0; word-wrap: break-word;">' + status + '</div>';
+              detailsHTML += '</div>';
+            });
+            detailsContent.innerHTML = detailsHTML;
+          } else {
+            detailsContent.innerHTML = '<p>シフトがありません。</p>';
+          }
+          
+          // シフトデータをグローバル変数に保存（月切り替え時に使用）
+          window.confirmedShiftsData = shifts;
+          
+          // カレンダーの日付クリックイベントを設定
+          setupCalendarDayClickEvents();
+        } catch (error) {
+          console.error("カレンダー表示エラー:", error);
+          alert('カレンダーの表示に失敗しました: ' + error.message);
+          // エラーが発生しても処理を続行（ローディング画面を非表示にするため）
+        }
+      }
+      
+      // 今月/来月ボタンのイベントリスナーを設定
+      function setupMonthNavigationButtons() {
+        const currentMonthBtn = document.getElementById('confirmed-current-month-btn');
+        const nextMonthBtn = document.getElementById('confirmed-next-month-btn');
         
-        if (!calendarGrid || !detailsContent) {
+        // ボタンの取得を確認
+        if (!currentMonthBtn || !nextMonthBtn) {
+          console.error("ボタンが見つかりません: currentMonthBtn=" + (currentMonthBtn ? "あり" : "なし") + ", nextMonthBtn=" + (nextMonthBtn ? "あり" : "なし"));
           return;
         }
         
-        // 現在の日付を取得
-        const now = new Date();
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
-        
-        // 翌月の情報を計算
-        let nextMonth = currentMonth + 1;
-        let nextYear = currentYear;
-        
-        if (nextMonth > 11) {
-          nextMonth = 0;
-          nextYear = currentYear + 1;
+        // 既に設定済みかチェック（重複を防ぐ）
+        if (window.monthNavigationButtonsSetup && currentMonthBtn.onclick && nextMonthBtn.onclick) {
+          return;
         }
         
-        // 翌月の日数を取得
-        const nextMonthDate = new Date(nextYear, nextMonth + 1, 0);
-        const daysInMonth = nextMonthDate.getDate();
-        
-        // 翌月の最初の曜日を取得
-        const firstDayOfMonth = new Date(nextYear, nextMonth, 1).getDay();
-        
-        // カレンダーHTMLを生成
-        let calendarHTML = '<div class="calendar-header">';
-        calendarHTML += '<h3>' + nextYear + '年' + (nextMonth + 1) + '月</h3>';
-        calendarHTML += '</div>';
-        
-        calendarHTML += '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
-        const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-        weekdays.forEach(day => {
-          calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">' + day + '</div>';
-        });
-        calendarHTML += '</div>';
-        
-        calendarHTML += '<div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
-        
-        // 前月の日付を埋める
-        for (let i = 0; i < firstDayOfMonth; i++) {
-          calendarHTML += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
+        // 既存のイベントリスナーを削除（グローバル変数に保存されている場合）
+        if (window.currentMonthBtnHandler) {
+          currentMonthBtn.removeEventListener('click', window.currentMonthBtnHandler);
+        }
+        if (window.nextMonthBtnHandler) {
+          nextMonthBtn.removeEventListener('click', window.nextMonthBtnHandler);
         }
         
-        // 翌月の日付を表示
-        for (let day = 1; day <= daysInMonth; day++) {
-          const dateStr = nextYear + '-' + 
-                         String(nextMonth + 1).padStart(2, '0') + '-' + 
-                         String(day).padStart(2, '0');
+        // onclickプロパティもクリア（重複を防ぐ）
+        currentMonthBtn.onclick = null;
+        nextMonthBtn.onclick = null;
+        
+        // 今月ボタンのイベントハンドラー（グローバル関数として定義）
+        window.currentMonthBtnHandler = function() {
+          // 今月を表示
+          const now = new Date();
+          window.currentDisplayMonth = now.getMonth();
+          window.currentDisplayYear = now.getFullYear();
           
-          // その日のシフトがあるかチェック
-          const dayShifts = shifts.filter(shift => shift.date === dateStr);
-          let dayClass = 'calendar-day';
-          let shiftInfo = '';
+          // カレンダーを再表示（renderConfirmedShiftsCalendar内でボタンの色も更新される）
+          if (window.confirmedShiftsData) {
+            renderConfirmedShiftsCalendar(window.confirmedShiftsData);
+          }
+        };
+        
+        // 来月ボタンのイベントハンドラー（グローバル関数として定義）
+        window.nextMonthBtnHandler = function() {
+          // 来月を表示
+          const now = new Date();
+          let nextMonth = now.getMonth() + 1;
+          let nextYear = now.getFullYear();
           
-          if (dayShifts.length > 0) {
-            const confirmedShift = dayShifts.find(shift => shift.confirmed === true);
-            const pendingShift = dayShifts.find(shift => shift.confirmed === null);
-            
-            if (confirmedShift) {
-              dayClass += ' has-confirmed-shift';
-              shiftInfo = '✓';
-            } else if (pendingShift) {
-              dayClass += ' has-pending-shift';
-              shiftInfo = '?';
-            }
+          if (nextMonth > 11) {
+            nextMonth = 0;
+            nextYear += 1;
           }
           
-          calendarHTML += '<div class="' + dayClass + '" data-date="' + dateStr + '" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;">';
-          calendarHTML += '<span class="day-number">' + day + '</span>';
-          if (shiftInfo) {
-            calendarHTML += '<span class="shift-indicator">' + shiftInfo + '</span>';
+          window.currentDisplayMonth = nextMonth;
+          window.currentDisplayYear = nextYear;
+          
+          // カレンダーを再表示（renderConfirmedShiftsCalendar内でボタンの色も更新される）
+          if (window.confirmedShiftsData) {
+            renderConfirmedShiftsCalendar(window.confirmedShiftsData);
           }
-          calendarHTML += '</div>';
+        };
+        
+        // ボタンに直接onclickを設定（最も確実な方法）
+        currentMonthBtn.onclick = window.currentMonthBtnHandler;
+        nextMonthBtn.onclick = window.nextMonthBtnHandler;
+        
+        // イベントリスナーも追加（念のため）
+        try {
+          currentMonthBtn.addEventListener('click', window.currentMonthBtnHandler);
+          nextMonthBtn.addEventListener('click', window.nextMonthBtnHandler);
+        } catch (error) {
+          console.error("イベントリスナー追加エラー:", error);
         }
         
-        calendarHTML += '</div>';
-        
-        calendarGrid.innerHTML = calendarHTML;
-        
-        // シフト詳細の表示
-        if (shifts.length > 0) {
-          let detailsHTML = '<h4>シフト詳細</h4>';
-          
-          // シフトを日付の古い順（昇順）にソート
-          const sortedShifts = [...shifts].sort((a, b) => {
-            const dateA = new Date(a.date);
-            const dateB = new Date(b.date);
-            return dateA - dateB; // 昇順（古い日付が上）
-          });
-          
-          sortedShifts.forEach(shift => {
-            const status = shift.confirmed === true ? '確定' : '申請中';
-            const statusClass = shift.confirmed === true ? 'confirmed' : 'pending';
-            
-            // 時間を適切にフォーマット
-            let startTime = '不明';
-            let endTime = '不明';
-            
-
-            
-            // 様々なフィールド名に対応
-            if (shift.start) {
-              if (shift.start.seconds) {
-                // Firestore Timestamp形式
-                const startDate = new Date(shift.start.seconds * 1000);
-                startTime = startDate.getHours().toString().padStart(2, '0') + ':' + 
-                           startDate.getMinutes().toString().padStart(2, '0');
-              } else if (shift.start.toDate) {
-                // Firestore Timestamp形式（toDate()メソッドあり）
-                const startDate = shift.start.toDate();
-                startTime = startDate.getHours().toString().padStart(2, '0') + ':' + 
-                           startDate.getMinutes().toString().padStart(2, '0');
-              } else if (typeof shift.start === 'string') {
-                // 文字列形式
-                startTime = shift.start;
-              }
-            }
-            
-            if (shift.end) {
-              if (shift.end.seconds) {
-                // Firestore Timestamp形式
-                const endDate = new Date(shift.end.seconds * 1000);
-                endTime = endDate.getHours().toString().padStart(2, '0') + ':' + 
-                         endDate.getMinutes().toString().padStart(2, '0');
-              } else if (shift.end.toDate) {
-                // Firestore Timestamp形式（toDate()メソッドあり）
-                const endDate = shift.end.toDate();
-                endTime = endDate.getHours().toString().padStart(2, '0') + ':' + 
-                         endDate.getMinutes().toString().padStart(2, '0');
-              } else if (typeof shift.end === 'string') {
-                // 文字列形式
-                endTime = shift.end;
-              }
-            }
-            
-            detailsHTML += '<div class="shift-detail ' + statusClass + ' flexible-container-flex" style="box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; justify-content: center;">';
-            detailsHTML += '<div class="shift-date flexible-container-center" style="min-width: 0; flex: 1; word-wrap: break-word;">' + shift.date + '</div>';
-            detailsHTML += '<div class="shift-time flexible-container-center" style="min-width: 0; flex: 1; word-wrap: break-word;">' + startTime + ' - ' + endTime + '</div>';
-            detailsHTML += '<div class="shift-status flexible-container-center" style="min-width: 0; flex-shrink: 0; word-wrap: break-word;">' + status + '</div>';
-            detailsHTML += '</div>';
-          });
-          detailsContent.innerHTML = detailsHTML;
-        } else {
-          detailsContent.innerHTML = '<p>シフトがありません。</p>';
-        }
-        
-        // カレンダーの日付クリックイベントを設定
-        setupCalendarDayClickEvents();
+        // 設定済みフラグを立てる
+        window.monthNavigationButtonsSetup = true;
       }
       
       // カレンダーの日付クリックイベントを設定
@@ -1528,22 +1759,24 @@
       };
 
       // 勤怠管理ページの初期化
-      function initializeAttendancePage() {
+      async function initializeAttendancePage() {
         const currentDate = new Date();
         window.currentMonth = currentDate.getMonth();
         window.currentYear = currentDate.getFullYear();
         updateMonthDisplay();
         generateAttendanceCalendar();
-        loadAttendanceData();
         
-                  // 月選択ボタンのイベントリスナーを設定
-          setupMonthButtons();
-          
-          // 勤怠修正申請フォームの送信イベントを設定
-          setupCorrectionForm();
-          
-          // 修正申請フォームのキャンセルボタンのイベントリスナーを設定
-          setupCorrectionFormButtons();
+        // データ取得を完了してからカレンダーを再生成
+        await loadAttendanceData();
+        
+        // 月選択ボタンのイベントリスナーを設定
+        setupMonthButtons();
+        
+        // 勤怠修正申請フォームの送信イベントを設定
+        setupCorrectionForm();
+        
+        // 修正申請フォームのキャンセルボタンのイベントリスナーを設定
+        setupCorrectionFormButtons();
       }
 
 
@@ -1557,11 +1790,7 @@
         startDate.setDate(startDate.getDate() - firstDay.getDay());
         
         // カレンダーHTMLを生成
-        let html = '<div class="calendar-header">';
-        html += '<h3>' + window.currentYear + '年' + (window.currentMonth + 1) + '月</h3>';
-        html += '</div>';
-        
-        html += '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
+        let html = '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
         const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
         weekdays.forEach(day => {
           html += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">' + day + '</div>';
@@ -1664,7 +1893,7 @@
       }
 
       // 前月ボタンクリック処理
-      function previousMonth() {
+      async function previousMonth() {
         if (window.currentMonth > 0) {
           window.currentMonth--;
         } else {
@@ -1673,11 +1902,12 @@
         }
         updateMonthDisplay();
         generateAttendanceCalendar();
-        loadAttendanceData();
+        // データ取得を完了してからカレンダーを再生成
+        await loadAttendanceData();
       }
 
       // 次月ボタンクリック処理
-      function nextMonth() {
+      async function nextMonth() {
         if (window.currentMonth < 11) {
           window.currentMonth++;
         } else {
@@ -1686,7 +1916,8 @@
         }
         updateMonthDisplay();
         generateAttendanceCalendar();
-        loadAttendanceData();
+        // データ取得を完了してからカレンダーを再生成
+        await loadAttendanceData();
       }
 
       // 月表示を更新
@@ -2193,26 +2424,62 @@
         return '--:--';
       }
 
-      window.openProfileManagement = () => {
-      };
-
-      // デバッグ用QR生成関数
-      window.debugGenerateQR = async () => {
+      window.openProfileManagement = async () => {
         try {
-          const result = await generateStaffQRCode();
+          // プロフィール画面を表示
+          showPage(profilePageEl);
+          
+          // スタッフ情報を取得して表示
+          const { db } = window.Firebase;
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          
+          if (!window.LiffFirebase || !window.LiffFirebase.user) {
+            profileInfoEl.innerHTML = '<p class="error">認証が完了していません。再度ログインしてください。</p>';
+            return;
+          }
+          
+          const { user } = window.LiffFirebase;
+          const staffDocRef = doc(db, 'staffs', user.uid);
+          const staffDoc = await getDoc(staffDocRef);
+          
+          if (staffDoc.exists()) {
+            const staffData = staffDoc.data();
+            
+            profileInfoEl.innerHTML = `
+              <div class="info-card">
+                <h3>スタッフ情報</h3>
+                <div class="info-grid">
+                  <div class="info-item">
+                    <strong>名前:</strong> ${staffData.fullName || ''}
+                  </div>
+                  <div class="info-item">
+                    <strong>かな:</strong> ${staffData.fullNameKana || ''}
+                  </div>
+                  <div class="info-item">
+                    <strong>誕生日（月日）:</strong> ${staffData.birthMonthDay || ''}
+                  </div>
+                  <div class="info-item">
+                    <strong>ログインID:</strong> ${staffData.loginId || ''}
+                  </div>
+                  <div class="info-item">
+                    <strong>メール:</strong> ${staffData.email || ''}
+                  </div>
+                  <div class="info-item">
+                    <strong>電話番号:</strong> ${staffData.phoneNumber || ''}
+                  </div>
+                </div>
+              </div>
+            `;
+          } else {
+            profileInfoEl.innerHTML = '<p class="error">スタッフ情報が見つかりませんでした。</p>';
+          }
         } catch (error) {
+          console.error("プロフィール情報取得エラー:", error);
+          profileInfoEl.innerHTML = '<p class="error">プロフィール情報の取得に失敗しました。</p>';
         }
       };
 
-      // ログアウト関数（グローバルに公開）
-  window.logout = async () => {
-    try {
-      await window.Firebase.auth.signOut();
-      window.location.reload();
-    } catch (error) {
-      showError('ログアウトに失敗しました: ' + error.message);
-    }
-  };
+      // デバッグ用QR生成関数
 
   // 初期化処理
   document.addEventListener('DOMContentLoaded', async () => {
@@ -2226,14 +2493,27 @@
           // ローディング画面を表示
           loadingEl.style.display = 'block';
           
+          // タイムアウト処理（30秒）
+          const timeoutId = setTimeout(() => {
+            console.error("初期化タイムアウト");
+            loadingEl.style.display = 'none';
+            showError('初期化がタイムアウトしました。ページを更新してください。');
+          }, 30000);
+          
           // LIFF初期化
           await window.initLiffAndFirebaseAuth();
           
           // スタッフ登録確認
       await checkStaffRegistration();
           
+          // タイムアウトをクリア
+          clearTimeout(timeoutId);
+          
     } catch (error) {
-      showError('初期化に失敗しました: ' + error.message);
+      console.error("初期化エラー:", error);
+      // エラーが発生した場合でもローディング画面を非表示にする
+      loadingEl.style.display = 'none';
+      showError('初期化に失敗しました', error);
     }
   });
 </script>

@@ -1,7 +1,7 @@
 // 店舗別設定ファイル（staff用）
 window.__CONFIG__ = {
-  // LIFF ID（スタッフ用）
-  liffId: "2007806607-ejAOx7vq",
+  // LIFF ID（スタッフ用ミニアプリ）
+  liffId: "2008640140-kWpQ25Jp",
   
   // Firebase設定
   firebaseConfig: {

@@ -8,7 +8,7 @@ const lineChannelAccessToken = defineString("LINE_CHANNEL_ACCESS_TOKEN", {
   default: "JsnZdiDqZDylvlOEzAspG65YN1SNWqCaOXwtiyd2DSOMg8RTjhnaKOVZuH0/saa0gNFS5+9O+Qmifb4O6EPmhbIKHG6hQoKHZoJXTveyJWg4YaVYVCr9DtBZ2RSdh4eO+OOZUQ5gLZStBDoFPZLUXQdB04t89/1O/w1cDnyilFU="
 });
 const staffRichMenuId = defineString("STAFF_RICHMENU_ID", {
-  default: "richmenu-7bd8eda576a9ef5c55d9ddbb8e4a88e0"
+  default: "richmenu-36bb594eadf1c8718bd9c12199c87dbb"
 });
 const userRichMenuId = defineString("USER_RICHMENU_ID", {
   default: "richmenu-31d87049e04ae740ceaa76cf59950f54"
