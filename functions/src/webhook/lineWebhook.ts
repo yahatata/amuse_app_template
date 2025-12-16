@@ -74,15 +74,13 @@ export const lineWebhook = onRequest(async (request, response) => {
         logger.info(`Processing ${event.type} event`, { lineUserId });
 
         try {
-          // staffsコレクションでLINE User IDを検索
-          const staffSnapshot = await db.collection("staffs")
-            .where("lineUserId", "==", lineUserId)
-            .limit(1)
-            .get();
+          // staffsコレクションでuid（LINE User ID）で検索
+          const staffDocRef = db.collection("staffs").doc(lineUserId);
+          const staffDoc = await staffDocRef.get();
 
           let richMenuId: string;
           
-          if (!staffSnapshot.empty) {
+          if (staffDoc.exists) {
             // スタッフの場合
             richMenuId = staffMenu;
             logger.info("Staff detected, setting staff rich menu", { lineUserId, richMenuId });

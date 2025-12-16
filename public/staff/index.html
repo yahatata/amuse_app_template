@@ -130,15 +130,12 @@
   <!-- ローディング画面 -->
   <div id="loading" class="loading">
     <div class="spinner"></div>
-    <h2>読み込み中...</h2>
-    <p>スタッフ認証情報を確認しています</p>
   </div>
   
   <!-- グローバルローディングオーバーレイ（処理中表示用） -->
   <div id="global-loading-overlay" class="global-loading-overlay" style="display: none;">
     <div class="global-loading-content">
       <div class="spinner"></div>
-      <p class="global-loading-message">処理中...</p>
     </div>
   </div>
 
@@ -150,7 +147,26 @@
         <div class="main-functions">
           <div class="function-grid">
             <button class="function-btn qr-btn" onclick="showStaffQRCode()">
-              <div class="btn-icon">📱</div>
+              <div class="btn-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="3" y="3" width="5" height="5" fill="currentColor"/>
+                  <rect x="16" y="3" width="5" height="5" fill="currentColor"/>
+                  <rect x="3" y="16" width="5" height="5" fill="currentColor"/>
+                  <rect x="7" y="7" width="2" height="2" fill="currentColor"/>
+                  <rect x="11" y="7" width="2" height="2" fill="currentColor"/>
+                  <rect x="15" y="7" width="2" height="2" fill="currentColor"/>
+                  <rect x="7" y="11" width="2" height="2" fill="currentColor"/>
+                  <rect x="11" y="11" width="2" height="2" fill="currentColor"/>
+                  <rect x="15" y="11" width="2" height="2" fill="currentColor"/>
+                  <rect x="7" y="15" width="2" height="2" fill="currentColor"/>
+                  <rect x="11" y="15" width="2" height="2" fill="currentColor"/>
+                  <rect x="15" y="15" width="2" height="2" fill="currentColor"/>
+                  <rect x="19" y="7" width="2" height="2" fill="currentColor"/>
+                  <rect x="19" y="11" width="2" height="2" fill="currentColor"/>
+                  <rect x="7" y="19" width="2" height="2" fill="currentColor"/>
+                  <rect x="11" y="19" width="2" height="2" fill="currentColor"/>
+                </svg>
+              </div>
               <div class="btn-text">
                 <h3>出勤・退勤QR</h3>
                 <p>出勤・退勤用QRコードを表示</p>
@@ -158,7 +174,11 @@
             </button>
             
             <button class="function-btn shift-btn" onclick="openShiftManagement()">
-              <div class="btn-icon">📅</div>
+              <div class="btn-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M19 4H5C3.89 4 3 4.9 3 6V20C3 21.1 3.89 22 5 22H19C20.1 22 21 21.1 21 20V6C21 4.9 20.1 4 19 4ZM19 20H5V9H19V20ZM7 11H9V13H7V11ZM11 11H13V13H11V11ZM15 11H17V13H15V11ZM7 15H9V17H7V15ZM11 15H13V17H11V15ZM15 15H17V17H15V15Z" fill="currentColor"/>
+                </svg>
+              </div>
               <div class="btn-text">
         <h3>シフト管理</h3>
         <p>シフトの確認・申請を行えます</p>
@@ -166,7 +186,11 @@
             </button>
 
             <button class="function-btn attendance-btn" onclick="openAttendanceManagement()">
-              <div class="btn-icon">⏰</div>
+              <div class="btn-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M11.99 2C6.47 2 2 6.48 2 12C2 17.52 6.47 22 11.99 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 11.99 2ZM12 20C7.58 20 4 16.42 4 12C4 7.58 7.58 4 12 4C16.42 4 20 7.58 20 12C20 16.42 16.42 20 12 20ZM12.5 7H11V13L16.25 16.15L17 14.92L12.5 12.25V7Z" fill="currentColor"/>
+                </svg>
+              </div>
               <div class="btn-text">
         <h3>勤怠管理</h3>
         <p>出勤・退勤の記録を行えます</p>
@@ -174,7 +198,11 @@
             </button>
 
             <button class="function-btn profile-btn" onclick="openProfileManagement()">
-              <div class="btn-icon">👤</div>
+              <div class="btn-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12ZM12 14C9.33 14 4 15.34 4 18V20H20V18C20 15.34 14.67 14 12 14Z" fill="currentColor"/>
+                </svg>
+              </div>
               <div class="btn-text">
         <h3>プロフィール</h3>
         <p>スタッフ情報の編集を行えます</p>
@@ -449,7 +477,7 @@
   <div id="profile-page" class="page profile-page" style="display: none;">
     <h1>プロフィール</h1>
     <div id="profile-info" class="user-info">
-      <p>スタッフ情報を読み込み中...</p>
+      <div class="spinner"></div>
     </div>
     <div style="margin-top: 20px;">
       <button class="btn secondary-btn" onclick="showStaffHomePage()">ホームに戻る</button>
@@ -512,8 +540,6 @@
   // グローバルローディングオーバーレイ表示
   function showGlobalLoading(message = '処理中...') {
     const overlay = document.getElementById('global-loading-overlay');
-    const messageEl = overlay.querySelector('.global-loading-message');
-    messageEl.textContent = message;
     overlay.style.display = 'flex';
   }
   
@@ -747,6 +773,12 @@
 
         showSuccess('スタッフ登録が完了しました！');
             
+        // ローディング画面を表示
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) {
+          loadingEl.style.display = 'block';
+        }
+        
         // ホームページに遷移
         setTimeout(() => {
           checkStaffRegistration();
@@ -782,7 +814,7 @@
         const qrDisplay = document.getElementById('qr-code-display');
         const expiryTime = document.getElementById('qr-expiry-time');
         
-        qrDisplay.innerHTML = '<p>QRコードを読み込み中...</p>';
+        qrDisplay.innerHTML = '<div class="spinner"></div>';
         
         try {
           // Firebase認証の状態を確認
@@ -1295,6 +1327,12 @@
         // 確定シフト表示エリアを表示
         document.getElementById('confirmed-shifts-display').style.display = 'block';
         
+        // カレンダーグリッドにスピナーを表示
+        const calendarGrid = document.getElementById('calendar-grid');
+        if (calendarGrid) {
+          calendarGrid.innerHTML = '<div class="spinner"></div>';
+        }
+        
         // 現在表示している月を初期化（今月）
         const now = new Date();
         window.currentDisplayMonth = now.getMonth();
@@ -1377,9 +1415,19 @@
             
             
           } else {
+            // エラー時はスピナーを削除
+            const calendarGrid = document.getElementById('calendar-grid');
+            if (calendarGrid) {
+              calendarGrid.innerHTML = '<p>シフトの取得に失敗しました。</p>';
+            }
             alert('シフト取得エラー: ' + (result.data.error || '不明なエラー'));
           }
         } catch (error) {
+          // エラー時はスピナーを削除
+          const calendarGrid = document.getElementById('calendar-grid');
+          if (calendarGrid) {
+            calendarGrid.innerHTML = '<p>シフトの取得に失敗しました。</p>';
+          }
           alert('シフトの取得に失敗しました: ' + error.message);
         }
       }
@@ -1862,34 +1910,47 @@
 
       // 月選択ボタンのイベントリスナーを設定
       function setupMonthButtons() {
+        // 既に設定済みの場合はスキップ
+        if (window.attendanceMonthButtonsSetup) {
+          return;
+        }
+        
         const previousBtn = document.getElementById('previous-month-btn');
         const nextBtn = document.getElementById('next-month-btn');
         
+        // グローバル関数としてハンドラーを定義
+        window.previousMonthHandler = function(e) {
+          e.preventDefault();
+          previousMonth();
+        };
+        
+        window.nextMonthHandler = function(e) {
+          e.preventDefault();
+          nextMonth();
+        };
+        
         if (previousBtn) {
-          // 前月ボタンにタッチイベントとクリックイベントを設定
-          previousBtn.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            previousMonth();
-          }, { passive: false });
+          // 既存のリスナーを削除（念のため）
+          previousBtn.removeEventListener('touchstart', window.previousMonthHandler);
+          previousBtn.removeEventListener('click', window.previousMonthHandler);
           
-          previousBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            previousMonth();
-          });
+          // 新しいリスナーを追加
+          previousBtn.addEventListener('touchstart', window.previousMonthHandler, { passive: false });
+          previousBtn.addEventListener('click', window.previousMonthHandler);
         }
         
         if (nextBtn) {
-          // 次月ボタンにタッチイベントとクリックイベントを設定
-          nextBtn.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            nextMonth();
-          }, { passive: false });
+          // 既存のリスナーを削除（念のため）
+          nextBtn.removeEventListener('touchstart', window.nextMonthHandler);
+          nextBtn.removeEventListener('click', window.nextMonthHandler);
           
-          nextBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            nextMonth();
-          });
+          // 新しいリスナーを追加
+          nextBtn.addEventListener('touchstart', window.nextMonthHandler, { passive: false });
+          nextBtn.addEventListener('click', window.nextMonthHandler);
         }
+        
+        // 設定済みフラグを立てる
+        window.attendanceMonthButtonsSetup = true;
       }
 
       // 前月ボタンクリック処理
@@ -1983,6 +2044,14 @@
         const weekday = ['日', '月', '火', '水', '木', '金', '土'][dateObj.getDay()];
         titleElement.textContent = `${date} (${weekday}) の勤怠記録`;
         
+        // セクションを表示
+        detailsSection.style.display = 'block';
+        
+        // スピナーを表示
+        cardsContainer.innerHTML = '<div class="spinner"></div>';
+        
+        // 非同期処理を待つため、少し遅延を入れる
+        await new Promise(resolve => setTimeout(resolve, 50));
         
         if (window.attendanceData && window.attendanceData[date]) {
           const attendance = window.attendanceData[date];
@@ -2050,7 +2119,6 @@
           setupCorrectionFormWithData(null);
         }
         
-        detailsSection.style.display = 'block';
       }
 
       // 勤怠詳細を非表示

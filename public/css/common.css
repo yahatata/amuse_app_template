@@ -608,6 +608,18 @@ body {
   text-align: center;
 }
 
+.profile-info:has(.spinner) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+.profile-info .spinner {
+  border: 4px solid rgba(58, 58, 58, 0.3);
+  border-top: 4px solid var(--primary-color);
+}
+
 .order-history-list {
   margin-bottom: 30px;
 }
@@ -1671,8 +1683,8 @@ body {
 }
 
 .calendar-day.today {
-  background-color: var(--primary-color);
-  color: white;
+  background-color: transparent;
+  border: 2px solid var(--primary-color);
   font-weight: 700;
 }
 
@@ -1681,6 +1693,18 @@ body {
   border-color: #2196f3;
   color: #1976d2;
   font-weight: bold;
+}
+
+.calendar-grid:has(.spinner) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 300px;
+}
+
+.calendar-grid .spinner {
+  border: 4px solid rgba(58, 58, 58, 0.3);
+  border-top: 4px solid var(--primary-color);
 }
 
 .calendar-day .day-number {
@@ -1705,6 +1729,18 @@ body {
 
 .attendance-cards {
   margin: 20px 0;
+}
+
+.attendance-cards:has(.spinner) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+.attendance-cards .spinner {
+  border: 4px solid rgba(58, 58, 58, 0.3);
+  border-top: 4px solid var(--primary-color);
 }
 
 .attendance-card {

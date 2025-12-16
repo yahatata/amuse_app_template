@@ -712,6 +712,12 @@
                     '\nStorage URL: ' + (result.data.qrCodeUrl ? '生成済み' : 'なし') +
                     '\n有効期限: ' + (result.data.expiresAt ? new Date(result.data.expiresAt).toLocaleString('ja-JP') : 'なし'));
               
+              // ローディング画面を表示
+              const loadingEl = document.getElementById('loading');
+              if (loadingEl) {
+                loadingEl.style.display = 'block';
+              }
+              
               // ホームページに遷移
               checkStoreRegistration();
             } else {
