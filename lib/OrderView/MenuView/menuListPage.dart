@@ -16,10 +16,16 @@ class _MenuListPageState extends State<MenuListPage> {
   bool _isLoading = false;
   String? _errorMessage;
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  // ✅ ページが開いている間は固定の clientNonce（画面セッションで固定）
+  late final String _clientNonce;
+  // 二重タップ対策フラグ（各注文ごとに管理）
+  final Map<String, bool> _submittingOrders = {};
 
   @override
   void initState() {
     super.initState();
+    // ページが開いた時点で生成し、ページが閉じるまで同じ値を使い回す
+    _clientNonce = 'menu_${DateTime.now().millisecondsSinceEpoch}_${widget.category}';
     _loadMenuItems();
   }
 
@@ -198,63 +204,90 @@ class _MenuListPageState extends State<MenuListPage> {
     // What: SnackBar表示で利用
     // How: this.contextをローカルへ保持
     final BuildContext pageContext = context;
+    // 二重タップ対策：注文キーを生成（同じアイテム・同じユーザー・同じ数量の組み合わせ）
+    final String orderKey = '${item.id}_${userId}_$quantity';
+    final bool isSubmitting = _submittingOrders[orderKey] ?? false;
+
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('注文確認'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('注文者: $userName'),
-              Text('メニュー: ${item.name}'),
-              Text('個数: $quantity'),
-              Text('合計: ¥$total'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('キャンセル'),
-            ),
-            TextButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                try {
-                  final callable = _functions.httpsCallable('placeOrder');
-                  final payload = {
-                    'userId': userId,
-                    'item': {
-                      'menuItemId': item.id,
-                      'category': item.category,
-                      'name': item.name,
-                      'price': item.price,
-                      'quantity': quantity,
-                    }
-                  };
-                  final result = await callable.call(payload);
-                  if (!mounted) return; // 非同期後の安全確認
-                  final res = result.data;
-                  if (res is Map && res['success'] == true) {
-                    ScaffoldMessenger.of(pageContext).showSnackBar(
-                      const SnackBar(content: Text('注文を送信しました')),
-                    );
-                  } else {
-                    final msg = (res is Map ? res['error'] : null) ?? '注文に失敗しました';
-                    ScaffoldMessenger.of(pageContext).showSnackBar(
-                      SnackBar(content: Text(msg)),
-                    );
-                  }
-                } catch (e) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(pageContext).showSnackBar(
-                    SnackBar(content: Text('注文に失敗しました: $e')),
-                  );
-                }
-              },
-              child: const Text('注文確定'),
-            ),
-          ],
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: const Text('注文確認'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('注文者: $userName'),
+                  Text('メニュー: ${item.name}'),
+                  Text('個数: $quantity'),
+                  Text('合計: ¥$total'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.pop(context),
+                  child: const Text('キャンセル'),
+                ),
+                TextButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          // 二重タップ対策：送信中フラグを立てる
+                          setState(() {
+                            _submittingOrders[orderKey] = true;
+                          });
+                          setDialogState(() {}); // ダイアログのボタンを無効化
+
+                          Navigator.pop(context);
+                          try {
+                            final callable = _functions.httpsCallable('placeOrder');
+                            final payload = {
+                              'userId': userId,
+                              'item': {
+                                'menuItemId': item.id,
+                                'quantity': quantity,
+                              },
+                              'clientNonce': _clientNonce, // ✅ トップレベルに追加（ページが開いている間は固定）
+                            };
+                            final result = await callable.call(payload);
+                            if (!mounted) return; // 非同期後の安全確認
+                            final res = result.data;
+                            if (res is Map && res['success'] == true) {
+                              ScaffoldMessenger.of(pageContext).showSnackBar(
+                                const SnackBar(content: Text('注文を送信しました')),
+                              );
+                            } else {
+                              final msg = (res is Map ? res['error'] : null) ?? '注文に失敗しました';
+                              ScaffoldMessenger.of(pageContext).showSnackBar(
+                                SnackBar(content: Text(msg)),
+                              );
+                            }
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(pageContext).showSnackBar(
+                              SnackBar(content: Text('注文に失敗しました: $e')),
+                            );
+                          } finally {
+                            // 送信中フラグを戻す
+                            if (mounted) {
+                              setState(() {
+                                _submittingOrders.remove(orderKey);
+                              });
+                            }
+                          }
+                        },
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('注文確定'),
+                ),
+              ],
+            );
+          },
         );
       },
     );

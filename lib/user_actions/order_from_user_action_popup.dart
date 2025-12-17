@@ -186,6 +186,10 @@ Future<void> _showQuantityAndConfirm({
   required MenuItem item,
 }) async {
   int quantity = 1;
+  // ✅ ダイアログが開いている間は固定の clientNonce（画面セッションで固定）
+  final String clientNonce = 'order_${DateTime.now().millisecondsSinceEpoch}_${userId.substring(0, 8)}';
+  bool isSubmitting = false; // 二重タップ対策フラグ
+
   await showDialog<void>(
     context: pageContext,
     barrierDismissible: true,
@@ -220,12 +224,16 @@ Future<void> _showQuantityAndConfirm({
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
+                onPressed: isSubmitting ? null : () => Navigator.of(ctx).pop(),
                 child: const Text('キャンセル'),
               ),
               ElevatedButton(
-                onPressed: () async {
-                  debugPrint('[OrderPop] confirm order for item=${item.id} qty=$quantity userId=$userId');
+                onPressed: isSubmitting ? null : () async {
+                  setState(() {
+                    isSubmitting = true; // 送信中フラグを立てる
+                  });
+
+                  debugPrint('[OrderPop] confirm order for item=${item.id} qty=$quantity userId=$userId clientNonce=$clientNonce');
                   try {
                     final functions = FirebaseFunctions.instance;
                     final callable = functions.httpsCallable('placeOrder');
@@ -233,11 +241,9 @@ Future<void> _showQuantityAndConfirm({
                       'userId': userId,
                       'item': {
                         'menuItemId': item.id,
-                        'category': item.category,
-                        'name': item.name,
-                        'price': item.price,
                         'quantity': quantity,
                       },
+                      'clientNonce': clientNonce, // ✅ トップレベルに追加（ダイアログが開いている間は固定）
                     });
 
                     final data = resp.data;
@@ -258,6 +264,9 @@ Future<void> _showQuantityAndConfirm({
                           SnackBar(content: Text(err)),
                         );
                       }
+                      setState(() {
+                        isSubmitting = false; // エラー時はフラグを戻す
+                      });
                     }
                   } catch (e) {
                     if (pageContext.mounted) {
@@ -265,9 +274,18 @@ Future<void> _showQuantityAndConfirm({
                         SnackBar(content: Text('注文に失敗しました: $e')),
                       );
                     }
+                    setState(() {
+                      isSubmitting = false; // エラー時はフラグを戻す
+                    });
                   }
                 },
-                child: const Text('注文確定'),
+                child: isSubmitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('注文確定'),
               ),
             ],
           );

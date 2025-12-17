@@ -46,6 +46,15 @@ class _SideGameChipPurchaseDialog extends StatefulWidget {
 
 class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog> {
   bool _isLoading = false;
+  // ✅ ダイアログが開いている間は固定の clientNonce（画面セッションで固定）
+  late final String _clientNonce;
+
+  @override
+  void initState() {
+    super.initState();
+    // ダイアログが開いた時点で生成し、閉じるまで同じ値を使い回す
+    _clientNonce = 'chip_${DateTime.now().millisecondsSinceEpoch}_${widget.userId.substring(0, 8)}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -168,7 +177,7 @@ class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog
               ),
             ),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-            onTap: _isLoading ? null : () => _showConfirmDialog(menu),
+            onTap: (_isLoading) ? null : () => _showConfirmDialog(menu),
           ),
         );
       },
@@ -205,6 +214,11 @@ class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog
   }
 
   Future<void> _processPurchase(MenuItem menu) async {
+    // 二重タップ対策：既に送信中なら何もしない
+    if (_isLoading) {
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -233,11 +247,9 @@ class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog
         'userId': widget.userId,
         'item': {
           'menuItemId': menu.id,
-          'category': menu.category,
-          'name': menu.name,
-          'price': menu.price,
           'quantity': 1,
-        }
+        },
+        'clientNonce': _clientNonce, // ✅ トップレベルに追加（State が生きている間は固定）
       });
 
       // 処理中ダイアログを閉じる
