@@ -41,12 +41,30 @@ export const lineWebhook = onRequest(async (request, response) => {
   }
 
   try {
+    // デバッグ: リクエストボディの内容をログ出力
+    logger.info("Webhook received", { 
+      bodyKeys: Object.keys(request.body || {}),
+      hasEvents: !!request.body?.events,
+      eventsType: Array.isArray(request.body?.events) ? "array" : typeof request.body?.events,
+      eventsLength: Array.isArray(request.body?.events) ? request.body.events.length : "N/A"
+    });
+    
     const events = request.body.events;
     
     if (!events || !Array.isArray(events)) {
+      logger.warn("No events or events is not an array", { 
+        events: events,
+        body: request.body 
+      });
       response.status(200).json({ message: "No events" });
       return;
     }
+    
+    // デバッグ: 各イベントのタイプをログ出力
+    logger.info("Events received", { 
+      eventCount: events.length,
+      eventTypes: events.map(e => e.type)
+    });
 
     // 環境変数から設定を取得
     const channelAccessToken = lineChannelAccessToken.value();
@@ -62,6 +80,12 @@ export const lineWebhook = onRequest(async (request, response) => {
     const db = admin.firestore();
 
     for (const event of events) {
+      // デバッグ: 全てのイベントタイプをログ出力
+      logger.info("Processing event", { 
+        eventType: event.type,
+        source: event.source 
+      });
+      
       // follow（友だち追加）またはunblock（ブロック解除）イベント
       if (event.type === "follow" || event.type === "unblock") {
         const lineUserId = event.source.userId;
