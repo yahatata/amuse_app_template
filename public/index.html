@@ -5,11 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Amuse App - ホーム</title>
     <style>
+      :root {
+        --primary-color: #3a3a3a;
+        --primary-color-dark: #2a2a2a;
+        --primary-gradient: linear-gradient(135deg, #3a3a3a, #2a2a2a);
+        --primary-shadow: rgba(58, 58, 58, 0.4);
+        --primary-shadow-light: rgba(58, 58, 58, 0.1);
+        --primary-shadow-hover: rgba(58, 58, 58, 0.3);
+      }
+      
       body {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         margin: 0;
         padding: 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: var(--primary-gradient);
         min-height: 100vh;
         display: flex;
         align-items: center;
@@ -61,13 +70,13 @@
       }
       
       .btn-user {
-        background: linear-gradient(45deg, #667eea, #764ba2);
+        background: var(--primary-gradient);
         color: white;
       }
       
       .btn-user:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        box-shadow: 0 10px 20px var(--primary-shadow-hover);
       }
       
       .btn-staff {

@@ -97,6 +97,20 @@
       ]
     },
     {
+      "collectionGroup": "todaysBills",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "userId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "tournamentTemplates",
       "queryScope": "COLLECTION",
       "fields": [

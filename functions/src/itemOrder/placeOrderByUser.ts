@@ -65,6 +65,11 @@ export const placeOrderByUser = onCall(async (request) => {
     const dateString = `${yyyy}-${mm}-${dd}`; // 表示/集計用: YYYY-MM-DD
 
     // 対象ユーザーの open な todaysBills を特定
+    console.log("placeOrderByUser: 検索条件", {
+      userId: userId,
+      status: "open"
+    });
+    
     const billsSnap = await db
       .collection("todaysBills")
       .where("userId", "==", userId)
@@ -72,8 +77,37 @@ export const placeOrderByUser = onCall(async (request) => {
       .limit(1)
       .get();
 
+    console.log("placeOrderByUser: クエリ結果", {
+      empty: billsSnap.empty,
+      size: billsSnap.size,
+      docs: billsSnap.docs.map(doc => ({
+        id: doc.id,
+        data: doc.data()
+      }))
+    });
+
     if (billsSnap.empty) {
-      return { success: false, error: "入店していません。先に入店してください。" };
+      // デバッグ用: userIdのみで検索してみる
+      const userIdOnlySnap = await db
+        .collection("todaysBills")
+        .where("userId", "==", userId)
+        .limit(5)
+        .get();
+      
+      console.log("placeOrderByUser: userIdのみで検索", {
+        empty: userIdOnlySnap.empty,
+        size: userIdOnlySnap.size,
+        docs: userIdOnlySnap.docs.map(doc => ({
+          id: doc.id,
+          data: {
+            userId: doc.data().userId,
+            status: doc.data().status,
+            pokerName: doc.data().pokerName
+          }
+        }))
+      });
+      
+      return { success: false, error: `No active bill found for user: ${userId}` };
     }
 
     const billsDoc = billsSnap.docs[0];

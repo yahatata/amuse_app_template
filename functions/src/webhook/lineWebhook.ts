@@ -8,10 +8,10 @@ const lineChannelAccessToken = defineString("LINE_CHANNEL_ACCESS_TOKEN", {
   default: "JsnZdiDqZDylvlOEzAspG65YN1SNWqCaOXwtiyd2DSOMg8RTjhnaKOVZuH0/saa0gNFS5+9O+Qmifb4O6EPmhbIKHG6hQoKHZoJXTveyJWg4YaVYVCr9DtBZ2RSdh4eO+OOZUQ5gLZStBDoFPZLUXQdB04t89/1O/w1cDnyilFU="
 });
 const staffRichMenuId = defineString("STAFF_RICHMENU_ID", {
-  default: "richmenu-075aca99712985e446b5316b4a95042f"
+  default: "richmenu-36bb594eadf1c8718bd9c12199c87dbb"
 });
 const userRichMenuId = defineString("USER_RICHMENU_ID", {
-  default: "richmenu-4412edd1c8461c6d8bc49f2c56c06b18"
+  default: "richmenu-31d87049e04ae740ceaa76cf59950f54"
 });
 
 /**
@@ -41,12 +41,30 @@ export const lineWebhook = onRequest(async (request, response) => {
   }
 
   try {
+    // デバッグ: リクエストボディの内容をログ出力
+    logger.info("Webhook received", { 
+      bodyKeys: Object.keys(request.body || {}),
+      hasEvents: !!request.body?.events,
+      eventsType: Array.isArray(request.body?.events) ? "array" : typeof request.body?.events,
+      eventsLength: Array.isArray(request.body?.events) ? request.body.events.length : "N/A"
+    });
+    
     const events = request.body.events;
     
     if (!events || !Array.isArray(events)) {
+      logger.warn("No events or events is not an array", { 
+        events: events,
+        body: request.body 
+      });
       response.status(200).json({ message: "No events" });
       return;
     }
+    
+    // デバッグ: 各イベントのタイプをログ出力
+    logger.info("Events received", { 
+      eventCount: events.length,
+      eventTypes: events.map(e => e.type)
+    });
 
     // 環境変数から設定を取得
     const channelAccessToken = lineChannelAccessToken.value();
@@ -62,6 +80,12 @@ export const lineWebhook = onRequest(async (request, response) => {
     const db = admin.firestore();
 
     for (const event of events) {
+      // デバッグ: 全てのイベントタイプをログ出力
+      logger.info("Processing event", { 
+        eventType: event.type,
+        source: event.source 
+      });
+      
       // follow（友だち追加）またはunblock（ブロック解除）イベント
       if (event.type === "follow" || event.type === "unblock") {
         const lineUserId = event.source.userId;
@@ -74,15 +98,13 @@ export const lineWebhook = onRequest(async (request, response) => {
         logger.info(`Processing ${event.type} event`, { lineUserId });
 
         try {
-          // staffsコレクションでLINE User IDを検索
-          const staffSnapshot = await db.collection("staffs")
-            .where("lineUserId", "==", lineUserId)
-            .limit(1)
-            .get();
+          // staffsコレクションでuid（LINE User ID）で検索
+          const staffDocRef = db.collection("staffs").doc(lineUserId);
+          const staffDoc = await staffDocRef.get();
 
           let richMenuId: string;
           
-          if (!staffSnapshot.empty) {
+          if (staffDoc.exists) {
             // スタッフの場合
             richMenuId = staffMenu;
             logger.info("Staff detected, setting staff rich menu", { lineUserId, richMenuId });

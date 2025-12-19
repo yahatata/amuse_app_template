@@ -1,7 +1,7 @@
 // 店舗別設定ファイル
 window.__CONFIG__ = {
-  // LIFF ID（開発用）
-  liffId: "2007806607-1nxokjv8",
+  // LIFF ID（ミニアプリ開発用）
+  liffId: "2007950789-ZJ7b0JgO",
   
   // Firebase設定
   firebaseConfig: {
