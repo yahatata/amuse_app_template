@@ -4,44 +4,66 @@ import { getFirestore } from "firebase-admin/firestore";
 // When: メニューアイテム取得時
 // Where: Firebase Functions
 // What: FireStoreからメニューアイテムを取得
-// How: Cloud Functions経由でFireStoreクエリを実行
+// How: Cloud Functions経由でadministrativeMenuから取得
 
 export const getMenuItems = onCall(async (request) => {
   try {
     const db = getFirestore();
     
-    // When: 現在時刻から3ヶ月前を計算
-    // Where: サーバーサイド
-    // What: アーカイブ期間の判定基準を設定
-    // How: 現在時刻から3ヶ月前のタイムスタンプを作成
-    const threeMonthsAgo = new Date();
-    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    // includeArchivedパラメータを取得（デフォルトはfalse）
+    const includeArchived = request.data?.includeArchived === true || request.data?.includeArchived === 'true';
+    
+    // When: administrativeMenuドキュメント取得時
+    // Where: administrativeMenu/current
+    // What: メニューアイテムのマップを取得
+    // How: administrativeMenu/currentドキュメントから取得
+    const adminMenuDoc = await db.collection('administrativeMenu').doc('current').get();
+    
+    if (!adminMenuDoc.exists) {
+      return {
+        success: false,
+        error: 'メニューデータが見つかりません'
+      };
+    }
 
-    // When: FireStoreクエリ実行時
-    // Where: menuItemsコレクション
-    // What: 条件に合うメニューアイテムを取得
-    // How: 全データを取得してサーバー側でフィルタリング
-    const menuItemsRef = db.collection('menuItems');
-    const snapshot = await menuItemsRef.get();
+    const adminMenuData = adminMenuDoc.data();
+    const itemsMap = adminMenuData?.items || {};
+
+    // When: マップを配列に変換時
+    // Where: サーバーサイド
+    // What: マップ形式のメニューアイテムを配列に変換
+    // How: Object.entriesでマップを配列に変換し、idフィールドを追加
+    const allItems = Object.entries(itemsMap).map(([key, value]: [string, any]) => {
+      // isArchiveを厳密に真偽値に変換
+      const isArchive = value.isArchive === true || value.isArchive === 'true';
+      
+      return {
+        id: key, // マップのキーをidとして使用
+        name: value.name || '',
+        category: value.category || '',
+        imageUrl: value.imageUrl || '',
+        price: value.price || 0,
+        isArchive: isArchive,
+        isSoldOut: value.isSoldOut === true || value.isSoldOut === 'true',
+        description: value.description || '', // descriptionフィールドを含める
+        menuItemDocId: value.menuItemDocId || key, // 元のmenuItemsドキュメントID
+        ...(value.createdAt && { createdAt: value.createdAt }),
+        ...(value.updatedAt && { updatedAt: value.updatedAt }),
+        ...(value.archivedAt && { archivedAt: value.archivedAt }),
+      };
+    });
 
     // When: 結果のフィルタリング時
     // Where: サーバーサイド
-    // What: 条件に合うメニューアイテムを抽出
-    // How: アーカイブ状態と日付でフィルタリング
-    const allItems = snapshot.docs
-      .map(doc => ({ id: doc.id, ...doc.data() }))
-      .filter((item: any) => {
-        // アーカイブされていないアイテム
-        if (!item.isArchive) return true;
-        
-        // アーカイブ済みで3ヶ月以内のアイテム
-        if (item.isArchive && item.archivedAt) {
-          const archivedDate = item.archivedAt.toDate ? item.archivedAt.toDate() : new Date(item.archivedAt);
-          return archivedDate >= threeMonthsAgo;
-        }
-        
-        return false;
+    // What: includeArchivedがfalseの場合はアーカイブされていないアイテムのみを抽出
+    // How: isArchiveフラグを厳密にチェックしてフィルタリング
+    let filteredItems = allItems;
+    if (!includeArchived) {
+      filteredItems = allItems.filter((item: any) => {
+        // isArchiveがtrue（真偽値または文字列'true'）の場合は除外
+        return item.isArchive !== true && item.isArchive !== 'true';
       });
+    }
 
     // When: レスポンス返却時
     // Where: Cloud Functions
@@ -49,7 +71,7 @@ export const getMenuItems = onCall(async (request) => {
     // How: JSON形式でデータを返却
     return {
       success: true,
-      data: allItems
+      data: filteredItems
     };
 
   } catch (error) {
