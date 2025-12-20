@@ -25,13 +25,36 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
   void initState() {
     super.initState();
     _loadCategories();
-    _loadMenuItems();
+    // 初期表示時にアーカイブされたアイテムも含めて取得
+    _initializeMenuItems();
     
     // When: スクロール監視開始時
     // Where: MenuEditorListPage
     // What: スクロール状態を監視してボタン表示を制御
     // How: ScrollControllerでスクロールイベントを監視
     _scrollController.addListener(_onScroll);
+  }
+
+  // When: メニューアイテム初期化時
+  // Where: MenuEditorListPage
+  // What: アーカイブされたアイテムも含めてメニューアイテムを取得
+  // How: MenuItemsManager経由でFireStoreから再取得（アーカイブされたアイテムも含める）
+  Future<void> _initializeMenuItems() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final success = await MenuItemsManager.fetchMenuItems(includeArchived: true);
+    
+    if (success) {
+      _loadMenuItems();
+    } else {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = MenuItemsManager.lastError;
+      });
+    }
   }
 
   @override
@@ -113,14 +136,14 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
   // When: 更新ボタン押下時
   // Where: MenuEditorListPage
   // What: メニューアイテムを再取得
-  // How: MenuItemsManager経由でFireStoreから再取得
+  // How: MenuItemsManager経由でFireStoreから再取得（アーカイブされたアイテムも含める）
   Future<void> _refreshData() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
-    final success = await MenuItemsManager.fetchMenuItems();
+    final success = await MenuItemsManager.fetchMenuItems(includeArchived: true);
     
     if (success) {
       _loadMenuItems();
@@ -146,8 +169,8 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
 
       final response = result.data;
       if (response['success'] == true) {
-        // MenuItemsManagerを更新
-        await MenuItemsManager.fetchMenuItems();
+        // MenuItemsManagerを更新（アーカイブされたアイテムも含める）
+        await MenuItemsManager.fetchMenuItems(includeArchived: true);
         
         // ローカルデータも更新
         _loadMenuItems();

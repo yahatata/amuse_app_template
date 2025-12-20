@@ -102,14 +102,16 @@ class MenuItemsManager {
   static String? get lastError => _lastError;
 
   // FireStoreからメニューアイテムを取得
-  static Future<bool> fetchMenuItems() async {
+  static Future<bool> fetchMenuItems({bool includeArchived = false}) async {
     try {
       _isLoading = true;
       _lastError = null;
 
       final functions = FirebaseFunctions.instance;
       final callable = functions.httpsCallable('getMenuItems');
-      final result = await callable.call();
+      final result = await callable.call({
+        'includeArchived': includeArchived,
+      });
 
       final response = result.data;
       
