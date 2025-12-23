@@ -80,6 +80,33 @@ export const createMenuItem = onCall(async (request) => {
 
     const docRef = await db.collection('menuItems').add(menuItemData);
 
+    // administrativeMenuにも追加
+    const adminMenuRef = db.collection('administrativeMenu').doc('current');
+    const adminMenuDoc = await adminMenuRef.get();
+    
+    if (adminMenuDoc.exists) {
+      const adminMenuData = adminMenuDoc.data();
+      const itemsMap = adminMenuData?.items || {};
+      
+      // 新しいメニューアイテムを追加（8項目）
+      itemsMap[docRef.id] = {
+        name: menuItemData.name,
+        category: menuItemData.category,
+        imageUrl: menuItemData.imageUrl,
+        price: menuItemData.price,
+        isArchive: menuItemData.isArchive,
+        isSoldOut: menuItemData.isSoldOut,
+        description: menuItemData.description,
+        menuItemDocId: docRef.id,
+      };
+      
+      await adminMenuRef.update({
+        items: itemsMap,
+        updatedAt: now,
+        updatedBy: callerUid,
+      });
+    }
+
     return {
       success: true,
       data: {

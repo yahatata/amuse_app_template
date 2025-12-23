@@ -38,6 +38,28 @@ export const toggleSoldOutForMenuItem = onCall(async (request) => {
       updatedAt: now,
     });
 
+    // administrativeMenuも更新
+    const adminMenuRef = db.collection('administrativeMenu').doc('current');
+    const adminMenuDoc = await adminMenuRef.get();
+    
+    if (adminMenuDoc.exists) {
+      const adminMenuData = adminMenuDoc.data();
+      const itemsMap = adminMenuData?.items || {};
+      
+      if (itemsMap[menuItemId]) {
+        itemsMap[menuItemId] = {
+          ...itemsMap[menuItemId],
+          isSoldOut: isSoldOut,
+        };
+        
+        await adminMenuRef.update({
+          items: itemsMap,
+          updatedAt: now,
+          updatedBy: callerUid,
+        });
+      }
+    }
+
     return {
       success: true,
       data: {
