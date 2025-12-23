@@ -3,8 +3,6 @@ import { z } from 'zod';
 import { getFirestore } from 'firebase-admin/firestore';
 import { calculatePaymentSplit, DEFAULT_POINT_PRIORITY } from '../utils/paymentSplitCalculator';
 
-const db = getFirestore();
-
 // 入力スキーマ
 const VerifyPaymentSplitSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
@@ -33,12 +31,14 @@ export const verifyPaymentSplit = onCall(async (request) => {
   }
 
   try {
+    const db = getFirestore();
+    
     // 入力検証
     const validatedData = VerifyPaymentSplitSchema.parse(request.data);
     const { billId, clientResult, selectedBaseMethod, pointPriority = DEFAULT_POINT_PRIORITY } = validatedData;
 
     // 請求書を取得
-    const billRef = db.collection('todaysBills').doc(billId);
+    const billRef = db.collection('bills').doc(billId);
     const billDoc = await billRef.get();
 
     if (!billDoc.exists) {
@@ -46,7 +46,7 @@ export const verifyPaymentSplit = onCall(async (request) => {
     }
 
     const billData = billDoc.data()!;
-    const userId = billData.userId;
+    const userId = billData.party?.userId;
 
     if (!userId) {
       throw new HttpsError('invalid-argument', 'ユーザーIDが見つかりません');
@@ -67,35 +67,40 @@ export const verifyPaymentSplit = onCall(async (request) => {
       sideGameChip: userData.sideGameChip || 0,
     };
 
-    // カテゴリごとの金額を計算
+    // カテゴリごとの金額を計算（Bills スキーマ準拠）
     const categoryAmounts: Record<string, number> = {};
 
-    // extraCost（入店料）
-    const extraCosts = billData.extraCost || [];
-    categoryAmounts['extraCost'] = extraCosts.reduce(
-      (sum: number, item: any) => sum + (item.price || 0),
+    // extraCost → extras サブコレクションから取得
+    const extrasSnap = await billRef.collection('extras').get();
+    categoryAmounts['extraCost'] = extrasSnap.docs.reduce(
+      (sum, doc) => sum + (doc.data().amountIncl || 0),
       0
     );
 
-    // tournaments（トーナメント参加費）
-    const tournaments = billData.tournaments || {};
-    categoryAmounts['tournaments'] = Object.values(tournaments).reduce(
-      (sum: number, item: any) => sum + (item.entryFee || 0),
+    // items → items サブコレクションから取得
+    const itemsSnap = await billRef.collection('items').get();
+    categoryAmounts['items'] = itemsSnap.docs.reduce(
+      (sum, doc) => sum + (doc.data().totalPriceIncl || 0),
       0
     );
 
-    // items（フード・ドリンク）
-    const items = billData.items || [];
-    categoryAmounts['items'] = items.reduce(
-      (sum: number, item: any) => sum + ((item.price || 0) * (item.quantity || 0)),
-      0
-    );
+    // sideGameChip → sideGameChips サブコレクションから取得（action='purchase'のみ）
+    const sideGameChipsSnap = await billRef.collection('sideGameChips').get();
+    categoryAmounts['sideGameChip'] = sideGameChipsSnap.docs
+      .filter(doc => doc.data().action === 'purchase')
+      .reduce((sum, doc) => sum + (doc.data().amountIncl || 0), 0);
 
-    // sideGameChip（サイドゲームチップ、action='purchase'のみ）
-    const sideGameChips = billData.sideGameChip || [];
-    categoryAmounts['sideGameChip'] = sideGameChips
-      .filter((item: any) => item.action === 'purchase')
-      .reduce((sum: number, item: any) => sum + (item.price || 0), 0);
+    // tournaments → tournaments サブコレクションから取得
+    const tournamentsSnap = await billRef.collection('tournaments').get();
+    categoryAmounts['tournaments'] = tournamentsSnap.docs.reduce((sum, doc) => {
+      const data = doc.data();
+      return sum + 
+        (data.entryFeeIncl || 0) * (data.entryCount || 0) +
+        (data.reentryFeeIncl || 0) * (data.reentryCount || 0) +
+        (data.addonFeeIncl || 0) * (data.addonCount || 0);
+    }, 0);
+
+    // キー名（"extraCost","tournaments","items","sideGameChip"）は従来のまま
 
     // サーバー側で計算を実行
     const serverResult = calculatePaymentSplit({

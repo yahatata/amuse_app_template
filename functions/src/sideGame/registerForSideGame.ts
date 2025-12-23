@@ -3,15 +3,15 @@
  * 
  * サイドゲームへの参加登録
  * 
- * 新スキーマ対応（最小限）:
- * - getActiveBillByUser で billId を取得
- * - bills.place を更新（updatePlace ヘルパAPI利用はP1-04で実装予定）
+ * 新スキーマ対応:
+ * - activeStays/{userId} から billId と pokerName を取得
+ * - updatePlace ヘルパAPIを使用して bills.place を更新
  */
 
 import { onCall } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getActiveBillByUser } from '../helpers/billsApi/getActiveBillByUser';
-import * as admin from 'firebase-admin';
+import { HttpsError } from 'firebase-functions/v2/https';
+import { updatePlace } from '../helpers/billsApi/updatePlace';
 
 export const registerForSideGame = onCall(async (request) => {
   const db = getFirestore();
@@ -25,37 +25,37 @@ export const registerForSideGame = onCall(async (request) => {
 
     // パラメータの検証
     if (!tableId || !seatNumber || !userId) {
-      throw new Error('必須パラメータが不足しています: tableId, seatNumber, userId');
+      throw new HttpsError('invalid-argument', '必須パラメータが不足しています: tableId, seatNumber, userId');
     }
 
     if (typeof seatNumber !== 'number') {
-      throw new Error('seatNumberは数値である必要があります');
+      throw new HttpsError('invalid-argument', 'seatNumberは数値である必要があります');
     }
 
-    // 1. todaysBillsから参加者情報を取得（userIdフィールドで検索）
-    const todaysBillsQuery = await db.collection('todaysBills')
-      .where('userId', '==', userId)
-      .limit(1)
-      .get();
-    
-    if (todaysBillsQuery.empty) {
-      throw new Error(`参加者 ${userId} がtodaysBillsに見つかりません`);
+    // 1. activeStaysから参加者情報を取得（存在チェックは本callable側の責務）
+    const activeStayRef = db.collection('activeStays').doc(userId);
+    const activeStayDoc = await activeStayRef.get();
+
+    if (!activeStayDoc.exists) {
+      throw new HttpsError('not-found', `ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
     }
 
-    const todaysBillsDoc = todaysBillsQuery.docs[0];
-    const todaysBillsData = todaysBillsDoc.data();
-    const pokerName = todaysBillsData?.pokerName as string;
-    
-    if (!pokerName) {
-      throw new Error(`参加者 ${userId} のpokerNameが見つかりません`);
+    const activeStayData = activeStayDoc.data()!;
+    const billId = activeStayData.billId as string;
+
+    if (!billId) {
+      throw new HttpsError('failed-precondition', `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
     }
 
-    console.log(`参加者情報取得完了: ${pokerName}`);
+    // pokerNameはactiveStaysから取得（todaysBillsには依存しない）
+    const pokerName = activeStayData.pokerName || `Player_${userId}`;
+
+    console.log(`参加者情報取得完了: ${pokerName}, billId: ${billId}`);
 
     // 2. sideGameドキュメントの存在確認
     const sideGameDoc = await db.collection('sideGame').doc(tableId).get();
     if (!sideGameDoc.exists) {
-      throw new Error(`テーブル ${tableId} がsideGameコレクションに見つかりません`);
+      throw new HttpsError('not-found', `テーブル ${tableId} がsideGameコレクションに見つかりません`);
     }
 
     // 3. sideGameコレクションの座席情報を更新（seatsマップ内に格納）
@@ -69,30 +69,13 @@ export const registerForSideGame = onCall(async (request) => {
     await db.collection('sideGame').doc(tableId).update(sideGameUpdateData);
     console.log(`sideGame座席更新完了: seat${seatNumberStr}`);
 
-    // 4. todaysBillsの参加者情報を更新
-    const todaysBillsUpdateData = {
-      currentSeat: seatNumber,
-      currentTable: tableId,
-      updatedAt: new Date(),
-    };
-
-    await todaysBillsDoc.ref.update(todaysBillsUpdateData);
-    console.log(`todaysBills更新完了: ${userId}`);
-
-    // 5. bills.place を更新（最小限の実装、updatePlace ヘルパAPI利用はP1-04で実装予定）
-    try {
-      const { billId } = await getActiveBillByUser(userId);
-      const billRef = db.collection('bills').doc(billId);
-      await billRef.update({
-        'place.table': tableId,
-        'place.seat': seatNumber,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      console.log(`bills.place更新完了: ${billId}`);
-    } catch (billError) {
-      console.warn('bills.place更新失敗（最小限実装のため警告のみ）:', billError);
-      // エラーをthrowしない（最小限の実装のため）
-    }
+    // 4. updatePlace ヘルパAPIを使用して bills.place を更新
+    await updatePlace({
+      billId,
+      table: tableId,
+      seat: seatNumber,
+    });
+    console.log(`bills.place更新完了: ${billId}`);
 
     return {
       success: true,
@@ -112,6 +95,10 @@ export const registerForSideGame = onCall(async (request) => {
       stack: error instanceof Error ? error.stack : undefined,
       name: error instanceof Error ? error.name : undefined,
     });
-    throw new Error(`参加登録に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+    
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError('internal', `参加登録に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
   }
 });

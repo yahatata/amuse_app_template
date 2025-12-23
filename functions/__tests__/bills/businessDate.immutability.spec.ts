@@ -1,22 +1,22 @@
 /**
  * businessDate.immutability の統合テスト
  * 
- * ChangeSpec P1-02.1 に準拠
+ * ChangeSpec P1-06 に準拠
  * Firestore Emulator を使用
  * 
  * テスト観点:
  * - bills/{billId}.businessDate が作成後に変更できないことを検証
- * - A: update が拒否され例外（もっとも望ましい）
- * - B: update 自体は通るがトリガ側/関数側で元の値に巻き戻る（再読込して元の値）
- * - いずれにも当てはまらず、本当に変更できてしまう場合はテストを失敗のままとする
+ * - P1-06 では updateBill ヘルパAPIによるパターンA（update レイヤで拒否）を検証
+ * - パターンB（トリガによる巻き戻し）は P1-11 で別テストに切り出す
  */
 
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { updateBill } from '../../src/helpers/billsApi/updateBill';
 
-describe.skip('businessDate.immutability', () => {
+describe('businessDate.immutability', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
   const projectId = `test-project-bills-${process.pid}-${Date.now()}`;
@@ -55,7 +55,7 @@ describe.skip('businessDate.immutability', () => {
     process.env.STORE_CLOSE_HOUR = prevStoreCloseHour;
   });
 
-  it('businessDate を別値に update しようとした場合の動作を検証', async () => {
+  it('updateBill ヘルパAPI経由で businessDate の変更が拒否されること（パターンA）', async () => {
     process.env.STORE_CLOSE_HOUR = '27';
     
     const userId = 'user-test-immutability-001';
@@ -79,51 +79,27 @@ describe.skip('businessDate.immutability', () => {
     const businessDateBefore = billSnapBefore.data()!.businessDate as string;
     expect(businessDateBefore).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
-    // 3. businessDate を別値に update しようとする（Admin SDK を使用）
-    // 注意: セキュリティルールは Admin SDK をバイパスするため、ここでは実際に更新が試みられる
-    let updateSucceeded = false;
-    let updateError: any = null;
-    
+    // 3. updateBill ヘルパAPI経由で businessDate を別値に update しようとする
     try {
-      await billRef.update({
-        businessDate: attemptedBusinessDate,
+      await updateBill({
+        billId,
+        updates: {
+          businessDate: attemptedBusinessDate,
+        } as any, // 型チェックを回避（businessDate は許可されていないフィールド）
       });
-      updateSucceeded = true;
-    } catch (error) {
-      updateError = error;
-      updateSucceeded = false;
+      fail('Should have thrown an error');
+    } catch (error: any) {
+      // パターンA: update が拒否された（invalid-argument）
+      expect(error.code).toBe('invalid-argument');
+      expect(error.message).toContain('businessDate');
     }
 
-    // 4. 再読込して businessDate の実測値を確認
+    // 4. 再読込して businessDate の実測値を確認（変更されていないこと）
     const billSnapAfter = await billRef.get();
     const businessDateAfter = billSnapAfter.data()!.businessDate as string;
-
-    // 5. 期待結果の判定
-    // A: update が拒否され例外
-    if (!updateSucceeded && updateError) {
-      // パターンA: update が拒否された
-      console.log('パターンA: update が拒否されました', updateError);
-      expect(businessDateAfter).toBe(businessDateBefore); // 元の値が保持されている
-      return; // テスト成功
-    }
-
-    // B: update 自体は通るがトリガ側/関数側で元の値に巻き戻る
-    if (updateSucceeded && businessDateAfter === businessDateBefore) {
-      // パターンB: update は通ったが、元の値に巻き戻った
-      console.log('パターンB: update は通ったが、元の値に巻き戻りました');
-      expect(businessDateAfter).toBe(businessDateBefore);
-      return; // テスト成功
-    }
-
-    // いずれにも当てはまらない場合: 本当に変更できてしまった
-    // この場合はテストを失敗のままとする
-    console.error('businessDate が変更されてしまいました');
-    console.error('更新前:', businessDateBefore);
-    console.error('更新後:', businessDateAfter);
-    console.error('試行した値:', attemptedBusinessDate);
-    
-    // テストを失敗させる
-    expect(businessDateAfter).toBe(businessDateBefore);
+    expect(businessDateAfter).toBe(businessDateBefore); // 元の値が保持されている
   });
+
+  // 注意: パターンB（トリガによる巻き戻し）は P1-11 で別テストに切り出す
 });
 

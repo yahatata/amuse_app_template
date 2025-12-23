@@ -15,6 +15,9 @@ class GlobalConstants {
   // 入店料設定
   static const int entranceFee = 1000; // 入店料（0円も設定可能）
   static const String entranceFeeDescription = "入店料"; // 入店料の説明文
+  
+  // 再入店時の入店料設定
+  static const bool chargeEntranceFeeOnReentry = false; // 再入店時に入店料を取るかどうか（true: 取る, false: 取らない）
 
   // トーナメント設定
   static const double defaultPrizeRatio = 0.7; // デフォルトプライズ割合（70%）
@@ -95,4 +98,9 @@ class GlobalConstants {
   // ポイント使用優先順位（支払い分割計算用）
   // Cloud Functions側（functions/src/utils/paymentSplitCalculator.ts）と同期必須
   static const List<String> POINT_PRIORITY = ['pointA', 'pointB', 'sideGameChip'];
+
+  // ポイント使用単位制限（支払い分割計算用）
+  // Cloud Functions側（functions/src/utils/paymentSplitCalculator.ts）と同期必須
+  static const int POINT_A_B_ROUNDING_UNIT = 1000; // pointA/pointB の切り捨て単位（円）
+  static const int SIDE_GAME_CHIP_ROUNDING_UNIT = 100; // sideGameChip の切り捨て単位（チップ数）
 }

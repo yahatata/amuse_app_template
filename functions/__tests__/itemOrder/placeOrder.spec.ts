@@ -28,7 +28,7 @@ describe('placeOrder', () => {
     });
     
     if (admin.apps.length > 0) {
-      await admin.app().delete();
+      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     }
     admin.initializeApp({
       projectId,
@@ -45,6 +45,19 @@ describe('placeOrder', () => {
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
+    
+    // 明示的なクリーンアップ（念のため）
+    const activeStaysSnapshot = await db.collection('activeStays').get();
+    const deleteActiveStaysPromises = activeStaysSnapshot.docs.map(doc => doc.ref.delete());
+    await Promise.all(deleteActiveStaysPromises);
+    
+    const billsSnapshot = await db.collection('bills').get();
+    const deleteBillsPromises = billsSnapshot.docs.map(doc => doc.ref.delete());
+    await Promise.all(deleteBillsPromises);
+    
+    const menuItemsSnapshot = await db.collection('menuItems').get();
+    const deleteMenuItemsPromises = menuItemsSnapshot.docs.map(doc => doc.ref.delete());
+    await Promise.all(deleteMenuItemsPromises);
   });
 
   // テスト用のヘルパ関数: メニューアイテムを作成
@@ -62,12 +75,28 @@ describe('placeOrder', () => {
     });
   }
 
+  // テストID生成ヘルパー（同じテスト内でIDを固定するため）
+  function makeTestIds(testName: string) {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    return {
+      billId: `bill_test_${testName}_${suffix}`,
+      userId: `user_test_${testName}_${suffix}`,
+      menuItemId: `menu_test_${testName}_${suffix}`,
+      clientNonce: `nonce_test_${testName}_${suffix}`,
+      idempotencyKey: `idem_test_${testName}_${suffix}`,
+    };
+  }
+
   describe('orders/_TodaysOrders の作成', () => {
     it('非 chip のみ orders/_TodaysOrders に記録されること（docId = itemId、親集計は初回のみ）', async () => {
-      const userId = 'user_test_orders_001';
-      const billId = 'bill_test_orders_001';
-      const menuItemId = 'menu_test_orders_001';
-      const clientNonce = 'nonce_test_orders_001';
+      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const userId = `user_test_orders_${timestamp}_${random}`;
+      const billId = `bill_test_orders_${timestamp}_${random}`;
+      const menuItemId = `menu_test_orders_${timestamp}_${random}`;
+      const clientNonce = `nonce_test_orders_${timestamp}_${random}`;
+      const idempotencyKey = `idem_test_orders_${timestamp}_${random}`;
 
       // テストデータ準備
       await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
@@ -77,7 +106,7 @@ describe('placeOrder', () => {
         billId,
         userId,
         pokerName: 'テスト太郎',
-        idempotencyKey: 'idem_test_orders_001',
+        idempotencyKey,
       });
 
       // bills.place を設定
@@ -140,10 +169,12 @@ describe('placeOrder', () => {
     });
 
     it('chip カテゴリは orders/_TodaysOrders に記録されないこと', async () => {
-      const userId = 'user_test_orders_002';
-      const billId = 'bill_test_orders_002';
-      const menuItemId = 'menu_test_orders_002';
-      const clientNonce = 'nonce_test_orders_002';
+      const ids = makeTestIds('placeOrder_chip');
+      const userId = ids.userId;
+      const billId = ids.billId;
+      const menuItemId = ids.menuItemId;
+      const clientNonce = ids.clientNonce;
+      const idempotencyKey = ids.idempotencyKey;
 
       // テストデータ準備（chip カテゴリ）
       await createTestMenuItem(menuItemId, 'チップ 1000', 'chip', 1000);
@@ -152,7 +183,7 @@ describe('placeOrder', () => {
         billId,
         userId,
         pokerName: 'テスト太郎',
-        idempotencyKey: 'idem_test_orders_002',
+        idempotencyKey,
       });
 
       const mockRequest = {
@@ -184,17 +215,19 @@ describe('placeOrder', () => {
     });
 
     it('同一 itemId で replay 時、親集計は二重加算されないこと', async () => {
-      const userId = 'user_test_orders_003';
-      const billId = 'bill_test_orders_003';
-      const menuItemId = 'menu_test_orders_003';
-      const clientNonce = 'nonce_test_orders_003';
+      const ids = makeTestIds('placeOrder_replay');
+      const userId = ids.userId;
+      const billId = ids.billId;
+      const menuItemId = ids.menuItemId;
+      const clientNonce = ids.clientNonce;
+      const idempotencyKey = ids.idempotencyKey;
 
       await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
       await createBillWithActiveStay({
         billId,
         userId,
         pokerName: 'テスト太郎',
-        idempotencyKey: 'idem_test_orders_003',
+        idempotencyKey,
       });
 
       const mockRequest = {
@@ -238,18 +271,20 @@ describe('placeOrder', () => {
     });
 
     it('別 clientNonce（別 itemId）で再実行 → 新規 doc が作られ、親集計が増える', async () => {
-      const userId = 'user_test_orders_004';
-      const billId = 'bill_test_orders_004';
-      const menuItemId = 'menu_test_orders_004';
-      const clientNonce1 = 'nonce_test_orders_004_1';
-      const clientNonce2 = 'nonce_test_orders_004_2';
+      const ids = makeTestIds('placeOrder_different_nonce');
+      const userId = ids.userId;
+      const billId = ids.billId;
+      const menuItemId = ids.menuItemId;
+      const clientNonce1 = `${ids.clientNonce}_1`;
+      const clientNonce2 = `${ids.clientNonce}_2`;
+      const idempotencyKey = ids.idempotencyKey;
 
       await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
       await createBillWithActiveStay({
         billId,
         userId,
         pokerName: 'テスト太郎',
-        idempotencyKey: 'idem_test_orders_004',
+        idempotencyKey,
       });
 
       const mockRequest1 = {
@@ -317,17 +352,19 @@ describe('placeOrder', () => {
     });
 
     it('appendItem のレスポンス itemId をそのまま _TodaysOrders/{itemId} に使っていることをassert', async () => {
-      const userId = 'user_test_orders_005';
-      const billId = 'bill_test_orders_005';
-      const menuItemId = 'menu_test_orders_005';
-      const clientNonce = 'nonce_test_orders_005';
+      const ids = makeTestIds('placeOrder_assert_itemId');
+      const userId = ids.userId;
+      const billId = ids.billId;
+      const menuItemId = ids.menuItemId;
+      const clientNonce = ids.clientNonce;
+      const idempotencyKey = ids.idempotencyKey;
 
       await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
       await createBillWithActiveStay({
         billId,
         userId,
         pokerName: 'テスト太郎',
-        idempotencyKey: 'idem_test_orders_005',
+        idempotencyKey,
       });
 
       const mockRequest = {

@@ -133,3 +133,141 @@ export async function legacyAppendSideGameChipUpdate(
     sideGameChip: admin.firestore.FieldValue.arrayUnion(params.legacyChip),
   });
 }
+
+// ===== updatePlace 用のデュアルライト更新ユーティリティ =====
+
+/**
+ * updatePlace の DualWrite 更新
+ * - docID は必ず billId
+ * - currentTable, currentSeat を更新
+ * - トランザクション外でベストエフォート実行（bills のトランザクション完了後）
+ * - ここは薄いラッパー：テストで jest.mock して throw させる
+ */
+export async function legacyUpdatePlaceUpdate(
+  db: admin.firestore.Firestore,
+  params: {
+    billId: string;
+    currentTable: string | null;
+    currentSeat: number | null;
+  }
+): Promise<void> {
+  const legacyRef = db.collection('todaysBills').doc(params.billId);
+  await legacyRef.update({
+    currentTable: params.currentTable,
+    currentSeat: params.currentSeat,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+// ===== recordTournamentAction 用のデュアルライト更新ユーティリティ =====
+
+/**
+ * recordTournamentAction の DualWrite 更新
+ * - docID は必ず billId
+ * - tournaments マップ（オブジェクト）に該当 tplId のエントリをupsert
+ * - トランザクション外でベストエフォート実行（bills のトランザクション完了後）
+ * - ここは薄いラッパー：テストで jest.mock して throw させる
+ */
+export async function legacyRecordTournamentActionUpdate(
+  db: admin.firestore.Firestore,
+  params: {
+    billId: string;
+    templateId: string;
+    templateName: string;
+    entryFee: number | null;
+    reentryFee: number | null;
+    addonFee: number | null;
+    entryCount: number;
+    reentryCount: number;
+    addonCount: number;
+    registeredAt: string | null;
+    lastReentryAt: string | null;
+    lastAddonAt: string | null;
+    startAt: string | null;
+  }
+): Promise<void> {
+  const legacyRef = db.collection('todaysBills').doc(params.billId);
+  
+  // tournaments マップ（オブジェクト）に該当 tplId のエントリをupsert
+  const tournamentEntry: any = {
+    templateId: params.templateId,
+    templateName: params.templateName,
+    entryFee: params.entryFee ?? null,
+    reentryFee: params.reentryFee ?? null,
+    addonFee: params.addonFee ?? null,
+    entryCount: params.entryCount,
+    reentryCount: params.reentryCount,
+    addonCount: params.addonCount,
+  };
+  
+  if (params.registeredAt) {
+    tournamentEntry.registeredAt = admin.firestore.Timestamp.fromDate(new Date(params.registeredAt));
+  }
+  if (params.lastReentryAt) {
+    tournamentEntry.lastReentryAt = admin.firestore.Timestamp.fromDate(new Date(params.lastReentryAt));
+  }
+  if (params.lastAddonAt) {
+    tournamentEntry.lastAddonAt = admin.firestore.Timestamp.fromDate(new Date(params.lastAddonAt));
+  }
+  if (params.startAt) {
+    tournamentEntry.startAt = admin.firestore.Timestamp.fromDate(new Date(params.startAt));
+  }
+  
+  await legacyRef.update({
+    [`tournaments.${params.templateId}`]: tournamentEntry,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+// ===== startAccounting 用のデュアルライト更新ユーティリティ =====
+
+/**
+ * startAccounting の DualWrite 更新
+ * - docID は必ず billId
+ * - status のみ更新（accountingStartedAt 等は更新しない）
+ * - トランザクション外でベストエフォート実行（bills のトランザクション完了後）
+ * - ここは薄いラッパー：テストで jest.mock して throw させる
+ */
+export async function legacyStartAccountingUpdate(
+  db: admin.firestore.Firestore,
+  params: {
+    billId: string;
+  }
+): Promise<void> {
+  const legacyRef = db.collection('todaysBills').doc(params.billId);
+  await legacyRef.update({
+    status: 'settling',
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+// ===== updateBill 用のデュアルライト更新ユーティリティ =====
+
+/**
+ * updateBill の DualWrite 更新
+ * - docID は必ず billId
+ * - 該当フィールド（status など）を更新（金額フィールドは更新しない）
+ * - トランザクション外でベストエフォート実行（bills のトランザクション完了後）
+ * - ここは薄いラッパー：テストで jest.mock して throw させる
+ */
+export async function legacyUpdateBillUpdate(
+  db: admin.firestore.Firestore,
+  params: {
+    billId: string;
+    updates: Record<string, any>;
+  }
+): Promise<void> {
+  const legacyRef = db.collection('todaysBills').doc(params.billId);
+  
+  // 安全なフィールドのみを更新（金額フィールドは除外）
+  const safeUpdates: Record<string, any> = {
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+  
+  // status のみ DualWrite（その他のフィールドは必要に応じて追加）
+  if (params.updates.status !== undefined) {
+    safeUpdates.status = params.updates.status;
+  }
+  
+  await legacyRef.update(safeUpdates);
+}

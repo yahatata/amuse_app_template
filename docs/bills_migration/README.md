@@ -42,6 +42,7 @@
 - **P1-07（事後イベント & 会計後調整）**: 完了。`postEventRefund`/`postEventAdjustment`/`postEventCancel`/`postEventReopen` ヘルパAPI実装（`/events` 作成のみ、トリガで差分反映）、`cancelAccounting.ts` をpre-settlement専用APIとして再設計（`/bills/{billId}` 直接更新、`/events` には書込まない）、`refundProcessing.ts` の `processRefund` callable更新（`postEventRefund` ヘルパAPI使用）、`updateAccounting.ts` を新世界版として再設計（`postEventAdjustment`/`postEventCancel`/`postEventReopen` ヘルパAPI使用）、`bills.events.onCreate` トリガ実装（`/events` 作成時に `postEvents.*` と `paymentsSummary.*` を更新）、Flutter UI実装（会計後調整画面と各操作ダイアログ）。テスト完了（`postEventRefund.spec.ts` 20テスト、`postEventAdjustment.spec.ts` 18テスト、`postEventCancel.spec.ts` 12テスト、`postEventReopen.spec.ts` 10テスト、`bills.events.onCreate.spec.ts` 15テスト、`refundProcessing.spec.ts` 7テスト、`updateAccounting.spec.ts` 9テスト、`cancelAccounting.spec.ts` 8テスト、合計99テスト全て成功）。詳細は `changespecs/P1-07_change_spec.md` および `P1-07_test_report.md` を参照。
 - **P1-08（読み取り Functions）**: 完了。`getUserOrderHistory.ts` を確定済み履歴専用APIとして再定義（status ∈ {"settled","partially_refunded","refunded","voided"} のみ取得、businessDateフィルタ追加、statusフィルタはFirestoreクエリ側で絞り込み、amounts.grandTotalRoundedをtotalPriceとして返却、itemsは常に空配列[]を返す、itemCountは/itemsサブコレクションの件数から計算）、`verifyPaymentSplit.ts` をbills参照に変更（サブコレクションからextras/items/sideGameChips/tournamentsを取得してカテゴリ別金額を計算、getFirestore()を関数内で呼び出すように修正）、`getOpenBills.ts` をbillsクエリに移行（businessDateフィルタ追加、todaysBillsId→billIdに変更、party.userId/party.pokerName/place.table/place.seatにマッピング）。Firestoreインデックス追加（`getUserOrderHistory` 用: `party.userId` + `businessDate` + `status` + `createdAt` (降順)）。テスト完了（`getUserOrderHistory.spec.ts` 10テスト、`verifyPaymentSplit.spec.ts` 8テスト、`getOpenBills.spec.ts` 8テスト、合計26テスト全て成功、businessDate計算の一貫性を確保するためテストで現在時刻を使用）。詳細は `changespecs/P1-08_change_spec.md` を参照。
 - **P1-09（読み取り Flutter）**: 完了。Flutter側の読み取り処理を `todaysBills` から `bills` コレクション＋サブコレクション対応へ移行、`getOpenBills` のレスポンス形式変更（`todaysBillsId` → `billId`）に対応、`activeStays` をアプリ全体で1本だけの単一長寿命リスナーで購読する仕組みを導入（P1-13の内容を統合）、`getBillPreviewTotals` Cloud Function を前倒しして導入（テスト完了）。テスト完了（`getBillPreviewTotals.spec.ts` 8テスト、全件テスト352テスト全て成功）。詳細は `changespecs/P1-09_change_spec.md` を参照。
+- **P1-10（閉店バッチ）**: 完了。Settlement Trigger (`bills.onSettle.ts`) 実装、snapshots ヘルパ (`snapshots.ts`) 実装、`startAccounting` callable拡張、`completeAccountingV2` callable追加、`migrateSettledBillsForBusinessDay.ts` を `bills` スナップショット前提へ差し替え、analytics helpers更新。テスト完了（`snapshots.spec.ts` 28テスト、`helpers.spec.ts` 12テスト、`bills.onSettle.spec.ts` 18テスト、合計58テスト全て成功）。詳細は `changespecs/P1-10_change_spec.md` を参照。
 
 ## 実行再現方法（P1-02.1）
 
@@ -113,3 +114,23 @@ FIRESTORE_EMULATOR_HOST=localhost:8080
 現時点では仕様として許容するが、今後参加者数が増加した場合には、以下の最適化を検討する：
 - `activeStays` のキャッシュ
 - batched reads / 集約クエリによる負荷軽減
+
+## 危険点（要判断・要修正候補）
+
+### bills.onSettle の発火条件について（P1-10）
+
+**現状の実装**:
+- `bills.onSettle` トリガは `before.status !== 'settled' && after.status === 'settled'` で発火
+- つまり、`open` / `in_progress` / `settling` のどれからでも `settled` に遷移すれば発火する
+
+**問題点**:
+- 当初の観点（骨組み）では「`settling -> settled` 遷移で発火」を想定していた
+- 現在の実装では `open -> settled` でも発火するため、会計開始フロー（`startAccounting`）をすっ飛ばしてスナップショット確定できてしまう可能性がある
+
+**判断が必要な点**:
+- 正しい仕様が「`settling` 経由のみ」なら、現在の実装は誤り（`open -> settled` を許すべきではない）
+- 正しい仕様が「何からでも `settled` に行ったら確定すべき」なら、現在の実装は正しいが、設計上の重要な決定なので ChangeSpec/trigger_plan.md 等に明文化が必要
+
+**対応**:
+- 仕様を確定し、必要に応じて実装を修正するか、ドキュメントに明文化する
+- この判断は明確な指示があった場合にのみ実施する（現時点では未確定）

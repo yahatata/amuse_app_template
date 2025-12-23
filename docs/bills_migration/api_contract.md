@@ -1,6 +1,6 @@
 # Bills API 契約書
 
-_最終更新: 2025-11-10 (JST)_
+_最終更新: 2025-12-03 (JST)_
 
 ## 0. 目的
 - `bills` API 抽象レイヤの正式な契約を定義し、実装者・利用者間の合意を明確化する。
@@ -281,15 +281,18 @@ interface UpdatePlaceResponse {
 **Request**:
 ```typescript
 interface RecordTournamentActionRequest {
-  billId: string;
-  tplId: string;               // トーナメントテンプレートID
-  action: 'entry' | 'reentry' | 'addon';
-  payload: {
-    // action ごとの詳細情報
-  };
-  idempotencyKey: string;
+  billId: string;              // 必須: 伝票ID
+  templateId: string;         // 必須: トーナメントテンプレートID
+  action: 'entry' | 'reentry' | 'addon';  // 必須: アクション種別
+  entryFeeIncl?: number;       // 条件付: entry時のみ（税込エントリー料）
+  reentryFeeIncl?: number;    // 条件付: reentry時のみ（税込リエントリー料）
+  addonFeeIncl?: number;      // 条件付: addon時のみ（税込アドオン料）
+  templateName?: string;       // 任意: テンプレート名
+  startAt?: string;           // 任意: 開始時刻（ISO8601形式）
+  idempotencyKey: string;     // 必須: 冪等性キー
+  requestHash?: string;        // 任意: リクエストハッシュ（冪等性検証用）
   options?: {
-    dualWrite?: boolean;
+    dualWrite?: boolean;       // 任意: デュアルライトのオーバーライド
   };
 }
 ```
@@ -299,25 +302,43 @@ interface RecordTournamentActionRequest {
 interface RecordTournamentActionResponse {
   success: boolean;
   billId: string;
-  tplId: string;
-  updatedAt: string;
+  templateId: string;
+  action: 'entry' | 'reentry' | 'addon';
+  entryCount?: number;         // entry/reentry/addon後のエントリー回数
+  reentryCount?: number;      // reentry/addon後のリエントリー回数
+  addonCount?: number;        // addon後のアドオン回数
+  registeredAt?: string;      // entry時の登録時刻（ISO8601形式）
+  lastReentryAt?: string;     // reentry時の最終リエントリー時刻（ISO8601形式）
+  lastAddonAt?: string;       // addon時の最終アドオン時刻（ISO8601形式）
+  updatedAt: string;          // ISO8601形式
   diagnostics?: {
-    reason?: string;
-    reused?: boolean;
+    reason?: string;           // 冪等性再利用時の理由
+    reused?: boolean;          // 既存doc再利用フラグ
   };
 }
 ```
 
-**エラー**: `appendItem` と同様
+**エラー**:
+- `invalid-argument`: `billId`, `templateId`, `action`, `idempotencyKey` が未指定、または `action` が不正な値
+- `not-found`: `billId` が存在しない
+- `failed-precondition`: 
+  - `status == "settled"` で更新不可
+  - `requestHash` が不一致（既存idempotencyエントリと異なるpayload）
 
 **冪等性**: 
-- キー形式: `<billId>:tournament:<tplId>:<action>:<nonce>`
-- 保存先: `/bills/{billId}/idempotency/{key}` (TTL: 48h)
+- キー形式: `${billId}:recordTournamentAction:${action}:${clientNonce}`
+- 保存先: `/bills/{billId}/idempotency/{key}` (TTL: 48h, `requestHash` 保持)
+- リプレイ時: 既存docを返却（`reused: true`）、`updatedAt` は変更しない
+- **重要**: idempotent replay時はDualWriteをスキップして完全no-op保証
 
 **デュアルライト**: 
-- フラグON時: 旧 `todaysBills.tournaments` 配列に同期
+- フラグON時: 旧 `todaysBills.tournaments[templateId]` にマップ形式で同期（`entryFee`, `reentryFee`, `addonFee` フィールド名を使用、`/bills/{billId}/tournaments/{tplId}` は `entryFeeIncl`, `reentryFeeIncl`, `addonFeeIncl` を使用）
+- フラグOFF時: DualWriteをスキップ
+- **重要**: idempotent replay時（`reused: true`）はDualWriteをスキップし、`todaysBills.tournaments[templateId]` と `todaysBills.updatedAt` を更新しない
 
-**備考**: ポイント付与や賞金計上は別API (`awardTournamentResult`) で扱う。
+**備考**: 
+- ポイント付与や賞金計上は別API (`awardTournamentResult`) で扱う。
+- `activeStays/{userId}` から `billId` を取得する責務は呼び出し元callable側にある（本APIは `billId` を前提とする）。
 
 ---
 
@@ -417,14 +438,155 @@ interface StartAccountingResponse {
 
 **冪等性**: 
 - キー形式: `<billId>:startAccounting:<nonce>`
-- 保存先: `/bills/{billId}/idempotency/{key}`（TTL:48h, `requestHash` 保持）。既存時は副作用なしで前回レスポンス再利用。
+- 保存先: `/bills/{billId}/idempotency/{key}`（TTL:48h, `requestHash` 保持、`expiresAt = now + 48h` を明示的に保存）。既存時は副作用なしで前回レスポンス再利用（`reused: true`、`updatedAt` は変更しない）。
 
 **デュアルライト**: 
-- フラグON時: 旧 `todaysBills.status` のみ更新
+- フラグON時: 旧 `todaysBills.status` のみ更新（`accountingStartedAt` 等は更新しない）
+- idempotent replay 時は DualWrite をスキップし、完全 no-op を保証（`/idempotency` コレクションを使用するため）（`accountingStartedAt` 等は更新しない）
+- フラグON時、`bills` への更新完了後にベストエフォートで実行（失敗しても `bills` の成功をロールバックしない）
+- idempotent replay 時は DualWrite をスキップし、完全 no-op を保証
 
 ---
 
-#### `completeAccounting`
+#### `updateBill`
+**目的**: 伝票の親ドキュメントの安全なフィールドのみを更新する。`businessDate` の変更は拒否（パターンA）。
+
+**Request**:
+```typescript
+interface UpdateBillRequest {
+  billId: string;
+  updates: {
+    status?: string;
+    'ops.*'?: any;  // ただし ops.accountingStartedAt は基本的に startAccounting の責務
+    'meta.*'?: any;
+    // businessDate, amounts.*, categoryBreakdown, paymentTotals, itemsSnapshot, postEvents.*, paymentsSummary.* は更新不可
+  };
+  // idempotencyKey, requestHash は使用しない（LWW方式のため）
+}
+```
+
+**Response**:
+```typescript
+interface UpdateBillResponse {
+  success: boolean;
+  billId: string;
+  updatedFields: string[];
+  diagnostics?: {
+    reused?: boolean;
+  };
+}
+```
+
+**エラー**:
+- `invalid-argument`: `billId` が未指定、`updates` が空、または `updates.businessDate` が含まれている
+- `not-found`: `billId` が存在しない
+
+**冪等性**: 
+- `idempotencyKey` は使用しない。LWW（Last Write Wins）方式のため、キーなしで安全。
+- `/idempotency` コレクションは使用しない（最終値を採用）。
+
+**デュアルライト**: 
+- フラグON時、`bills` への更新完了後にベストエフォートで実行（失敗しても `bills` の成功をロールバックしない）
+
+**更新許可フィールド**:
+- `status`
+- `ops.*`（ただし `ops.accountingStartedAt` は基本的に `startAccounting` の責務）
+- `meta.*`
+
+**更新拒否フィールド**:
+- `businessDate`（パターンA: update レイヤで拒否）
+- `amounts.*`
+- `categoryBreakdown`
+- `paymentTotals`
+- `itemsSnapshot`
+- `postEvents.*`
+- `paymentsSummary.*`
+
+---
+
+#### `updateActiveBill`
+**目的**: 会計前の請求書明細を編集する。サブコレクション（`items`, `extras`, `sideGameChips`, `tournaments`）のみを更新し、親フィールド（`businessDate`, `amounts.*` など）は一切触らない。
+
+**Request**:
+```typescript
+interface UpdateActiveBillRequest {
+  billId: string;
+  extraCost?: Array<{
+    name: string;
+    price: number;
+  }>;
+  tournaments?: Record<string, {
+    templateId: string;
+    tournamentName?: string;
+    entryFee: number;
+  }>;
+  items?: Array<{
+    menuItemId?: string;
+    name: string;
+    price: number;
+    quantity: number;
+  }>;
+  sideGameChip?: Array<{
+    action: 'purchase' | 'deposit' | 'withdraw';
+    chipQty: number;
+    amountIncl: number | null;
+    menuItemId?: string | null;
+    name?: string | null;
+  }>;
+}
+```
+
+**Response**:
+```typescript
+interface UpdateActiveBillResponse {
+  success: boolean;
+  billId: string;
+  message: string;
+}
+```
+
+**エラー**:
+- `permission-denied`: 管理者権限がない
+- `invalid-argument`: 入力データが無効
+- `not-found`: `billId` が存在しない
+- `failed-precondition`: `status` が `open` または `in_progress` でない、または `ops.accountingStartedAt` が `null` 以外
+
+**実行条件**:
+- `status` が `'open'` または `'in_progress'` であること
+- `ops.accountingStartedAt` が `null` であること（会計開始前のみ編集可能）
+
+**更新対象**:
+- `/bills/{billId}/items`（既存ドキュメントを削除してから新規作成）
+- `/bills/{billId}/extras`（既存ドキュメントを削除してから新規作成）
+- `/bills/{billId}/sideGameChips`（既存ドキュメントを削除してから新規作成）
+- `/bills/{billId}/tournaments`（既存ドキュメントを削除してから新規作成）
+- `/bills/{billId}.updatedAt`（Functions が更新）
+
+**更新拒否**:
+- `/bills/{billId}.businessDate`
+- `/bills/{billId}.amounts.*`
+- `/bills/{billId}.categoryBreakdown`
+- `/bills/{billId}.postEvents.*`
+- `/bills/{billId}.paymentsSummary.*`
+
+**デュアルライト**: 
+- フラグON時、`bills` への更新完了後にベストエフォートで実行（失敗しても `bills` の成功をロールバックしない）
+- `todaysBills/{billId}` の `items`, `extraCost`, `tournaments`, `sideGameChip` を更新（`totalPrice` は更新しない）
+
+---
+
+#### `updateAccounting` (postEventAdjustment-based) – P1-07 で追加予定
+**目的**: 会計完了後の明細・金額調整を `/events` + `postEvents.*` + `paymentsSummary.*` 経由で行う。旧 `updateAccounting.ts` の役割を置き換える。
+
+**注意**: 本APIは P1-07 で実装予定。P1-06 では `updateAccounting.ts` は todayBills ベースの legacy として残す。
+
+---
+
+#### `completeAccounting` (legacy)
+**注意**: 現時点では旧スキーマの `todaysBills` を前提とした実装のまま残している。
+- `startAccounting` は新しいヘルパAPI（`/bills` ベース）の実装へ移行済み
+- `completeAccounting` は P1-06 のスコープ外のため、挙動は変更しない
+- 将来のフェーズ（例: P1-0x）で、`bills` + `accountingHistory` を正とする新実装へ差し替える予定
 **目的**: 会計を確定し、スナップショットを焼き込む。
 
 **Request**:

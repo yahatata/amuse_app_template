@@ -12,13 +12,16 @@ Future<void> showOrderFromUserDialog({
   required Map<String, dynamic> user,
   VoidCallback? onBackToUserActionHome,
 }) async {
-  final String userId = (user['userId'] ?? '').toString();
-  if (userId.isEmpty) {
+  final String billId = (user['billId'] ?? '').toString();
+  if (billId.isEmpty) {
     ScaffoldMessenger.of(pageContext).showSnackBar(
-      const SnackBar(content: Text('ユーザー識別子が見つかりません')),
+      const SnackBar(content: Text('伝票IDが見つかりません')),
     );
     return;
   }
+  
+  // userId は表示用に保持（billId が主要）
+  final String userId = (user['userId'] ?? '').toString();
 
   // 初期カテゴリーは All 相当
   String selectedCategory = 'All';
@@ -156,6 +159,7 @@ Future<void> showOrderFromUserDialog({
                                           // 一覧ポップは閉じず、その上に数量ポップを重ねて表示
                                           await _showQuantityAndConfirm(
                                             pageContext: pageContext,
+                                            billId: billId,
                                             userId: userId,
                                             item: item,
                                           );
@@ -182,6 +186,7 @@ Future<void> showOrderFromUserDialog({
 /// How: showDialog + TextField/Step 後に httpsCallable('placeOrder') を実行
 Future<void> _showQuantityAndConfirm({
   required BuildContext pageContext,
+  required String billId,
   required String userId,
   required MenuItem item,
 }) async {
@@ -233,12 +238,12 @@ Future<void> _showQuantityAndConfirm({
                     isSubmitting = true; // 送信中フラグを立てる
                   });
 
-                  debugPrint('[OrderPop] confirm order for item=${item.id} qty=$quantity userId=$userId clientNonce=$clientNonce');
+                  debugPrint('[OrderPop] confirm order for item=${item.id} qty=$quantity billId=$billId clientNonce=$clientNonce');
                   try {
                     final functions = FirebaseFunctions.instance;
                     final callable = functions.httpsCallable('placeOrder');
                     final resp = await callable.call({
-                      'userId': userId,
+                      'billId': billId, // ✅ userId から billId に変更
                       'item': {
                         'menuItemId': item.id,
                         'quantity': quantity,

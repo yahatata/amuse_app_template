@@ -453,8 +453,7 @@ _UserActionItem _buildBlockP(Map<String, dynamic> user) => _UserActionItem(
         
         showSideGameChipPurchaseDialog(
           context: ctx,
-          userId: userId,
-          pokerName: pokerName,
+          user: u, // ✅ user オブジェクト全体を渡す（billId を含む）
         );
       },
     );

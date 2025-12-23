@@ -10,9 +10,9 @@
  */
 
 import { onCall } from "firebase-functions/v2/https";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
-import { getActiveBillByUser } from "../helpers/billsApi/getActiveBillByUser";
-import { appendItem } from "../helpers/billsApi/appendItem";
+import { getFirestore } from "firebase-admin/firestore";
+import { HttpsError } from "firebase-functions/v2/https";
+import { appendItemWithOrderProjection } from "../helpers/billsApi/appendItem";
 import { appendSideGameChip } from "../helpers/billsApi/appendSideGameChip";
 import { resolveMenuItem } from "../helpers/billsApi/resolveMenuItem";
 import { addLogEntry } from "../utils/logUtils";
@@ -21,8 +21,8 @@ export const placeOrder = onCall(async (request) => {
   const db = getFirestore();
 
   try {
-    const { userId, item, clientNonce } = request.data as {
-      userId: string;
+    const { billId, item, clientNonce } = request.data as {
+      billId: string; // userId から billId に変更
       item: {
         menuItemId: string;
         quantity: number;
@@ -32,21 +32,39 @@ export const placeOrder = onCall(async (request) => {
     };
 
     // 入力バリデーション
-    if (!userId) {
-      return { success: false, error: "userIdが指定されていません" };
+    if (!billId) {
+      throw new HttpsError('invalid-argument', 'billIdが指定されていません');
     }
     if (!item || !item.menuItemId || typeof item.quantity !== "number") {
-      return { success: false, error: "アイテム情報が不正です" };
+      throw new HttpsError('invalid-argument', 'アイテム情報が不正です');
     }
     if (item.quantity <= 0) {
-      return { success: false, error: "数量が不正です" };
+      throw new HttpsError('invalid-argument', '数量が不正です');
     }
     if (!clientNonce) {
-      return { success: false, error: "clientNonceが指定されていません" };
+      throw new HttpsError('invalid-argument', 'clientNonceが指定されていません');
     }
 
-    // 1. getActiveBillByUser で billId を取得
-    const { billId, billData } = await getActiveBillByUser(userId);
+    // 1. bills/{billId} を取得して検証
+    const billRef = db.collection('bills').doc(billId);
+    const billSnap = await billRef.get();
+    
+    if (!billSnap.exists) {
+      throw new HttpsError('not-found', `伝票が見つかりません: ${billId}`);
+    }
+    
+    const billData = billSnap.data()!;
+    const status = billData.status as string;
+    
+    // status チェック: open/in_progress のみ許可
+    if (status !== 'open' && status !== 'in_progress') {
+      throw new HttpsError('failed-precondition', `注文できない伝票の状態です: ${status}`);
+    }
+    
+    const userId = (billData.party?.userId as string) || '';
+    if (!userId || userId.trim() === '') {
+      throw new HttpsError('internal', '伝票にuserIdが設定されていません');
+    }
 
     // 2. メニューアイテムを解決（カテゴリ判定用）
     const resolved = await resolveMenuItem(item.menuItemId);
@@ -107,9 +125,14 @@ export const placeOrder = onCall(async (request) => {
         },
       };
     } else {
-      // Chip以外の場合: 従来通り appendItem を使用
+      // Chip以外の場合: appendItemWithOrderProjection を使用（items と orders を同一トランザクションで作成）
       const idempotencyKey = `appendItem:${billId}:${clientNonce}`;
-      const appendResult = await appendItem({
+      const businessDate = billData.businessDate as string;
+      const userName = (billData.party?.pokerName as string) || '';
+      const currentTable = (billData.place?.table as string) || null;
+      const currentSeat = (billData.place?.seat as number) || null;
+
+      const appendResult = await appendItemWithOrderProjection({
         billId,
         item: {
           menuItemId: item.menuItemId,
@@ -117,61 +140,11 @@ export const placeOrder = onCall(async (request) => {
           clientNonce,
         },
         idempotencyKey,
-      });
-
-      // 4. orders/_TodaysOrders に記録（提供動線専用、Chips除外、docId = itemId、親集計は初回のみ）
-      // calcBusinessDate は使用しない（SSoTは bill.businessDate）
-      const now = new Date();
-      const biz = billData.businessDate as string;  // "2025-11-15" (SSoT)
-      const orderDocId = biz.replace(/-/g, "");     // "20251115"
-      const dateString = biz;                       // "2025-11-15"
-
-      await db.runTransaction(async (tx) => {
-        const ordersRef = db.collection("orders").doc(orderDocId);
-        // すべての読み取りを先に実行
-        const ordersSnap = await tx.get(ordersRef);
-        const todaysOrderRef = ordersRef.collection("_TodaysOrders").doc(appendResult.itemId);
-        const todaysOrderSnap = await tx.get(todaysOrderRef);
-        
-        // 存在しない時だけ set + 親集計 increment、存在時は上書きのみで親集計スキップ
-        const isNew = !todaysOrderSnap.exists;
-        
-        // すべての書き込みを読み取りの後に実行
-        if (!ordersSnap.exists) {
-          tx.set(ordersRef, {
-            date: dateString,
-            onedayOrderQuantity: 0,
-            onedayTotalPrice: 0,
-            createdAt: now,
-            updatedAt: now,
-          });
-        }
-
-        // _TodaysOrders に1種類=1ドキュメントを作成（docId = itemId）
-        tx.set(todaysOrderRef, {
-          orderDocId,
-          billId,
-          userId,
-          userName: (billData.party?.pokerName as string) || "",
-          menuItemId: resolved.menuItemId,
-          name: resolved.name,
-          category: resolved.category,
-          quantity: item.quantity,
-          status: "preparing",
-          orderedAt: FieldValue.serverTimestamp(),
-          currentTable: (billData.place?.table as string) || null,
-          currentSeat: (billData.place?.seat as number) || null,
-        }, { merge: true });
-
-        // 親 orders の集計は初回のみインクリメント
-        if (isNew) {
-          tx.update(ordersRef, {
-            onedayOrderQuantity: FieldValue.increment(1),
-            onedayTotalPrice: FieldValue.increment(resolved.unitPriceIncl * item.quantity),
-            date: dateString,
-            updatedAt: now,
-          });
-        }
+        businessDate,
+        userId,
+        userName,
+        currentTable,
+        currentSeat,
       });
 
       return {
@@ -187,14 +160,13 @@ export const placeOrder = onCall(async (request) => {
   } catch (error) {
     console.error("placeOrder エラー:", error);
     
-    // HttpsError の場合はそのまま返す
-    if (error && typeof error === 'object' && 'code' in error) {
-      const errorMessage = (error as any).message || String(error);
-      return { success: false, error: errorMessage };
+    // HttpsError の場合はそのまま throw
+    if (error instanceof HttpsError) {
+      throw error;
     }
     
-    // エラーの詳細を返す（デバッグ用）
+    // その他のエラーは internal エラーとして throw
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return { success: false, error: errorMessage || "注文の登録に失敗しました" };
+    throw new HttpsError('internal', errorMessage || "注文の登録に失敗しました");
   }
 });

@@ -1,0 +1,237 @@
+/**
+ * postEventRefund ヘルパAPI
+ * 
+ * api_contract.md §2.6 に準拠
+ * 
+ * 返金イベントを /events サブコレクションに記録し、トリガで差分反映する方式
+ * 冪等性: docID = idempotencyKey（/events/{eventId} の eventId に idempotencyKey を使用）
+ */
+
+import { getFirestore } from 'firebase-admin/firestore';
+import * as admin from 'firebase-admin';
+import { HttpsError } from 'firebase-functions/v2/https';
+import { logger } from 'firebase-functions';
+import { calcBusinessDate } from './calcBusinessDate';
+
+export interface PostEventRefundRequest {
+  billId: string;
+  idempotencyKey: string;
+  eventPayload: {
+    amountIncl: number;         // 返金額（税込）
+    reason?: string;            // 任意: 返金理由
+    method?: string;            // 任意: 返金方法
+  };
+  createdBy: string;           // 実行者UID
+  originBusinessDate?: string; // 売上帰属日（指定されない場合は bill.businessDate から取得）
+  eventBusinessDate?: string;  // イベント計上日（指定されない場合は calcBusinessDate(now) で算出）
+}
+
+export interface PostEventRefundResponse {
+  success: boolean;
+  billId: string;
+  eventId: string;
+  status: 'settled' | 'partially_refunded' | 'refunded';
+  postEvents: {
+    totalRefundedIncl: number;
+    netSalesIncl: number;
+  };
+  paymentsSummary: {
+    paidTotalIncl: number;
+    balanceDueIncl: number;
+    byMethod?: Record<string, number>;
+  };
+  diagnostics?: {
+    reason?: string;
+    reused?: boolean;
+  };
+}
+
+/**
+ * 返金イベントを記録
+ * 
+ * @param request リクエスト
+ * @returns レスポンス
+ */
+export async function postEventRefund(request: PostEventRefundRequest): Promise<PostEventRefundResponse> {
+  const { billId, idempotencyKey, eventPayload, createdBy, originBusinessDate, eventBusinessDate } = request;
+  const { amountIncl, reason, method } = eventPayload;
+
+  // バリデーション
+  if (!billId || !idempotencyKey || !createdBy) {
+    throw new HttpsError('invalid-argument', 'billId, idempotencyKey, createdBy are required');
+  }
+
+  if (amountIncl === undefined || amountIncl === null || amountIncl <= 0) {
+    throw new HttpsError('invalid-argument', 'amountIncl must be greater than 0');
+  }
+
+  const db = getFirestore();
+  const billRef = db.collection('bills').doc(billId);
+  const eventRef = billRef.collection('events').doc(idempotencyKey); // eventId = idempotencyKey
+
+  let reused = false;
+
+  try {
+    const result: PostEventRefundResponse = await db.runTransaction(async (tx) => {
+      // 1) 冪等チェック: 既存の event ドキュメントを確認
+      const eventSnap = await tx.get(eventRef);
+      if (eventSnap.exists) {
+        reused = true;
+        
+        // 既存のレスポンスを返す（トリガで既に適用済み）
+        const billSnap = await tx.get(billRef);
+        if (!billSnap.exists) {
+          throw new HttpsError('not-found', `Bill ${billId} not found`);
+        }
+        
+        const billData = billSnap.data()!;
+        const postEvents = billData.postEvents || {};
+        const paymentsSummary = billData.paymentsSummary || {};
+        
+        return {
+          success: true,
+          billId,
+          eventId: idempotencyKey,
+          status: (billData.status || 'settled') as 'settled' | 'partially_refunded' | 'refunded',
+          postEvents: {
+            totalRefundedIncl: postEvents.totalRefundedIncl || 0,
+            netSalesIncl: postEvents.netSalesIncl || 0,
+          },
+          paymentsSummary: {
+            paidTotalIncl: paymentsSummary.paidTotalIncl || 0,
+            balanceDueIncl: paymentsSummary.balanceDueIncl || 0,
+            byMethod: paymentsSummary.byMethod || {},
+          },
+          diagnostics: {
+            reused: true,
+          },
+        };
+      }
+
+      // 2) bill の存在確認と status チェック
+      const billSnap = await tx.get(billRef);
+      if (!billSnap.exists) {
+        throw new HttpsError('not-found', `Bill ${billId} not found`);
+      }
+
+      const billData = billSnap.data()!;
+      const currentStatus = billData.status || 'open';
+
+      // post-settlement 状態のみ許可（refund/adjustment: settled, partially_refunded, refunded）
+      const allowedStatuses = ['settled', 'partially_refunded', 'refunded'];
+      if (!allowedStatuses.includes(currentStatus)) {
+        throw new HttpsError(
+          'failed-precondition',
+          `Cannot process refund. Current status: ${currentStatus}. Allowed statuses: ${allowedStatuses.join(', ')}`
+        );
+      }
+
+      // 3) 金額バリデーション
+      const grandTotalRounded = billData.amounts?.grandTotalRounded || 0;
+      const currentTotalRefunded = billData.postEvents?.totalRefundedIncl || 0;
+      const newTotalRefunded = currentTotalRefunded + amountIncl;
+      const currentPaymentsSummary = billData.paymentsSummary || {};
+      const paidTotalIncl = currentPaymentsSummary.paidTotalIncl || 0;
+      const currentTotalAdjustmentsIncl = billData.postEvents?.totalAdjustmentsIncl || 0;
+
+      if (newTotalRefunded > grandTotalRounded) {
+        throw new HttpsError(
+          'failed-precondition',
+          `Total refund amount (${newTotalRefunded}) exceeds grand total (${grandTotalRounded})`
+        );
+      }
+
+      // balanceDueIncl が負にならないことを確認
+      // ただし、全額返金の場合（newTotalRefunded >= grandTotalRounded）は許容
+      const newBalanceDueIncl = grandTotalRounded - paidTotalIncl - newTotalRefunded + currentTotalAdjustmentsIncl;
+      if (newBalanceDueIncl < 0 && newTotalRefunded < grandTotalRounded) {
+        throw new HttpsError(
+          'failed-precondition',
+          `Refund would result in negative balanceDueIncl: ${newBalanceDueIncl}`
+        );
+      }
+
+      // 4) businessDate の取得
+      const finalOriginBusinessDate = originBusinessDate || billData.businessDate;
+      if (!finalOriginBusinessDate) {
+        throw new HttpsError('internal', 'originBusinessDate is required');
+      }
+
+      const finalEventBusinessDate = eventBusinessDate || calcBusinessDate();
+
+      const now = admin.firestore.Timestamp.now();
+
+      // 5) /bills/{billId}/events/{eventId} を作成
+      tx.set(eventRef, {
+        type: 'refund',
+        createdAt: now,
+        createdBy,
+        reason: reason || null,
+        idempotencyKey,
+        originBusinessDate: finalOriginBusinessDate,
+        eventBusinessDate: finalEventBusinessDate,
+        refund: {
+          amountIncl,
+          method: method || null,
+        },
+        // appliedAt はトリガで設定される
+      });
+
+      // 6) レスポンスを返す（実際の postEvents と paymentsSummary の更新はトリガで行う）
+      // ここでは現在の値 + 今回の返金額を計算して返す（トリガ適用前の暫定値）
+      const postEvents = billData.postEvents || {};
+      const paymentsSummary = billData.paymentsSummary || {};
+      const newTotalRefundedIncl = (postEvents.totalRefundedIncl || 0) + amountIncl;
+      const netSalesIncl = grandTotalRounded - newTotalRefundedIncl + (postEvents.totalAdjustmentsIncl || 0);
+      
+      // ステータス判定（暫定）
+      let newStatus: 'settled' | 'partially_refunded' | 'refunded' = 'settled';
+      if (newTotalRefundedIncl >= grandTotalRounded) {
+        newStatus = 'refunded';
+      } else if (newTotalRefundedIncl > 0) {
+        newStatus = 'partially_refunded';
+      }
+
+      return {
+        success: true,
+        billId,
+        eventId: idempotencyKey,
+        status: newStatus,
+        postEvents: {
+          totalRefundedIncl: newTotalRefundedIncl,
+          netSalesIncl: Math.max(0, netSalesIncl),
+        },
+        paymentsSummary: {
+          paidTotalIncl: paymentsSummary.paidTotalIncl || 0,
+          balanceDueIncl: Math.max(0, (paymentsSummary.balanceDueIncl || 0) - amountIncl),
+          byMethod: paymentsSummary.byMethod || {},
+        },
+      };
+    });
+
+    logger.info('postEventRefund success', {
+      op: 'postEventRefund',
+      billId,
+      eventId: idempotencyKey,
+      result: reused ? 'reused' : 'ok',
+      amountIncl,
+    });
+
+    return result;
+  } catch (error) {
+    logger.error('postEventRefund failed', {
+      op: 'postEventRefund',
+      billId,
+      eventId: idempotencyKey,
+      result: 'fail',
+      code: error instanceof HttpsError ? error.code : 'internal',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError('internal', `postEventRefund failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+

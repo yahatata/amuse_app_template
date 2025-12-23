@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { getStoreCloseHour, normalizeStoreCloseHour } from '../config/ops';
 
 export const determineAttendanceMode = onCall(async (request: CallableRequest) => {
   try {
@@ -24,7 +25,8 @@ export const determineAttendanceMode = onCall(async (request: CallableRequest) =
     const currentHour = jstDate.getHours(); // 現在時刻（0-23）
     
     // 店舗締め時間設定（globalConstant.dartの値と同期）
-    const STORE_CLOSE_HOUR = 9; // 9:00まで（日付跨ぎ勤務可能）
+    const STORE_CLOSE_HOUR = getStoreCloseHour(); // 0-48の整数（24以上は翌日繰り上がり）
+    const normalizedHour = normalizeStoreCloseHour(STORE_CLOSE_HOUR); // 0-23の整数
 
     // スタッフ情報を取得
     const staffDoc = await admin.firestore()
@@ -45,7 +47,7 @@ export const determineAttendanceMode = onCall(async (request: CallableRequest) =
     let isClockIn = true; // デフォルトは出勤
     let existingDocId = null;
 
-    if (currentHour < STORE_CLOSE_HOUR) {
+    if (currentHour < normalizedHour) {
       // 締め時間前：前日の勤務を継続する可能性をチェック
       const yesterday = new Date(jstDate);
       yesterday.setDate(yesterday.getDate() - 1);

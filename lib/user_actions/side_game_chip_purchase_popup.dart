@@ -6,16 +6,19 @@ import '../../Utils/menuItemsManager.dart';
 /// SideGame用Chip購入ポップアップ
 Future<void> showSideGameChipPurchaseDialog({
   required BuildContext context,
-  required String userId,
-  required String pokerName,
+  required Map<String, dynamic> user,
 }) async {
   // 外側（ページ側）のコンテキストを退避。以降のUI操作は必ずこれを使う
   final outerCtx = context;
 
-  if (userId.isEmpty) {
+  final String billId = (user['billId'] ?? '').toString();
+  final String userId = (user['userId'] ?? '').toString();
+  final String pokerName = (user['pokerName'] ?? '').toString();
+
+  if (billId.isEmpty) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('ユーザー識別子が見つかりません')),
+        const SnackBar(content: Text('伝票IDが見つかりません')),
       );
     }
     return;
@@ -25,6 +28,7 @@ Future<void> showSideGameChipPurchaseDialog({
     context: context,
     barrierDismissible: true,
     builder: (ctx) => _SideGameChipPurchaseDialog(
+      billId: billId,
       userId: userId,
       pokerName: pokerName,
     ),
@@ -32,10 +36,12 @@ Future<void> showSideGameChipPurchaseDialog({
 }
 
 class _SideGameChipPurchaseDialog extends StatefulWidget {
+  final String billId;
   final String userId;
   final String pokerName;
 
   const _SideGameChipPurchaseDialog({
+    required this.billId,
     required this.userId,
     required this.pokerName,
   });
@@ -244,7 +250,7 @@ class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog
       final callable = functions.httpsCallable('placeOrder');
 
       final result = await callable.call({
-        'userId': widget.userId,
+        'billId': widget.billId, // ✅ userId から billId に変更
         'item': {
           'menuItemId': menu.id,
           'quantity': 1,

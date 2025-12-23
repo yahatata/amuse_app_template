@@ -33,7 +33,7 @@ describe('createBillWithActiveStay', () => {
     // admin SDK を初期化（テスト環境用、Firestore Emulator に接続）
     // 既に初期化されている場合は削除してから再初期化
     if (admin.apps.length > 0) {
-      await admin.app().delete();
+      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     }
     admin.initializeApp({
       projectId,
@@ -55,13 +55,26 @@ describe('createBillWithActiveStay', () => {
   beforeEach(async () => {
     // 各テスト前にクリーンアップ（testEnv.clearFirestore() を使用）
     await testEnv.clearFirestore();
+    
+    // activeStays コレクションを明示的にクリーンアップ（念のため）
+    const activeStaysSnapshot = await db.collection('activeStays').get();
+    const deletePromises = activeStaysSnapshot.docs.map(doc => doc.ref.delete());
+    await Promise.all(deletePromises);
+    
+    // bills コレクションも明示的にクリーンアップ（念のため）
+    const billsSnapshot = await db.collection('bills').get();
+    const deleteBillsPromises = billsSnapshot.docs.map(doc => doc.ref.delete());
+    await Promise.all(deleteBillsPromises);
   });
 
   describe('happy path', () => {
     it('bills/{billId} & activeStays/{uid} 作成、businessDate がサーバ基準', async () => {
-      const billId = 'bill_test_happy_001'; // 一意のIDを使用
-      const userId = 'user_test_happy_001'; // 一意のIDを使用
-      const idempotencyKey = 'idem_test_happy_001'; // 一意のIDを使用
+      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const billId = `bill_test_happy_${timestamp}_${random}`;
+      const userId = `user_test_happy_${timestamp}_${random}`;
+      const idempotencyKey = `idem_test_happy_${timestamp}_${random}`;
 
       // モック: getStoreCloseHour を 27 に固定
       process.env.STORE_CLOSE_HOUR = '27';
@@ -151,9 +164,12 @@ describe('createBillWithActiveStay', () => {
 
   describe('failed-precondition（重複入店）', () => {
     it('既に activeStays/{uid} が存在し isActive==true の場合 → failed-precondition', async () => {
-      const billId = 'bill_test_dup_001'; // 一意のIDを使用
-      const userId = 'user_test_dup_001'; // 一意のIDを使用
-      const idempotencyKey = 'idem_test_dup_001'; // 一意のIDを使用
+      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const billId = `bill_test_dup_${timestamp}_${random}`;
+      const userId = `user_test_dup_${timestamp}_${random}`;
+      const idempotencyKey = `idem_test_dup_${timestamp}_${random}`;
 
       // 事前に activeStays を作成
       await db.collection('activeStays').doc(userId).set({
@@ -171,16 +187,22 @@ describe('createBillWithActiveStay', () => {
         });
         fail('Should have thrown an error');
       } catch (error: any) {
+        // エラーが正しく投げられているか確認
+        expect(error).toBeDefined();
         expect(error.code).toBe('failed-precondition');
+        expect(error.message).toContain('user already has an active stay');
       }
     });
   });
 
   describe('idempotent-replay', () => {
     it('同一 idempotencyKey で再実行 → 既存docを返却（reused: true）、updatedAt は変更されない', async () => {
-      const billId = 'bill_test_idem_001'; // 一意のIDを使用
-      const userId = 'user_test_idem_001'; // 一意のIDを使用
-      const idempotencyKey = 'idem_test_idem_001'; // 一意のIDを使用
+      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const billId = `bill_test_idem_${timestamp}_${random}`;
+      const userId = `user_test_idem_${timestamp}_${random}`;
+      const idempotencyKey = `idem_test_idem_${timestamp}_${random}`;
 
       // 1回目実行
       const result1 = await createBillWithActiveStay({
@@ -193,8 +215,13 @@ describe('createBillWithActiveStay', () => {
       expect(result1.success).toBe(true);
       expect(result1.diagnostics?.reused).toBeUndefined();
 
+      // bills/{billId} が存在することを確認
       const billDoc1 = await db.collection('bills').doc(billId).get();
-      const updatedAt1 = billDoc1.data()!.updatedAt;
+      expect(billDoc1.exists).toBe(true);
+      const billData1 = billDoc1.data()!;
+      expect(billData1).toBeDefined();
+      const updatedAt1 = billData1.updatedAt;
+      expect(updatedAt1).toBeDefined();
 
       // 少し待つ（updatedAt の変化を確認するため）
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -220,9 +247,12 @@ describe('createBillWithActiveStay', () => {
 
   describe('idempotent-replay（ハッシュ不一致）', () => {
     it('同一 idempotencyKey だが payload 差し替え → failed-precondition（requestHash 不一致）', async () => {
-      const billId = 'bill_test_hash_001'; // 一意のIDを使用
-      const userId = 'user_test_hash_001'; // 一意のIDを使用
-      const idempotencyKey = 'idem_test_hash_001'; // 一意のIDを使用
+      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const billId = `bill_test_hash_${timestamp}_${random}`;
+      const userId = `user_test_hash_${timestamp}_${random}`;
+      const idempotencyKey = `idem_test_hash_${timestamp}_${random}`;
 
       // 1回目実行
       await createBillWithActiveStay({
@@ -249,9 +279,12 @@ describe('createBillWithActiveStay', () => {
 
   describe('businessDate サーバ専任', () => {
     it('クライアントが businessDate を送っても結果に影響しないこと（サーバが calcBusinessDate で確定）', async () => {
-      const billId = 'bill_test_biz_001'; // 一意のIDを使用
-      const userId = 'user_test_biz_001'; // 一意のIDを使用
-      const idempotencyKey = 'idem_test_biz_001'; // 一意のIDを使用
+      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const billId = `bill_test_biz_${timestamp}_${random}`;
+      const userId = `user_test_biz_${timestamp}_${random}`;
+      const idempotencyKey = `idem_test_biz_${timestamp}_${random}`;
 
       // モック: getStoreCloseHour を 27 に固定
       process.env.STORE_CLOSE_HOUR = '27';
@@ -283,9 +316,12 @@ describe('createBillWithActiveStay', () => {
     it('DualWrite ON: todaysBills/{billId} にスケルトン複写が作成されること（docIDは必ず billId）', async () => {
       process.env.WRITE_TODAYS_BILLS_IN_PARALLEL = 'true';
 
-      const billId = 'bill_test_dual_on_001'; // 一意のIDを使用
-      const userId = 'user_test_dual_on_001'; // 一意のIDを使用
-      const idempotencyKey = 'idem_test_dual_on_001'; // 一意のIDを使用
+      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const billId = `bill_test_dual_on_${timestamp}_${random}`;
+      const userId = `user_test_dual_on_${timestamp}_${random}`;
+      const idempotencyKey = `idem_test_dual_on_${timestamp}_${random}`;
 
       const result = await createBillWithActiveStay({
         billId,
@@ -295,6 +331,10 @@ describe('createBillWithActiveStay', () => {
       });
 
       expect(result.success).toBe(true);
+      
+      // bills/{billId} が作成されていることを確認
+      const billDoc = await db.collection('bills').doc(billId).get();
+      expect(billDoc.exists).toBe(true);
 
       // todaysBills/{billId} が作成されている（docIDは必ず billId）
       const todaysBillsDoc = await db.collection('todaysBills').doc(billId).get();
@@ -313,9 +353,12 @@ describe('createBillWithActiveStay', () => {
     it('DualWrite OFF: todaysBills への複写がスキップされること', async () => {
       process.env.WRITE_TODAYS_BILLS_IN_PARALLEL = 'false';
 
-      const billId = 'bill_test_dual_off_001'; // 一意のIDを使用
-      const userId = 'user_test_dual_off_001'; // 一意のIDを使用
-      const idempotencyKey = 'idem_test_dual_off_001'; // 一意のIDを使用
+      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const billId = `bill_test_dual_off_${timestamp}_${random}`;
+      const userId = `user_test_dual_off_${timestamp}_${random}`;
+      const idempotencyKey = `idem_test_dual_off_${timestamp}_${random}`;
 
       const result = await createBillWithActiveStay({
         billId,

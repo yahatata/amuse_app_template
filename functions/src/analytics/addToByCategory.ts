@@ -28,24 +28,26 @@ export async function addToByCategory(
     updateData[`orderCounts.${category}`] = admin.firestore.FieldValue.increment(1);
   });
   
-  // itemSales更新（itemsのみ）
-  const items = billData.items || [];
-  items.forEach((item: any) => {
-    const menuItemId = item.menuItemId;
-    if (menuItemId) {
-      const itemData = {
-        qty: admin.firestore.FieldValue.increment(item.quantity || 0),
-        sales: admin.firestore.FieldValue.increment(item.totalPrice || 0),
-        name: item.name || '',
-        category: item.category || '',
-      };
-      
-      updateData[`itemSales.${menuItemId}.qty`] = itemData.qty;
-      updateData[`itemSales.${menuItemId}.sales`] = itemData.sales;
-      updateData[`itemSales.${menuItemId}.name`] = item.name || '';
-      updateData[`itemSales.${menuItemId}.category`] = item.category || '';
+  // itemSales更新（itemsSnapshot から生成）
+  const itemsSnapshot = billData.itemsSnapshot || {};
+  for (const [menuItemId, item] of Object.entries(itemsSnapshot)) {
+    if (item && typeof item === 'object') {
+      const itemData = item as { qty: number; salesIncl: number; name: string; category: string | null };
+      updateData[`itemSales.${menuItemId}.qty`] = admin.firestore.FieldValue.increment(itemData.qty || 0);
+      updateData[`itemSales.${menuItemId}.sales`] = admin.firestore.FieldValue.increment(itemData.salesIncl || 0);
+      updateData[`itemSales.${menuItemId}.name`] = itemData.name || '';
+      updateData[`itemSales.${menuItemId}.category`] = itemData.category || '';
     }
-  });
+  }
+  
+  // itemsSnapshot._others がある場合は itemSales._others を作る
+  if (itemsSnapshot._others) {
+    const othersData = itemsSnapshot._others as { qty: number; salesIncl: number; name: string; category: string | null };
+    updateData['itemSales._others.qty'] = admin.firestore.FieldValue.increment(othersData.qty || 0);
+    updateData['itemSales._others.sales'] = admin.firestore.FieldValue.increment(othersData.salesIncl || 0);
+    updateData['itemSales._others.name'] = othersData.name || 'その他';
+    updateData['itemSales._others.category'] = othersData.category || null;
+  }
   
   // ドキュメントが存在しない場合は初期化
   if (!byCategoryDoc || !byCategoryDoc.exists) {

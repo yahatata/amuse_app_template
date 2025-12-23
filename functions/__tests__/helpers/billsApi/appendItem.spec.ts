@@ -31,7 +31,7 @@ describe('appendItem', () => {
     });
     
     if (admin.apps.length > 0) {
-      await admin.app().delete();
+      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     }
     admin.initializeApp({
       projectId,

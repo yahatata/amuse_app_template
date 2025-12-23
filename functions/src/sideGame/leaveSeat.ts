@@ -3,15 +3,15 @@
  * 
  * サイドゲームからの退席処理
  * 
- * 新スキーマ対応（最小限）:
- * - getActiveBillByUser で billId を取得
- * - bills.place を更新（updatePlace ヘルパAPI利用はP1-04で実装予定）
+ * 新スキーマ対応:
+ * - activeStays/{userId} から billId を取得
+ * - updatePlace ヘルパAPIを使用して bills.place を更新
  */
 
 import { onCall } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getActiveBillByUser } from '../helpers/billsApi/getActiveBillByUser';
-import * as admin from 'firebase-admin';
+import { HttpsError } from 'firebase-functions/v2/https';
+import { updatePlace } from '../helpers/billsApi/updatePlace';
 
 export const leaveSeat = onCall(async (request) => {
   const db = getFirestore();
@@ -23,7 +23,29 @@ export const leaveSeat = onCall(async (request) => {
     console.log(`seatNumber: ${seatNumber}`);
     console.log(`userId: ${userId}`);
 
-    // 1. sideGameコレクションの座席情報をクリア（seatsマップ内から削除）
+    // パラメータの検証
+    if (!tableId || !seatNumber || !userId) {
+      throw new HttpsError('invalid-argument', '必須パラメータが不足しています: tableId, seatNumber, userId');
+    }
+
+    // 1. activeStaysからbillIdを取得（存在チェックは本callable側の責務）
+    const activeStayRef = db.collection('activeStays').doc(userId);
+    const activeStayDoc = await activeStayRef.get();
+
+    if (!activeStayDoc.exists) {
+      throw new HttpsError('not-found', `ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
+    }
+
+    const activeStayData = activeStayDoc.data()!;
+    const billId = activeStayData.billId as string;
+
+    if (!billId) {
+      throw new HttpsError('failed-precondition', `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+    }
+
+    console.log(`billId取得完了: ${billId}`);
+
+    // 2. sideGameコレクションの座席情報をクリア（seatsマップ内から削除）
     const seatNumberStr = seatNumber.toString().padStart(2, '0');
     const sideGameUpdateData = {
       [`seats.seat${seatNumberStr}UserId`]: null,
@@ -34,38 +56,13 @@ export const leaveSeat = onCall(async (request) => {
     await db.collection('sideGame').doc(tableId).update(sideGameUpdateData);
     console.log(`sideGame座席クリア完了: seat${seatNumberStr}`);
 
-    // 2. todaysBillsの参加者情報をクリア（userIdフィールドで検索）
-    const todaysBillsQuery = await db.collection('todaysBills')
-      .where('userId', '==', userId)
-      .limit(1)
-      .get();
-    
-    if (!todaysBillsQuery.empty) {
-      const todaysBillsDoc = todaysBillsQuery.docs[0];
-      const todaysBillsUpdateData = {
-        currentSeat: null,
-        currentTable: null,
-        updatedAt: new Date(),
-      };
-
-      await todaysBillsDoc.ref.update(todaysBillsUpdateData);
-      console.log(`todaysBillsクリア完了: ${userId}`);
-    }
-
-    // 3. bills.place を更新（最小限の実装、updatePlace ヘルパAPI利用はP1-04で実装予定）
-    try {
-      const { billId } = await getActiveBillByUser(userId);
-      const billRef = db.collection('bills').doc(billId);
-      await billRef.update({
-        'place.table': null,
-        'place.seat': null,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      console.log(`bills.placeクリア完了: ${billId}`);
-    } catch (billError) {
-      console.warn('bills.place更新失敗（最小限実装のため警告のみ）:', billError);
-      // エラーをthrowしない（最小限の実装のため）
-    }
+    // 3. updatePlace ヘルパAPIを使用して bills.place を更新（table: null, seat: null）
+    await updatePlace({
+      billId,
+      table: null,
+      seat: null,
+    });
+    console.log(`bills.placeクリア完了: ${billId}`);
 
     return {
       success: true,
@@ -79,6 +76,15 @@ export const leaveSeat = onCall(async (request) => {
 
   } catch (error) {
     console.error('leaveSeatエラー:', error);
-    throw new Error(`退席処理に失敗しました: ${error}`);
+    console.error('エラー詳細:', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined,
+    });
+    
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError('internal', `退席処理に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
   }
 });

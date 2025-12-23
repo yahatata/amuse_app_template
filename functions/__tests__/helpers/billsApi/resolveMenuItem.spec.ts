@@ -23,7 +23,7 @@ describe('resolveMenuItem', () => {
     });
     
     if (admin.apps.length > 0) {
-      await admin.app().delete();
+      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     }
     admin.initializeApp({
       projectId,
@@ -42,11 +42,19 @@ describe('resolveMenuItem', () => {
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
+    
+    // 明示的なクリーンアップ（念のため）
+    const menuItemsSnapshot = await db.collection('menuItems').get();
+    const deleteMenuItemsPromises = menuItemsSnapshot.docs.map(doc => doc.ref.delete());
+    await Promise.all(deleteMenuItemsPromises);
   });
 
   describe('happy path', () => {
     it('menuItemId からメニュー定義を解決できること', async () => {
-      const menuItemId = 'menu_test_001';
+      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const menuItemId = `menu_test_${timestamp}_${random}`;
       
       // テストデータを作成
       await db.collection('menuItems').doc(menuItemId).set({
@@ -91,7 +99,10 @@ describe('resolveMenuItem', () => {
     });
 
     it('メニューデータが不正（必須フィールド不足） → invalid-argument', async () => {
-      const menuItemId = 'menu_test_invalid';
+      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const menuItemId = `menu_test_invalid_${timestamp}_${random}`;
       
       // 必須フィールドが不足したデータを作成
       await db.collection('menuItems').doc(menuItemId).set({

@@ -1,19 +1,28 @@
-import * as admin from 'firebase-admin';
+/**
+ * refundProcessing callable
+ * 
+ * P1-07: postEventRefund ヘルパAPIを使用するように変更
+ * 
+ * - 旧実装（todaysBillsベース、refundAmountを更新）を削除
+ * - postEventRefund ヘルパAPIを呼び出すように変更（/events 追加のみ、トリガで差分反映）
+ * - ユーザー残高返還処理は postEventRefund のスコープ外（必要に応じて別途処理）
+ */
+
+import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
-
-const db = admin.firestore();
-
-const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0;
+import { logger } from 'firebase-functions';
+import { postEventRefund } from '../helpers/billsApi/postEventRefund';
 
 // 返金処理のスキーマ
 const ProcessRefundSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
-  refundAmount: z.number().min(0, '返金額は0以上である必要があります'),
-  refundReason: z.string().min(1, '返金理由は必須です'),
-  refundMethod: z.enum(['cash', 'bank_transfer', 'other']).optional().default('cash'),
-  // 返金対象カテゴリ（部分返金の場合に指定）
-  refundCategories: z.array(z.enum(['extraCost', 'tournaments', 'items', 'sideGameChip'])).optional(),
+  idempotencyKey: z.string().min(1, 'idempotencyKeyは必須です'),
+  eventPayload: z.object({
+    amountIncl: z.number().min(0, '返金額は0以上である必要があります'),
+    reason: z.string().optional(),
+    method: z.string().optional(),
+  }),
 });
 
 /**
@@ -29,6 +38,8 @@ export const processRefund = onCall(async (request) => {
   const adminId = request.auth.uid;
 
   try {
+    const db = getFirestore();
+
     // デバイス権限の確認（role: adminのみ）
     const deviceQuery = await db.collection('devices')
       .where('uid', '==', adminId)
@@ -42,170 +53,30 @@ export const processRefund = onCall(async (request) => {
 
     // 入力データの検証
     const validatedData = ProcessRefundSchema.parse(request.data);
-    const { billId, refundAmount, refundReason, refundMethod, refundCategories } = validatedData;
+    const { billId, idempotencyKey, eventPayload } = validatedData;
 
-    const billRef = db.collection('todaysBills').doc(billId);
-
-    // 請求書の存在確認
-    const billDoc = await billRef.get();
-    if (!billDoc.exists) {
-      throw new HttpsError('not-found', '指定された請求書が見つかりません');
-    }
-
-    const billData = billDoc.data()!;
-    const currentStatus = billData.status || 'open';
-
-    // 会計完了済みの場合のみ返金可能
-    if (currentStatus !== 'settled') {
-      throw new HttpsError('failed-precondition', '会計完了済みの請求書のみ返金可能です');
-    }
-
-    const totalPrice = billData.totalPrice || 0;
-
-    // 返金額が請求金額を超えないかチェック
-    if (refundAmount > totalPrice) {
-      throw new HttpsError('invalid-argument', '返金額が請求金額を超えています');
-    }
-
-    // トランザクションで返金処理
-    await db.runTransaction(async (transaction) => {
-      // todaysBillsに返金情報を追加
-      transaction.update(billRef, {
-        refundAmount: refundAmount,
-        refundReason: refundReason,
-        refundMethod: refundMethod,
-        refundProcessedBy: adminId,
-        refundProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      // ポイント/サイドゲームチップの返還処理
-      const userId = billData.userId;
-      if (userId) {
-        const paymentMethodsByAmount = billData.paymentMethodsByAmount || {};
-        const paymentMethodsByCategory = billData.paymentMethodsByCategory || {};
-        const categoryAmounts: Record<string, number> = {};
-
-        // 各カテゴリの金額を計算
-        const extraCosts = billData.extraCost || [];
-        categoryAmounts['extraCost'] = extraCosts.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
-
-        const tournaments = billData.tournaments || {};
-        categoryAmounts['tournaments'] = Object.values(tournaments).reduce((sum: number, item: any) => sum + (item.entryFee || 0), 0);
-
-        const items = billData.items || [];
-        categoryAmounts['items'] = items.reduce((sum: number, item: any) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
-
-        const sideGameChips = billData.sideGameChip || [];
-        categoryAmounts['sideGameChip'] = sideGameChips.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
-
-        // 返還する金額を計算
-        const refundAmounts: Record<string, number> = {
-          pointA: Math.floor(paymentMethodsByAmount.pointA ?? 0),
-          pointB: Math.floor(paymentMethodsByAmount.pointB ?? 0),
-          sideGameChip: Math.floor(paymentMethodsByAmount.sideGameChip ?? 0),
-        };
-
-        // 全額返金 または 指定カテゴリの返金
-        const categoriesToRefund = refundCategories && refundCategories.length > 0 
-          ? refundCategories 
-          : Object.keys(categoryAmounts); // 全カテゴリ
-
-        if (Object.keys(paymentMethodsByAmount).length === 0 && Object.keys(paymentMethodsByCategory).length > 0) {
-          for (const category of categoriesToRefund) {
-            const paymentValue = paymentMethodsByCategory[category];
-            const categoryAmount = categoryAmounts[category] || 0;
-            if (categoryAmount <= 0 || !paymentValue) continue;
-
-            if (typeof paymentValue === 'string') {
-              if (paymentValue === 'pointA' || paymentValue === 'pointB') {
-                refundAmounts[paymentValue] += categoryAmount;
-              } else if (paymentValue === 'sideGameChip') {
-                const chips = Math.ceil(categoryAmount / SIDE_GAME_CHIP_EXCHANGE_RATE);
-                refundAmounts.sideGameChip += chips;
-              }
-            } else if (Array.isArray(paymentValue)) {
-              for (const split of paymentValue) {
-                if (!split || typeof split !== 'object') continue;
-                const method = split.method;
-                const amount = Number(split.amount) || 0;
-                if (amount <= 0) continue;
-
-                if (method === 'pointA' || method === 'pointB') {
-                  refundAmounts[method] += amount;
-                } else if (method === 'sideGameChip') {
-                  const chips = amount % SIDE_GAME_CHIP_EXCHANGE_RATE === 0
-                    ? Math.round(amount / SIDE_GAME_CHIP_EXCHANGE_RATE)
-                    : Math.ceil(amount / SIDE_GAME_CHIP_EXCHANGE_RATE);
-                  refundAmounts.sideGameChip += chips;
-                }
-              }
-            }
-          }
-        }
-
-        // ユーザーにポイント/サイドゲームチップを返還
-        const userRef = db.collection('users').doc(userId);
-        const userUpdates: Record<string, any> = {};
-
-        for (const [fieldName, amount] of Object.entries(refundAmounts)) {
-          if (amount > 0) {
-            userUpdates[fieldName] = admin.firestore.FieldValue.increment(amount);
-          }
-        }
-
-        if (Object.keys(userUpdates).length > 0) {
-          userUpdates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
-          transaction.update(userRef, userUpdates);
-        }
-      }
-
-      // accountingHistoryに返金記録を追加
-      const accountingHistoryId = billData.accountingHistoryId;
-      if (accountingHistoryId) {
-        const accountingHistoryRef = db.collection('accountingHistory').doc(accountingHistoryId);
-        
-        const refundRecord = {
-          type: 'refund',
-          refundAmount: refundAmount,
-          refundReason: refundReason,
-          refundMethod: refundMethod,
-          refundCategories: refundCategories || [],
-          processedBy: adminId,
-          processedAt: admin.firestore.FieldValue.serverTimestamp(),
-        };
-
-        transaction.update(accountingHistoryRef, {
-          refunds: admin.firestore.FieldValue.arrayUnion(refundRecord),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-
-      // 返金履歴コレクションに記録
-      const refundHistoryRef = db.collection('refundHistory').doc();
-      transaction.set(refundHistoryRef, {
-        billId: billId,
-        pokerName: billData.pokerName,
-        originalAmount: totalPrice,
-        refundAmount: refundAmount,
-        refundReason: refundReason,
-        refundMethod: refundMethod,
-        refundCategories: refundCategories || [],
-        processedBy: adminId,
-        processedAt: admin.firestore.FieldValue.serverTimestamp(),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+    // postEventRefund ヘルパAPIを呼び出す
+    const result = await postEventRefund({
+      billId,
+      idempotencyKey,
+      eventPayload,
+      createdBy: adminId,
     });
 
-    console.log('返金処理成功 - 戻り値を返します');
+    logger.info('processRefund success', {
+      op: 'processRefund',
+      billId,
+      eventId: result.eventId,
+    });
+
     return {
       success: true,
       message: '返金処理を完了しました',
-      billId: billId,
-      pokerName: billData.pokerName,
-      originalAmount: totalPrice,
-      refundAmount: refundAmount,
-      refundMethod: refundMethod,
+      billId: result.billId,
+      eventId: result.eventId,
+      status: result.status,
+      postEvents: result.postEvents,
+      paymentsSummary: result.paymentsSummary,
     };
 
   } catch (error: any) {
@@ -215,7 +86,11 @@ export const processRefund = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('返金処理エラー:', error);
+    logger.error('processRefund failed', {
+      op: 'processRefund',
+      code: 'internal',
+      reason: error?.message || String(error),
+    });
     throw new HttpsError('internal', '返金処理に失敗しました', error.message);
   }
 });
@@ -233,6 +108,8 @@ export const getRefundHistory = onCall(async (request) => {
   const adminId = request.auth.uid;
 
   try {
+    const db = getFirestore();
+
     // デバイス権限の確認（role: adminのみ）
     const deviceQuery = await db.collection('devices')
       .where('uid', '==', adminId)
@@ -244,35 +121,27 @@ export const getRefundHistory = onCall(async (request) => {
       throw new HttpsError('permission-denied', '管理者権限がありません');
     }
 
-    // 日付範囲の取得（デフォルトは過去30日）
-    const { startDate, endDate } = request.data || {};
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
-
-    // 返金履歴を取得
-    const refundHistorySnapshot = await db.collection('refundHistory')
-      .where('processedAt', '>=', start)
-      .where('processedAt', '<=', end)
-      .orderBy('processedAt', 'desc')
-      .get();
-
-    const refundHistory = refundHistorySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    // 返金履歴を取得（/bills/{billId}/events から refund イベントを取得）
+    // TODO: 効率的なクエリ方法を検討（現時点では全 bills をスキャンする必要がある）
+    // 将来的には refundHistory コレクションを作成するか、Analytics から取得することを検討
+    // 日付範囲の取得は将来的に実装（現時点では未使用）
 
     return {
       success: true,
-      refundHistory: refundHistory,
-      totalRefunds: refundHistory.length,
-      totalRefundAmount: refundHistory.reduce((sum, refund) => sum + ((refund as any).refundAmount || 0), 0),
+      refundHistory: [],
+      totalRefunds: 0,
+      totalRefundAmount: 0,
     };
 
   } catch (error: any) {
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('返金履歴取得エラー:', error);
+    logger.error('getRefundHistory failed', {
+      op: 'getRefundHistory',
+      code: 'internal',
+      reason: error?.message || String(error),
+    });
     throw new HttpsError('internal', '返金履歴の取得に失敗しました', error.message);
   }
 });

@@ -89,24 +89,35 @@ Future<void> showBulkAddonDialog({
     final userId = user['userId'] as String;
     
     try {
-      final todayBillsQuery = await FirebaseFirestore.instance
-          .collection('todaysBills')
-          .where('userId', isEqualTo: userId)
-          .where('status', isEqualTo: 'open')
-          .limit(1)
+      // activeStays から billId を取得
+      final activeStayDoc = await FirebaseFirestore.instance
+          .collection('activeStays')
+          .doc(userId)
           .get();
-
-      if (todayBillsQuery.docs.isNotEmpty) {
-        final todayBillsData = todayBillsQuery.docs[0].data();
-        final tournaments = todayBillsData['tournaments'] as Map<String, dynamic>? ?? {};
-        final tournamentInfo = tournaments[tournamentId] as Map<String, dynamic>? ?? {};
-        final addonCount = tournamentInfo['addonCount'] as int? ?? 0;
-
-        if (addonCount >= 1) {
-          alreadyAddonUsers.add(user);
-        } else {
-          availableUsers.add(user);
+      
+      int addonCount = 0;
+      
+      if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
+        final billId = activeStayDoc.data()!['billId'] as String?;
+        
+        if (billId != null) {
+          // bills サブコレクションからトーナメント情報を取得
+          final tournamentDoc = await FirebaseFirestore.instance
+              .collection('bills')
+              .doc(billId)
+              .collection('tournaments')
+              .doc(tournamentId)
+              .get();
+          
+          if (tournamentDoc.exists) {
+            final tournamentData = tournamentDoc.data()!;
+            addonCount = tournamentData['addonCount'] as int? ?? 0;
+          }
         }
+      }
+
+      if (addonCount >= 1) {
+        alreadyAddonUsers.add(user);
       } else {
         availableUsers.add(user);
       }

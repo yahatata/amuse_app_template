@@ -14,12 +14,14 @@ export async function addToMonthlyIndex(
   // カテゴリ別金額を計算（tournamentsも含む）
   const categoryAmounts = calculateCategoryAmounts(billData);
   
-  // 支払い方法の配賦
-  const paymentMethodsByCategory = billData.paymentMethodsByCategory || {};
-  const paymentTotals = distributePaymentMethods(paymentMethodsByCategory, categoryAmounts);
-  
   // 総売上を計算
   const grossSales = Array.from(categoryAmounts.values()).reduce((sum, amount) => sum + amount, 0);
+  
+  // 支払い方法の配賦（paymentTotals を直接使用、fallback用に総額を渡す）
+  const paymentTotals = distributePaymentMethods(billData.paymentTotals, {
+    fallbackCashAmount: billData.amounts?.grandTotalRounded || grossSales,
+    validMethods: ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'],
+  });
   
   // 更新データを準備
   const updateData: any = {
