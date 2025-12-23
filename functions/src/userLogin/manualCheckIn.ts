@@ -1,15 +1,20 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import * as bcrypt from "bcryptjs";
+<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
+=======
+import * as crypto from "crypto";
+import { createBillWithActiveStay } from "../helpers/billsApi";
+>>>>>>> billsmigration/draft
 
 /**
  * 手動チェックイン（店舗端末でのログインID + PIN 認証）
  *
  * When: 店舗端末から手動で入店処理を行うとき
  * Where: Cloud Functions (Callable)
- * What: loginId と PIN を認証し、ユーザーを入店状態にし、必要であれば入店料を todaysBills に追加
- * How: Firestore 検索 → PIN 検証 → users 更新 → todaysBills 作成
+ * What: loginId と PIN を認証し、ユーザーを入店状態にし、必要であれば入店料を bills に追加
+ * How: Firestore 検索 → PIN 検証 → users 更新 → createBillWithActiveStay ヘルパ呼び出し
  */
 export const manualCheckIn = onCall(async (request) => {
   // 認証チェック
@@ -49,7 +54,6 @@ export const manualCheckIn = onCall(async (request) => {
     }
 
     const db = getFirestore();
-    const now = new Date();
 
     // デバッグ用：全ユーザーデータを確認
     const allUsersSnapshot = await db.collection('users').get();
@@ -85,14 +89,22 @@ export const manualCheckIn = onCall(async (request) => {
     const storedHashedPin = userData.hashedPin;
     const uid = userData.uid;
     const pokerName = userData.pokerName;
-    const isStaying = userData.isStaying;
 
-    // 2. 入店済みチェック
-    if (isStaying === true) {
-      return {
-        success: false,
-        error: '入店処理済みです'
-      };
+    // 2. activeStays の存在確認
+    const activeStayRef = db.collection('activeStays').doc(uid);
+    const activeStaySnap = await activeStayRef.get();
+    
+    if (activeStaySnap.exists) {
+      const activeStayData = activeStaySnap.data();
+      const isActive = activeStayData?.isActive === true;
+      
+      if (isActive) {
+        return {
+          success: false,
+          error: 'すでに入店済みです'
+        };
+      }
+      // isActive === false の場合は再入店として処理を続ける
     }
 
     // 3. PIN認証
@@ -104,57 +116,45 @@ export const manualCheckIn = onCall(async (request) => {
       };
     }
 
-    // 4. ユーザー情報を更新
-    await db.collection('users').doc(uid).update({
-      isStaying: true,
-      lastLogin: now,
+    // 4. 再入店判定と入店料設定
+    const isReentry = activeStaySnap.exists && activeStaySnap.data()?.isActive === false;
+    const chargeEntranceFeeOnReentry = request.data.chargeEntranceFeeOnReentry ?? false;
+    
+    let finalEntranceFee = entranceFee || 0;
+    let finalEntranceFeeDescription = entranceFeeDescription || '入店料';
+    
+    if (isReentry && !chargeEntranceFeeOnReentry) {
+      // 再入店で入店料を取らない場合
+      finalEntranceFee = 0;
+      finalEntranceFeeDescription = '再入店のため、入店料0円';
+    }
+
+    // 5. bills と activeStays を作成（ヘルパAPI利用）
+    const billId = crypto.randomUUID();
+    const idempotencyKey = crypto.randomUUID();
+    
+    const billResult = await createBillWithActiveStay({
+      billId,
+      userId: uid,
+      pokerName: pokerName || null,
+      idempotencyKey,
+      entranceFee: finalEntranceFee,
+      entranceFeeDescription: finalEntranceFeeDescription,
     });
 
-    // 5. todaysBillsドキュメントを作成（入店料を含む）
-    const extraCost = entranceFee > 0 ? [{
-      name: entranceFeeDescription || "入店料",
-      price: entranceFee,
-      createdAt: now
-    }] : [];
-
-    // JST（日本時間）で日付を計算
-    const jstOffset = 9 * 60; // JST = UTC+9
-    const jstDate = new Date(now.getTime() + jstOffset * 60000);
-    const today = jstDate.toISOString().split('T')[0]; // YYYY-MM-DD形式
-
-    const todaysBillsData = {
-      createdAt: now,
-      pokerName: pokerName,
-      status: 'open',
-      userId: uid,
-      items: [],
-      tournaments: [],
-      extraCost: extraCost,
-      totalPrice: entranceFee > 0 ? entranceFee : 0, // 入店料を初期値として設定（0円の場合は0）
-      settledAt: null,
-      currentTable: null,
-      currentSeat: null,
-      // 会計履歴用フィールド
-      accountingStartedAt: null,
-      accountingCompletedAt: null,
-      accountingStartedBy: null,
-      accountingCompletedBy: null,
-      accountingHistoryId: null,
-      date: today, // JST日付
-      // 共通フィールド
-      sideGameChip: [],
-      paymentMethodsByAmount: {},
-      schemaVersion: "1.0", // globalConstant.dartのschemaVersionを参照
-    } as Record<string, unknown>;
-
-    const todaysBillsRef = await db.collection('todaysBills').add(todaysBillsData);
+    if (!billResult.success) {
+      return {
+        success: false,
+        error: '入店処理に失敗しました'
+      };
+    }
 
     return {
       success: true,
       data: {
         uid: uid,
         pokerName: pokerName,
-        todaysBillsId: todaysBillsRef.id,
+        billId: billResult.billId,
         message: `${pokerName}様のログイン処理が完了しました`
       }
     };

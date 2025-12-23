@@ -1,7 +1,12 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import * as crypto from "crypto";
 import { parseQRData, verifyQRData } from "../utils/qrCodeUtils";
+<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
+=======
+import { createBillWithActiveStay } from "../helpers/billsApi";
+>>>>>>> billsmigration/draft
 
 /**
  * 入店処理（QRスキャン起点）
@@ -11,7 +16,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/device
  * What: QRの正当性を検証し、`users/{uid}` の入店（check-in）のみを処理
  *       既に来店中の場合は更新せずメッセージのみ返却（退店は会計時に別処理）
  *       ログを `users/{uid}/visitLogs` に追加（check-in 時のみ）
- * How: verifyQRData → parseQRData → Firestore トランザクションで現在状態を参照し更新（入店のみ）
+ * How: verifyQRData → parseQRData → Firestore トランザクションで現在状態を参照し更新（入店のみ）→ createBillWithActiveStay ヘルパ呼び出し
  */
 export const processVisitByQR = onCall(async (request) => {
   // 認証チェック
@@ -33,7 +38,7 @@ export const processVisitByQR = onCall(async (request) => {
   }
 
   // 入力取り出し
-  const { qrData, entranceFee = 1000, entranceFeeDescription = "入店料" } = request.data ?? {};
+  const { qrData, entranceFee = 1000, entranceFeeDescription = "入店料", chargeEntranceFeeOnReentry = false } = request.data ?? {};
 
   // 入力バリデーション
   if (!qrData || typeof qrData !== "string") {
@@ -73,7 +78,8 @@ export const processVisitByQR = onCall(async (request) => {
     };
   }
 
-  const userRef = admin.firestore().collection("users").doc(parsed.uid);
+    const userRef = admin.firestore().collection("users").doc(parsed.uid);
+    const db = admin.firestore();
 
   try {
     // ユーザーのロール確認（ユーザー側処理のみを許可）
@@ -94,6 +100,24 @@ export const processVisitByQR = onCall(async (request) => {
       };
     }
 
+    // activeStays の存在確認
+    const activeStayRef = db.collection('activeStays').doc(parsed.uid);
+    const activeStaySnap = await activeStayRef.get();
+    
+    if (activeStaySnap.exists) {
+      const activeStayData = activeStaySnap.data();
+      const isActive = activeStayData?.isActive === true;
+      
+      if (isActive) {
+        return {
+          success: false,
+          action: null,
+          message: "すでに入店済みです",
+        };
+      }
+      // isActive === false の場合は再入店として処理を続ける
+    }
+
     // Firestore の原子更新で入店のみ処理（退店は会計時に別処理）
     const result = await admin.firestore().runTransaction(async (tx) => {
       const snap = await tx.get(userRef);
@@ -106,20 +130,9 @@ export const processVisitByQR = onCall(async (request) => {
       }
 
       const data = snap.data() || {};
-      const currentIsStaying = Boolean(data.isStaying);
 
-      if (currentIsStaying) {
-        // 既に来店中（退店は会計時）
-        return {
-          success: false,
-          action: null,
-          message: "既に来店中です。退店処理は会計時に行います。",
-        };
-      }
-
-      // 入店処理
+      // 入店処理（isStaying の更新は削除）
       tx.update(userRef, {
-        isStaying: true,
         lastCheckInAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -135,55 +148,63 @@ export const processVisitByQR = onCall(async (request) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-             // todaysBillsドキュメントを作成（入店料あり、manualCheckInと同様のフィールド）
-             const extraCost = entranceFee > 0 ? [{
-               name: entranceFeeDescription || "入店料",
-               price: entranceFee,
-               createdAt: new Date(),
-             }] : [];
-
-            // JST（日本時間）で日付を計算
-            const now = new Date();
-            const jstOffset = 9 * 60; // JST = UTC+9
-            const jstDate = new Date(now.getTime() + jstOffset * 60000);
-            const today = jstDate.toISOString().split('T')[0]; // YYYY-MM-DD形式
-            
-            const todaysBillsData = {
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
-              pokerName: data.pokerName || "",
-              status: 'open',
-              userId: parsed.uid,
-              items: [],
-              tournaments: [],
-              extraCost: extraCost, // 入店料を含む
-              totalPrice: entranceFee > 0 ? entranceFee : 0, // 入店料を初期値として設定
-              settledAt: null,
-              currentTable: null,
-              currentSeat: null,
-              // 会計履歴用フィールド
-              accountingStartedAt: null,
-              accountingCompletedAt: null,
-              accountingStartedBy: null,
-              accountingCompletedBy: null,
-              accountingHistoryId: null,
-              date: today, // JST日付
-              // 共通フィールド
-              sideGameChip: [],
-              paymentMethodsByAmount: {},
-              schemaVersion: "1.0", // globalConstant.dartのschemaVersionを参照
-            } as Record<string, unknown>;
-
-             const todaysBillsRef = admin.firestore().collection("todaysBills").doc();
-             tx.set(todaysBillsRef, todaysBillsData);
-
-             return {
-               success: true,
-               action: "checkin" as const,
-               message: "来店記録を保存しました",
-               user: { uid: parsed.uid, loginId: parsed.loginId },
-               todaysBillsId: todaysBillsRef.id,
-             };
+      // トランザクション内で pokerName を取得して返す（後でヘルパAPIで使用）
+      return {
+        success: true,
+        action: "checkin" as const,
+        message: "ユーザー情報を更新しました",
+        user: { uid: parsed.uid, loginId: parsed.loginId },
+        pokerName: data.pokerName || null,
+      };
     });
+
+    // トランザクション外で bills と activeStays を作成（ヘルパAPI利用）
+    // 注意: トランザクション内でヘルパAPIを呼び出すと、ヘルパAPI内のトランザクションと競合する可能性があるため、
+    // ユーザー情報の更新を先にトランザクションで完了させてから、ヘルパAPIを呼び出す
+    if (result.success && result.action === "checkin") {
+      const billId = crypto.randomUUID();
+      const idempotencyKey = crypto.randomUUID();
+      
+      // result から pokerName を取得（型アサーションが必要な場合）
+      const pokerName = (result as any).pokerName || null;
+      
+      // 再入店判定と入店料設定
+      const isReentry = activeStaySnap.exists && activeStaySnap.data()?.isActive === false;
+      
+      let finalEntranceFee = entranceFee || 0;
+      let finalEntranceFeeDescription = entranceFeeDescription || '入店料';
+      
+      if (isReentry && !chargeEntranceFeeOnReentry) {
+        // 再入店で入店料を取らない場合
+        finalEntranceFee = 0;
+        finalEntranceFeeDescription = '再入店のため、入店料0円';
+      }
+      
+      const billResult = await createBillWithActiveStay({
+        billId,
+        userId: parsed.uid,
+        pokerName,
+        idempotencyKey,
+        entranceFee: finalEntranceFee,
+        entranceFeeDescription: finalEntranceFeeDescription,
+      });
+
+      if (!billResult.success) {
+        return {
+          success: false,
+          action: null,
+          message: "入店処理に失敗しました（bills作成エラー）",
+        };
+      }
+
+      return {
+        success: true,
+        action: "checkin" as const,
+        message: "来店記録を保存しました",
+        user: { uid: parsed.uid, loginId: parsed.loginId },
+        billId: billResult.billId,
+      };
+    }
 
     return result;
   } catch (error) {

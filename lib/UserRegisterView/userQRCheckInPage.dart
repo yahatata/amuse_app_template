@@ -1,6 +1,8 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
+import 'package:amuse_app_template/globalConstant.dart';
 
 class UserQRCheckInPage extends StatefulWidget {
   const UserQRCheckInPage({super.key});
@@ -16,7 +18,7 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
   // How: mobile_scannerで検出→Firebase FunctionsのprocessVisitByQRをcall
   final MobileScannerController _scannerController = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
-    facing: CameraFacing.back,
+    facing: CameraFacing.front,
     torchEnabled: false,
   );
 
@@ -49,46 +51,71 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
       // What: 読み取った文字列(raw)を `processVisitByQR` に渡す
       // How: Cloud Functions(Callable)へ httpsCallable で呼び出し
       final callable = FirebaseFunctions.instance.httpsCallable('processVisitByQR');
-      final result = await callable.call({ 'qrData': raw });
+      final result = await callable.call({
+        'qrData': raw,
+        'entranceFee': GlobalConstants.entranceFee,
+        'entranceFeeDescription': GlobalConstants.entranceFeeDescription,
+        'chargeEntranceFeeOnReentry': GlobalConstants.chargeEntranceFeeOnReentry,
+      });
       final data = result.data as Map<dynamic, dynamic>;
 
       final success = data['success'] == true;
       final action = data['action']?.toString();
       final message = data['message']?.toString() ?? '';
+      final pokerName = (data['user'] as Map<dynamic, dynamic>?)?['pokerName']?.toString() ?? 
+                        (data['data'] as Map<dynamic, dynamic>?)?['pokerName']?.toString();
 
-      setState(() {
-        _lastMessage = message.isNotEmpty ? message : (success ? '処理に成功しました' : '処理に失敗しました');
-      });
+      // スキャンを停止
+      await _scannerController.stop();
 
+      // userCheckInPage に遷移してダイアログを表示
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_lastMessage!)),
+        final displayMessage = success 
+          ? (pokerName != null ? '$pokerName様のログイン処理が完了しました' : 'ログイン処理が完了しました')
+          : (message.isNotEmpty ? message : 'ログイン処理に失敗しました');
+        
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => UserCheckInPage(
+              showDialogOnLoad: true,
+              dialogMessage: displayMessage,
+              isSuccess: success,
+            ),
+          ),
         );
-      }
-
-      // 処理が成功した場合は一旦スキャンを停止して2秒後に再開
-      if (success) {
-        await _scannerController.stop();
-        await Future.delayed(const Duration(seconds: 2));
-        await _scannerController.start();
       }
     } on FirebaseFunctionsException catch (e) {
       final message = e.message ?? 'Cloud Functions 呼び出しに失敗しました';
-      setState(() {
-        _lastMessage = message;
-      });
+      // スキャンを停止
+      await _scannerController.stop();
+      
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => UserCheckInPage(
+              showDialogOnLoad: true,
+              dialogMessage: 'ログイン処理に失敗しました: $message',
+              isSuccess: false,
+            ),
+          ),
         );
       }
     } catch (e) {
-      setState(() {
-        _lastMessage = '不明なエラー: $e';
-      });
+      // スキャンを停止
+      await _scannerController.stop();
+      
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('不明なエラーが発生しました: $e')),
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => UserCheckInPage(
+              showDialogOnLoad: true,
+              dialogMessage: 'ログイン処理に失敗しました: $e',
+              isSuccess: false,
+            ),
+          ),
         );
       }
     } finally {
@@ -109,9 +136,12 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
       body: Column(
         children: [
           Expanded(
-            child: MobileScanner(
-              controller: _scannerController,
-              onDetect: _handleDetect,
+            child: Transform.rotate(
+              angle: -1.5708, // -90度（反時計回りに90度回転）をラジアンで指定（-π/2 ≈ -1.5708）
+              child: MobileScanner(
+                controller: _scannerController,
+                onDetect: _handleDetect,
+              ),
             ),
           ),
           if (_lastMessage != null)

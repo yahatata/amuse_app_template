@@ -158,10 +158,11 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
               onStatusChanged: (orderId, newStatus) {
                 _updateOrderStatus(orderId, newStatus);
               },
-              onEdit: (orderId) {
-                _showEditDialog(orderId);
+              onEdit: (orderId, billId) {
+                _showEditDialog(orderId, billId);
               },
               localStatus: _localOrderStatus[order['id']],
+              isActiveTab: _selectedTabIndex == 0, // 準備中・提供中タブの場合 true
             );
           },
         );
@@ -238,11 +239,12 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   }
 
   /// 編集ダイアログを表示
-  void _showEditDialog(String orderId) {
+  void _showEditDialog(String orderId, String? billId) {
     showDialog(
       context: context,
       builder: (context) => OrderEditDialog(
         orderId: orderId,
+        billId: billId,
         onOrderUpdated: () {
           // 注文更新後の処理
           ScaffoldMessenger.of(context).showSnackBar(

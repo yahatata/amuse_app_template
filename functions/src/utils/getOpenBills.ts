@@ -1,31 +1,39 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
+import { calcBusinessDate } from "../helpers/billsApi/calcBusinessDate";
 
 /**
  * When: 入店中ユーザー一覧が必要なとき（例: 注文ダイアログ表示前、利用者一覧画面表示時）
  * Where: Cloud Functions (src/utils/getOpenBills.ts)
- * What: todaysBills から status=open のユーザー情報（最小限）を取得
+ * What: bills から status=open のユーザー情報（最小限）を取得
  * How: Firestore クエリで抽出し、ソートして返却
  */
 export const getOpenBills = onCall(async () => {
   try {
     const db = getFirestore();
+    
+    // 当日の営業日を計算（共通ユーティリティ calcBusinessDate を使用）
+    const now = new Date();
+    const businessDate = calcBusinessDate(now);
+
     const snap = await db
-      .collection("todaysBills")
+      .collection("bills")
+      .where("businessDate", "==", businessDate)
       .where("status", "==", "open")
       .get();
 
     const data = snap.docs.map((doc) => {
       const d = doc.data() as any;
       return {
-        todaysBillsId: doc.id,
-        userId: d?.userId ?? "",
-        pokerName: d?.pokerName ?? "",
-        currentTable: d?.currentTable ?? null,
-        currentSeat: d?.currentSeat ?? null,
+        billId: doc.id, // todaysBillsId → billId に変更
+        userId: d?.party?.userId ?? "",
+        pokerName: d?.party?.pokerName ?? "",
+        currentTable: d?.place?.table ?? null,
+        currentSeat: d?.place?.seat ?? null,
       };
     });
 
+    // ソート（pokerName順）
     data.sort((a, b) => (a.pokerName || "").localeCompare(b.pokerName || ""));
 
     return { success: true, data };

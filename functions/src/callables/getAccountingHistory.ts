@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { getStoreCloseHour, normalizeStoreCloseHour } from '../config/ops';
 
 const db = admin.firestore();
 
@@ -33,15 +34,16 @@ export const getAccountingHistory = onCall(async (request) => {
       throw new HttpsError('invalid-argument', '日付パラメータが必要です');
     }
 
-    // 営業日の概念を適用（店舗締め時間は9:00）
-    // 営業日の開始: 指定日のSTORE_CLOSE_HOUR（9:00）
-    // 営業日の終了: 翌日のSTORE_CLOSE_HOUR（9:00）の直前
-    const STORE_CLOSE_HOUR = 9; // globalConstant.dartと同期
+    // 営業日の概念を適用（店舗締め時間は STORE_CLOSE_HOUR）
+    // 営業日の開始: 指定日の正規化後の時刻
+    // 営業日の終了: 翌日の正規化後の時刻の直前
+    const STORE_CLOSE_HOUR = getStoreCloseHour(); // globalConstant.dartと同期
+    const normalizedHour = normalizeStoreCloseHour(STORE_CLOSE_HOUR);
     
     // JST時間で営業日の開始時刻を作成（例: 2025-10-22 09:00:00 JST）
-    const businessDayStart = new Date(`${date}T${STORE_CLOSE_HOUR.toString().padStart(2, '0')}:00:00+09:00`);
+    const businessDayStart = new Date(`${date}T${normalizedHour.toString().padStart(2, '0')}:00:00+09:00`);
     
-    // 営業日の終了時刻（翌日の9:00直前 = 翌日の8:59:59 JST）
+    // 営業日の終了時刻（翌日の正規化後の時刻直前、例: normalizedHour=9 の場合 翌日の8:59:59 JST）
     const nextDay = new Date(businessDayStart);
     nextDay.setDate(nextDay.getDate() + 1);
     nextDay.setSeconds(-1); // 8:59:59

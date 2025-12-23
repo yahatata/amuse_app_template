@@ -84,43 +84,56 @@ Future<void> showAddonDialog({
 
   // 既にAddon済みかチェック
   try {
-    final todayBillsQuery = await FirebaseFirestore.instance
-        .collection('todaysBills')
-        .where('userId', isEqualTo: userId)
-        .where('status', isEqualTo: 'open')
-        .limit(1)
+    // activeStays から billId を取得
+    final activeStayDoc = await FirebaseFirestore.instance
+        .collection('activeStays')
+        .doc(userId)
         .get();
+    
+    int addonCount = 0;
+    
+    if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
+      final billId = activeStayDoc.data()!['billId'] as String?;
+      
+      if (billId != null) {
+        // bills サブコレクションからトーナメント情報を取得
+        final tournamentDoc = await FirebaseFirestore.instance
+            .collection('bills')
+            .doc(billId)
+            .collection('tournaments')
+            .doc(tournamentId)
+            .get();
+        
+        if (tournamentDoc.exists) {
+          final tournamentData = tournamentDoc.data()!;
+          addonCount = tournamentData['addonCount'] as int? ?? 0;
+        }
+      }
+    }
 
-    if (todayBillsQuery.docs.isNotEmpty) {
-      final todayBillsData = todayBillsQuery.docs[0].data();
-      final tournaments = todayBillsData['tournaments'] as Map<String, dynamic>? ?? {};
-      final tournamentInfo = tournaments[tournamentId] as Map<String, dynamic>? ?? {};
-      final addonCount = tournamentInfo['addonCount'] as int? ?? 0;
-
-      if (addonCount >= 1) {
-        if (outerCtx.mounted) {
-          await showDialog(
-            context: outerCtx,
-            builder: (dCtx) => AlertDialog(
-              title: Row(
-                children: const [
-                  Icon(Icons.info, color: Colors.orange),
-                  SizedBox(width: 8),
-                  Text('Addon済み'),
-                ],
-              ),
-              content: Text('$pokerName様は既にAddon処理済みです。'),
-              actions: [
-                ElevatedButton(
-                  onPressed: () => Navigator.of(dCtx).pop(),
-                  child: const Text('OK'),
-                ),
+    if (addonCount >= 1) {
+      if (outerCtx.mounted) {
+        await showDialog(
+          context: outerCtx,
+          builder: (dCtx) => AlertDialog(
+            title: Row(
+              children: const [
+                Icon(Icons.info, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('Addon済み'),
               ],
             ),
-          );
-        }
-        return;
+            content: Text('$pokerName様は既にAddon処理済みです。'),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.of(dCtx).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
       }
+      return;
     }
   } catch (e) {
     // 重複チェック失敗時はログのみ、処理は継続

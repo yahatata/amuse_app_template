@@ -4,8 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class OrderCard extends StatelessWidget {
   final Map<String, dynamic> order;
   final Function(String orderId, String newStatus) onStatusChanged;
-  final Function(String orderId) onEdit;
+  final Function(String orderId, String? billId) onEdit;
   final String? localStatus;
+  final bool isActiveTab; // 準備中・提供中タブかどうか
 
   const OrderCard({
     super.key,
@@ -13,145 +14,108 @@ class OrderCard extends StatelessWidget {
     required this.onStatusChanged,
     required this.onEdit,
     this.localStatus,
+    this.isActiveTab = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final items = order['items'] as List<dynamic>? ?? [];
+    // order オブジェクトからデータを取得
+    // _TodaysOrders には items 配列ではなく、個別フィールドがある
     final userName = order['userName'] ?? '不明';
-    final currentTable = order['currentTable'] ?? '';
-    final currentSeat = order['currentSeat'] ?? '';
+    final currentTable = order['currentTable'];
+    final currentSeat = order['currentSeat'];
     final status = localStatus ?? order['status'] ?? 'preparing';
-    final createdAt = order['createdAt'] as Timestamp?;
+    final orderedAt = order['orderedAt'] as Timestamp?;
     final updatedAt = order['updatedAt'] as Timestamp?;
     
-    return Card(
+    // 商品情報（_TodaysOrders には個別フィールドとして保存されている）
+    final name = order['name'] ?? '';
+    final quantity = order['quantity'] ?? 1;
+    
+    return Dismissible(
+      key: Key(order['id'] ?? ''),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        color: Colors.green,
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.check_circle, color: Colors.white, size: 32),
+            Text(
+              '提供済み',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+      confirmDismiss: (direction) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('提供済みにしますか？'),
+            content: const Text('この注文を提供済みとしてマークします。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('キャンセル'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('確定'),
+              ),
+            ],
+          ),
+        );
+      },
+      onDismissed: (direction) async {
+        await _markAsServed(context);
+      },
+      child: Card(
         margin: const EdgeInsets.only(bottom: 8),
-        child: InkWell(
-          onTap: () => _handleCardTap(context),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ヘッダー部分
-                Row(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              // 左側: ユーザー情報、商品情報、注文時間
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    // userName(table,seat) - デフォルトの書式
+                    Text(
+                      _formatUserName(userName, currentTable, currentSeat),
+                      style: const TextStyle(
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Name(商品名)  数量:quantity - 商品名を太文字、数量の前後から""を外す、間に半角スペース2つ、文字サイズを大きく
+                    Text.rich(
+                      TextSpan(
                         children: [
-                          Text(
-                            userName,
+                          TextSpan(
+                            text: name,
                             style: const TextStyle(
-                              fontSize: 18,
+                              fontSize: 16,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          if (currentTable.isNotEmpty || currentSeat != null)
-                            Text(
-                              '${currentTable.isNotEmpty ? '卓: $currentTable' : ''}${currentSeat != null ? ' シート: $currentSeat' : ''}',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 14,
-                              ),
-                            )
-                          else
-                            Text(
-                              '現在はテーブルに着席されていません',
-                              style: TextStyle(
-                                color: Colors.orange[600],
-                                fontSize: 14,
-                                fontStyle: FontStyle.italic,
-                              ),
+                          const TextSpan(text: '  '), // 半角スペース2つ
+                          TextSpan(
+                            text: '数量:$quantity',
+                            style: const TextStyle(
+                              fontSize: 16,
                             ),
+                          ),
                         ],
                       ),
                     ),
-                    // ステータス表示
-                    _buildStatusChip(status),
-                    const SizedBox(width: 8),
-                    // 編集ボタン
-                    IconButton(
-                      onPressed: () => onEdit(order['id']),
-                      icon: const Icon(Icons.edit, color: Colors.blue),
-                    ),
-                  ],
-                ),
-                
-                const SizedBox(height: 8),
-                
-                // 注文アイテム一覧
-                ...items.asMap().entries.map<Widget>((entry) {
-                  final index = entry.key;
-                  final item = entry.value;
-                  final name = item['name'] ?? '';
-                  final quantity = item['quantity'] ?? 1;
-                  final category = item['category'] ?? '';
-                  final isLastItem = index == items.length - 1;
-                  
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: _getCategoryColor(category),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            _getCategoryDisplayName(category),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          name,
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '×$quantity',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue[700],
-                          ),
-                        ),
-                        // 最後のアイテムに提供ボタンを表示
-                        if (isLastItem && (status == 'preparing' || status == 'in_progress')) ...[
-                          const Spacer(),
-                          ElevatedButton.icon(
-                            onPressed: () => _showServedConfirmation(context),
-                            icon: const Icon(Icons.check_circle, size: 27),
-                            label: const Text('提供'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
-                              textStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  );
-                }).toList(),
-                
-                const SizedBox(height: 6),
-                
-                // 時間表示
-                Row(
-                  children: [
-                    Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
+                    const SizedBox(height: 4),
+                    // orderedAt
                     Text(
-                      _formatTime(createdAt, updatedAt, status),
+                      _formatOrderedAt(orderedAt),
                       style: TextStyle(
                         color: Colors.grey[600],
                         fontSize: 12,
@@ -159,15 +123,111 @@ class OrderCard extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+              // 右側: ステータス（タップ可能）と編集ボタン
+              isActiveTab
+                  ? _buildStatusSwitch(context, status)
+                  : _buildStatusChip(context, status),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: () => onEdit(order['id'], order['billId'] as String?),
+                icon: const Icon(Icons.edit, color: Colors.blue),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// ステータススイッチを構築（準備中・提供中タブ用）
+  Widget _buildStatusSwitch(BuildContext context, String currentStatus) {
+    final isPreparing = currentStatus == 'preparing';
+    final isInProgress = currentStatus == 'in_progress';
+    
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 準備中ボタン
+        GestureDetector(
+          onTap: () => _handleStatusSwitchTap(context, 'preparing'),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isPreparing ? Colors.orange.withOpacity(0.2) : Colors.grey.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                bottomLeft: Radius.circular(12),
+              ),
+              border: Border.all(
+                color: isPreparing ? Colors.orange : Colors.grey,
+                width: isPreparing ? 2 : 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.restaurant,
+                  size: 14,
+                  color: isPreparing ? Colors.orange : Colors.grey,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '準備中',
+                  style: TextStyle(
+                    color: isPreparing ? Colors.orange : Colors.grey,
+                    fontSize: 12,
+                    fontWeight: isPreparing ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
               ],
             ),
           ),
         ),
+        // 作成・提供中ボタン
+        GestureDetector(
+          onTap: () => _handleStatusSwitchTap(context, 'in_progress'),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isInProgress ? Colors.blue.withOpacity(0.2) : Colors.grey.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topRight: Radius.circular(12),
+                bottomRight: Radius.circular(12),
+              ),
+              border: Border.all(
+                color: isInProgress ? Colors.blue : Colors.grey,
+                width: isInProgress ? 2 : 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.local_dining,
+                  size: 14,
+                  color: isInProgress ? Colors.blue : Colors.grey,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '作成・提供中',
+                  style: TextStyle(
+                    color: isInProgress ? Colors.blue : Colors.grey,
+                    fontSize: 12,
+                    fontWeight: isInProgress ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  /// ステータスチップを構築
-  Widget _buildStatusChip(String status) {
+  /// ステータスチップを構築（提供済みタブ用）
+  Widget _buildStatusChip(BuildContext context, String status) {
     Color color;
     String text;
     IconData icon;
@@ -247,25 +307,53 @@ class OrderCard extends StatelessWidget {
     }
   }
 
-  /// 時間をフォーマット
-  String _formatTime(Timestamp? createdAt, Timestamp? updatedAt, String status) {
-    final time = status == 'served' ? updatedAt : createdAt;
-    if (time == null) return '';
+  /// ユーザー名をフォーマット (userName(table,seat))
+  String _formatUserName(String userName, dynamic currentTable, dynamic currentSeat) {
+    // currentTable と currentSeat が両方 null の場合は「未着席」と表示
+    final isTableNull = currentTable == null || (currentTable is String && currentTable.isEmpty);
+    final isSeatNull = currentSeat == null;
     
-    final dateTime = time.toDate();
+    if (isTableNull && isSeatNull) {
+      return '$userName(未着席)';
+    }
+    
+    final tableSeat = <String>[];
+    if (!isTableNull) {
+      tableSeat.add(currentTable.toString());
+    }
+    if (!isSeatNull) {
+      tableSeat.add(currentSeat.toString());
+    }
+    
+    if (tableSeat.isEmpty) {
+      return userName;
+    }
+    
+    return '$userName(${tableSeat.join(',')})';
+  }
+
+  /// 注文時間をフォーマット
+  String _formatOrderedAt(Timestamp? orderedAt) {
+    if (orderedAt == null) return '';
+    
+    final dateTime = orderedAt.toDate();
     return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
-  /// カードタップ処理
-  void _handleCardTap(BuildContext context) {
+  /// ステータススイッチタップ処理
+  void _handleStatusSwitchTap(BuildContext context, String targetStatus) {
     final currentStatus = localStatus ?? order['status'] ?? 'preparing';
     
-    if (currentStatus == 'preparing') {
-      onStatusChanged(order['id'], 'in_progress');
+    // 現在のステータスと異なる場合のみ変更
+    if (currentStatus != targetStatus) {
+      onStatusChanged(order['id'], targetStatus);
+      final message = targetStatus == 'preparing'
+          ? '準備中に変更しました'
+          : '作成・提供中に変更しました';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('作成・提供中に変更しました'),
-          backgroundColor: Colors.blue,
+        SnackBar(
+          content: Text(message),
+          backgroundColor: targetStatus == 'preparing' ? Colors.orange : Colors.blue,
         ),
       );
     }

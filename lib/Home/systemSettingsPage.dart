@@ -46,6 +46,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
                 subtitle: const Text('トーナメント用の一時テーブルを作成します'),
                 trailing: const Icon(Icons.arrow_forward_ios),
                 onTap: () {
+                  // TODO: 一時テーブル作成機能の実装
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -128,6 +129,24 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
               ),
             ),
             const SizedBox(height: 16),
+            
+            // 閉店クリーンアップ機能
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.cleaning_services, color: Colors.red),
+                title: const Text('閉店クリーンアップ'),
+                subtitle: const Text('activeStays を全削除します（isActiveの値に関係なく）'),
+                trailing: _isProcessing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.arrow_forward_ios),
+                onTap: _isProcessing ? null : _showCleanupActiveStaysDialog,
+              ),
+            ),
+            const SizedBox(height: 16),
             const Text(
               '注意事項',
               style: TextStyle(
@@ -143,11 +162,13 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
               '• ダミーデータ生成: テスト用のダミーデータを生成します\n'
               '• 全テーブルリセット: 全テーブルのステータスをopenにリセット\n'
               '• 全サイドゲームリセット: 全サイドゲームをクリア\n'
+              '• 閉店クリーンアップ: activeStays を全削除（isActiveの値に関係なく、開店時に空にする）\n'
               '• 本番環境では自動バッチ処理で実行されます\n'
               '• 処理中は他の操作を行わないでください',
               style: TextStyle(color: Colors.red),
             ),
           ],
+          ),
         ),
       ),
       ),
@@ -218,6 +239,9 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
     try {
       debugPrint('移管処理開始: storeCloseHour=${GlobalConstants.STORE_CLOSE_HOUR}');
       
+      // 注意: GlobalConstants.STORE_CLOSE_HOUR をそのまま渡す。
+      // migrateSettledBillsForBusinessDay 内の resolveBusinessDate で
+      // normalizeStoreCloseHour() により正規化される（24以上は翌日繰り上がり）。
       final callable = _functions.httpsCallable('migrateSettledBillsForBusinessDay');
       final result = await callable.call({
         'storeCloseHour': GlobalConstants.STORE_CLOSE_HOUR,
@@ -562,6 +586,113 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
         _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
       } else {
         _showErrorDialog('全サイドゲームリセットに失敗しました: $e');
+      }
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+  void _showCleanupActiveStaysDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('最終確認'),
+          content: const Text(
+            'activeStays を全削除しますか？\n\n'
+            'isActiveの値に関係なく、すべてのactiveStaysドキュメントが削除されます。\n'
+            '開店時に activeStays を空にするために使用します。\n'
+            '処理中は他の操作を行わないでください。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: _executeCleanupActiveStays,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('実行'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _executeCleanupActiveStays() async {
+    Navigator.of(context).pop(); // ダイアログを閉じる
+    
+    // 認証状態を確認
+    final user = _auth.currentUser;
+    if (user == null) {
+      _showErrorDialog('認証が必要です。ログインしてから再度お試しください。');
+      return;
+    }
+    
+    setState(() {
+      _isProcessing = true;
+    });
+
+    // ローディングダイアログを表示
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('閉店クリーンアップ中...'),
+            ],
+          ),
+        );
+      },
+    );
+
+    try {
+      debugPrint('閉店クリーンアップ開始');
+      
+      final callable = _functions.httpsCallable('cleanupActiveStaysOnClose');
+      final result = await callable.call();
+
+      debugPrint('閉店クリーンアップ結果: $result');
+
+      // ローディングダイアログを閉じる
+      Navigator.of(context).pop();
+
+      if (result.data['success'] == true) {
+        final deleted = result.data['deleted'] ?? 0;
+        final failed = result.data['failed'] ?? 0;
+        final message = 'Active stays cleanup: deleted=$deleted, failed=$failed';
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(message),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        _showErrorDialog(result.data['error'] ?? '閉店クリーンアップに失敗しました');
+      }
+    } catch (e) {
+      debugPrint('閉店クリーンアップエラー: $e');
+      
+      // ローディングダイアログを閉じる
+      Navigator.of(context).pop();
+      
+      if (e.toString().contains('UNAUTHENTICATED')) {
+        _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
+      } else {
+        _showErrorDialog('閉店クリーンアップに失敗しました: $e');
       }
     } finally {
       setState(() {

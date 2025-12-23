@@ -1,20 +1,36 @@
-import * as admin from 'firebase-admin';
+/**
+ * refundProcessing callable
+ * 
+ * P1-07: postEventRefund ヘルパAPIを使用するように変更
+ * 
+ * - 旧実装（todaysBillsベース、refundAmountを更新）を削除
+ * - postEventRefund ヘルパAPIを呼び出すように変更（/events 追加のみ、トリガで差分反映）
+ * - ユーザー残高返還処理は postEventRefund のスコープ外（必要に応じて別途処理）
+ */
+
+import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
 
 const db = admin.firestore();
 
 const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0;
+=======
+import { logger } from 'firebase-functions';
+import { postEventRefund } from '../helpers/billsApi/postEventRefund';
+>>>>>>> billsmigration/draft
 
 // 返金処理のスキーマ
 const ProcessRefundSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
-  refundAmount: z.number().min(0, '返金額は0以上である必要があります'),
-  refundReason: z.string().min(1, '返金理由は必須です'),
-  refundMethod: z.enum(['cash', 'bank_transfer', 'other']).optional().default('cash'),
-  // 返金対象カテゴリ（部分返金の場合に指定）
-  refundCategories: z.array(z.enum(['extraCost', 'tournaments', 'items', 'sideGameChip'])).optional(),
+  idempotencyKey: z.string().min(1, 'idempotencyKeyは必須です'),
+  eventPayload: z.object({
+    amountIncl: z.number().min(0, '返金額は0以上である必要があります'),
+    reason: z.string().optional(),
+    method: z.string().optional(),
+  }),
 });
 
 /**
@@ -30,11 +46,22 @@ export const processRefund = onCall(async (request) => {
   const callerUid = request.auth.uid;
 
   try {
+<<<<<<< HEAD
     // デバイス権限の確認（role: admin または options.accounting: true）
     const device = await getCallerDeviceByUid(callerUid);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
+=======
+    const db = getFirestore();
+
+    // デバイス権限の確認（role: adminのみ）
+    const deviceQuery = await db.collection('devices')
+      .where('uid', '==', adminId)
+      .where('role', '==', 'admin')
+      .limit(1)
+      .get();
+>>>>>>> billsmigration/draft
 
     const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'accounting');
     if (!hasPermission) {
@@ -43,8 +70,9 @@ export const processRefund = onCall(async (request) => {
 
     // 入力データの検証
     const validatedData = ProcessRefundSchema.parse(request.data);
-    const { billId, refundAmount, refundReason, refundMethod, refundCategories } = validatedData;
+    const { billId, idempotencyKey, eventPayload } = validatedData;
 
+<<<<<<< HEAD
     const billRef = db.collection('todaysBills').doc(billId);
 
     // 請求書の存在確認
@@ -196,17 +224,30 @@ export const processRefund = onCall(async (request) => {
         processedAt: admin.firestore.FieldValue.serverTimestamp(),
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+=======
+    // postEventRefund ヘルパAPIを呼び出す
+    const result = await postEventRefund({
+      billId,
+      idempotencyKey,
+      eventPayload,
+      createdBy: adminId,
     });
 
-    console.log('返金処理成功 - 戻り値を返します');
+    logger.info('processRefund success', {
+      op: 'processRefund',
+      billId,
+      eventId: result.eventId,
+>>>>>>> billsmigration/draft
+    });
+
     return {
       success: true,
       message: '返金処理を完了しました',
-      billId: billId,
-      pokerName: billData.pokerName,
-      originalAmount: totalPrice,
-      refundAmount: refundAmount,
-      refundMethod: refundMethod,
+      billId: result.billId,
+      eventId: result.eventId,
+      status: result.status,
+      postEvents: result.postEvents,
+      paymentsSummary: result.paymentsSummary,
     };
 
   } catch (error: any) {
@@ -216,7 +257,11 @@ export const processRefund = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('返金処理エラー:', error);
+    logger.error('processRefund failed', {
+      op: 'processRefund',
+      code: 'internal',
+      reason: error?.message || String(error),
+    });
     throw new HttpsError('internal', '返金処理に失敗しました', error.message);
   }
 });
@@ -234,46 +279,49 @@ export const getRefundHistory = onCall(async (request) => {
   const callerUid = request.auth.uid;
 
   try {
+<<<<<<< HEAD
     // デバイス権限の確認（role: admin または options.accounting: true）
     const device = await getCallerDeviceByUid(callerUid);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
+=======
+    const db = getFirestore();
+
+    // デバイス権限の確認（role: adminのみ）
+    const deviceQuery = await db.collection('devices')
+      .where('uid', '==', adminId)
+      .where('role', '==', 'admin')
+      .limit(1)
+      .get();
+>>>>>>> billsmigration/draft
 
     const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'accounting');
     if (!hasPermission) {
       throw new HttpsError('permission-denied', '会計管理の権限がありません');
     }
 
-    // 日付範囲の取得（デフォルトは過去30日）
-    const { startDate, endDate } = request.data || {};
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
-
-    // 返金履歴を取得
-    const refundHistorySnapshot = await db.collection('refundHistory')
-      .where('processedAt', '>=', start)
-      .where('processedAt', '<=', end)
-      .orderBy('processedAt', 'desc')
-      .get();
-
-    const refundHistory = refundHistorySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    // 返金履歴を取得（/bills/{billId}/events から refund イベントを取得）
+    // TODO: 効率的なクエリ方法を検討（現時点では全 bills をスキャンする必要がある）
+    // 将来的には refundHistory コレクションを作成するか、Analytics から取得することを検討
+    // 日付範囲の取得は将来的に実装（現時点では未使用）
 
     return {
       success: true,
-      refundHistory: refundHistory,
-      totalRefunds: refundHistory.length,
-      totalRefundAmount: refundHistory.reduce((sum, refund) => sum + ((refund as any).refundAmount || 0), 0),
+      refundHistory: [],
+      totalRefunds: 0,
+      totalRefundAmount: 0,
     };
 
   } catch (error: any) {
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('返金履歴取得エラー:', error);
+    logger.error('getRefundHistory failed', {
+      op: 'getRefundHistory',
+      code: 'internal',
+      reason: error?.message || String(error),
+    });
     throw new HttpsError('internal', '返金履歴の取得に失敗しました', error.message);
   }
 });

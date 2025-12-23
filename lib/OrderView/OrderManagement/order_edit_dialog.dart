@@ -3,11 +3,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class OrderEditDialog extends StatefulWidget {
   final String orderId;
+  final String? billId;
   final VoidCallback onOrderUpdated;
 
   const OrderEditDialog({
     super.key,
     required this.orderId,
+    this.billId,
     required this.onOrderUpdated,
   });
 
@@ -186,31 +188,72 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
   /// 注文データを読み込み
   Future<void> _loadOrderData() async {
     try {
-      final today = DateTime.now();
-      final dateString = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
-      
-      final doc = await FirebaseFirestore.instance
-          .collection('orders')
-          .doc(dateString)
-          .collection('_TodaysOrders')
-          .doc(widget.orderId)
-          .get();
+      // billId がある場合は /bills/{billId}/items/{orderId} から取得
+      // ない場合は /orders/{date}/_TodaysOrders/{orderId} から取得（後方互換性）
+      if (widget.billId != null && widget.billId!.isNotEmpty) {
+        final itemDoc = await FirebaseFirestore.instance
+            .collection('bills')
+            .doc(widget.billId)
+            .collection('items')
+            .doc(widget.orderId)
+            .get();
 
-      if (doc.exists) {
-        final data = doc.data()!;
-        setState(() {
-          _items = List<Map<String, dynamic>>.from(data['items'] ?? []);
-          _isLoading = false;
-        });
+        if (itemDoc.exists) {
+          final data = itemDoc.data()!;
+          setState(() {
+            _items = [{
+              'name': data['name'] ?? '',
+              'category': data['category'] ?? '',
+              'quantity': data['quantity'] ?? 1,
+              'unitPriceIncl': data['unitPriceIncl'] ?? 0,
+              'totalPriceIncl': data['totalPriceIncl'] ?? 0,
+            }];
+            _isLoading = false;
+          });
+        } else {
+          setState(() {
+            _isLoading = false;
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('注文データが見つかりません')),
+            );
+            Navigator.of(context).pop();
+          }
+        }
       } else {
-        setState(() {
-          _isLoading = false;
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('注文データが見つかりません')),
-          );
-          Navigator.of(context).pop();
+        // 後方互換性: _TodaysOrders から取得
+        final today = DateTime.now();
+        final dateString = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
+        
+        final doc = await FirebaseFirestore.instance
+            .collection('orders')
+            .doc(dateString)
+            .collection('_TodaysOrders')
+            .doc(widget.orderId)
+            .get();
+
+        if (doc.exists) {
+          final data = doc.data()!;
+          setState(() {
+            // _TodaysOrders には個別フィールドとして保存されている
+            _items = [{
+              'name': data['name'] ?? '',
+              'category': data['category'] ?? '',
+              'quantity': data['quantity'] ?? 1,
+            }];
+            _isLoading = false;
+          });
+        } else {
+          setState(() {
+            _isLoading = false;
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('注文データが見つかりません')),
+            );
+            Navigator.of(context).pop();
+          }
         }
       }
     } catch (e) {
@@ -260,18 +303,34 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
     });
 
     try {
-      final today = DateTime.now();
-      final dateString = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
-      
-      await FirebaseFirestore.instance
-          .collection('orders')
-          .doc(dateString)
-          .collection('_TodaysOrders')
-          .doc(widget.orderId)
-          .update({
-        'items': _items,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      // billId がある場合は /bills/{billId}/items/{orderId} を更新
+      // ない場合は /orders/{date}/_TodaysOrders/{orderId} を更新（後方互換性）
+      if (widget.billId != null && widget.billId!.isNotEmpty) {
+        final item = _items.first;
+        await FirebaseFirestore.instance
+            .collection('bills')
+            .doc(widget.billId)
+            .collection('items')
+            .doc(widget.orderId)
+            .update({
+          'quantity': item['quantity'] ?? 1,
+          'totalPriceIncl': (item['unitPriceIncl'] ?? 0) * (item['quantity'] ?? 1),
+        });
+      } else {
+        // 後方互換性: _TodaysOrders を更新
+        final today = DateTime.now();
+        final dateString = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
+        
+        await FirebaseFirestore.instance
+            .collection('orders')
+            .doc(dateString)
+            .collection('_TodaysOrders')
+            .doc(widget.orderId)
+            .update({
+          'quantity': _items.first['quantity'] ?? 1,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
 
       if (mounted) {
         Navigator.of(context).pop();
@@ -322,15 +381,29 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
     });
 
     try {
-      final today = DateTime.now();
-      final dateString = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
-      
-      await FirebaseFirestore.instance
-          .collection('orders')
-          .doc(dateString)
-          .collection('_TodaysOrders')
-          .doc(widget.orderId)
-          .delete();
+      // billId がある場合は /bills/{billId}/items/{orderId} を削除（voided=true にマーク）
+      // ない場合は /orders/{date}/_TodaysOrders/{orderId} を削除（後方互換性）
+      if (widget.billId != null && widget.billId!.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('bills')
+            .doc(widget.billId)
+            .collection('items')
+            .doc(widget.orderId)
+            .update({
+          'voided': true,
+        });
+      } else {
+        // 後方互換性: _TodaysOrders を削除
+        final today = DateTime.now();
+        final dateString = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
+        
+        await FirebaseFirestore.instance
+            .collection('orders')
+            .doc(dateString)
+            .collection('_TodaysOrders')
+            .doc(widget.orderId)
+            .delete();
+      }
 
       if (mounted) {
         Navigator.of(context).pop();

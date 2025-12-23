@@ -1,7 +1,12 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
+<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
+=======
+import { recordTournamentAction } from '../helpers/billsApi/recordTournamentAction';
+import * as crypto from 'crypto';
+>>>>>>> billsmigration/draft
 
 // 入力スキーマ
 const registerParticipantsSchema = z.object({
@@ -58,6 +63,7 @@ export const registerParticipants = functions.https.onCall(async (data, context:
     }
     
     const tournamentData = tournamentDoc.data()!;
+    const templateId = tournamentData.templateId;
     const startAt = tournamentData.startAt;
     const snapshot = tournamentData.snapshot;
     
@@ -65,8 +71,14 @@ export const registerParticipants = functions.https.onCall(async (data, context:
       throw new Error('トーナメントのスナップショット情報が存在しません');
     }
     
+    if (!templateId) {
+      throw new Error('トーナメントのtemplateIdが存在しません');
+    }
+    
     const templateName = snapshot.name;
     const entryFee = snapshot.entryFee;
+    const reentryFee = snapshot.reentryFee || 0;
+    const addonFee = snapshot.addonFee || 0;
     
     // 各ユーザーを順次処理
     for (const userId of userIds) {
@@ -74,27 +86,25 @@ export const registerParticipants = functions.https.onCall(async (data, context:
         console.log(`ユーザー ${userId} の登録処理開始`);
         
         const result = await db.runTransaction(async (transaction) => {
-          // 1. todaysBillsからユーザー情報を取得（userIdでクエリ）
-          const todayBillsQuery = db.collection('todaysBills')
-            .where('userId', '==', userId)
-            .where('status', '==', 'open')
-            .limit(1);
+          // 1. activeStaysからbillIdを取得（存在チェックは本callable側の責務）
+          const activeStayRef = db.collection('activeStays').doc(userId);
+          const activeStayDoc = await transaction.get(activeStayRef);
           
-          const todayBillsSnapshot = await transaction.get(todayBillsQuery);
-          
-          if (todayBillsSnapshot.empty) {
-            throw new Error(`ユーザー ${userId} のオープンなtodaysBillsドキュメントが存在しません`);
+          if (!activeStayDoc.exists) {
+            throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
           }
           
-          const todayBillsDoc = todayBillsSnapshot.docs[0];
-          const todayBillsData = todayBillsDoc.data();
+          const activeStayData = activeStayDoc.data()!;
+          const billId = activeStayData.billId as string;
           
-          const pokerName = todayBillsData.pokerName || `Player_${userId}`;
+          if (!billId) {
+            throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+          }
           
-          // 2. 既に登録済みかチェック（再参加を許可するため、エラーは投げない）
-          const existingTournaments = todayBillsData.tournaments || {};
+          // pokerNameはactiveStaysから取得（billsには依存しない）
+          const pokerName = activeStayData.pokerName || `Player_${userId}`;
           
-          // 3. scheduledTournaments/views/mainを取得
+          // 2. scheduledTournaments/views/mainを取得
           const viewsMainRef = db
             .collection('scheduledTournaments')
             .doc(tournamentId)
@@ -111,7 +121,7 @@ export const registerParticipants = functions.https.onCall(async (data, context:
           const currentEntries = viewsMainData.entries || 0;
           const currentWaitingCount = viewsMainData.waitingCount || 0;
           
-          // 4. scheduledTournaments/tablesSeat/waitingを取得
+          // 3. scheduledTournaments/tablesSeat/waitingを取得
           const waitingRef = db
             .collection('scheduledTournaments')
             .doc(tournamentId)
@@ -126,7 +136,7 @@ export const registerParticipants = functions.https.onCall(async (data, context:
           
           // 既にwaitingに存在するかチェック（再参加を許可するため、エラーは投げない）
           
-          // 5. scheduledTournaments/views/usersListを取得
+          // 4. scheduledTournaments/views/usersListを取得
           const usersListRef = db
             .collection('scheduledTournaments')
             .doc(tournamentId)
@@ -139,18 +149,9 @@ export const registerParticipants = functions.https.onCall(async (data, context:
           const currentUsers = usersListData?.users || {};
           const isUserAlreadyRegistered = currentUsers[userId] ? true : false;
           
-          // 6. トーナメント情報を取得（リエントリーフィー用）
-          const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
-          const tournamentDoc = await transaction.get(tournamentRef);
-          if (!tournamentDoc.exists) {
-            throw new Error('トーナメントが存在しません');
-          }
-          const tournamentData = tournamentDoc.data()!;
-          const reentryFee = tournamentData.snapshot?.reentryFee || 0;
-          
           // 全ての読み取りが完了したので、ここから書き込み操作を開始
           
-          // 7. scheduledTournaments/views/mainを更新（リエントリー判定）
+          // 5. scheduledTournaments/views/mainを更新（リエントリー判定）
           if (isUserAlreadyRegistered) {
             // リエントリーの場合
             const currentReentries = viewsMainData.reentries || 0;
@@ -190,7 +191,7 @@ export const registerParticipants = functions.https.onCall(async (data, context:
             });
           }
           
-          // 8. scheduledTournaments/tablesSeat/waitingを更新
+          // 6. scheduledTournaments/tablesSeat/waitingを更新
           if (!waitingExists) {
             // waitingドキュメントが存在しない場合は作成（ハイブリッド形式）
             transaction.set(waitingRef, {
@@ -227,54 +228,7 @@ export const registerParticipants = functions.https.onCall(async (data, context:
             });
           }
           
-          // 9. todaysBillsのtournamentsフィールドを更新（リエントリー判定）
-          const existingTournamentInfo = existingTournaments[tournamentId] || {};
-          let updatedTournamentInfo;
-          
-          if (isUserAlreadyRegistered) {
-            // リエントリーの場合
-            const currentReentryCount = existingTournamentInfo.reentryCount || 0;
-            updatedTournamentInfo = {
-              ...existingTournamentInfo,
-              reentryCount: currentReentryCount + 1,
-              reentryFee: reentryFee,
-              lastReentryAt: admin.firestore.FieldValue.serverTimestamp(),
-            };
-          } else {
-            // 初回エントリーの場合
-            updatedTournamentInfo = {
-              startAt: startAt,
-              templateName: templateName,
-              templateId: tournamentId, // templateIdを追加
-              entryFee: entryFee,
-              registeredAt: admin.firestore.FieldValue.serverTimestamp(),
-            };
-          }
-          
-          const updatedTournaments = {
-            ...existingTournaments,
-            [tournamentId]: updatedTournamentInfo,
-          };
-          
-          // totalPriceに料金を加算
-          const currentTotalPrice = todayBillsData.totalPrice || 0;
-          let newTotalPrice = currentTotalPrice;
-          
-          if (isUserAlreadyRegistered) {
-            // リエントリーの場合
-            newTotalPrice = currentTotalPrice + reentryFee;
-          } else {
-            // 初回エントリーの場合
-            newTotalPrice = currentTotalPrice + entryFee;
-          }
-          
-          transaction.update(todayBillsDoc.ref, {
-            tournaments: updatedTournaments,
-            totalPrice: newTotalPrice,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-
-          // 10. scheduledTournaments/views/usersListにユーザー情報を記録
+          // 7. scheduledTournaments/views/usersListにユーザー情報を記録
           if (usersListExists && !isUserAlreadyRegistered) {
             const updatedUsers = {
               ...currentUsers,
@@ -291,8 +245,44 @@ export const registerParticipants = functions.https.onCall(async (data, context:
             });
           }
           
-          return { success: true, userId, pokerName };
+          return { 
+            success: true, 
+            userId, 
+            pokerName, 
+            billId, 
+            templateId, 
+            isUserAlreadyRegistered,
+            entryFee,
+            reentryFee,
+            addonFee,
+            templateName,
+            startAt: startAt ? (startAt as admin.firestore.Timestamp) : null,
+          };
         });
+        
+        // トランザクション完了後、recordTournamentActionを呼び出す（トランザクション外で実行）
+        const clientNonce = crypto.randomUUID();
+        const idempotencyKey = `${result.billId}:recordTournamentAction:${result.isUserAlreadyRegistered ? 'reentry' : 'entry'}:${clientNonce}`;
+        
+        try {
+          await recordTournamentAction({
+            billId: result.billId,
+            templateId: result.templateId,
+            action: result.isUserAlreadyRegistered ? 'reentry' : 'entry',
+            templateName: result.templateName,
+            // 初回エントリーの場合：entryFeeInclを設定、reentryFeeInclとaddonFeeInclも将来のために設定
+            // リエントリーの場合：reentryFeeInclを設定、entryFeeInclとaddonFeeInclも将来のために設定
+            entryFeeIncl: result.isUserAlreadyRegistered ? null : result.entryFee,
+            reentryFeeIncl: result.isUserAlreadyRegistered ? result.reentryFee : (result.reentryFee > 0 ? result.reentryFee : null),
+            addonFeeIncl: result.addonFee > 0 ? result.addonFee : null,
+            startAt: result.startAt,
+            idempotencyKey,
+          });
+        } catch (error) {
+          console.error(`Failed to record tournament action for user ${result.userId}:`, error);
+          // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
+          // scheduledTournamentsの更新は成功しているため
+        }
         
         results.push({ success: true, userId: result.userId });
         console.log(`ユーザー ${userId} の登録完了`);

@@ -1,69 +1,53 @@
-import { onCall } from "firebase-functions/v2/https";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
-
 /**
- * When: LIFF側のユーザーが注文確定ボタンを押下したとき
- * Where: Cloud Functions (src/itemOrder/placeOrderByUser.ts)
- * What: 認証済みユーザーのtodaysBillsにアイテムを追加し、同時にordersコレクションへ当日の注文記録を作成
- * How:
- *  - 引数で受け取った注文アイテム情報 (item または items) を使用
- *  - request.auth.uidでユーザーIDを自動取得
- *  - status=open の todaysBills を userId で特定
- *  - トランザクションで以下を実行
- *    1) todaysBills.items へ注文アイテムを追記し、totalPrice を加算
- *    2) orders/{YYYYMMDD} ドキュメントを作成/更新し、_TodaysOrders に注文行を作成
+ * placeOrderByUser
+ * 
+ * LIFF側のユーザーが注文確定ボタンを押下したとき
+ * 
+ * 新スキーマ対応:
+ * - getActiveBillByUser で billId を取得
+ * - appendItem で /bills/{billId}/items/{itemId} に追加（複数アイテム対応）
+ * - orders/_TodaysOrders に記録（提供動線専用、Chips除外）
  */
+
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import * as admin from "firebase-admin";
+import { getActiveBillByUser } from "../helpers/billsApi/getActiveBillByUser";
+import { appendItem } from "../helpers/billsApi/appendItem";
+import { resolveMenuItem } from "../helpers/billsApi/resolveMenuItem";
+
 export const placeOrderByUser = onCall(async (request) => {
   const db = getFirestore();
 
   try {
-    // 認証チェック
+    // 認証必須
     if (!request.auth) {
-      return { success: false, error: "認証が必要です" };
+      throw new HttpsError("permission-denied", "認証が必要です");
     }
 
     const userId = request.auth.uid;
-    
-    // 単一アイテムまたはアイテム配列の両方に対応
-    let items: Array<{
-      menuItemId: string;
-      category: string;
-      name: string;
-      price: number;
-      quantity: number;
-    }> = [];
 
-    if (request.data.item) {
-      // 単一アイテムの場合
-      items = [request.data.item];
-    } else if (request.data.items && Array.isArray(request.data.items)) {
-      // アイテム配列の場合（一括注文）
+    // items[] or item 単一
+    let items: Array<{ menuItemId: string; quantity: number }> = [];
+    if (request.data?.items && Array.isArray(request.data.items)) {
       items = request.data.items;
-    } else {
-      return { success: false, error: "アイテム情報が不正です" };
+    } else if (request.data?.item) {
+      items = [request.data.item];
     }
 
-    // 入力バリデーション
-    if (items.length === 0) {
-      return { success: false, error: "アイテムが指定されていません" };
+    if (!items.length) {
+      throw new HttpsError("invalid-argument", "アイテムが指定されていません");
     }
 
-    for (const item of items) {
-      if (!item.menuItemId || !item.name || typeof item.price !== "number" || typeof item.quantity !== "number") {
-        return { success: false, error: "アイテム情報が不正です" };
-      }
-      if (item.quantity <= 0 || item.price < 0) {
-        return { success: false, error: "数量または価格が不正です" };
+    for (const it of items) {
+      if (!it?.menuItemId || typeof it.quantity !== "number" || it.quantity <= 0) {
+        throw new HttpsError("invalid-argument", "アイテム情報が不正です");
       }
     }
 
-    const now = new Date();
-    const yyyy = String(now.getFullYear());
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    const dd = String(now.getDate()).padStart(2, "0");
-    const orderDocId = `${yyyy}${mm}${dd}`; // 親ドキュメントID: YYYYMMDD
-    const dateString = `${yyyy}-${mm}-${dd}`; // 表示/集計用: YYYY-MM-DD
+    const sessionNonce: string = request.data?.clientNonce || `session_${Date.now()}`;
 
+<<<<<<< HEAD
     // 対象ユーザーの open な todaysBills を特定
     console.log("placeOrderByUser: 検索条件", {
       userId: userId,
@@ -109,57 +93,77 @@ export const placeOrderByUser = onCall(async (request) => {
       
       return { success: false, error: `No active bill found for user: ${userId}` };
     }
+=======
+    // 1) bill 取得
+    const { billId, billData } = await getActiveBillByUser(userId);
 
-    const billsDoc = billsSnap.docs[0];
-    const billsRef = billsDoc.ref;
+    // 2) appendItem を順次実行（種類ごとに clientNonce を変える）
+    const appendResults: Array<{ itemId: string; orderedAt: string; reused: boolean; menuItemId: string; quantity: number; }> = [];
+    for (let index = 0; index < items.length; index++) {
+      const it = items[index];
+      const clientNonce = `${sessionNonce}-${index}`;
+      const idempotencyKey = `appendItem:${billId}:${clientNonce}`;
+>>>>>>> billsmigration/draft
 
-    // トランザクションで整合性を保つ
-    const result = await db.runTransaction(async (tx) => {
-      // すべての読み取りは書き込みより前に実行する
-      const ordersRef = db.collection("orders").doc(orderDocId);
-      const [billsSnapInTx, ordersSnap] = await Promise.all([
-        tx.get(billsRef),
-        tx.get(ordersRef),
-      ]);
-
-      // 1) todaysBills 更新用データの計算
-      const billsData = billsSnapInTx.data() as any;
-      const pokerName: string = billsData?.pokerName || "";
-      const currentTable: string | null = billsData?.currentTable ?? null;
-      const currentSeat: string | null = billsData?.currentSeat ?? null;
-
-      const orderedAt = now;
-      let totalItemsPrice = 0;
-      const newEntries: any[] = [];
-
-      // 各アイテムの処理
-      for (const item of items) {
-        const itemTotal = Number(item.price) * Number(item.quantity);
-        totalItemsPrice += itemTotal;
-        
-        newEntries.push({
-          menuItemId: item.menuItemId,
-          category: item.category,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          totalPrice: itemTotal,
-          orderedAt,
-        });
-      }
-
-      const existingItems: any[] = Array.isArray(billsData?.items) ? billsData.items : [];
-      const updatedItems = [...existingItems, ...newEntries];
-      const updatedTotal = (Number(billsData?.totalPrice) || 0) + totalItemsPrice;
-
-      tx.update(billsRef, {
-        items: updatedItems,
-        totalPrice: updatedTotal,
-        updatedAt: now,
+      const res = await appendItem({
+        billId,
+        item: { menuItemId: it.menuItemId, quantity: it.quantity, clientNonce },
+        idempotencyKey,
       });
 
-      // 2) orders/{YYYYMMDD} と _TodaysOrders の作成/更新
+      appendResults.push({
+        itemId: res.itemId,
+        orderedAt: res.orderedAt,
+        reused: !!res.diagnostics?.reused,
+        menuItemId: it.menuItemId,
+        quantity: it.quantity,
+      });
+    }
 
+    // 3) 非 chip のみ _TodaysOrders を作成（docId=itemId）し、親集計は新規分だけ加算
+    // calcBusinessDate は使用しない（SSoTは bill.businessDate）
+    const now = new Date();
+    const biz = billData.businessDate as string;  // "2025-11-15" (SSoT)
+    const orderDocId = biz.replace(/-/g, "");     // "20251115"
+    const dateString = biz;                       // "2025-11-15"
+
+    // 事前に menu 情報を解決（親集計に単価を使うため）
+    const resolvedCache = new Map<string, { name: string; category: string; unitPriceIncl: number }>();
+    for (const ar of appendResults) {
+      if (!resolvedCache.has(ar.menuItemId)) {
+        const r = await resolveMenuItem(ar.menuItemId);
+        resolvedCache.set(ar.menuItemId, { name: r.name, category: r.category, unitPriceIncl: r.unitPriceIncl });
+      }
+    }
+
+    await db.runTransaction(async (tx) => {
+      const ordersRef = db.collection("orders").doc(orderDocId);
+      // すべての読み取りを先に実行
+      const ordersSnap = await tx.get(ordersRef);
+
+      // 各 _TodaysOrders の読み取りを先に実行
+      const todaysOrderSnaps: Array<{ ref: admin.firestore.DocumentReference; isNew: boolean; ar: typeof appendResults[0]; r: { name: string; category: string; unitPriceIncl: number } }> = [];
+      let newCount = 0;
+      let newTotal = 0;
+
+      for (const ar of appendResults) {
+        const r = resolvedCache.get(ar.menuItemId)!;
+        // chip は除外
+        if (r.category === "chip" || r.category === "Chip") continue;
+
+        const todaysOrderRef = ordersRef.collection("_TodaysOrders").doc(ar.itemId);
+        const todaysOrderSnap = await tx.get(todaysOrderRef);
+        const isNew = !todaysOrderSnap.exists;
+        todaysOrderSnaps.push({ ref: todaysOrderRef, isNew, ar, r });
+
+        // 新規分のみ集計（読み取りループで計算）
+        if (isNew) {
+          newCount += 1;
+          newTotal += r.unitPriceIncl * ar.quantity;
+        }
+      }
+
+      // すべての書き込みを読み取りの後に実行
       if (!ordersSnap.exists) {
         tx.set(ordersRef, {
           date: dateString,
@@ -170,44 +174,54 @@ export const placeOrderByUser = onCall(async (request) => {
         });
       }
 
-      // _TodaysOrders へ行追加（各アイテムごとに個別のドキュメントを作成）
-      for (const item of newEntries) {
-        const todaysOrderRef = ordersRef.collection("_TodaysOrders").doc();
+      // 各 itemId ごとに docId=itemId で set（merge）、集計は既に完了
+      for (const { ref: todaysOrderRef, ar, r } of todaysOrderSnaps) {
         tx.set(todaysOrderRef, {
           orderDocId,
+          billId,
           userId,
-          userName: pokerName,
-          items: [item], // 単一アイテムを配列で格納
-          orderingAt: now,
+          userName: (billData.party?.pokerName as string) || "",
+          menuItemId: ar.menuItemId,
+          name: r.name,
+          category: r.category,
+          quantity: ar.quantity,
           status: "preparing",
-          currentTable,
-          currentSeat,
-          createdAt: now,
+          orderedAt: FieldValue.serverTimestamp(),
+          currentTable: (billData.place?.table as string) || null,
+          currentSeat: (billData.place?.seat as number) || null,
+        }, { merge: true });
+      }
+
+      if (newCount > 0 || newTotal > 0) {
+        tx.update(ordersRef, {
+          onedayOrderQuantity: FieldValue.increment(newCount),
+          onedayTotalPrice: FieldValue.increment(newTotal),
+          date: dateString,
           updatedAt: now,
         });
       }
-
-      // 親 orders の集計をインクリメント（注文数はアイテム数、金額は合計）
-      tx.update(ordersRef, {
-        onedayOrderQuantity: FieldValue.increment(newEntries.length), // アイテム数分インクリメント
-        onedayTotalPrice: FieldValue.increment(totalItemsPrice),
-        date: dateString,
-        updatedAt: now,
-      });
-
-      return {
-        todaysBillsId: billsRef.id,
-        ordersDocId: orderDocId,
-        todaysOrderIds: newEntries.map((_, index) => `generated_${index}`), // 複数の注文IDを返す
-        totalPrice: updatedTotal,
-        itemsCount: items.length,
-        totalItemsPrice: totalItemsPrice,
-      };
     });
 
-    return { success: true, data: result };
+    // 合計金額を計算（全アイテムの合計）
+    let totalItemsPrice = 0;
+    for (const ar of appendResults) {
+      const r = resolvedCache.get(ar.menuItemId);
+      if (r) {
+        totalItemsPrice += r.unitPriceIncl * ar.quantity;
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        billId,
+        items: appendResults.map(({ itemId, orderedAt, reused }) => ({ itemId, orderedAt, reused })),
+        itemsCount: appendResults.length,
+        totalItemsPrice, // LIFF側で使用される合計金額
+      },
+    };
   } catch (error) {
-    console.error("placeOrderByUser エラー:", error);
-    return { success: false, error: "注文の登録に失敗しました" };
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", (error as Error)?.message || "注文の登録に失敗しました");
   }
 });

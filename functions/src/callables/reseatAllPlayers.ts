@@ -2,6 +2,7 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
+import { updatePlace } from '../helpers/billsApi/updatePlace';
 
 // 入力スキーマ
 const reseatAllPlayersSchema = z.object({
@@ -55,30 +56,33 @@ export const reseatAllPlayers = functions.https.onCall(async (data, context: any
       
       const tablesSeatDocs = await transaction.get(tablesSeatRef);
       
-      // 2. todaysBillsからユーザー情報を事前に取得（すべての読み取りを最初に実行）
+      // 2. activeStaysからユーザー情報を事前に取得（すべての読み取りを最初に実行）
       const userPokerNames: { [userId: string]: string } = {};
-      const todaysBillsDocs: { [userId: string]: any } = {};
+      const userBillIds: { [userId: string]: string } = {};
       
       for (const assignment of playerAssignments) {
         const { userId } = assignment;
         
-        // todaysBillsからユーザー情報を取得（userIdでクエリ）
-        const todayBillsQuery = db.collection('todaysBills')
-          .where('userId', '==', userId)
-          .where('status', '==', 'open')
-          .limit(1);
+        // activeStaysからユーザー情報を取得（存在チェックは本callable側の責務）
+        const activeStayRef = db.collection('activeStays').doc(userId);
+        const activeStayDoc = await transaction.get(activeStayRef);
         
-        const todayBillsSnapshot = await transaction.get(todayBillsQuery);
-        let pokerName = `Player_${userId}`;
-        
-        if (!todayBillsSnapshot.empty) {
-          const todayBillsDoc = todayBillsSnapshot.docs[0];
-          const todayBillsData = todayBillsDoc.data();
-          pokerName = todayBillsData.pokerName || pokerName;
-          todaysBillsDocs[userId] = todayBillsDoc; // ドキュメント参照を保存
+        if (!activeStayDoc.exists) {
+          throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
         }
         
+        const activeStayData = activeStayDoc.data()!;
+        const billId = activeStayData.billId as string;
+        
+        if (!billId) {
+          throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+        }
+        
+        // pokerNameはactiveStaysから取得（todaysBillsには依存しない）
+        const pokerName = activeStayData.pokerName || `Player_${userId}`;
+        
         userPokerNames[userId] = pokerName;
+        userBillIds[userId] = billId;
       }
       
       // 3. 新しい割り当てに必要なテーブルシートを事前に読み取り
@@ -149,20 +153,6 @@ export const reseatAllPlayers = functions.https.onCall(async (data, context: any
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
-
-      // 7. todaysBillsのcurrentTable/currentSeatを更新（事前に取得したドキュメント参照を使用）
-      for (const assignment of playerAssignments) {
-        const { userId, tableId, seatNumber } = assignment;
-        
-        if (todaysBillsDocs[userId]) {
-          const todayBillsDoc = todaysBillsDocs[userId];
-          transaction.update(todayBillsDoc.ref, {
-            currentTable: tableId,
-            currentSeat: seatNumber,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-        }
-      }
       
       // 5. 待機者リストから割り当てられたユーザーのみを削除（事前に読み取ったドキュメントを使用）
       if (waitingDoc.exists) {
@@ -199,13 +189,41 @@ export const reseatAllPlayers = functions.https.onCall(async (data, context: any
       //   timestamp: admin.firestore.FieldValue.serverTimestamp(),
       // });
       
-      return { success: true, playerCount: playerAssignments.length };
+      // トランザクション内で取得した情報を返す（トランザクション外でupdatePlaceを呼び出すため）
+      return { 
+        success: true, 
+        playerCount: playerAssignments.length,
+        playerAssignments: playerAssignments.map(a => ({
+          userId: a.userId,
+          tableId: a.tableId,
+          seatNumber: a.seatNumber,
+          billId: userBillIds[a.userId],
+        })),
+      };
     });
+    
+    // トランザクション完了後、トランザクション外で各ユーザーごとにupdatePlaceを逐次呼び出す（ネストトランザクションを避ける）
+    if (result.playerAssignments) {
+      for (const assignment of result.playerAssignments) {
+        if (assignment.billId) {
+          try {
+            await updatePlace({
+              billId: assignment.billId,
+              table: assignment.tableId,
+              seat: assignment.seatNumber,
+            });
+          } catch (error) {
+            console.error(`updatePlace failed for userId ${assignment.userId}`, error);
+            // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
+          }
+        }
+      }
+    }
     
     console.log(`=== 全員リシート完了 ===`);
     console.log(`結果:`, result);
     
-    return result;
+    return { success: true, playerCount: result.playerCount };
     
   } catch (error) {
     console.error('=== 全員リシートエラー ===');

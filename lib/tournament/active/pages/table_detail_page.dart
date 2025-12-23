@@ -226,72 +226,147 @@ class _TableDetailPageState extends State<TableDetailPage> {
     final totalEntries = entryCount + reEntryCount; // 総エントリー数
     
     final screenSize = MediaQuery.of(context).size;
-    final availableHeight = screenSize.height - MediaQuery.of(context).padding.top - kToolbarHeight;
+    final appBarHeight = kToolbarHeight;
+    final padding = screenSize.height * 0.04 * 2; // 上下のpadding
+    final dividerHeight = 1.0; // dividerの高さ
+    final dividerMargin = 8.0 * 2; // dividerの上下マージン
     
-    // 画面高さに応じたベースフォントサイズを計算（画面高さの1.5%）
-    final baseFontSize = availableHeight * 0.025;
+    // 利用可能な高さを計算（画面高さ - AppBar - padding）
+    final availableHeight = screenSize.height - MediaQuery.of(context).padding.top - appBarHeight - padding;
+    
+    // 5つの要素 + 4つのdivider（各要素の間に1つずつ）
+    const itemCount = 5;
+    const dividerCount = 4;
+    final totalDividerHeight = dividerCount * (dividerHeight + dividerMargin);
+    
+    // 各要素に割り当てる高さを計算
+    final itemHeight = (availableHeight - totalDividerHeight) / itemCount;
+    
+    // 各要素内のサイズを計算（アイコン、ラベル、値のサイズを動的に決定）
+    // 安全なマージンを確保するため、要素高さの70%を実際のコンテンツに使用
+    final contentHeight = itemHeight * 0.7;
+    final iconSize = contentHeight * 0.35; // コンテンツ高さの35%
+    final labelFontSize = contentHeight * 0.18; // コンテンツ高さの18%
+    final valueFontSize = contentHeight * 0.28; // コンテンツ高さの28%
+    final spacing = contentHeight * 0.1; // コンテンツ高さの10%をスペーシングに
     
     return Container(
-      padding: EdgeInsets.all(screenSize.height * 0.04), // 画面幅の2%
+      padding: EdgeInsets.all(screenSize.height * 0.04),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'トーナメント情報',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+          // 一番上に総エントリー数を表示
+          SizedBox(
+            height: itemHeight,
+            child: _buildTournamentInfoItem(
+              Icons.emoji_events, 
+              '総エントリー数', 
+              totalEntries.toString(),
+              iconSize: iconSize,
+              labelFontSize: labelFontSize,
+              valueFontSize: valueFontSize,
+              spacing: spacing,
             ),
           ),
-          const SizedBox(height: 24),
-          
-          // 一番上に総エントリー数を表示
-          _buildTournamentInfoItem(Icons.emoji_events, '総エントリー数', totalEntries.toString()),
           _buildDivider(),
           
-          _buildTournamentInfoItem(Icons.replay, 'リエントリー数', reEntryCount.toString()),
+          SizedBox(
+            height: itemHeight,
+            child: _buildTournamentInfoItem(
+              Icons.replay, 
+              'リエントリー数', 
+              reEntryCount.toString(),
+              iconSize: iconSize,
+              labelFontSize: labelFontSize,
+              valueFontSize: valueFontSize,
+              spacing: spacing,
+            ),
+          ),
           _buildDivider(),
-          _buildTournamentInfoItem(Icons.add_circle, 'アドオン数', (_mainViewData?['addons'] as int? ?? 0).toString()),
+          
+          SizedBox(
+            height: itemHeight,
+            child: _buildTournamentInfoItem(
+              Icons.add_circle, 
+              'アドオン数', 
+              (_mainViewData?['addons'] as int? ?? 0).toString(),
+              iconSize: iconSize,
+              labelFontSize: labelFontSize,
+              valueFontSize: valueFontSize,
+              spacing: spacing,
+            ),
+          ),
           _buildDivider(),
-          _buildSeatedCountItem(),
+          
+          SizedBox(
+            height: itemHeight,
+            child: _buildSeatedCountItem(
+              iconSize: iconSize,
+              labelFontSize: labelFontSize,
+              valueFontSize: valueFontSize,
+              spacing: spacing,
+            ),
+          ),
           _buildDivider(),
           
           // 一番下にWaiting Playerを表示
-          _buildWaitingPlayerItem(),
+          SizedBox(
+            height: itemHeight,
+            child: _buildWaitingPlayerItem(
+              iconSize: iconSize,
+              labelFontSize: labelFontSize,
+              valueFontSize: valueFontSize,
+              spacing: spacing,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildTournamentInfoItem(IconData icon, String label, String value) {
+  Widget _buildTournamentInfoItem(
+    IconData icon, 
+    String label, 
+    String value, {
+    required double iconSize,
+    required double labelFontSize,
+    required double valueFontSize,
+    required double spacing,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            color: Colors.blue.shade700,
-            size: 24,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
               color: Colors.blue.shade700,
+              size: iconSize,
             ),
-          ),
-        ],
+            SizedBox(height: spacing),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: labelFontSize,
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: spacing * 0.5),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: valueFontSize,
+                fontWeight: FontWeight.bold,
+                color: Colors.blue.shade700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -304,16 +379,37 @@ class _TableDetailPageState extends State<TableDetailPage> {
     );
   }
 
-  Widget _buildSeatedCountItem() {
+  Widget _buildSeatedCountItem({
+    required double iconSize,
+    required double labelFontSize,
+    required double valueFontSize,
+    required double spacing,
+  }) {
     return StreamBuilder<QuerySnapshot>(
       stream: _getTablesSeatStream(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return _buildTournamentInfoItem(Icons.event_seat, '着席中人数', 'エラー');
+          return _buildTournamentInfoItem(
+            Icons.event_seat, 
+            '着席中人数', 
+            'エラー',
+            iconSize: iconSize,
+            labelFontSize: labelFontSize,
+            valueFontSize: valueFontSize,
+            spacing: spacing,
+          );
         }
 
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return _buildTournamentInfoItem(Icons.event_seat, '着席中人数', '...');
+          return _buildTournamentInfoItem(
+            Icons.event_seat, 
+            '着席中人数', 
+            '...',
+            iconSize: iconSize,
+            labelFontSize: labelFontSize,
+            valueFontSize: valueFontSize,
+            spacing: spacing,
+          );
         }
 
         final docs = snapshot.data?.docs ?? [];
@@ -340,27 +436,64 @@ class _TableDetailPageState extends State<TableDetailPage> {
         }
 
         final displayText = '$occupiedSeats/$totalSeats';
-        return _buildTournamentInfoItem(Icons.event_seat, '着席中人数', displayText);
+        return _buildTournamentInfoItem(
+          Icons.event_seat, 
+          '着席中人数', 
+          displayText,
+          iconSize: iconSize,
+          labelFontSize: labelFontSize,
+          valueFontSize: valueFontSize,
+          spacing: spacing,
+        );
       },
     );
   }
 
-  Widget _buildWaitingPlayerItem() {
+  Widget _buildWaitingPlayerItem({
+    required double iconSize,
+    required double labelFontSize,
+    required double valueFontSize,
+    required double spacing,
+  }) {
     return StreamBuilder<DocumentSnapshot>(
       stream: _getWaitingDocumentStream(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return _buildTournamentInfoItem(Icons.people_outline, 'Waiting Player', 'エラー');
+          return _buildTournamentInfoItem(
+            Icons.people_outline, 
+            'Waiting Player', 
+            'エラー',
+            iconSize: iconSize,
+            labelFontSize: labelFontSize,
+            valueFontSize: valueFontSize,
+            spacing: spacing,
+          );
         }
 
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return _buildTournamentInfoItem(Icons.people_outline, 'Waiting Player', '...');
+          return _buildTournamentInfoItem(
+            Icons.people_outline, 
+            'Waiting Player', 
+            '...',
+            iconSize: iconSize,
+            labelFontSize: labelFontSize,
+            valueFontSize: valueFontSize,
+            spacing: spacing,
+          );
         }
 
         final data = snapshot.data?.data() as Map<String, dynamic>?;
         final waitingCount = data?['count'] as int? ?? 0;
         
-        return _buildTournamentInfoItem(Icons.people_outline, 'Waiting Player', waitingCount.toString());
+        return _buildTournamentInfoItem(
+          Icons.people_outline, 
+          'Waiting Player', 
+          waitingCount.toString(),
+          iconSize: iconSize,
+          labelFontSize: labelFontSize,
+          valueFontSize: valueFontSize,
+          spacing: spacing,
+        );
       },
     );
   }

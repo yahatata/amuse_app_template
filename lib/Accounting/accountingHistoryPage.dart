@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/globalConstant.dart';
 import 'customerAccountingDetailPage.dart';
 
@@ -13,7 +12,6 @@ class AccountingHistoryPage extends StatefulWidget {
 
 class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
   
   List<Map<String, dynamic>> _accountingHistory = [];
   bool _isLoading = false;
@@ -30,7 +28,7 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
   // 営業日を計算する関数
   DateTime _getBusinessDate() {
     final now = DateTime.now();
-    final closeHour = GlobalConstants.STORE_CLOSE_HOUR;
+    final closeHour = GlobalConstants.normalizeStoreCloseHour(GlobalConstants.STORE_CLOSE_HOUR);
     
     // 現在時刻が店舗締め時間より前の場合は前日の営業日
     if (now.hour < closeHour) {
@@ -47,59 +45,153 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
     });
 
     try {
-      // Cloud Function経由で会計履歴を取得
-      final dateString = _selectedDate.toIso8601String().split('T')[0];
-      final result = await _functions.httpsCallable('getAccountingHistory').call({
-        'date': dateString,
-      });
+      // billsコレクションから直接会計履歴を取得
+      final businessDate = _selectedDate.toIso8601String().split('T')[0];
+      debugPrint('[_loadAccountingHistory] 検索営業日: $businessDate');
+      
+      // billsコレクションから会計完了済みの伝票を取得
+      // settled, partially_refunded, refunded, voided のいずれか
+      final querySnapshot = await _firestore
+          .collection('bills')
+          .where('businessDate', isEqualTo: businessDate)
+          .where('status', whereIn: ['settled', 'partially_refunded', 'refunded', 'voided'])
+          .orderBy('ops.accountingCompletedAt', descending: true)
+          .get();
 
-      if (result.data['success'] == true) {
-        final customerBasedData = result.data['customerBasedHistory'];
+      debugPrint('[_loadAccountingHistory] 取得件数: ${querySnapshot.docs.length}');
+
+      // 顧客単位でグループ化
+      final Map<String, List<Map<String, dynamic>>> customerGroups = {};
+      
+      for (var doc in querySnapshot.docs) {
+        final data = doc.data();
+        final pokerName = (data['party'] as Map<String, dynamic>?)?['pokerName'] as String?;
+        final userId = (data['party'] as Map<String, dynamic>?)?['userId'] as String?;
         
-        // デバッグログ
-        print('顧客単位会計履歴データ: $customerBasedData');
-        if (customerBasedData is List && customerBasedData.isNotEmpty) {
-          print('最初の顧客データ: ${customerBasedData[0]}');
-          print('顧客名: ${customerBasedData[0]['customerName']}');
-          print('会計記録数: ${customerBasedData[0]['recordCount']}');
-        }
+        // 顧客名を決定（pokerName があればそれを使用、なければ userId）
+        final customerName = pokerName ?? userId ?? '不明';
         
-        if (customerBasedData is List) {
-          // CastListを避けて実体化 + キーをStringに統一
-          final List<dynamic> raw = List<dynamic>.from(customerBasedData);
-          final convertedData = raw
-              .whereType<Map>() // Map<Object?, Object?>でも通る
-              .map<Map<String, dynamic>>((m) {
-                final Map<String, dynamic> result = {};
-                m.forEach((k, v) {
-                  final key = k.toString();
-                  // Dateオブジェクトはそのまま保持
-                  if (v is DateTime) {
-                    result[key] = v;
-                  } else {
-                    result[key] = v;
-                  }
-                });
-                return result;
-              })
-              .toList(growable: false);
-          
-          setState(() {
-            _accountingHistory = convertedData;
-          });
-        } else {
-          setState(() {
-            _accountingHistory = [];
-          });
+        // 会計記録データを構築
+        final postEvents = data['postEvents'] as Map<String, dynamic>? ?? {};
+        final amounts = data['amounts'] as Map<String, dynamic>? ?? {};
+        final ops = data['ops'] as Map<String, dynamic>? ?? {};
+        final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>? ?? {};
+        final status = data['status'] as String? ?? 'settled';
+        
+        final accountingRecord = <String, dynamic>{
+          'id': doc.id,
+          'billId': doc.id,
+          'accountingCompletedAt': ops['accountingCompletedAt'],
+          'accountingStartedAt': ops['accountingStartedAt'],
+          'totalPrice': amounts['grandTotalRounded'] ?? 0,
+          'status': status,
+          'paymentMethod': 'cash', // TODO: paymentsSummary.byMethod から主要な支払い方法を取得
+          'paymentMethodsByAmount': paymentsSummary['byMethod'] ?? {},
+          // 修正履歴、キャンセル記録、返金記録は events サブコレクションから取得する必要があるが、
+          // 今回は親ドキュメントの情報のみで判定
+          'corrections': [], // TODO: /bills/{billId}/events から adjustment イベントを取得
+          'cancelRecord': status == 'voided' ? {
+            'cancelledAt': ops['accountingCompletedAt'],
+            'reason': 'キャンセル',
+          } : null,
+          'refundRecord': (postEvents['totalRefundedIncl'] as num? ?? 0) > 0 ? {
+            'refundedAt': ops['accountingCompletedAt'], // TODO: 実際の返金日時を events から取得
+            'amount': postEvents['totalRefundedIncl'],
+            'reason': '返金',
+          } : null,
+        };
+        
+        if (!customerGroups.containsKey(customerName)) {
+          customerGroups[customerName] = [];
         }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('データの取得に失敗しました: ${result.data['error'] ?? '不明なエラー'}')),
-          );
-        }
+        customerGroups[customerName]!.add(accountingRecord);
       }
-    } catch (e) {
+
+      // 顧客単位のデータを配列に変換
+      final customerBasedHistory = customerGroups.entries.map((entry) {
+        final customerName = entry.key;
+        final accountingRecords = entry.value;
+        
+        // 会計記録を accountingCompletedAt でソート（降順）
+        accountingRecords.sort((a, b) {
+          final aDate = a['accountingCompletedAt'] as Timestamp?;
+          final bDate = b['accountingCompletedAt'] as Timestamp?;
+          if (aDate == null && bDate == null) return 0;
+          if (aDate == null) return 1;
+          if (bDate == null) return -1;
+          return bDate.compareTo(aDate);
+        });
+        
+        // 顧客の統計情報を計算
+        int totalAmount = 0;
+        int totalRefundAmount = 0;
+        bool hasCancelled = false;
+        bool hasCorrections = false;
+        bool hasRefunds = false;
+        
+        for (final record in accountingRecords) {
+          final status = record['status'] as String? ?? 'settled';
+          final totalPrice = (record['totalPrice'] as num? ?? 0).toInt();
+          final refundRecord = record['refundRecord'] as Map<String, dynamic>?;
+          final corrections = record['corrections'] as List<dynamic>? ?? [];
+          
+          // キャンセルされた会計は合計額に含めない
+          if (status == 'voided') {
+            hasCancelled = true;
+          } else {
+            // 修正履歴がある場合は最新の修正後の金額を使用
+            if (corrections.isNotEmpty) {
+              hasCorrections = true;
+              final latestCorrection = corrections.last as Map<String, dynamic>;
+              final newData = latestCorrection['newData'] as Map<String, dynamic>? ?? {};
+              totalAmount += (newData['totalPrice'] as num? ?? 0).toInt();
+            } else {
+              totalAmount += totalPrice;
+            }
+          }
+          
+          if (refundRecord != null) {
+            hasRefunds = true;
+            totalRefundAmount += (refundRecord['amount'] as num? ?? 0).toInt();
+          }
+        }
+        
+        // 最新の会計完了日時
+        final latestAccountingDate = accountingRecords.isNotEmpty
+            ? accountingRecords[0]['accountingCompletedAt'] as Timestamp?
+            : null;
+        
+        return <String, dynamic>{
+          'customerName': customerName,
+          'accountingRecords': accountingRecords,
+          'totalAmount': totalAmount,
+          'totalRefundAmount': totalRefundAmount,
+          'recordCount': accountingRecords.length,
+          'hasCancelled': hasCancelled,
+          'hasCorrections': hasCorrections,
+          'hasRefunds': hasRefunds,
+          'latestAccountingDate': latestAccountingDate?.toDate(),
+        };
+      }).toList();
+      
+      // 最新の会計完了日時でソート（降順）
+      customerBasedHistory.sort((a, b) {
+        final aDate = a['latestAccountingDate'] as DateTime?;
+        final bDate = b['latestAccountingDate'] as DateTime?;
+        if (aDate == null && bDate == null) return 0;
+        if (aDate == null) return 1;
+        if (bDate == null) return -1;
+        return bDate.compareTo(aDate);
+      });
+      
+      debugPrint('[_loadAccountingHistory] 顧客単位データ件数: ${customerBasedHistory.length}');
+      
+      setState(() {
+        _accountingHistory = customerBasedHistory;
+      });
+    } catch (e, stackTrace) {
+      debugPrint('[_loadAccountingHistory] エラー: $e');
+      debugPrint('[_loadAccountingHistory] スタックトレース: $stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('データの取得に失敗しました: $e')),

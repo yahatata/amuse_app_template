@@ -194,6 +194,63 @@ service cloud.firestore {
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
 
+    // activeStays コレクション（最小スキーマ、座席情報は bills.place.* に保持）
+    match /activeStays/{uid} {
+      // 読み取り: 認証済みユーザーは全員可（在席一覧表示のため）
+      allow read: if request.auth != null;
+      // 作成・更新・削除: Functions のみ許可（クライアント直書き禁止）
+      allow write: if false;
+    }
+
+    // bills コレクション（新スキーマ）
+    match /bills/{billId} {
+      // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+      allow read: if true;
+      // 書き込み: Functions のみ許可
+      // 親ドキュメントの updatedAt, amounts, categoryBreakdown, paymentsSummary, postEvents は Functions 専任
+      // クライアントは status, place.* のみ更新可能（将来実装）
+      allow write: if false;
+      
+      // サブコレクション
+      // items, extras, sideGameChips, tournaments: status != "settled" の間のみ書込可（Functions 経由）
+      // payments: Functions のみ書込（クライアント直書き禁止）
+      // events: Functions のみ書込（クライアント直書き禁止）
+      match /payments/{paymentId} {
+        // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+        allow read: if true;
+        // 書き込み: Functions のみ許可（クライアント直書き禁止）
+        allow write: if false;
+      }
+      
+      match /events/{eventId} {
+        // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+        allow read: if true;
+        // 書き込み: Functions のみ許可（クライアント直書き禁止）
+        allow write: if false;
+      }
+      
+      match /items/{itemId} {
+        // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+        allow read: if true;
+        // 書き込み: Functions のみ許可（クライアント直書き禁止）
+        allow write: if false;
+      }
+      
+      match /idempotency/{key} {
+        // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+        allow read: if true;
+        // 書き込み: Functions のみ許可（完全 Functions 限定）
+        allow write: if false;
+      }
+      
+      match /{subcollection}/{subId} {
+        // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+        allow read: if true;
+        // 書き込み: Functions のみ許可
+        allow write: if false;
+      }
+    }
+
     // その他のコレクションは読み書き禁止
     match /{document=**} {
       allow read, write: if false;

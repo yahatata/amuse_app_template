@@ -2,6 +2,7 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
+import { updatePlace } from '../helpers/billsApi/updatePlace';
 
 // 入力データの検証スキーマ
 const bustAndExitSchema = z.object({
@@ -64,17 +65,14 @@ export const bustAndExit = functions.https.onCall(async (data, context: any) => 
       .collection('tablesSeat')
       .doc('busted');
 
-    const todayBillsQuery = db.collection('todaysBills')
-      .where('userId', '==', userId)
-      .where('status', '==', 'open')
-      .limit(1);
+    const activeStayRef = db.collection('activeStays').doc(userId);
 
-    // 事前読み取り
-    const [tableSeatDoc, viewsMainDoc, bustedDoc, todayBillsSnapshot] = await Promise.all([
+    // 事前読み取り（bustedDoc は読み取るが、存在しない場合は空オブジェクトをデフォルトとして使用）
+    const [tableSeatDoc, viewsMainDoc, bustedDoc, activeStayDoc] = await Promise.all([
       tableSeatRef.get(),
       viewsMainRef.get(),
       bustedRef.get(),
-      todayBillsQuery.get()
+      activeStayRef.get()
     ]);
 
     // バリデーション
@@ -84,6 +82,18 @@ export const bustAndExit = functions.https.onCall(async (data, context: any) => 
 
     if (!viewsMainDoc.exists) {
       throw new Error('トーナメントのviews/mainドキュメントが存在しません');
+    }
+
+    // activeStaysの存在チェック（本callable側の責務）
+    if (!activeStayDoc.exists) {
+      throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
+    }
+
+    const activeStayData = activeStayDoc.data()!;
+    const billId = activeStayData.billId as string;
+
+    if (!billId) {
+      throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
     }
 
     const tableSeatData = tableSeatDoc.data()!;
@@ -102,6 +112,7 @@ export const bustAndExit = functions.https.onCall(async (data, context: any) => 
     const viewsMainData = viewsMainDoc.data()!;
     const currentPlayersBusted = viewsMainData.playersBusted || 0;
 
+    // bustedUser を取得（存在しない場合は空オブジェクトをデフォルトとして使用）
     const bustedData = bustedDoc.exists ? bustedDoc.data()! : { bustedUser: {} };
     const bustedUser = bustedData.bustedUser || {};
 
@@ -128,29 +139,36 @@ export const bustAndExit = functions.https.onCall(async (data, context: any) => 
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // 3. bustedドキュメントに退席情報を追加
-      const updatedBustedUser = { ...bustedUser };
-      updatedBustedUser[userId] = {
-        pokerName: pokerName,
-        bustAt: admin.firestore.FieldValue.serverTimestamp(),
+      // 3. bustedドキュメントに退席情報を追加（merge: true で存在しない場合は自動作成）
+      const updatedBustedUser = {
+        ...bustedUser,
+        [userId]: {
+          pokerName: pokerName,
+          bustAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
       };
 
-      transaction.update(bustedRef, {
+      transaction.set(bustedRef, {
         bustedUser: updatedBustedUser,
-      });
+      }, { merge: true });
 
-      // 4. todaysBillsのcurrentTable/currentSeatをnullに設定
-      if (!todayBillsSnapshot.empty) {
-        const todayBillsDoc = todayBillsSnapshot.docs[0];
-        transaction.update(todayBillsDoc.ref, {
-          currentTable: null,
-          currentSeat: null,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-
-      return { success: true, userId, tableId, seatNumber };
+      // billIdを返して、トランザクション外でupdatePlaceを呼び出す
+      return { success: true, userId, tableId, seatNumber, billId };
     });
+    
+    // トランザクション完了後、トランザクション外でupdatePlaceを呼び出す
+    if (result.billId) {
+      try {
+        await updatePlace({
+          billId: result.billId,
+          table: null,
+          seat: null,
+        });
+      } catch (error) {
+        console.error('updatePlace failed', error);
+        // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
+      }
+    }
 
     console.log(`=== Bust&退席完了 ===`);
     console.log(`ユーザー ${userId} のBust&退席が完了しました`);

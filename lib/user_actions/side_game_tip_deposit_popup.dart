@@ -56,6 +56,15 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
   final TextEditingController _amountController = TextEditingController();
   bool _isLoading = false;
   num _currentTip = 0;
+  // ✅ ダイアログが開いている間は固定の clientNonce（画面セッションで固定）
+  late final String _clientNonce;
+
+  @override
+  void initState() {
+    super.initState();
+    // ダイアログが開いた時点で生成し、閉じるまで同じ値を使い回す
+    _clientNonce = 'deposit_${DateTime.now().millisecondsSinceEpoch}_${widget.userId.substring(0, 8)}';
+  }
 
   @override
   void dispose() {
@@ -287,7 +296,11 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
       final callable = functions.httpsCallable('depositTip');
 
       // 1. Tip預入処理
-      await callable.call({'userId': widget.userId, 'amount': amount});
+      await callable.call({
+        'userId': widget.userId,
+        'amount': amount,
+        'clientNonce': _clientNonce, // ✅ トップレベルに追加（ダイアログが開いている間は固定）
+      });
 
       // 2. 退席処理が必要な場合
       if (shouldLeaveSeat) {

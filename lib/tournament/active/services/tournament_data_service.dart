@@ -97,27 +97,25 @@ class TournamentDataService {
                       } else if (value == true) {
               // 旧形式: boolean (移行用)
               try {
-                // todaysBillsからユーザー情報を取得（userIdでクエリ）
-                final todayBillsQuery = await _firestore
-                    .collection('todaysBills')
-                    .where('userId', isEqualTo: userId)
-                    .where('status', isEqualTo: 'open')
-                    .limit(1)
+                // activeStays からユーザー情報を取得
+                final activeStayDoc = await _firestore
+                    .collection('activeStays')
+                    .doc(userId)
                     .get();
                 
-                if (todayBillsQuery.docs.isNotEmpty) {
-                  final todayBillsData = todayBillsQuery.docs.first.data();
-                  final pokerName = todayBillsData['pokerName'] as String? ?? 'ユーザー$userId';
-                  final joinedAt = todayBillsData['createdAt']?.toDate() ?? DateTime.now().subtract(const Duration(minutes: 15));
+                if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
+                  final activeStayData = activeStayDoc.data()!;
+                  final pokerName = activeStayData['pokerName'] as String? ?? 'ユーザー$userId';
+                  final startedAt = activeStayData['startedAt']?.toDate() ?? DateTime.now().subtract(const Duration(minutes: 15));
                   
                   final waitingPlayer = WaitingPlayer(
                     userId: userId,
                     displayName: pokerName,
-                    joinedAt: joinedAt,
+                    joinedAt: startedAt,
                   );
                   waitingPlayers.add(waitingPlayer);
                 } else {
-                  // todaysBillsにユーザー情報がない場合はダミー情報で作成
+                  // activeStays にユーザー情報がない場合はダミー情報で作成
                   final waitingPlayer = WaitingPlayer(
                     userId: userId,
                     displayName: 'ユーザー$userId',
