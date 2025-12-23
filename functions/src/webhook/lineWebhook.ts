@@ -86,6 +86,94 @@ export const lineWebhook = onRequest(async (request, response) => {
         source: event.source 
       });
       
+      // postbackイベント（ボタン押下など）
+      if (event.type === "postback") {
+        const lineUserId = event.source.userId;
+        const postbackData = event.postback?.data;
+
+        if (!lineUserId || !postbackData) {
+          logger.warn("Invalid postback event", { event });
+          continue;
+        }
+
+        logger.info("Processing postback event", { lineUserId, postbackData });
+
+        try {
+          // postbackデータをパース（例: "action=decline&requestId=xxx"）
+          const params = new URLSearchParams(postbackData);
+          const action = params.get("action");
+          const requestId = params.get("requestId");
+
+          if (action === "decline" && requestId) {
+            // 希望シフト要請の辞退処理
+            const requestRef = db.collection("shiftRequests").doc(requestId);
+            const requestDoc = await requestRef.get();
+
+            if (requestDoc.exists) {
+              const requestData = requestDoc.data()!;
+              
+              // スタッフIDの確認（lineUserIdとstaffIdが一致するか）
+              if (requestData.staffId === lineUserId && requestData.status === "pending") {
+                // JST（日本時間）で日付を計算
+                const now = new Date();
+                const jstOffset = 9 * 60; // JST = UTC+9
+                const jstDate = new Date(now.getTime() + jstOffset * 60000);
+                const declinedAt = admin.firestore.Timestamp.fromDate(jstDate);
+
+                await requestRef.update({
+                  status: "declined",
+                  declinedAt,
+                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+
+                logger.info("Shift request declined via postback", { lineUserId, requestId });
+
+                // リプライメッセージを送信
+                try {
+                  const replyResponse = await fetch("https://api.line.me/v2/bot/message/reply", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${channelAccessToken}`,
+                    },
+                    body: JSON.stringify({
+                      replyToken: event.replyToken,
+                      messages: [
+                        {
+                          type: "text",
+                          text: "要請を辞退しました。",
+                        },
+                      ],
+                    }),
+                  });
+
+                  if (!replyResponse.ok) {
+                    const errorText = await replyResponse.text();
+                    logger.error("Failed to send reply message", {
+                      status: replyResponse.status,
+                      error: errorText,
+                    });
+                  }
+                } catch (replyError) {
+                  logger.error("Error sending reply message", { error: replyError });
+                }
+              } else {
+                logger.warn("Invalid staff ID or already processed", { 
+                  lineUserId, 
+                  requestId, 
+                  staffId: requestData?.staffId,
+                  status: requestData?.status 
+                });
+              }
+            } else {
+              logger.warn("Shift request not found", { requestId });
+            }
+          }
+        } catch (error) {
+          logger.error("Error processing postback event", { lineUserId, postbackData, error });
+        }
+      }
+
       // follow（友だち追加）またはunblock（ブロック解除）イベント
       if (event.type === "follow" || event.type === "unblock") {
         const lineUserId = event.source.userId;

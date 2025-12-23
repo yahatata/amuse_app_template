@@ -379,7 +379,7 @@
         <div class="calendar-container flexible-container">
           <h2>翌月シフト申請</h2>
           <div class="month-info" id="current-month">2024年9月</div>
-          <p class="note">※来月分のシフトのみ申請可能です<br>※日付選択後に時間入力が可能です</p>
+          <p class="note">※1ヶ月分まとめての申請を推奨します<br>※日付選択後に時間入力が可能です</p>
           
 
           <div id="calendar" class="calendar flexible-container">
@@ -624,8 +624,20 @@
     // ハッシュに応じてページ遷移
     if (hash === '#qr') {
       showStaffQRCode();
-    } else if (hash === '#shift') {
-      openShiftManagement();
+    } else if (hash.startsWith('#shift')) {
+      // URLパラメータを解析
+      const hashPart = hash.substring(6); // '#shift'を除去
+      const queryString = hashPart.startsWith('?') ? hashPart.substring(1) : hashPart;
+      const urlParams = new URLSearchParams(queryString);
+      const requestId = urlParams.get('requestId');
+      const date = urlParams.get('date');
+      const start = urlParams.get('start');
+      const end = urlParams.get('end');
+      
+      // window.openShiftManagementが定義されているか確認
+      if (typeof window.openShiftManagement === 'function') {
+        window.openShiftManagement(requestId, date, start, end);
+      }
     } else if (hash === '#attendance') {
       openAttendanceManagement();
     } else if (hash === '#profile') {
@@ -1016,11 +1028,14 @@
           const isCurrentMonth = currentDate.getMonth() === month;
           const isToday = currentDate.toDateString() === new Date().toDateString();
           
+          // YYYY-MM-DD形式の日付文字列を生成
+          const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+          
           let dayClass = 'calendar-day';
           if (!isCurrentMonth) dayClass += ' other-month';
           if (isToday) dayClass += ' today';
           
-          calendarHTML += `<div class="${dayClass}" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;">`;
+          calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;">`;
           calendarHTML += currentDate.getDate();
           calendarHTML += '</div>';
         }
@@ -1037,8 +1052,20 @@
         // 日付クリックイベント
         calendar.addEventListener('click', (e) => {
           if (e.target.classList.contains('calendar-day') && !e.target.classList.contains('other-month')) {
-            const date = e.target.textContent;
-            selectDate(date, e.target);
+            // data-date属性から日付を取得（なければtextContentから生成）
+            const dateAttr = e.target.getAttribute('data-date');
+            if (dateAttr) {
+              selectDate(dateAttr, e.target);
+            } else {
+              // フォールバック: textContentから日付を生成
+              const dayNumber = parseInt(e.target.textContent.trim());
+              if (!isNaN(dayNumber)) {
+                const year = currentMonth.getFullYear();
+                const month = currentMonth.getMonth() + 1;
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
+                selectDate(dateStr, e.target);
+              }
+            }
           }
         });
       }
@@ -1099,11 +1126,18 @@
           return;
         }
 
-        // YYYY-MM-DD形式の日付文字列を作成
-        const year = currentMonth.getFullYear();
-        const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
-        const day = String(selectedDate).padStart(2, '0');
-        const dateStr = `${year}-${month}-${day}`;
+        // selectedDateが既にYYYY-MM-DD形式の場合はそのまま使用
+        let dateStr;
+        if (selectedDate.includes('-')) {
+          // 既にYYYY-MM-DD形式
+          dateStr = selectedDate;
+        } else {
+          // 数字のみの場合はYYYY-MM-DD形式に変換
+          const year = currentMonth.getFullYear();
+          const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
+          const day = String(selectedDate).padStart(2, '0');
+          dateStr = `${year}-${month}-${day}`;
+        }
 
         const shiftData = {
           date: dateStr,
@@ -1256,10 +1290,101 @@
 
 
       // シフト管理ページを開いた時の初期化
-      window.openShiftManagement = () => {
+      window.openShiftManagement = (requestId, date, start, end) => {
         showPage(shiftPageEl);
         showShiftApplication();
         initializeCalendar();
+        
+        // URLパラメータがある場合は自動入力
+        if (date) {
+          // 要請を確認済み状態に更新（非同期、エラー時も処理は続行）
+          if (requestId) {
+            // 動的インポートでhttpsCallableを取得
+            (async () => {
+              try {
+                const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+                const functions = getFunctions(window.Firebase.app);
+                const confirmShiftRequest = httpsCallable(functions, 'confirmShiftRequest');
+                await confirmShiftRequest({ requestId: requestId });
+              } catch (error) {
+                console.error("要請確認エラー（処理は続行）:", error);
+              }
+            })();
+          }
+          
+          // 日付を選択
+          setTimeout(() => {
+            const dateObj = new Date(date + 'T00:00:00');
+            const year = dateObj.getFullYear();
+            const month = dateObj.getMonth();
+            const day = dateObj.getDate();
+            
+            // カレンダーを該当月に移動
+            currentMonth = new Date(year, month, 1);
+            renderCalendar();
+            
+            // 日付を選択（カレンダーが再描画されるまで待つ）
+            setTimeout(() => {
+              const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+              
+              // カレンダーが再描画されるまで追加で待つ
+              setTimeout(() => {
+                const dayElement = document.querySelector(`[data-date="${dateString}"]`);
+                if (dayElement) {
+                  selectDate(dateString, dayElement);
+                  
+                  // 時間が指定されている場合は自動入力
+                  if (start && end) {
+                    setTimeout(() => {
+                      const startHour = parseInt(start.split(':')[0]);
+                      const startMinute = parseInt(start.split(':')[1]);
+                      const endHour = parseInt(end.split(':')[0]);
+                      const endMinute = parseInt(end.split(':')[1]);
+                      
+                      const startHourSelect = document.getElementById('shift-start-hour');
+                      const startMinuteSelect = document.getElementById('shift-start-minute');
+                      const endHourSelect = document.getElementById('shift-end-hour');
+                      const endMinuteSelect = document.getElementById('shift-end-minute');
+                      
+                      if (startHourSelect && startMinuteSelect && endHourSelect && endMinuteSelect) {
+                        startHourSelect.value = String(startHour).padStart(2, '0');
+                        startMinuteSelect.value = String(startMinute).padStart(2, '0');
+                        endHourSelect.value = String(endHour).padStart(2, '0');
+                        endMinuteSelect.value = String(endMinute).padStart(2, '0');
+                      }
+                    }, 500);
+                  }
+                } else {
+                  console.error('日付要素が見つかりません:', dateString);
+                  // フォールバック: 直接selectDateを呼び出す
+                  selectDate(dateString, null);
+                  
+                  // 時間が指定されている場合は自動入力
+                  if (start && end) {
+                    setTimeout(() => {
+                      const startHour = parseInt(start.split(':')[0]);
+                      const startMinute = parseInt(start.split(':')[1]);
+                      const endHour = parseInt(end.split(':')[0]);
+                      const endMinute = parseInt(end.split(':')[1]);
+                      
+                      const startHourSelect = document.getElementById('shift-start-hour');
+                      const startMinuteSelect = document.getElementById('shift-start-minute');
+                      const endHourSelect = document.getElementById('shift-end-hour');
+                      const endMinuteSelect = document.getElementById('shift-end-minute');
+                      
+                      if (startHourSelect && startMinuteSelect && endHourSelect && endMinuteSelect) {
+                        startHourSelect.value = String(startHour).padStart(2, '0');
+                        startMinuteSelect.value = String(startMinute).padStart(2, '0');
+                        endHourSelect.value = String(endHour).padStart(2, '0');
+                        endMinuteSelect.value = String(endMinute).padStart(2, '0');
+                      }
+                    }, 500);
+                  }
+                }
+              }, 500);
+            }, 300);
+          }, 100);
+        }
       };
 
       // シフト申請セクションを表示

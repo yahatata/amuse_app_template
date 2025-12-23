@@ -2,6 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+// スタッフ×申請時刻でグループ化されたシフト申請
+class ShiftGroup {
+  final String userId;
+  final String staffName;
+  final DateTime appliedAt;
+  final List<Map<String, dynamic>> shifts;
+
+  ShiftGroup({
+    required this.userId,
+    required this.staffName,
+    required this.appliedAt,
+    required this.shifts,
+  });
+}
+
 class ShiftApprovalPage extends StatefulWidget {
   const ShiftApprovalPage({super.key});
 
@@ -11,9 +26,10 @@ class ShiftApprovalPage extends StatefulWidget {
 
 class _ShiftApprovalPageState extends State<ShiftApprovalPage> {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
-  List<Map<String, dynamic>> _pendingShifts = [];
-  List<Map<String, dynamic>> _approvedShifts = [];
-  List<Map<String, dynamic>> _rejectedShifts = [];
+  List<Map<String, dynamic>> _allShifts = [];
+  List<ShiftGroup> _pendingShiftGroups = [];
+  List<ShiftGroup> _approvedShiftGroups = [];
+  List<ShiftGroup> _rejectedShiftGroups = [];
   bool _isLoading = true;
   String _selectedFilter = 'pending'; // pending, approved, rejected, all
 
@@ -37,16 +53,14 @@ class _ShiftApprovalPageState extends State<ShiftApprovalPage> {
       
       if (result.data['success'] == true) {
         final List<dynamic> shiftsData = result.data['shifts'] ?? [];
-        final List<Map<String, dynamic>> allShifts = shiftsData.map((shift) {
+        _allShifts = shiftsData.map((shift) {
           return Map<String, dynamic>.from(shift);
         }).toList();
         
-        print('シフト取得成功: ${allShifts.length}件');
+        print('シフト取得成功: ${_allShifts.length}件');
 
-        // ステータス別に分類
-        _pendingShifts = allShifts.where((shift) => shift['confirmed'] == null).toList();
-        _approvedShifts = allShifts.where((shift) => shift['confirmed'] == true).toList();
-        _rejectedShifts = allShifts.where((shift) => shift['confirmed'] == false).toList();
+        // グループ化
+        _groupShiftsByStaffAndTime();
 
         setState(() {
           _isLoading = false;
@@ -66,84 +80,248 @@ class _ShiftApprovalPageState extends State<ShiftApprovalPage> {
     }
   }
 
-  Future<void> _approveShift(String shiftId) async {
-    try {
-      // Cloud Functionsを使用してシフトを承認
-      final HttpsCallable approveShift = _functions.httpsCallable('approveShift');
-      final result = await approveShift.call({'shiftId': shiftId});
-      
-      if (result.data['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.data['message'] ?? 'シフトを承認しました')),
-        );
+  // スタッフ×申請時刻でグループ化
+  void _groupShiftsByStaffAndTime() {
+    final Map<String, List<Map<String, dynamic>>> pendingMap = {};
+    final Map<String, List<Map<String, dynamic>>> approvedMap = {};
+    final Map<String, List<Map<String, dynamic>>> rejectedMap = {};
 
-        // シフト一覧を再読み込み
-        _loadShifts();
+    for (final shift in _allShifts) {
+      final userId = shift['userId'] ?? '';
+      final staffName = shift['staffsFullName'] ?? '不明';
+      final confirmed = shift['confirmed'];
+      
+      // createdAtを取得（TimestampまたはDateTime）
+      DateTime appliedAt;
+      if (shift['createdAt'] != null) {
+        if (shift['createdAt'] is Map) {
+          // Firestore Timestamp形式
+          final seconds = shift['createdAt']['_seconds'] ?? shift['createdAt']['seconds'] ?? 0;
+          appliedAt = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+        } else {
+          appliedAt = DateTime.now();
+        }
       } else {
-        throw Exception(result.data['error'] ?? '承認に失敗しました');
+        appliedAt = DateTime.now();
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('承認に失敗しました: $e')),
-      );
+
+      // グループ化キー: userId + 申請時刻（秒単位で丸める）
+      final groupKey = '$userId-${appliedAt.millisecondsSinceEpoch ~/ 1000}';
+
+      if (confirmed == null) {
+        pendingMap.putIfAbsent(groupKey, () => []).add(shift);
+      } else if (confirmed == true) {
+        approvedMap.putIfAbsent(groupKey, () => []).add(shift);
+      } else {
+        rejectedMap.putIfAbsent(groupKey, () => []).add(shift);
+      }
     }
+
+    // ShiftGroupに変換
+    _pendingShiftGroups = _convertToShiftGroups(pendingMap);
+    _approvedShiftGroups = _convertToShiftGroups(approvedMap);
+    _rejectedShiftGroups = _convertToShiftGroups(rejectedMap);
   }
 
-  Future<void> _rejectShift(String shiftId) async {
-    try {
-      // Cloud Functionsを使用してシフトを却下
-      final HttpsCallable rejectShift = _functions.httpsCallable('rejectShift');
-      final result = await rejectShift.call({'shiftId': shiftId});
-      
-      if (result.data['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.data['message'] ?? 'シフトを却下しました')),
-        );
+  List<ShiftGroup> _convertToShiftGroups(Map<String, List<Map<String, dynamic>>> map) {
+    final List<ShiftGroup> groups = [];
+    
+    for (final entry in map.entries) {
+      final shifts = entry.value;
+      if (shifts.isEmpty) continue;
 
-        // シフト一覧を再読み込み
-        _loadShifts();
+      final firstShift = shifts.first;
+      final userId = firstShift['userId'] ?? '';
+      final staffName = firstShift['staffsFullName'] ?? '不明';
+      
+      DateTime appliedAt;
+      if (firstShift['createdAt'] != null) {
+        if (firstShift['createdAt'] is Map) {
+          final seconds = firstShift['createdAt']['_seconds'] ?? firstShift['createdAt']['seconds'] ?? 0;
+          appliedAt = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+        } else {
+          appliedAt = DateTime.now();
+        }
       } else {
-        throw Exception(result.data['error'] ?? '却下に失敗しました');
+        appliedAt = DateTime.now();
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('却下に失敗しました: $e')),
-      );
+
+      groups.add(ShiftGroup(
+        userId: userId,
+        staffName: staffName,
+        appliedAt: appliedAt,
+        shifts: shifts,
+      ));
     }
+
+    // 申請時刻の新しい順にソート
+    groups.sort((a, b) => b.appliedAt.compareTo(a.appliedAt));
+    
+    return groups;
   }
 
-
-
-  List<Map<String, dynamic>> _getFilteredShifts() {
+  List<ShiftGroup> _getFilteredGroups() {
     switch (_selectedFilter) {
       case 'pending':
-        return _pendingShifts;
+        return _pendingShiftGroups;
       case 'approved':
-        return _approvedShifts;
+        return _approvedShiftGroups;
       case 'rejected':
-        return _rejectedShifts;
+        return _rejectedShiftGroups;
       case 'all':
-        return [..._pendingShifts, ..._approvedShifts, ..._rejectedShifts];
+        return [..._pendingShiftGroups, ..._approvedShiftGroups, ..._rejectedShiftGroups];
       default:
-        return _pendingShifts;
+        return _pendingShiftGroups;
     }
   }
 
-  String _getStatusText(Map<String, dynamic> shift) {
-    if (shift['confirmed'] == null) return '申請中';
-    if (shift['confirmed'] == true) return '承認済み';
-    return '却下';
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.year}年${dateTime.month}月${dateTime.day}日 ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
-  Color _getStatusColor(Map<String, dynamic> shift) {
-    if (shift['confirmed'] == null) return Colors.orange;
-    if (shift['confirmed'] == true) return Colors.green;
-    return Colors.red;
+  Future<void> _showShiftDetailDialog(ShiftGroup group) async {
+    // 各シフトの承認/却下状態を管理
+    final Map<String, String?> decisions = {};
+    for (final shift in group.shifts) {
+      decisions[shift['id']] = null; // null: 未選択, 'approve': 承認, 'reject': 却下
+    }
+
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('${group.staffName} - ${_formatDateTime(group.appliedAt)}'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '申請件数: ${group.shifts.length}件',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 16),
+                      ...group.shifts.map((shift) {
+                        final shiftId = shift['id'];
+                        final date = shift['date'] ?? '';
+                        final start = shift['start'] ?? '';
+                        final end = shift['end'] ?? '';
+                        
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '$date  $start - $end',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Radio<String?>(
+                                    value: 'approve',
+                                    groupValue: decisions[shiftId],
+                                    onChanged: (value) {
+                                      setDialogState(() {
+                                        decisions[shiftId] = value;
+                                      });
+                                    },
+                                  ),
+                                  const Text('承認'),
+                                  const SizedBox(width: 24),
+                                  Radio<String?>(
+                                    value: 'reject',
+                                    groupValue: decisions[shiftId],
+                                    onChanged: (value) {
+                                      setDialogState(() {
+                                        decisions[shiftId] = value;
+                                      });
+                                    },
+                                  ),
+                                  const Text('却下'),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('キャンセル'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    // 全てのシフトに決定がされているかチェック
+                    final hasUnselected = decisions.values.any((decision) => decision == null);
+                    if (hasUnselected) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('全てのシフトに承認/却下を選択してください')),
+                      );
+                      return;
+                    }
+
+                    Navigator.of(context).pop();
+                    await _processShifts(decisions);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurple,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('確定'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _processShifts(Map<String, String?> decisions) async {
+    try {
+      // 決定をリスト形式に変換
+      final List<Map<String, dynamic>> shifts = [];
+      for (final entry in decisions.entries) {
+        shifts.add({
+          'shiftId': entry.key,
+          'decision': entry.value, // 'approve' or 'reject'
+        });
+      }
+
+      // Cloud Functionsを呼び出し
+      final HttpsCallable processShifts = _functions.httpsCallable('processShiftsByStaff');
+      final result = await processShifts.call({'shifts': shifts});
+
+      if (result.data['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.data['message'] ?? 'シフトを処理しました')),
+        );
+
+        // シフト一覧を再読み込み
+        _loadShifts();
+      } else {
+        throw Exception(result.data['error'] ?? '処理に失敗しました');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('処理に失敗しました: $e')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredShifts = _getFilteredShifts();
+    final filteredGroups = _getFilteredGroups();
 
     return Scaffold(
       appBar: AppBar(
@@ -159,29 +337,27 @@ class _ShiftApprovalPageState extends State<ShiftApprovalPage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _buildFilterButton('pending', '申請中', _pendingShifts.length),
-                _buildFilterButton('approved', '承認済み', _approvedShifts.length),
-                _buildFilterButton('rejected', '却下', _rejectedShifts.length),
-                _buildFilterButton('all', '全て', filteredShifts.length),
+                _buildFilterButton('pending', '申請中', _pendingShiftGroups.length),
+                _buildFilterButton('approved', '承認済み', _approvedShiftGroups.length),
+                _buildFilterButton('rejected', '却下', _rejectedShiftGroups.length),
+                _buildFilterButton('all', '全て', filteredGroups.length),
               ],
             ),
           ),
           
-
-          
-          // シフト一覧
+          // シフトグループ一覧
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : filteredShifts.isEmpty
+                : filteredGroups.isEmpty
                     ? const Center(
                         child: Text('シフトがありません', style: TextStyle(fontSize: 18)),
                       )
                     : ListView.builder(
-                        itemCount: filteredShifts.length,
+                        itemCount: filteredGroups.length,
                         itemBuilder: (context, index) {
-                          final shift = filteredShifts[index];
-                          return _buildShiftCard(shift);
+                          final group = filteredGroups[index];
+                          return _buildShiftGroupCard(group);
                         },
                       ),
           ),
@@ -222,88 +398,78 @@ class _ShiftApprovalPageState extends State<ShiftApprovalPage> {
     );
   }
 
-  Widget _buildShiftCard(Map<String, dynamic> shift) {
+  Widget _buildShiftGroupCard(ShiftGroup group) {
+    final isPending = _selectedFilter == 'pending' || 
+                      (group.shifts.isNotEmpty && group.shifts.first['confirmed'] == null);
+    
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'スタッフ: ${shift['staffsFullName'] ?? '不明'}',
+      child: InkWell(
+        onTap: isPending ? () => _showShiftDetailDialog(group) : null,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          group.staffName,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '申請日時: ${_formatDateTime(group.appliedAt)}',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                        Text(
+                          '申請件数: ${group.shifts.length}件',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!isPending)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: group.shifts.first['confirmed'] == true 
+                            ? Colors.green 
+                            : Colors.red,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        group.shifts.first['confirmed'] == true ? '承認済み' : '却下',
                         style: const TextStyle(
-                          fontSize: 16,
+                          color: Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '日付: ${shift['date']}',
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      Text(
-                        '時間: ${shift['start']} - ${shift['end']}',
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(shift),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _getStatusText(shift),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
                     ),
-                  ),
-                ),
-              ],
-            ),
-            
-            // 申請中のシフトのみ承認・却下ボタンを表示
-            if (shift['confirmed'] == null) ...[
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _approveShift(shift['id']),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Text('承認'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _rejectShift(shift['id']),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Text('却下'),
-                    ),
-                  ),
                 ],
               ),
+              if (isPending)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'タップして詳細を表示',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
             ],
-          ],
+          ),
         ),
       ),
     );

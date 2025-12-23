@@ -1377,6 +1377,10 @@
               cart = [];
               updateCartDisplay();
               closeCartModal();
+              // 注文履歴を自動更新（注文履歴ページが表示されている場合）
+              if (orderHistoryPageEl.classList.contains('active')) {
+                loadOrderHistory();
+              }
             } else {
               throw new Error(result.data.error || '注文に失敗しました');
             }
@@ -1395,7 +1399,7 @@
         }
       };
       
-      // 注文履歴を読み込む
+      // 注文履歴を読み込む（Firestoreの自動キャッシュを使用）
       async function loadOrderHistory() {
         const historyListEl = document.getElementById('order-history-list');
         const statsEl = document.getElementById('history-stats');
@@ -1407,35 +1411,91 @@
           historyListEl.innerHTML = '<div class="spinner"></div>';
           
           // ユーザーIDを取得（LIFF認証済みの場合）
-          const { auth } = window.Firebase;
+          const { auth, db } = window.Firebase;
           if (!auth.currentUser) {
             throw new Error('認証が必要です。ページを再読み込みしてください。');
           }
 
           const userId = auth.currentUser.uid;
           
-          // Cloud FunctionsのgetUserOrderHistoryを呼び出し
-          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
-          const getUserOrderHistory = httpsCallable(functions, 'getUserOrderHistory');
+          // 日本時間の当日の開始時刻と終了時刻を計算
+          const now = new Date();
+          const jstOffset = 9 * 60; // JSTはUTC+9
+          const jstNow = new Date(now.getTime() + (jstOffset * 60 * 1000));
           
-          const result = await getUserOrderHistory({});
+          // 当日の開始時刻（00:00:00 JST）
+          const todayStart = new Date(jstNow.getFullYear(), jstNow.getMonth(), jstNow.getDate());
+          const todayStartUTC = new Date(todayStart.getTime() - (jstOffset * 60 * 1000));
           
-          if (!result.data.success) {
-            throw new Error(result.data.error || '注文履歴の取得に失敗しました');
-          }
+          // 当日の終了時刻（23:59:59 JST）
+          const todayEnd = new Date(jstNow.getFullYear(), jstNow.getMonth(), jstNow.getDate(), 23, 59, 59, 999);
+          const todayEndUTC = new Date(todayEnd.getTime() - (jstOffset * 60 * 1000));
           
-          const { orders, totalCount, totalAmount } = result.data.data;
+          // Firestoreから直接取得（自動キャッシュ機能を使用）
+          const { collection, query, where, orderBy, getDocs, Timestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
           
-          // 統計情報を表示
-          document.getElementById('total-orders').textContent = totalCount;
-          document.getElementById('total-amount').textContent = `¥${totalAmount.toLocaleString()}`;
-          statsEl.style.display = 'flex';
+          const billsQuery = query(
+            collection(db, 'todaysBills'),
+            where('userId', '==', userId),
+            where('createdAt', '>=', Timestamp.fromDate(todayStartUTC)),
+            where('createdAt', '<=', Timestamp.fromDate(todayEndUTC)),
+            orderBy('createdAt', 'desc')
+          );
           
-          if (orders.length === 0) {
+          const billsSnap = await getDocs(billsQuery);
+          
+          if (billsSnap.empty) {
             historyListEl.innerHTML = '<p class="empty-history">本日の注文履歴がありません</p>';
+            statsEl.style.display = 'flex';
+            document.getElementById('total-orders').textContent = '0';
+            document.getElementById('total-amount').textContent = '¥0';
             return;
           }
+          
+          // 注文履歴を整形
+          const orders = billsSnap.docs.map(doc => {
+            const data = doc.data();
+            
+            // タイムスタンプの処理
+            let createdAt = null;
+            let updatedAt = null;
+            let orderDate = null;
+            
+            if (data.createdAt && data.createdAt.toDate) {
+              createdAt = data.createdAt.toDate();
+              orderDate = createdAt;
+            } else if (data.createdAt) {
+              createdAt = new Date(data.createdAt);
+              orderDate = createdAt;
+            }
+            
+            if (data.updatedAt && data.updatedAt.toDate) {
+              updatedAt = data.updatedAt.toDate();
+            } else if (data.updatedAt) {
+              updatedAt = new Date(data.updatedAt);
+            }
+            
+            return {
+              id: doc.id,
+              createdAt: createdAt ? createdAt.toISOString() : null,
+              updatedAt: updatedAt ? updatedAt.toISOString() : null,
+              status: data.status,
+              totalPrice: data.totalPrice || 0,
+              items: data.items || [],
+              currentTable: data.currentTable,
+              currentSeat: data.currentSeat,
+              orderDate: orderDate ? orderDate.toISOString() : null,
+              itemCount: Array.isArray(data.items) ? data.items.length : 0
+            };
+          });
+          
+          // 合計金額を計算
+          const totalAmount = orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0);
+          
+          // 統計情報を表示
+          document.getElementById('total-orders').textContent = orders.length;
+          document.getElementById('total-amount').textContent = `¥${totalAmount.toLocaleString()}`;
+          statsEl.style.display = 'flex';
           
           // 注文履歴を表示
           historyListEl.innerHTML = orders.map(order => {
@@ -1551,6 +1611,11 @@
             quantityElement.textContent = '1';
           }
           
+          // 注文履歴を自動更新（注文履歴ページが表示されている場合）
+          if (orderHistoryPageEl.classList.contains('active')) {
+            loadOrderHistory();
+          }
+          
 
         } catch (error) {
           alert(`注文に失敗しました: ${error.message}`);
@@ -1579,6 +1644,36 @@
         todayDateEl.textContent = `${todayString}のトーナメント`;
         
         try {
+          // キャッシュされたデータがある場合は使用
+          if (window.cachedTodayTournaments) {
+            const tournaments = window.cachedTodayTournaments;
+            
+            if (tournaments.length === 0) {
+              todayTournamentList.innerHTML = '<p class="empty-message">今日はトーナメントがありません</p>';
+              return;
+            }
+            
+            todayTournamentList.innerHTML = tournaments.map(tournament => `
+              <div class="tournament-item">
+                <div class="tournament-header">
+                  <h3>${tournament.name}</h3>
+                  <span class="tournament-status status-${tournament.status}">${getTournamentStatusDisplay(tournament.status)}</span>
+                </div>
+                <div class="tournament-info">
+                  <p><strong>開始時間:</strong> ${formatTime(tournament.startAt)}</p>
+                  <p><strong>参加費:</strong> ¥${tournament.entryFee || 0}</p>
+                  <p><strong>賞金:</strong> ¥${tournament.prizePool || 0}</p>
+                  <p><strong>参加者数:</strong> ${tournament.participantCount || 0}人</p>
+                  <p><strong>定員:</strong> ${tournament.maxEntrants || '無制限'}人</p>
+                </div>
+                <div class="tournament-actions">
+                  <button class="btn" onclick="showTournamentRegistration('${tournament.id}')">参加登録</button>
+                </div>
+              </div>
+            `).join('');
+            return;
+          }
+          
           // スピナーを表示
           todayTournamentList.innerHTML = '<div class="spinner"></div>';
           
@@ -1593,6 +1688,9 @@
           }
           
           const tournaments = result.data.data || [];
+          
+          // グローバル変数にキャッシュ
+          window.cachedTodayTournaments = tournaments;
           
           if (tournaments.length === 0) {
             todayTournamentList.innerHTML = '<p class="empty-message">今日はトーナメントがありません</p>';
@@ -1628,6 +1726,44 @@
         const weeklyTournamentList = document.getElementById('weekly-tournament-list');
         
         try {
+          // キャッシュされたデータがある場合は使用
+          if (window.cachedWeeklyTournaments) {
+            const tournaments = window.cachedWeeklyTournaments;
+            
+            if (tournaments.length === 0) {
+              weeklyTournamentList.innerHTML = '<p class="empty-message">今後のトーナメントがありません</p>';
+              return;
+            }
+            
+            weeklyTournamentList.innerHTML = tournaments.map((tournament, index) => `
+              <div class="tournament-card" onclick="toggleTournamentDetails('weekly-${index}')">
+                <div class="tournament-card-header">
+                  <div class="tournament-card-title">
+                    <h3>${tournament.name}</h3>
+                    <span class="tournament-card-date">${formatDateWithDay(tournament.startAt)} ${formatTime(tournament.startAt)}</span>
+                  </div>
+                  <div class="tournament-card-arrow" id="weekly-arrow-${index}">▼</div>
+                </div>
+                <div class="tournament-card-details" id="weekly-${index}" style="display: none;">
+                  <div class="detail-row">
+                    <span class="detail-label">参加費:</span>
+                    <span class="detail-value">¥${(tournament.entryFee || 0).toLocaleString()}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">初期スタック:</span>
+                    <span class="detail-value">${(tournament.startStack || 0).toLocaleString()}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">レジスト時間:</span>
+                    <span class="detail-value">${formatRegistrationTime(tournament.regEndAt, tournament.startAt)}</span>
+                  </div>
+                  ${tournament.description ? `<div class="detail-row"><span class="detail-label">説明:</span><span class="detail-value">${tournament.description}</span></div>` : ''}
+                </div>
+              </div>
+            `).join('');
+            return;
+          }
+          
           // スピナーを表示
           weeklyTournamentList.innerHTML = '<div class="spinner"></div>';
           
@@ -1642,6 +1778,9 @@
           }
           
           const tournaments = result.data.tournaments || [];
+          
+          // グローバル変数にキャッシュ
+          window.cachedWeeklyTournaments = tournaments;
           
           if (tournaments.length === 0) {
             weeklyTournamentList.innerHTML = '<p class="empty-message">今後のトーナメントがありません</p>';
@@ -1744,8 +1883,11 @@
           
           if (result.data.success) {
             alert(`✅ 参加登録完了！\n\n${result.data.data.tournamentName}に参加登録しました。`);
-            // トーナメント一覧を再読み込み
+            // キャッシュをクリアしてトーナメント一覧を再読み込み
+            window.cachedTodayTournaments = null;
+            window.cachedWeeklyTournaments = null;
             loadTodayTournaments();
+            loadWeeklyTournaments();
           } else {
             alert(`❌ 参加登録失敗\n\n${result.data.error}`);
           }

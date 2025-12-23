@@ -43,16 +43,16 @@ export const updateMenuItem = onCall(async (request) => {
     const storage = getStorage();
     const now = new Date();
 
-    // 1. 元のメニューをアーカイブ
-    await db.collection('menuItems').doc(originalId).update({
-      isArchive: true,
-      archivedAt: now,
-      updatedAt: now,
-    });
+    // 既存のメニューを取得（画像URLを保持するため）
+    const existingMenuItemDoc = await db.collection('menuItems').doc(originalId).get();
+    if (!existingMenuItemDoc.exists) {
+      throw new HttpsError('not-found', 'メニューが見つかりません');
+    }
 
-    let imageUrl = '';
+    const existingData = existingMenuItemDoc.data();
+    let imageUrl = existingData?.imageUrl || '';
     
-    // 画像がある場合はStorageにアップロード
+    // 新しい画像がアップロードされた場合のみStorageにアップロード
     if (imageBase64) {
       try {
         const fileName = `menuImages/${Date.now()}.jpg`;
@@ -80,8 +80,8 @@ export const updateMenuItem = onCall(async (request) => {
       }
     }
 
-    // 2. 新しいメニューアイテムを作成
-    const menuItemData = {
+    // 既存のメニューを直接更新
+    const updateData: any = {
       name,
       price: parseInt(price),
       category,
@@ -89,18 +89,53 @@ export const updateMenuItem = onCall(async (request) => {
       imageUrl,
       isArchive: isArchive || false,
       isSoldOut: isSoldOut || false,
-      createdAt: now,
       updatedAt: now,
-      archivedAt: null,
     };
 
-    const docRef = await db.collection('menuItems').add(menuItemData);
+    // アーカイブされた場合のみarchivedAtを設定
+    if (isArchive) {
+      updateData.archivedAt = now;
+    } else {
+      // アーカイブ解除の場合はarchivedAtをnullに
+      updateData.archivedAt = null;
+    }
+
+    await db.collection('menuItems').doc(originalId).update(updateData);
+
+    // administrativeMenuも既存エントリを直接更新
+    const adminMenuRef = db.collection('administrativeMenu').doc('current');
+    const adminMenuDoc = await adminMenuRef.get();
+    
+    if (adminMenuDoc.exists) {
+      const adminMenuData = adminMenuDoc.data();
+      const itemsMap = adminMenuData?.items || {};
+      
+      // 既存のメニューエントリを更新（8項目）
+      if (itemsMap[originalId]) {
+        itemsMap[originalId] = {
+          name: updateData.name,
+          category: updateData.category,
+          imageUrl: updateData.imageUrl,
+          price: updateData.price,
+          isArchive: updateData.isArchive,
+          isSoldOut: updateData.isSoldOut,
+          description: updateData.description,
+          menuItemDocId: originalId,
+        };
+        
+        await adminMenuRef.update({
+          items: itemsMap,
+          updatedAt: now,
+          updatedBy: callerUid,
+        });
+      }
+    }
 
     return {
       success: true,
       data: {
-        id: docRef.id,
-        ...menuItemData
+        id: originalId,
+        ...updateData
       }
     };
 

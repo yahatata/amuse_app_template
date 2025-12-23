@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { sendLinePushMessage, formatDateToJapanese, getEndOfMonthDeadline } from "../utils/lineMessaging";
 
 interface RejectShiftRequest {
   shiftId: string;
@@ -55,7 +56,7 @@ export const rejectShift = onCall(
         throw new Error("このシフトは既に処理済みです。");
       }
 
-              // シフトを却下（データは保持）
+      // シフトを却下（データは保持）
       await admin.firestore()
         .collection("shifts")
         .doc(shiftId)
@@ -64,6 +65,25 @@ export const rejectShift = onCall(
           rejectedBy: 'admin', // 一時的に固定値
           rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+
+      // LINE通知を送信（非同期、エラー時も処理は続行）
+      const userId = shiftData?.userId;
+      if (userId) {
+        const date = shiftData?.date || '';
+        const start = shiftData?.start || '';
+        const end = shiftData?.end || '';
+        
+        const formattedDate = formatDateToJapanese(date);
+        const deadline = getEndOfMonthDeadline();
+        const message = `（却下）${formattedDate}　${start}〜${end}のシフト申請が却下されました。追加のシフト申請がある場合は、${deadline}までに申請を済ませてください。`;
+        
+        // 通知送信（エラー時もログのみで処理は続行）
+        sendLinePushMessage(userId, message).catch((error) => {
+          console.error("通知送信エラー（処理は完了）:", error);
+        });
+      } else {
+        console.warn("シフト却下通知: userIdが見つかりません", { shiftId });
+      }
 
       return {
         success: true,
