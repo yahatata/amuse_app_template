@@ -1,12 +1,9 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import * as bcrypt from "bcryptjs";
-<<<<<<< HEAD
-import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
-=======
 import * as crypto from "crypto";
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
 import { createBillWithActiveStay } from "../helpers/billsApi";
->>>>>>> billsmigration/draft
 
 /**
  * 手動チェックイン（店舗端末でのログインID + PIN 認証）

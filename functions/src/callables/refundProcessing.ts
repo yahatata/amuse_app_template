@@ -11,16 +11,9 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
-<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
-
-const db = admin.firestore();
-
-const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0;
-=======
 import { logger } from 'firebase-functions';
 import { postEventRefund } from '../helpers/billsApi/postEventRefund';
->>>>>>> billsmigration/draft
 
 // 返金処理のスキーマ
 const ProcessRefundSchema = z.object({
@@ -43,25 +36,15 @@ export const processRefund = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const callerUid = request.auth.uid;
+  const adminId = request.auth.uid;
+  const db = getFirestore();
 
   try {
-<<<<<<< HEAD
     // デバイス権限の確認（role: admin または options.accounting: true）
-    const device = await getCallerDeviceByUid(callerUid);
+    const device = await getCallerDeviceByUid(adminId);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
-=======
-    const db = getFirestore();
-
-    // デバイス権限の確認（role: adminのみ）
-    const deviceQuery = await db.collection('devices')
-      .where('uid', '==', adminId)
-      .where('role', '==', 'admin')
-      .limit(1)
-      .get();
->>>>>>> billsmigration/draft
 
     const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'accounting');
     if (!hasPermission) {
@@ -72,159 +55,6 @@ export const processRefund = onCall(async (request) => {
     const validatedData = ProcessRefundSchema.parse(request.data);
     const { billId, idempotencyKey, eventPayload } = validatedData;
 
-<<<<<<< HEAD
-    const billRef = db.collection('todaysBills').doc(billId);
-
-    // 請求書の存在確認
-    const billDoc = await billRef.get();
-    if (!billDoc.exists) {
-      throw new HttpsError('not-found', '指定された請求書が見つかりません');
-    }
-
-    const billData = billDoc.data()!;
-    const currentStatus = billData.status || 'open';
-
-    // 会計完了済みの場合のみ返金可能
-    if (currentStatus !== 'settled') {
-      throw new HttpsError('failed-precondition', '会計完了済みの請求書のみ返金可能です');
-    }
-
-    const totalPrice = billData.totalPrice || 0;
-
-    // 返金額が請求金額を超えないかチェック
-    if (refundAmount > totalPrice) {
-      throw new HttpsError('invalid-argument', '返金額が請求金額を超えています');
-    }
-
-    // トランザクションで返金処理
-    await db.runTransaction(async (transaction) => {
-      // todaysBillsに返金情報を追加
-      transaction.update(billRef, {
-        refundAmount: refundAmount,
-        refundReason: refundReason,
-        refundMethod: refundMethod,
-        refundProcessedBy: callerUid,
-        refundProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      // ポイント/サイドゲームチップの返還処理
-      const userId = billData.userId;
-      if (userId) {
-        const paymentMethodsByAmount = billData.paymentMethodsByAmount || {};
-        const paymentMethodsByCategory = billData.paymentMethodsByCategory || {};
-        const categoryAmounts: Record<string, number> = {};
-
-        // 各カテゴリの金額を計算
-        const extraCosts = billData.extraCost || [];
-        categoryAmounts['extraCost'] = extraCosts.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
-
-        const tournaments = billData.tournaments || {};
-        categoryAmounts['tournaments'] = Object.values(tournaments).reduce((sum: number, item: any) => sum + (item.entryFee || 0), 0);
-
-        const items = billData.items || [];
-        categoryAmounts['items'] = items.reduce((sum: number, item: any) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
-
-        const sideGameChips = billData.sideGameChip || [];
-        categoryAmounts['sideGameChip'] = sideGameChips.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
-
-        // 返還する金額を計算
-        const refundAmounts: Record<string, number> = {
-          pointA: Math.floor(paymentMethodsByAmount.pointA ?? 0),
-          pointB: Math.floor(paymentMethodsByAmount.pointB ?? 0),
-          sideGameChip: Math.floor(paymentMethodsByAmount.sideGameChip ?? 0),
-        };
-
-        // 全額返金 または 指定カテゴリの返金
-        const categoriesToRefund = refundCategories && refundCategories.length > 0 
-          ? refundCategories 
-          : Object.keys(categoryAmounts); // 全カテゴリ
-
-        if (Object.keys(paymentMethodsByAmount).length === 0 && Object.keys(paymentMethodsByCategory).length > 0) {
-          for (const category of categoriesToRefund) {
-            const paymentValue = paymentMethodsByCategory[category];
-            const categoryAmount = categoryAmounts[category] || 0;
-            if (categoryAmount <= 0 || !paymentValue) continue;
-
-            if (typeof paymentValue === 'string') {
-              if (paymentValue === 'pointA' || paymentValue === 'pointB') {
-                refundAmounts[paymentValue] += categoryAmount;
-              } else if (paymentValue === 'sideGameChip') {
-                const chips = Math.ceil(categoryAmount / SIDE_GAME_CHIP_EXCHANGE_RATE);
-                refundAmounts.sideGameChip += chips;
-              }
-            } else if (Array.isArray(paymentValue)) {
-              for (const split of paymentValue) {
-                if (!split || typeof split !== 'object') continue;
-                const method = split.method;
-                const amount = Number(split.amount) || 0;
-                if (amount <= 0) continue;
-
-                if (method === 'pointA' || method === 'pointB') {
-                  refundAmounts[method] += amount;
-                } else if (method === 'sideGameChip') {
-                  const chips = amount % SIDE_GAME_CHIP_EXCHANGE_RATE === 0
-                    ? Math.round(amount / SIDE_GAME_CHIP_EXCHANGE_RATE)
-                    : Math.ceil(amount / SIDE_GAME_CHIP_EXCHANGE_RATE);
-                  refundAmounts.sideGameChip += chips;
-                }
-              }
-            }
-          }
-        }
-
-        // ユーザーにポイント/サイドゲームチップを返還
-        const userRef = db.collection('users').doc(userId);
-        const userUpdates: Record<string, any> = {};
-
-        for (const [fieldName, amount] of Object.entries(refundAmounts)) {
-          if (amount > 0) {
-            userUpdates[fieldName] = admin.firestore.FieldValue.increment(amount);
-          }
-        }
-
-        if (Object.keys(userUpdates).length > 0) {
-          userUpdates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
-          transaction.update(userRef, userUpdates);
-        }
-      }
-
-      // accountingHistoryに返金記録を追加
-      const accountingHistoryId = billData.accountingHistoryId;
-      if (accountingHistoryId) {
-        const accountingHistoryRef = db.collection('accountingHistory').doc(accountingHistoryId);
-        
-        const refundRecord = {
-          type: 'refund',
-          refundAmount: refundAmount,
-          refundReason: refundReason,
-          refundMethod: refundMethod,
-          refundCategories: refundCategories || [],
-          processedBy: callerUid,
-          processedAt: admin.firestore.FieldValue.serverTimestamp(),
-        };
-
-        transaction.update(accountingHistoryRef, {
-          refunds: admin.firestore.FieldValue.arrayUnion(refundRecord),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-
-      // 返金履歴コレクションに記録
-      const refundHistoryRef = db.collection('refundHistory').doc();
-      transaction.set(refundHistoryRef, {
-        billId: billId,
-        pokerName: billData.pokerName,
-        originalAmount: totalPrice,
-        refundAmount: refundAmount,
-        refundReason: refundReason,
-        refundMethod: refundMethod,
-        refundCategories: refundCategories || [],
-        processedBy: callerUid,
-        processedAt: admin.firestore.FieldValue.serverTimestamp(),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-=======
     // postEventRefund ヘルパAPIを呼び出す
     const result = await postEventRefund({
       billId,
@@ -237,7 +67,6 @@ export const processRefund = onCall(async (request) => {
       op: 'processRefund',
       billId,
       eventId: result.eventId,
->>>>>>> billsmigration/draft
     });
 
     return {
@@ -276,25 +105,15 @@ export const getRefundHistory = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const callerUid = request.auth.uid;
+  const adminId = request.auth.uid;
+  const db = getFirestore();
 
   try {
-<<<<<<< HEAD
     // デバイス権限の確認（role: admin または options.accounting: true）
-    const device = await getCallerDeviceByUid(callerUid);
+    const device = await getCallerDeviceByUid(adminId);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
-=======
-    const db = getFirestore();
-
-    // デバイス権限の確認（role: adminのみ）
-    const deviceQuery = await db.collection('devices')
-      .where('uid', '==', adminId)
-      .where('role', '==', 'admin')
-      .limit(1)
-      .get();
->>>>>>> billsmigration/draft
 
     const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'accounting');
     if (!hasPermission) {

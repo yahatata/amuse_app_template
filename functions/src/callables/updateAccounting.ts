@@ -11,12 +11,9 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
-<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
-=======
 import { logger } from 'firebase-functions';
 import { postEventAdjustment, postEventCancel, postEventReopen } from '../helpers/billsApi';
->>>>>>> billsmigration/draft
 
 // 会計後調整のスキーマ
 const UpdateAccountingSchema = z.object({
@@ -34,13 +31,8 @@ const UpdateAccountingSchema = z.object({
 });
 
 /**
-<<<<<<< HEAD
- * 会計内容を修正するCloud Function
- * 管理者権限またはaccountingオプションを持つデバイスのみが実行可能
-=======
  * 会計後調整を行うCloud Function
- * 管理者権限を持つユーザーのみが実行可能
->>>>>>> billsmigration/draft
+ * 管理者権限またはaccountingオプションを持つデバイスのみが実行可能
  */
 export const updateAccounting = onCall(async (request) => {
   // 認証チェック
@@ -48,25 +40,15 @@ export const updateAccounting = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const callerUid = request.auth.uid;
+  const adminId = request.auth.uid;
+  const db = getFirestore();
 
   try {
-<<<<<<< HEAD
     // デバイス権限の確認（role: admin または options.accounting: true）
-    const device = await getCallerDeviceByUid(callerUid);
+    const device = await getCallerDeviceByUid(adminId);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
-=======
-    const db = getFirestore();
-
-    // デバイス権限の確認（role: adminのみ）
-    const deviceQuery = await db.collection('devices')
-      .where('uid', '==', adminId)
-      .where('role', '==', 'admin')
-      .limit(1)
-      .get();
->>>>>>> billsmigration/draft
 
     const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'accounting');
     if (!hasPermission) {
@@ -79,120 +61,10 @@ export const updateAccounting = onCall(async (request) => {
 
     let result: any;
 
-<<<<<<< HEAD
-    // 請求書の存在確認
-    const billDoc = await billRef.get();
-    if (!billDoc.exists) {
-      throw new HttpsError('not-found', '指定された請求書が見つかりません');
-    }
-
-    const billData = billDoc.data()!;
-    const currentStatus = billData.status || 'open';
-
-    // 会計完了済みの場合のみ修正可能
-    if (currentStatus !== 'settled') {
-      throw new HttpsError('failed-precondition', '会計完了済みの請求書のみ修正可能です');
-    }
-
-    // 修正前のデータを保存
-    const oldData = {
-      extraCost: billData.extraCost || [],
-      tournaments: billData.tournaments || {},
-      items: billData.items || [],
-      sideGameChip: billData.sideGameChip || [],
-      totalPrice: billData.totalPrice || 0,
-    };
-
-    // 新しいデータを準備
-    const newData: any = {
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    // 入店料の更新
-    if (extraCost !== undefined) {
-      newData.extraCost = extraCost;
-    }
-
-    // トーナメント参加費の更新
-    if (tournaments !== undefined) {
-      newData.tournaments = tournaments;
-    }
-
-    // フード・ドリンクの更新
-    if (items !== undefined) {
-      newData.items = items;
-    }
-
-    // サイドゲームチップの更新
-    if (sideGameChip !== undefined) {
-      newData.sideGameChip = sideGameChip;
-    }
-
-    // 新しい合計金額を計算
-    let newTotalPrice = 0;
-
-    // 入店料の合計
-    const finalExtraCost = extraCost !== undefined ? extraCost : oldData.extraCost;
-    for (const cost of finalExtraCost) {
-      newTotalPrice += cost.price;
-    }
-
-    // トーナメント参加費の合計
-    const finalTournaments = tournaments !== undefined ? tournaments : oldData.tournaments;
-    for (const tournamentEntry of Object.values(finalTournaments)) {
-      newTotalPrice += (tournamentEntry as any).entryFee;
-    }
-
-    // フード・ドリンクの合計
-    const finalItems = items !== undefined ? items : oldData.items;
-    for (const item of finalItems) {
-      newTotalPrice += item.price * item.quantity;
-    }
-
-    // サイドゲームチップの合計
-    const finalSideGameChip = sideGameChip !== undefined ? sideGameChip : oldData.sideGameChip;
-    for (const chip of finalSideGameChip) {
-      newTotalPrice += chip.price;
-    }
-
-    newData.totalPrice = newTotalPrice;
-
-    // トランザクションで更新
-    await db.runTransaction(async (transaction) => {
-      // todaysBillsを更新
-      transaction.update(billRef, newData);
-
-      // accountingHistoryに修正記録を追加
-      const accountingHistoryId = billData.accountingHistoryId;
-      if (accountingHistoryId) {
-        const accountingHistoryRef = db.collection('accountingHistory').doc(accountingHistoryId);
-        
-        // 修正履歴を追加
-        const correctionRecord = {
-          type: 'correction',
-          oldData: oldData,
-          newData: {
-            extraCost: finalExtraCost,
-            tournaments: finalTournaments,
-            items: finalItems,
-            sideGameChip: finalSideGameChip,
-            totalPrice: newTotalPrice,
-          },
-          reason: reason,
-          correctedBy: callerUid,
-          correctedAt: new Date(), // FieldValue.serverTimestamp()の代わりにDateオブジェクトを使用
-        };
-
-        transaction.update(accountingHistoryRef, {
-          corrections: admin.firestore.FieldValue.arrayUnion(correctionRecord),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-=======
     if (eventType === 'adjustment') {
       // postEventAdjustment を呼び出す
       if (!eventPayload || eventPayload.sign === undefined || eventPayload.amountIncl === undefined) {
         throw new HttpsError('invalid-argument', 'adjustment の場合、sign と amountIncl は必須です');
->>>>>>> billsmigration/draft
       }
 
       result = await postEventAdjustment({

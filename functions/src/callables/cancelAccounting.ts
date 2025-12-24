@@ -15,11 +15,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
-<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
-=======
 import { logger } from 'firebase-functions';
->>>>>>> billsmigration/draft
 
 // 会計キャンセルのスキーマ（pre-settlement 専用）
 const CancelAccountingSchema = z.object({
@@ -37,25 +34,15 @@ export const cancelAccounting = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const callerUid = request.auth.uid;
+  const adminId = request.auth.uid;
+  const db = getFirestore();
 
   try {
-<<<<<<< HEAD
     // デバイス権限の確認（role: admin または options.accounting: true）
-    const device = await getCallerDeviceByUid(callerUid);
+    const device = await getCallerDeviceByUid(adminId);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
-=======
-    const db = getFirestore();
-
-    // デバイス権限の確認（role: adminのみ）
-    const deviceQuery = await db.collection('devices')
-      .where('uid', '==', adminId)
-      .where('role', '==', 'admin')
-      .limit(1)
-      .get();
->>>>>>> billsmigration/draft
 
     const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'accounting');
     if (!hasPermission) {
@@ -103,149 +90,6 @@ export const cancelAccounting = onCall(async (request) => {
         updatedAt: now,
       };
 
-<<<<<<< HEAD
-      // accountingHistoryにキャンセル記録を追加
-      const accountingHistoryId = billData.accountingHistoryId;
-      if (accountingHistoryId) {
-        const accountingHistoryRef = db.collection('accountingHistory').doc(accountingHistoryId);
-        
-        const cancelRecord = {
-          type: 'cancel',
-          reason: reason,
-          cancelledBy: callerUid,
-          cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
-          includeRefund: includeRefund,
-          refundAmount: includeRefund ? refundAmount : 0,
-        };
-
-        transaction.update(accountingHistoryRef, {
-          status: 'cancelled',
-          cancelRecord: cancelRecord,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-
-      // ユーザーの退店状態を復元 & ポイント/サイドゲームチップを返還
-      const userId = billData.userId;
-      if (userId) {
-        const userRef = db.collection('users').doc(userId);
-        
-        // ポイント/サイドゲームチップの返還処理
-        const paymentMethodsByAmount = billData.paymentMethodsByAmount || {};
-        const paymentMethodsByCategory = billData.paymentMethodsByCategory || {};
-        const categoryAmounts: Record<string, number> = {};
-
-        // 各カテゴリの金額を計算
-        const extraCosts = billData.extraCost || [];
-        categoryAmounts['extraCost'] = extraCosts.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
-
-        const tournaments = billData.tournaments || {};
-        categoryAmounts['tournaments'] = Object.values(tournaments).reduce((sum: number, item: any) => sum + (item.entryFee || 0), 0);
-
-        const items = billData.items || [];
-        categoryAmounts['items'] = items.reduce((sum: number, item: any) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
-
-        const sideGameChips = billData.sideGameChip || [];
-        categoryAmounts['sideGameChip'] = sideGameChips.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
-
-        // 返還する金額を計算
-        const refundAmounts: Record<string, number> = {
-          pointA: Math.floor(paymentMethodsByAmount.pointA ?? 0),
-          pointB: Math.floor(paymentMethodsByAmount.pointB ?? 0),
-          sideGameChip: Math.floor(paymentMethodsByAmount.sideGameChip ?? 0),
-        };
-
-        if (Object.keys(paymentMethodsByAmount).length === 0 && Object.keys(paymentMethodsByCategory).length > 0) {
-          for (const [category, paymentValue] of Object.entries(paymentMethodsByCategory)) {
-            const categoryAmount = categoryAmounts[category] || 0;
-            if (categoryAmount <= 0) continue;
-
-            if (typeof paymentValue === 'string') {
-              if (paymentValue === 'pointA' || paymentValue === 'pointB') {
-                refundAmounts[paymentValue] += categoryAmount;
-              } else if (paymentValue === 'sideGameChip') {
-                const chips = Math.ceil(categoryAmount /  SIDE_GAME_CHIP_EXCHANGE_RATE);
-                refundAmounts.sideGameChip += chips;
-              }
-            } else if (Array.isArray(paymentValue)) {
-              for (const split of paymentValue) {
-                if (!split || typeof split !== 'object') continue;
-                const method = split.method;
-                const amount = Number(split.amount) || 0;
-                if (amount <= 0) continue;
-
-                if (method === 'pointA' || method === 'pointB') {
-                  refundAmounts[method] += amount;
-                } else if (method === 'sideGameChip') {
-                  const chips = amount % SIDE_GAME_CHIP_EXCHANGE_RATE === 0
-                    ? Math.round(amount / SIDE_GAME_CHIP_EXCHANGE_RATE)
-                    : Math.ceil(amount / SIDE_GAME_CHIP_EXCHANGE_RATE);
-                  refundAmounts.sideGameChip += chips;
-                }
-              }
-            }
-          }
-        }
-
-        // ユーザーの状態を更新
-        const userUpdates: Record<string, any> = {
-          isStaying: true,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        };
-
-        // ポイント/サイドゲームチップを返還
-        for (const [fieldName, amount] of Object.entries(refundAmounts)) {
-          if (amount > 0) {
-            userUpdates[fieldName] = admin.firestore.FieldValue.increment(amount);
-          }
-        }
-
-        transaction.update(userRef, userUpdates);
-
-        // visitLogsの最新の完了ログを未完了に戻す
-        const visitLogsSnapshot = await userRef.collection('visitLogs')
-          .where('checkOutAt', '!=', null)
-          .orderBy('checkInAt', 'desc')
-          .limit(1)
-          .get();
-
-        if (!visitLogsSnapshot.empty) {
-          const visitLogDoc = visitLogsSnapshot.docs[0];
-          transaction.update(visitLogDoc.ref, {
-            checkOutAt: null,
-            stayMinutes: null,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-        }
-      }
-
-      // 返金処理が選択された場合
-      if (includeRefund && refundAmount > 0) {
-        // todaysBillsに返金情報を追加
-        transaction.update(billRef, {
-          refundAmount: refundAmount,
-          refundedAt: admin.firestore.FieldValue.serverTimestamp(),
-          refundedBy: callerUid,
-        });
-
-        // accountingHistoryに返金記録を追加
-        if (accountingHistoryId) {
-          const accountingHistoryRef = db.collection('accountingHistory').doc(accountingHistoryId);
-          const refundRecord = {
-            type: 'refund',
-            amount: refundAmount,
-            refundedBy: callerUid,
-            refundedAt: admin.firestore.FieldValue.serverTimestamp(),
-            reason: `キャンセルに伴う返金: ${reason}`,
-          };
-
-          transaction.update(accountingHistoryRef, {
-            refundRecord: refundRecord,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-        }
-      }
-=======
       tx.update(billRef, updateData);
     });
 
@@ -253,7 +97,6 @@ export const cancelAccounting = onCall(async (request) => {
       op: 'cancelAccounting',
       billId,
       reason: reason || null,
->>>>>>> billsmigration/draft
     });
 
     return {

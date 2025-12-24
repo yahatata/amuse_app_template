@@ -171,7 +171,6 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
           ),
         ),
       ),
-      ),
     );
   }
 

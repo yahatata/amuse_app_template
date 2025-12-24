@@ -1,12 +1,9 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
-<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
-=======
 import { recordTournamentAction } from '../helpers/billsApi/recordTournamentAction';
 import * as crypto from 'crypto';
->>>>>>> billsmigration/draft
 
 // 入力スキーマ
 const bustAndReentrySchema = z.object({

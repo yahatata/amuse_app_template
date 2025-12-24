@@ -5,9 +5,9 @@ _最終更新: 2025-12-23 (JST)_
 ## 進捗状況
 
 - **総ファイル数**: 25（`git diff --name-only --diff-filter=U` で確認済み）
-- **解消済み**: 11
-- **未解消**: 14
-- **進捗率**: 44%
+- **解消済み**: 25
+- **未解消**: 0
+- **進捗率**: 100%
 
 **更新責任者**: Cursor（AI）が進捗を更新する責任を負う
 
@@ -23,7 +23,7 @@ _最終更新: 2025-12-23 (JST)_
 
 | ファイル | 注意度 | 担当 | 状態 | 備考 |
 |---------|--------|------|------|------|
-| `functions/src/index.ts` | 中 | - | 未着手 | export定義（運用影響大） |
+| `functions/src/index.ts` | 中 | Cursor | 解消済み | export定義（独断解消：両方のexportを統合） |
 | `functions/src/sideGame/depositTip.ts` | 中 | Cursor | 解消済み | サイドゲーム（選択肢提示→選択肢1採用） |
 | `functions/src/sideGame/withdrawTip.ts` | 中 | Cursor | 解消済み | サイドゲーム（選択肢提示→選択肢1採用） |
 | `functions/src/sideGame/registerForSideGame.ts` | 中 | Cursor | 解消済み | サイドゲーム（選択肢提示→選択肢1採用） |
@@ -39,24 +39,24 @@ _最終更新: 2025-12-23 (JST)_
 
 | ファイル | 注意度 | 担当 | 状態 | 備考 |
 |---------|--------|------|------|------|
-| `functions/src/userLogin/manualCheckIn.ts` | 高 | - | 未着手 | 入店処理（bills作成） |
-| `functions/src/userLogin/processVisitByQR.ts` | 高 | - | 未着手 | QR入店処理（bills作成） |
-| `functions/src/itemOrder/placeOrder.ts` | 高 | - | 未着手 | 注文処理（idempotency重要） |
-| `functions/src/itemOrder/placeOrderByUser.ts` | 高 | - | 未着手 | 注文処理（idempotency重要） |
-| `functions/src/callables/accounting.ts` | 高 | - | 未着手 | 会計処理の核心 |
-| `functions/src/callables/cancelAccounting.ts` | 高 | - | 未着手 | 会計キャンセル |
-| `functions/src/callables/refundProcessing.ts` | 高 | - | 未着手 | 返金処理 |
-| `functions/src/callables/updateAccounting.ts` | 高 | - | 未着手 | 会計後調整 |
-| `lib/Accounting/accountingPage.dart` | 高 | - | 未着手 | 会計画面 |
+| `functions/src/userLogin/manualCheckIn.ts` | 高 | Cursor | 解消済み | 入店処理（bills作成、独断解消：import統合） |
+| `functions/src/userLogin/processVisitByQR.ts` | 高 | Cursor | 解消済み | QR入店処理（bills作成、独断解消：import統合） |
+| `functions/src/itemOrder/placeOrder.ts` | 高 | Cursor | 解消済み | 注文処理（選択肢提示→選択肢1採用：billsmigration/draft側+デバイス権限チェック） |
+| `functions/src/itemOrder/placeOrderByUser.ts` | 高 | Cursor | 解消済み | 注文処理（独断解消：billsmigration/draft側を採用） |
+| `functions/src/callables/accounting.ts` | 高 | Cursor | 解消済み | 会計処理の核心（選択肢提示→選択肢1採用：billsmigration/draft側+デバイス権限チェック） |
+| `functions/src/callables/cancelAccounting.ts` | 高 | Cursor | 解消済み | 会計キャンセル（選択肢提示→選択肢1採用：billsmigration/draft側+デバイス権限チェック） |
+| `functions/src/callables/refundProcessing.ts` | 高 | Cursor | 解消済み | 返金処理（選択肢提示→選択肢1採用：billsmigration/draft側+デバイス権限チェック） |
+| `functions/src/callables/updateAccounting.ts` | 高 | Cursor | 解消済み | 会計後調整（選択肢提示→選択肢1採用：billsmigration/draft側+デバイス権限チェック） |
+| `lib/Accounting/accountingPage.dart` | 高 | Cursor | 解消済み | 会計画面（選択肢提示→選択肢1採用：billsmigration/draft側の新スキーマ対応） |
 
 ### フェーズ4: トーナメント系（未着手）
 
 | ファイル | 注意度 | 担当 | 状態 | 備考 |
 |---------|--------|------|------|------|
-| `functions/src/callables/addon.ts` | 中 | - | 未着手 | トーナメントAddon |
-| `functions/src/callables/bulkAddon.ts` | 中 | - | 未着手 | トーナメント一括Addon |
-| `functions/src/callables/bustAndReentry.ts` | 中 | - | 未着手 | トーナメントBust&リエントリー |
-| `functions/src/callables/registerParticipants.ts` | 中 | - | 未着手 | トーナメント参加登録 |
+| `functions/src/callables/addon.ts` | 中 | Cursor | 解消済み | トーナメントAddon（独断解消：import統合） |
+| `functions/src/callables/bulkAddon.ts` | 中 | Cursor | 解消済み | トーナメント一括Addon（独断解消：import統合） |
+| `functions/src/callables/bustAndReentry.ts` | 中 | Cursor | 解消済み | トーナメントBust&リエントリー（独断解消：import統合） |
+| `functions/src/callables/registerParticipants.ts` | 中 | Cursor | 解消済み | トーナメント参加登録（独断解消：import統合） |
 
 ## 状態凡例
 

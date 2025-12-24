@@ -1,15 +1,10 @@
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
-<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
-
-const db = admin.firestore();
-=======
 import { startAccounting as startAccountingHelper } from '../helpers/billsApi/startAccounting';
 import * as crypto from 'crypto';
 import { getFirestore } from 'firebase-admin/firestore';
->>>>>>> billsmigration/draft
 
 // サイドゲームチップ換算率（globalConstant.dartと同期）
 const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0; // サイドゲームチップ1 = 10円相当
@@ -115,16 +110,12 @@ export const startAccounting = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-<<<<<<< HEAD
-  const callerUid = request.auth.uid;
-=======
   const adminId = request.auth.uid;
   const db = getFirestore();
->>>>>>> billsmigration/draft
 
   try {
     // デバイス権限の確認（role: admin または options.accounting: true）
-    const device = await getCallerDeviceByUid(callerUid);
+    const device = await getCallerDeviceByUid(adminId);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
@@ -301,15 +292,6 @@ export const startAccounting = onCall(async (request) => {
       }
     }
 
-<<<<<<< HEAD
-    // 会計開始時刻とカテゴリ別支払い方法を記録（statusは変更しない）
-    await billRef.update({
-      accountingStartedAt: admin.firestore.FieldValue.serverTimestamp(),
-      accountingStartedBy: callerUid,
-      paymentMethodsByAmount: normalizedPaymentMethods,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-=======
     // 支払方法情報は bills には保存しない（P1-06のスコープ外、将来の recordPayment ヘルパに移行予定）
     // ただし、P1-10 の暫定方針として meta.paymentMethodsByCategory または meta.paymentMethodsByAmount に保存する
     // startAccounting ヘルパAPIで既に status='settling' と ops.accountingStartedAt/By が設定されている
@@ -333,7 +315,6 @@ export const startAccounting = onCall(async (request) => {
         // updatedAt は既存ポリシーに従い、冪等リプレイ時は更新しない（startAccountingHelper 側で制御）
       });
     }
->>>>>>> billsmigration/draft
 
     return { 
       success: true, 
@@ -356,10 +337,6 @@ export const startAccounting = onCall(async (request) => {
 });
 
 /**
-<<<<<<< HEAD
- * 会計完了処理
- * 管理者権限またはaccountingオプションを持つデバイスのみが実行可能
-=======
  * 会計完了処理（legacy）
  * 
  * 現時点では旧スキーマの todaysBills を前提とした実装のまま残している。
@@ -368,8 +345,7 @@ export const startAccounting = onCall(async (request) => {
  * 
  * 将来のフェーズ（例: P1-0x）で、bills + accountingHistory を正とする新実装へ差し替える予定。
  * 
- * 管理者権限を持つユーザーのみが実行可能
->>>>>>> billsmigration/draft
+ * 管理者権限またはaccountingオプションを持つデバイスのみが実行可能
  */
 export const completeAccounting = onCall(async (request) => {
   // 認証チェック
@@ -377,16 +353,12 @@ export const completeAccounting = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-<<<<<<< HEAD
-  const callerUid = request.auth.uid;
-=======
   const adminId = request.auth.uid;
   const db = getFirestore();
->>>>>>> billsmigration/draft
 
   try {
     // デバイス権限の確認（role: admin または options.accounting: true）
-    const device = await getCallerDeviceByUid(callerUid);
+    const device = await getCallerDeviceByUid(adminId);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
@@ -430,7 +402,7 @@ export const completeAccounting = onCall(async (request) => {
       accountingStartedAt: billData.accountingStartedAt,
       accountingCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingStartedBy: billData.accountingStartedBy,
-      accountingCompletedBy: callerUid,
+      accountingCompletedBy: adminId,
       paymentMethodsByAmount: billData.paymentMethodsByAmount || {},
       // カテゴリ別の詳細データも保存
       extraCost: billData.extraCost || [],
@@ -445,7 +417,7 @@ export const completeAccounting = onCall(async (request) => {
       status: 'settled',
       settledAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
-      accountingCompletedBy: callerUid,
+      accountingCompletedBy: adminId,
       accountingHistoryId: accountingHistoryRef.id,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });

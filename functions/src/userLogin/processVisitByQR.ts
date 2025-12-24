@@ -2,11 +2,8 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import * as crypto from "crypto";
 import { parseQRData, verifyQRData } from "../utils/qrCodeUtils";
-<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
-=======
 import { createBillWithActiveStay } from "../helpers/billsApi";
->>>>>>> billsmigration/draft
 
 /**
  * 入店処理（QRスキャン起点）

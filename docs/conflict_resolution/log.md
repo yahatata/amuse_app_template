@@ -301,7 +301,377 @@ _最終更新: 2025-12-23 (JST)_
 
 ---
 
-## 未解消ファイル
+---
 
-残り14ファイルのコンフリクト解消を継続中。
+### 2025-12-23: `functions/src/index.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/index.ts`
+- **判断方法**: 独断解消
+- **選択内容**: 両方のexportを統合（HEAD側のwebhook export + billsmigration/draft側の夜間バッチ処理・トリガー関数export）
+- **変更内容**: 
+  - HEAD側: `export * from "./webhook";` を維持
+  - billsmigration/draft側: 夜間バッチ処理（3ファイル）とトリガー関数（2ファイル）のexportを追加
+  - コンフリクトマーカーを削除し、両方のexportを統合
+- **影響範囲**: 
+  - Firebase Functionsのexport定義に影響
+  - webhook関連関数のexportが維持される
+  - billsmigration/draft側の新機能（夜間バッチ処理・トリガー関数）がexportされる
+- **参照した仕様書/ドキュメント**: 
+  - `docs/conflict_resolution/policy.md`（export定義の追加は意味不変の範囲内）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: export定義の追加は単純な統合で、実行時の意味に影響しないため独断で解消。両方のexportが必要なため、両方を統合。
+
+---
+
+---
+
+### 2025-12-23: `functions/src/userLogin/manualCheckIn.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/userLogin/manualCheckIn.ts`
+- **判断方法**: 独断解消
+- **選択内容**: 両方のimportを統合（HEAD側のデバイス権限チェックimport + billsmigration/draft側のcryptoとcreateBillWithActiveStay import）
+- **変更内容**: 
+  - HEAD側: `import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";` を維持
+  - billsmigration/draft側: `import * as crypto from "crypto";` と `import { createBillWithActiveStay } from "../helpers/billsApi";` を追加
+  - コンフリクトマーカーを削除し、両方のimportを統合
+  - 実際のロジックは既に統合済み（デバイス権限チェックとcreateBillWithActiveStayヘルパAPIの両方が使用されている）
+- **影響範囲**: 
+  - 入店処理の核心機能（bills作成）
+  - HEAD側のデバイス権限チェック機能が維持される
+  - billsmigration/draft側の新スキーマ対応（createBillWithActiveStay）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-01_change_spec.md`（入店フローの新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（import順・未使用import削除は意味不変の範囲内）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: import文のコンフリクトのみで、実際のロジックは既に統合済み。両方のimportが必要なため、両方を統合。高リスクファイルだが、import統合は意味不変の範囲内のため独断で解消。
+
+---
+
+---
+
+### 2025-12-23: `functions/src/userLogin/processVisitByQR.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/userLogin/processVisitByQR.ts`
+- **判断方法**: 独断解消
+- **選択内容**: 両方のimportを統合（HEAD側のデバイス権限チェックimport + billsmigration/draft側のcreateBillWithActiveStay import）
+- **変更内容**: 
+  - HEAD側: `import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";` を維持
+  - billsmigration/draft側: `import { createBillWithActiveStay } from "../helpers/billsApi";` を追加
+  - コンフリクトマーカーを削除し、両方のimportを統合
+  - 実際のロジックは既に統合済み（デバイス権限チェックとcreateBillWithActiveStayヘルパAPIの両方が使用されている）
+- **影響範囲**: 
+  - QR入店処理の核心機能（bills作成）
+  - HEAD側のデバイス権限チェック機能が維持される
+  - billsmigration/draft側の新スキーマ対応（createBillWithActiveStay）が維持される
+  - visitLogsへの記録機能が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-01_change_spec.md`（入店フローの新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（import順・未使用import削除は意味不変の範囲内）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: import文のコンフリクトのみで、実際のロジックは既に統合済み。両方のimportが必要なため、両方を統合。高リスクファイルだが、import統合は意味不変の範囲内のため独断で解消。`manualCheckIn.ts`と同様の構造。
+
+---
+
+---
+
+### 2025-12-23: `functions/src/itemOrder/placeOrder.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/itemOrder/placeOrder.ts`
+- **判断方法**: 選択肢提示→選択肢1採用
+- **選択内容**: billsmigration/draft側の新スキーマ対応ロジックを維持し、HEAD側のデバイス権限チェックを追加
+- **変更内容**: 
+  - billsmigration/draft側の新スキーマ対応ロジックを維持（`appendItemWithOrderProjection`、`appendSideGameChip`、Chip/非Chipの分岐）
+  - HEAD側のデバイス権限チェックを追加（`getCallerDeviceByUid`、`hasRequiredOption`、`isActive`）
+  - リクエストパラメータは`{ billId, item, clientNonce }`を維持（新スキーマに合わせる）
+  - 両方のimportを統合
+- **影響範囲**: 
+  - 注文処理の核心機能（idempotency重要）
+  - HEAD側のデバイス権限チェック機能が追加される
+  - billsmigration/draft側の新スキーマ対応（`appendItemWithOrderProjection`、`appendSideGameChip`）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-02_change_spec.md`（注文処理の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（高リスクファイルのため選択肢提示）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: 高リスクファイル（idempotency重要）のため選択肢を提示。選択肢1を採用し、billsmigration/draft側の新スキーマ対応を維持しつつ、HEAD側のデバイス権限チェックを追加。
+
+---
+
+### 2025-12-23: `functions/src/itemOrder/placeOrderByUser.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/itemOrder/placeOrderByUser.ts`
+- **判断方法**: 独断解消
+- **選択内容**: billsmigration/draft側の新スキーマ対応ロジックを採用
+- **変更内容**: 
+  - HEAD側の古い`todaysBills`を使ったロジックを削除
+  - billsmigration/draft側の新スキーマ対応ロジックを採用（`getActiveBillByUser`、`appendItem`、`orders/_TodaysOrders`への記録）
+  - コンフリクトマーカーを削除
+- **影響範囲**: 
+  - LIFF側のユーザー注文処理（idempotency重要）
+  - 新スキーマ対応（`bills`コレクション、`getActiveBillByUser`、`appendItem`）
+  - `orders/_TodaysOrders`への記録機能が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-02_change_spec.md`（注文処理の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（HEAD側が古いロジックのため、billsmigration/draft側を採用）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: HEAD側は古い`todaysBills`を使ったロジックで、billsmigration/draft側は新スキーマ対応のため、billsmigration/draft側を採用。HEAD側にデバイス権限チェックはないため、そのままbillsmigration/draft側を採用。
+
+---
+
+---
+
+### 2025-12-23: `functions/src/callables/accounting.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/callables/accounting.ts`
+- **判断方法**: 選択肢提示→選択肢1採用
+- **選択内容**: billsmigration/draft側の新スキーマ対応ロジックを維持し、HEAD側のデバイス権限チェックを追加
+- **変更内容**: 
+  - billsmigration/draft側の新スキーマ対応ロジックを維持（`startAccountingHelper`、`meta.paymentMethodsByAmount/Category`、`completeAccountingV2`）
+  - HEAD側のデバイス権限チェックを追加（`startAccounting`と`completeAccounting`の両方）
+  - `callerUid`を`adminId`に統一（billsmigration/draft側の命名に合わせる）
+  - `getFirestore()`を使用（billsmigration/draft側の方式）
+  - `completeAccountingV2`を維持（新スキーマ対応）
+- **影響範囲**: 
+  - 会計処理の核心機能（startAccounting、completeAccounting、completeAccountingV2）
+  - HEAD側のデバイス権限チェック機能が追加される
+  - billsmigration/draft側の新スキーマ対応（`startAccountingHelper`、`meta.paymentMethodsByAmount/Category`）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-06_change_spec.md`（会計処理の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（高リスクファイルのため選択肢提示）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: 高リスクファイル（会計処理の核心）のため選択肢を提示。選択肢1を採用し、billsmigration/draft側の新スキーマ対応を維持しつつ、HEAD側のデバイス権限チェックを追加。
+
+---
+
+### 2025-12-23: `functions/src/callables/cancelAccounting.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/callables/cancelAccounting.ts`
+- **判断方法**: 選択肢提示→選択肢1採用
+- **選択内容**: billsmigration/draft側の新スキーマ対応ロジックを維持し、HEAD側のデバイス権限チェックを追加
+- **変更内容**: 
+  - billsmigration/draft側の新スキーマ対応ロジックを維持（pre-settlement専用、`/bills/{billId}`ベース、シンプルな実装）
+  - HEAD側のデバイス権限チェックを追加（`getCallerDeviceByUid`、`role: admin または options.accounting: true`）
+  - HEAD側の古いロジック（`accountingHistory`への記録、ユーザー状態の復元、ポイント/サイドゲームチップの返還、返金処理など）を削除
+  - `callerUid`を`adminId`に統一（billsmigration/draft側の命名に合わせる）
+- **影響範囲**: 
+  - 会計キャンセル処理（pre-settlement専用）
+  - HEAD側のデバイス権限チェック機能が追加される
+  - billsmigration/draft側の新スキーマ対応（`/bills/{billId}`ベース、pre-settlement専用）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-07_change_spec.md`（会計キャンセル処理の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（高リスクファイルのため選択肢提示）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: 高リスクファイル（会計キャンセル処理）のため選択肢を提示。選択肢1を採用し、billsmigration/draft側の新スキーマ対応（pre-settlement専用）を維持しつつ、HEAD側のデバイス権限チェックを追加。HEAD側の古いロジック（`accountingHistory`への記録、ユーザー状態の復元など）は削除。
+
+---
+
+### 2025-12-23: `functions/src/callables/refundProcessing.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/callables/refundProcessing.ts`
+- **判断方法**: 選択肢提示→選択肢1採用
+- **選択内容**: billsmigration/draft側の新スキーマ対応ロジックを維持し、HEAD側のデバイス権限チェックを追加
+- **変更内容**: 
+  - billsmigration/draft側の新スキーマ対応ロジックを維持（`postEventRefund`ヘルパAPIを使用）
+  - HEAD側のデバイス権限チェックを追加（`getCallerDeviceByUid`、`role: admin または options.accounting: true`）
+  - HEAD側の古いロジック（`todaysBills`ベース、`refundAmount`を更新、ポイント/サイドゲームチップの返還処理、`accountingHistory`への記録、`refundHistory`への記録など）を削除
+  - `callerUid`を`adminId`に統一（billsmigration/draft側の命名に合わせる）
+  - `getRefundHistory`関数にも同様の変更を適用
+- **影響範囲**: 
+  - 返金処理（`processRefund`、`getRefundHistory`）
+  - HEAD側のデバイス権限チェック機能が追加される
+  - billsmigration/draft側の新スキーマ対応（`postEventRefund`ヘルパAPI、`/bills/{billId}/events`にイベントを記録）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-07_change_spec.md`（返金処理の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（高リスクファイルのため選択肢提示）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: 高リスクファイル（返金処理）のため選択肢を提示。選択肢1を採用し、billsmigration/draft側の新スキーマ対応（`postEventRefund`ヘルパAPI）を維持しつつ、HEAD側のデバイス権限チェックを追加。HEAD側の古いロジック（`todaysBills`ベース、ポイント/サイドゲームチップの返還処理など）は削除。
+
+---
+
+### 2025-12-23: `functions/src/callables/updateAccounting.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/callables/updateAccounting.ts`
+- **判断方法**: 選択肢提示→選択肢1採用
+- **選択内容**: billsmigration/draft側の新スキーマ対応ロジックを維持し、HEAD側のデバイス権限チェックを追加
+- **変更内容**: 
+  - billsmigration/draft側の新スキーマ対応ロジックを維持（`postEventAdjustment` / `postEventCancel` / `postEventReopen`ヘルパAPIを使用）
+  - HEAD側のデバイス権限チェックを追加（`getCallerDeviceByUid`、`role: admin または options.accounting: true`）
+  - HEAD側の古いロジック（`todaysBills`ベース、`items/extraCost/tournaments/sideGameChip`を更新、`totalPrice`を再計算、`accountingHistory`への記録など）を削除
+  - `callerUid`を`adminId`に統一（billsmigration/draft側の命名に合わせる）
+- **影響範囲**: 
+  - 会計後調整処理（`updateAccounting`）
+  - HEAD側のデバイス権限チェック機能が追加される
+  - billsmigration/draft側の新スキーマ対応（`postEventAdjustment` / `postEventCancel` / `postEventReopen`ヘルパAPI、`/bills/{billId}/events`にイベントを記録）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-07_change_spec.md`（会計後調整処理の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（高リスクファイルのため選択肢提示）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: 高リスクファイル（会計後調整処理）のため選択肢を提示。選択肢1を採用し、billsmigration/draft側の新スキーマ対応（`postEventAdjustment` / `postEventCancel` / `postEventReopen`ヘルパAPI）を維持しつつ、HEAD側のデバイス権限チェックを追加。HEAD側の古いロジック（`todaysBills`ベース、`items/extraCost/tournaments/sideGameChip`を更新など）は削除。
+
+---
+
+### 2025-12-23: `lib/Accounting/accountingPage.dart` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `lib/Accounting/accountingPage.dart`
+- **判断方法**: 選択肢提示→選択肢1採用
+- **選択内容**: billsmigration/draft側の新スキーマ対応ロジックを維持
+- **変更内容**: 
+  - billsmigration/draft側の新スキーマ対応ロジックを維持（`categoryAmounts.total`を使用、`getBillPreviewTotals` CFを使用）
+  - HEAD側の古いロジック（`bill['totalPrice']`、`bill['extraCost']`、`bill['items']`、`bill['sideGameChip']`、`bill['tournaments']`から直接計算）を削除
+  - `_fetchCategoryAmountsFromServer`関数の後の古いロジック（`bill['tournaments']`、`bill['items']`、`bill['sideGameChip']`から直接計算）を削除
+  - `_buildActiveBillCard`関数内のUI表示ロジック（作成日時表示、会計額表示、内訳表示、会計中の表示など）を削除（billsmigration/draft側では既に別の場所で実装されているため）
+  - `_revertAccountingStart`関数を実装（`cancelAccounting` CFを呼び出す）
+- **影響範囲**: 
+  - 会計画面（`AccountingPage`）
+  - billsmigration/draft側の新スキーマ対応（`getBillPreviewTotals` CF、サブコレクションから取得）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-07_change_spec.md`（会計画面の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（高リスクファイルのため選択肢提示）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: 高リスクファイル（会計画面）のため選択肢を提示。選択肢1を採用し、billsmigration/draft側の新スキーマ対応（`getBillPreviewTotals` CF、サブコレクションから取得）を維持。HEAD側の古いロジック（`bill['totalPrice']`、`bill['extraCost']`などから直接計算）は削除。
+
+---
+
+### 2025-12-23: `functions/src/callables/addon.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/callables/addon.ts`
+- **判断方法**: 独断解消
+- **選択内容**: import文の統合（HEAD側のデバイス権限チェック + billsmigration/draft側の`recordTournamentAction`ヘルパAPI）
+- **変更内容**: 
+  - HEAD側のデバイス権限チェック（`getCallerDeviceByUid`、`hasRequiredOption`、`isActive`）のimportを維持
+  - billsmigration/draft側の`recordTournamentAction`ヘルパAPIと`crypto`のimportを追加
+  - 既存のロジックは両方のブランチで同じため、import文のみの統合で完了
+- **影響範囲**: 
+  - トーナメントAddon処理
+  - HEAD側のデバイス権限チェック機能が維持される
+  - billsmigration/draft側の新スキーマ対応（`recordTournamentAction`ヘルパAPI、`/bills/{billId}/tournaments`への記録）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-05_change_spec.md`（トーナメントAddon処理の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（import文の統合は独断解消可能）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: import文のみのコンフリクトのため、独断で解消。HEAD側のデバイス権限チェックとbillsmigration/draft側の`recordTournamentAction`ヘルパAPIのimportを統合。
+
+---
+
+### 2025-12-23: `functions/src/callables/bulkAddon.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/callables/bulkAddon.ts`
+- **判断方法**: 独断解消
+- **選択内容**: import文の統合（HEAD側のデバイス権限チェック + billsmigration/draft側の`recordTournamentAction`ヘルパAPI）
+- **変更内容**: 
+  - HEAD側のデバイス権限チェック（`getCallerDeviceByUid`、`hasRequiredOption`、`isActive`）のimportを維持
+  - billsmigration/draft側の`recordTournamentAction`ヘルパAPIと`crypto`のimportを追加
+  - 既存のロジックは両方のブランチで同じため、import文のみの統合で完了
+- **影響範囲**: 
+  - トーナメント一括Addon処理
+  - HEAD側のデバイス権限チェック機能が維持される
+  - billsmigration/draft側の新スキーマ対応（`recordTournamentAction`ヘルパAPI、各ユーザーごとに`/bills/{billId}/tournaments`への記録）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-05_change_spec.md`（トーナメント一括Addon処理の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（import文の統合は独断解消可能）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: import文のみのコンフリクトのため、独断で解消。HEAD側のデバイス権限チェックとbillsmigration/draft側の`recordTournamentAction`ヘルパAPIのimportを統合。
+
+---
+
+### 2025-12-23: `functions/src/callables/bustAndReentry.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/callables/bustAndReentry.ts`
+- **判断方法**: 独断解消
+- **選択内容**: import文の統合（HEAD側のデバイス権限チェック + billsmigration/draft側の`recordTournamentAction`ヘルパAPI）
+- **変更内容**: 
+  - HEAD側のデバイス権限チェック（`getCallerDeviceByUid`、`hasRequiredOption`、`isActive`）のimportを維持
+  - billsmigration/draft側の`recordTournamentAction`ヘルパAPIと`crypto`のimportを追加
+  - 既存のロジックは両方のブランチで同じため、import文のみの統合で完了
+- **影響範囲**: 
+  - トーナメントBust&リエントリー処理
+  - HEAD側のデバイス権限チェック機能が維持される
+  - billsmigration/draft側の新スキーマ対応（`recordTournamentAction`ヘルパAPI、`/bills/{billId}/tournaments`への記録）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-05_change_spec.md`（トーナメントBust&リエントリー処理の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（import文の統合は独断解消可能）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: import文のみのコンフリクトのため、独断で解消。HEAD側のデバイス権限チェックとbillsmigration/draft側の`recordTournamentAction`ヘルパAPIのimportを統合。
+
+---
+
+### 2025-12-23: `functions/src/callables/registerParticipants.ts` 解消
+
+- **日時**: 2025-12-23
+- **対象ファイル**: `functions/src/callables/registerParticipants.ts`
+- **判断方法**: 独断解消
+- **選択内容**: import文の統合（HEAD側のデバイス権限チェック + billsmigration/draft側の`recordTournamentAction`ヘルパAPI）
+- **変更内容**: 
+  - HEAD側のデバイス権限チェック（`getCallerDeviceByUid`、`hasRequiredOption`、`isActive`）のimportを維持
+  - billsmigration/draft側の`recordTournamentAction`ヘルパAPIと`crypto`のimportを追加
+  - 既存のロジックは両方のブランチで同じため、import文のみの統合で完了
+- **影響範囲**: 
+  - トーナメント参加登録処理
+  - HEAD側のデバイス権限チェック機能が維持される
+  - billsmigration/draft側の新スキーマ対応（`recordTournamentAction`ヘルパAPI、各ユーザーごとに`/bills/{billId}/tournaments`への記録）が維持される
+- **参照した仕様書/ドキュメント**: 
+  - `docs/bills_migration/changespecs/P1-05_change_spec.md`（トーナメント参加登録処理の新スキーマ対応）
+  - `docs/conflict_resolution/policy.md`（import文の統合は独断解消可能）
+- **実行した検証コマンド**: 
+  - `read_lints`: エラーなし
+  - `git add`: 成功
+- **テスト結果**: リンターエラーなし
+- **備考**: import文のみのコンフリクトのため、独断で解消。HEAD側のデバイス権限チェックとbillsmigration/draft側の`recordTournamentAction`ヘルパAPIのimportを統合。
+
+---
+
+## 全ファイル解消完了
+
+**2025-12-23**: 全25ファイルのコンフリクト解消が完了しました。
 

@@ -1,12 +1,9 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
-<<<<<<< HEAD
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
-=======
 import { recordTournamentAction } from '../helpers/billsApi/recordTournamentAction';
 import * as crypto from 'crypto';
->>>>>>> billsmigration/draft
 
 const bulkAddonSchema = z.object({
   tournamentId: z.string(),

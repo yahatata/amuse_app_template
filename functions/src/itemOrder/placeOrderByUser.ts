@@ -47,53 +47,6 @@ export const placeOrderByUser = onCall(async (request) => {
 
     const sessionNonce: string = request.data?.clientNonce || `session_${Date.now()}`;
 
-<<<<<<< HEAD
-    // 対象ユーザーの open な todaysBills を特定
-    console.log("placeOrderByUser: 検索条件", {
-      userId: userId,
-      status: "open"
-    });
-    
-    const billsSnap = await db
-      .collection("todaysBills")
-      .where("userId", "==", userId)
-      .where("status", "==", "open")
-      .limit(1)
-      .get();
-
-    console.log("placeOrderByUser: クエリ結果", {
-      empty: billsSnap.empty,
-      size: billsSnap.size,
-      docs: billsSnap.docs.map(doc => ({
-        id: doc.id,
-        data: doc.data()
-      }))
-    });
-
-    if (billsSnap.empty) {
-      // デバッグ用: userIdのみで検索してみる
-      const userIdOnlySnap = await db
-        .collection("todaysBills")
-        .where("userId", "==", userId)
-        .limit(5)
-        .get();
-      
-      console.log("placeOrderByUser: userIdのみで検索", {
-        empty: userIdOnlySnap.empty,
-        size: userIdOnlySnap.size,
-        docs: userIdOnlySnap.docs.map(doc => ({
-          id: doc.id,
-          data: {
-            userId: doc.data().userId,
-            status: doc.data().status,
-            pokerName: doc.data().pokerName
-          }
-        }))
-      });
-      
-      return { success: false, error: `No active bill found for user: ${userId}` };
-    }
-=======
     // 1) bill 取得
     const { billId, billData } = await getActiveBillByUser(userId);
 
@@ -103,7 +56,6 @@ export const placeOrderByUser = onCall(async (request) => {
       const it = items[index];
       const clientNonce = `${sessionNonce}-${index}`;
       const idempotencyKey = `appendItem:${billId}:${clientNonce}`;
->>>>>>> billsmigration/draft
 
       const res = await appendItem({
         billId,

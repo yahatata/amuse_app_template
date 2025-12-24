@@ -36,10 +36,8 @@ export * from "./callables";
 export * from "./analytics";
 // クロージング処理関連関数
 export * from "./close_process";
-<<<<<<< HEAD
 // Webhook関連関数
 export * from "./webhook";
-=======
 // 夜間バッチ処理関連関数
 export * from "./scripts/nightlyRecalculateBalanceDue";
 export * from "./scripts/nightlyReconciliationCheck";
@@ -47,7 +45,6 @@ export * from "./scripts/nightlyIntegrityCheck";
 // トリガ関連関数
 export * from "./triggers/bills.events.onCreate";
 export * from "./triggers/bills.onSettle";
->>>>>>> billsmigration/draft
 
 // トーナメント時間管理システム（Phase1）
 import { onRequest } from 'firebase-functions/v2/https';

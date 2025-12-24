@@ -1,25 +1,19 @@
-<<<<<<< HEAD
-import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
-=======
 /**
  * placeOrder
  * 
  * スタッフが注文確定ボタンを押下したとき
  * 
  * 新スキーマ対応:
- * - getActiveBillByUser で billId を取得
- * - Chip以外: appendItem で /bills/{billId}/items/{itemId} に追加、orders/_TodaysOrders に記録
+ * - billId を直接受け取る（クライアント側で取得済み）
+ * - Chip以外: appendItemWithOrderProjection で /bills/{billId}/items/{itemId} に追加、orders/_TodaysOrders に記録
  * - Chip: appendSideGameChip で /bills/{billId}/sideGameChips/{chipId} に追加（orders/_TodaysOrders には書かない）
  */
 
-import { onCall } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
-import { HttpsError } from "firebase-functions/v2/https";
 import { appendItemWithOrderProjection } from "../helpers/billsApi/appendItem";
 import { appendSideGameChip } from "../helpers/billsApi/appendSideGameChip";
 import { resolveMenuItem } from "../helpers/billsApi/resolveMenuItem";
->>>>>>> billsmigration/draft
 import { addLogEntry } from "../utils/logUtils";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
 
@@ -34,7 +28,6 @@ export const placeOrder = onCall(async (request) => {
   const callerUid = request.auth.uid;
 
   try {
-<<<<<<< HEAD
     // デバイス権限の確認（role: admin または options.order: true）
     const device = await getCallerDeviceByUid(callerUid);
     if (!device || !isActive(device.status)) {
@@ -46,12 +39,8 @@ export const placeOrder = onCall(async (request) => {
       throw new HttpsError('permission-denied', '注文操作の権限がありません');
     }
 
-    const { userId, item } = request.data as {
-      userId: string;
-=======
     const { billId, item, clientNonce } = request.data as {
       billId: string; // userId から billId に変更
->>>>>>> billsmigration/draft
       item: {
         menuItemId: string;
         quantity: number;
