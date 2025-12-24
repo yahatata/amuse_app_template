@@ -2,8 +2,9 @@ import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
-
-const db = admin.firestore();
+import { startAccounting as startAccountingHelper } from '../helpers/billsApi/startAccounting';
+import * as crypto from 'crypto';
+import { getFirestore } from 'firebase-admin/firestore';
 
 // サイドゲームチップ換算率（globalConstant.dartと同期）
 const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0; // サイドゲームチップ1 = 10円相当
@@ -81,6 +82,8 @@ function normalizePaymentMethods(options: {
 // Zodスキーマで入力データを検証
 const StartAccountingSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
+  idempotencyKey: z.string().min(1, 'idempotencyKeyは必須です').optional(), // 任意（提供されない場合は自動生成）
+  clientNonce: z.string().min(1, 'clientNonceは必須です').optional(), // 任意（idempotencyKey生成用）
   paymentMethodsByAmount: z.record(z.number().nonnegative()).optional(),
   paymentMethodsByCategory: z.record(
     z.union([
@@ -107,11 +110,12 @@ export const startAccounting = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const callerUid = request.auth.uid;
+  const adminId = request.auth.uid;
+  const db = getFirestore();
 
   try {
     // デバイス権限の確認（role: admin または options.accounting: true）
-    const device = await getCallerDeviceByUid(callerUid);
+    const device = await getCallerDeviceByUid(adminId);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
@@ -125,48 +129,111 @@ export const startAccounting = onCall(async (request) => {
     const validatedData = StartAccountingSchema.parse(request.data);
     const {
       billId,
+      idempotencyKey: providedIdempotencyKey,
+      clientNonce,
       paymentMethodsByAmount: inputPaymentMethodsByAmount,
       paymentMethodsByCategory,
     } = validatedData;
 
-    const billRef = db.collection('todaysBills').doc(billId);
+    // idempotencyKey を生成（提供されない場合は自動生成）
+    const idempotencyKey = providedIdempotencyKey || 
+      `${billId}:startAccounting:${clientNonce || crypto.randomUUID()}`;
 
-    // 請求書が存在するか確認
+    // startAccounting ヘルパAPIを呼び出して bills のステータスとops更新
+    const startAccountingResult = await startAccountingHelper({
+      billId,
+      idempotencyKey,
+      accountingStartedBy: adminId,
+    });
+
+    // 既存の支払方法処理とユーザー残高差し引き処理を維持（P1-06のスコープ外）
+    // bills から情報を取得（todaysBills ではなく）
+    const billRef = db.collection('bills').doc(billId);
     const billDoc = await billRef.get();
     if (!billDoc.exists) {
       throw new HttpsError('not-found', '指定された請求書が見つかりません');
     }
 
     const billData = billDoc.data()!;
-    const currentStatus = billData.status || 'open';
+    const userId = billData.party?.userId;
 
-    // 既に会計済みの場合はエラー
-    if (currentStatus === 'settled') {
-      throw new HttpsError('failed-precondition', 'この請求書は既に会計済みです');
-    }
-
-    const userId = billData.userId;
-
-    // カテゴリごとの金額を計算
+    // カテゴリごとの金額を計算（bills のサブコレクションから取得）
     const categoryAmounts: Record<string, number> = {};
 
-    // extraCost（入店料）
-    const extraCosts = billData.extraCost || [];
-    categoryAmounts['extraCost'] = extraCosts.reduce((sum: number, item: any) => sum + (item.price || 0), 0);
+    // extraCost（入店料）- /bills/{billId}/extras から取得
+    const extrasSnapshot = await billRef.collection('extras').get();
+    categoryAmounts['extraCost'] = extrasSnapshot.docs.reduce((sum, doc) => {
+      const data = doc.data();
+      return sum + (data.amountIncl || 0);
+    }, 0);
 
-    // tournaments（トーナメント参加費）
-    const tournaments = billData.tournaments || {};
-    categoryAmounts['tournaments'] = Object.values(tournaments).reduce((sum: number, item: any) => sum + (item.entryFee || 0), 0);
+    // tournaments（トーナメント参加費）- /bills/{billId}/tournaments から取得
+    const tournamentsSnapshot = await billRef.collection('tournaments').get();
+    categoryAmounts['tournaments'] = tournamentsSnapshot.docs.reduce((sum, doc) => {
+      const data = doc.data();
+      // entryFeeIncl, reentryFeeIncl, addonFeeIncl を回数と掛け算して合計
+      const entryFeeIncl = (data.entryFeeIncl as number | undefined) ?? 0;
+      const entryCount = (data.entryCount as number | undefined) ?? 0;
+      const reentryFeeIncl = (data.reentryFeeIncl as number | undefined) ?? 0;
+      const reentryCount = (data.reentryCount as number | undefined) ?? 0;
+      const addonFeeIncl = (data.addonFeeIncl as number | undefined) ?? 0;
+      const addonCount = (data.addonCount as number | undefined) ?? 0;
+      
+      return sum + 
+        entryFeeIncl * entryCount +
+        reentryFeeIncl * reentryCount +
+        addonFeeIncl * addonCount;
+    }, 0);
 
-    // items（フード・ドリンク）
-    const items = billData.items || [];
-    categoryAmounts['items'] = items.reduce((sum: number, item: any) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
+    // items（フード・ドリンク）- /bills/{billId}/items から取得
+    const itemsSnapshot = await billRef.collection('items').get();
+    categoryAmounts['items'] = itemsSnapshot.docs.reduce((sum, doc) => {
+      const data = doc.data();
+      return sum + ((data.unitPriceIncl || 0) * (data.quantity || 0));
+    }, 0);
 
-    // sideGameChip（サイドゲームチップ、action='purchase'のみ）
-    const sideGameChips = billData.sideGameChip || [];
-    categoryAmounts['sideGameChip'] = sideGameChips
-      .filter((item: any) => item.action === 'purchase')
-      .reduce((sum: number, item: any) => sum + (item.price || 0), 0);
+    // sideGameChip（サイドゲームチップ、action='purchase'のみ）- /bills/{billId}/sideGameChips から取得
+    const sideGameChipsSnapshot = await billRef.collection('sideGameChips')
+      .where('action', '==', 'purchase')
+      .get();
+    categoryAmounts['sideGameChip'] = sideGameChipsSnapshot.docs.reduce((sum, doc) => {
+      const data = doc.data();
+      return sum + (data.amountIncl || 0);
+    }, 0);
+
+    const totalExpected = Object.values(categoryAmounts).reduce((sum, value) => sum + value, 0);
+    
+    // 0円会計の場合は支払い方法チェックをスキップ
+    if (totalExpected === 0) {
+      // 0円会計の場合、paymentMethodsByAmount が空でも許可
+      // meta.paymentMethodsByAmount は空のMapとして保存
+      const metaUpdate: Record<string, any> = {};
+      if (inputPaymentMethodsByAmount && Object.keys(inputPaymentMethodsByAmount).length > 0) {
+        metaUpdate['meta.paymentMethodsByAmount'] = inputPaymentMethodsByAmount;
+      } else {
+        // 0円の場合、空のMapを保存
+        metaUpdate['meta.paymentMethodsByAmount'] = {};
+      }
+      
+      if (paymentMethodsByCategory && Object.keys(paymentMethodsByCategory).length > 0) {
+        metaUpdate['meta.paymentMethodsByCategory'] = paymentMethodsByCategory;
+      }
+      
+      if (Object.keys(metaUpdate).length > 0) {
+        await billRef.update({
+          ...metaUpdate,
+        });
+      }
+
+      return { 
+        success: true, 
+        message: '会計を開始しました（0円会計）',
+        billId: billId,
+        status: startAccountingResult.status,
+        ops: startAccountingResult.ops,
+        diagnostics: startAccountingResult.diagnostics,
+      };
+    }
 
     const normalizedPaymentMethods = normalizePaymentMethods({
       paymentMethodsByAmount: inputPaymentMethodsByAmount,
@@ -178,7 +245,6 @@ export const startAccounting = onCall(async (request) => {
       throw new HttpsError('invalid-argument', '支払い方法が指定されていません');
     }
 
-    const totalExpected = Object.values(categoryAmounts).reduce((sum, value) => sum + value, 0);
     const totalPaid = Object.entries(normalizedPaymentMethods).reduce((sum, [method, amount]) => {
       if (amount <= 0) return sum;
       if (method === 'sideGameChip') {
@@ -236,19 +302,37 @@ export const startAccounting = onCall(async (request) => {
       }
     }
 
-    // 会計開始時刻とカテゴリ別支払い方法を記録（statusは変更しない）
-    await billRef.update({
-      accountingStartedAt: admin.firestore.FieldValue.serverTimestamp(),
-      accountingStartedBy: callerUid,
-      paymentMethodsByAmount: normalizedPaymentMethods,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    // 支払方法情報は bills には保存しない（P1-06のスコープ外、将来の recordPayment ヘルパに移行予定）
+    // ただし、P1-10 の暫定方針として meta.paymentMethodsByCategory または meta.paymentMethodsByAmount に保存する
+    // startAccounting ヘルパAPIで既に status='settling' と ops.accountingStartedAt/By が設定されている
+    
+    // P1-10 暫定: meta.paymentMethodsByCategory または meta.paymentMethodsByAmount に保存
+    const metaUpdate: Record<string, any> = {};
+    
+    if (paymentMethodsByCategory && Object.keys(paymentMethodsByCategory).length > 0) {
+      metaUpdate['meta.paymentMethodsByCategory'] = paymentMethodsByCategory;
+    }
+    
+    // paymentMethodsByAmount が存在する場合は、meta.paymentMethodsByAmount として保存
+    // Settlement Trigger で優先的に使用される
+    if (inputPaymentMethodsByAmount && Object.keys(inputPaymentMethodsByAmount).length > 0) {
+      metaUpdate['meta.paymentMethodsByAmount'] = inputPaymentMethodsByAmount;
+    }
+    
+    if (Object.keys(metaUpdate).length > 0) {
+      await billRef.update({
+        ...metaUpdate,
+        // updatedAt は既存ポリシーに従い、冪等リプレイ時は更新しない（startAccountingHelper 側で制御）
+      });
+    }
 
     return { 
       success: true, 
       message: '会計を開始しました',
       billId: billId,
-      status: 'open'
+      status: startAccountingResult.status,
+      ops: startAccountingResult.ops,
+      diagnostics: startAccountingResult.diagnostics,
     };
   } catch (error: any) {
     if (error instanceof z.ZodError) {
@@ -263,7 +347,14 @@ export const startAccounting = onCall(async (request) => {
 });
 
 /**
- * 会計完了処理
+ * 会計完了処理（legacy）
+ * 
+ * 現時点では旧スキーマの todaysBills を前提とした実装のまま残している。
+ * - startAccounting は新しいヘルパAPI（/bills ベース）の実装へ移行済み
+ * - completeAccounting は P1-06 のスコープ外のため、挙動は変更しない
+ * 
+ * 将来のフェーズ（例: P1-0x）で、bills + accountingHistory を正とする新実装へ差し替える予定。
+ * 
  * 管理者権限またはaccountingオプションを持つデバイスのみが実行可能
  */
 export const completeAccounting = onCall(async (request) => {
@@ -272,11 +363,12 @@ export const completeAccounting = onCall(async (request) => {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const callerUid = request.auth.uid;
+  const adminId = request.auth.uid;
+  const db = getFirestore();
 
   try {
     // デバイス権限の確認（role: admin または options.accounting: true）
-    const device = await getCallerDeviceByUid(callerUid);
+    const device = await getCallerDeviceByUid(adminId);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
@@ -320,7 +412,7 @@ export const completeAccounting = onCall(async (request) => {
       accountingStartedAt: billData.accountingStartedAt,
       accountingCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingStartedBy: billData.accountingStartedBy,
-      accountingCompletedBy: callerUid,
+      accountingCompletedBy: adminId,
       paymentMethodsByAmount: billData.paymentMethodsByAmount || {},
       // カテゴリ別の詳細データも保存
       extraCost: billData.extraCost || [],
@@ -335,7 +427,7 @@ export const completeAccounting = onCall(async (request) => {
       status: 'settled',
       settledAt: admin.firestore.FieldValue.serverTimestamp(),
       accountingCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
-      accountingCompletedBy: callerUid,
+      accountingCompletedBy: adminId,
       accountingHistoryId: accountingHistoryRef.id,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -380,6 +472,139 @@ export const completeAccounting = onCall(async (request) => {
       status: 'settled',
       accountingHistoryId: accountingHistoryRef.id
     };
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
+    }
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    console.error('会計完了エラー:', error);
+    throw new HttpsError('internal', '会計完了に失敗しました', error.message);
+  }
+});
+
+/**
+ * 会計完了処理（新世界版）
+ * 
+ * bills コレクションを参照し、status を 'settled' に更新して Settlement Trigger を起動する
+ * legacy completeAccounting（todaysBills参照）は残置
+ * 
+ * 管理者権限を持つユーザーのみが実行可能
+ */
+export const completeAccountingV2 = onCall(async (request) => {
+  // 認証チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const adminId = request.auth.uid;
+  const db = getFirestore();
+
+  try {
+    // デバイス権限の確認（role: adminのみ）
+    const deviceQuery = await db.collection('devices')
+      .where('uid', '==', adminId)
+      .where('role', '==', 'admin')
+      .limit(1)
+      .get();
+
+    if (deviceQuery.empty) {
+      throw new HttpsError('permission-denied', '管理者権限がありません');
+    }
+
+    // 入力データの検証
+    const validatedData = CompleteAccountingSchema.parse(request.data);
+    const { billId } = validatedData;
+
+    const billRef = db.collection('bills').doc(billId);
+
+    // 請求書が存在するか確認
+    const billDoc = await billRef.get();
+    if (!billDoc.exists) {
+      throw new HttpsError('not-found', '指定された請求書が見つかりません');
+    }
+
+    const billData = billDoc.data()!;
+    const currentStatus = billData.status || 'open';
+
+    // ガード: ops.accountingStartedAt が無いなら failed-precondition
+    if (!billData.ops?.accountingStartedAt) {
+      throw new HttpsError('failed-precondition', 'この請求書はまだ会計開始されていません');
+    }
+
+    // 既に会計済みの場合はエラー
+    if (currentStatus === 'settled') {
+      throw new HttpsError('failed-precondition', 'この請求書は既に会計済みです');
+    }
+
+    // status を 'settled' に更新（Settlement Trigger を起動）
+    // closedAt は trigger 側で設定するため、callable 側では設定しない（重複/競合回避）
+    await billRef.update({
+      status: 'settled',
+      'ops.accountingCompletedAt': admin.firestore.FieldValue.serverTimestamp(),
+      'ops.accountingCompletedBy': adminId,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // activeStays の isActive を false に更新
+    const userId = billData.party?.userId;
+    if (userId) {
+      try {
+        const activeStayRef = db.collection('activeStays').doc(userId);
+        const activeStayDoc = await activeStayRef.get();
+        
+        if (activeStayDoc.exists) {
+          // billId が一致することを確認（念のため）
+          const activeStayData = activeStayDoc.data()!;
+          if (activeStayData.billId === billId) {
+            await activeStayRef.update({
+              isActive: false,
+            });
+            console.log(`activeStays updated: userId=${userId}, billId=${billId}, isActive=false`);
+          } else {
+            console.warn(`activeStays billId mismatch: userId=${userId}, expected=${billId}, actual=${activeStayData.billId}`);
+          }
+        } else {
+          console.warn(`activeStays not found: userId=${userId}, billId=${billId}`);
+        }
+
+        // visitLogsの最新の未完了ログを更新（legacy completeAccountingと同様の処理）
+        const userRef = db.collection('users').doc(userId);
+        const visitLogsSnapshot = await userRef.collection('visitLogs')
+          .where('checkOutAt', '==', null)
+          .orderBy('checkInAt', 'desc')
+          .limit(1)
+          .get();
+
+        if (!visitLogsSnapshot.empty) {
+          const visitLogDoc = visitLogsSnapshot.docs[0];
+          const checkInAt = visitLogDoc.data().checkInAt;
+          const checkOutAt = admin.firestore.Timestamp.now();
+          const stayMinutes = checkInAt 
+            ? Math.floor((checkOutAt.toMillis() - checkInAt.toMillis()) / 60000)
+            : null;
+
+          await visitLogDoc.ref.update({
+            checkOutAt: admin.firestore.FieldValue.serverTimestamp(),
+            stayMinutes: stayMinutes,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`visitLogs updated: userId=${userId}, billId=${billId}, stayMinutes=${stayMinutes}`);
+        }
+      } catch (activeStayError: any) {
+        // activeStays の更新失敗は警告ログのみ（会計完了処理自体は成功とする）
+        console.warn('activeStays/visitLogs update failed:', {
+          userId,
+          billId,
+          error: activeStayError.message,
+        });
+      }
+    } else {
+      console.warn(`party.userId not found in bill: billId=${billId}`);
+    }
+
+    return { success: true, message: '会計を完了しました', billId };
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);

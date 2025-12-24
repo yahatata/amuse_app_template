@@ -1,7 +1,8 @@
-import * as functions from 'firebase-functions';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
+import { updatePlace } from '../helpers/billsApi/updatePlace';
 
 // 入力スキーマ
 const assignSeatToPlayerSchema = z.object({
@@ -11,31 +12,31 @@ const assignSeatToPlayerSchema = z.object({
   seatNumber: z.number().int().positive(),
 });
 
-export const assignSeatToPlayer = functions.https.onCall(async (data, context: any) => {
+export const assignSeatToPlayer = onCall(async (request) => {
   // 認証チェック
-  if (!context || !context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', '認証が必要です');
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const callerUid = context.auth.uid;
+  const callerUid = request.auth.uid;
 
   // デバイス権限の確認（role: admin または options.tournament: true）
   const device = await getCallerDeviceByUid(callerUid);
   if (!device || !isActive(device.status)) {
-    throw new functions.https.HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
   }
 
   const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
   if (!hasPermission) {
-    throw new functions.https.HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+    throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
   }
 
   try {
-    // 正しいデータの場所を取得
-    const actualData = data.data || data;
+    // データを取得
+    const { data } = request;
     
     // 入力検証
-    const { tournamentId, userId, tableId, seatNumber } = assignSeatToPlayerSchema.parse(actualData);
+    const { tournamentId, userId, tableId, seatNumber } = assignSeatToPlayerSchema.parse(data);
     
     console.log(`=== 待機者着席開始 ===`);
     console.log(`tournamentId: ${tournamentId}`);
@@ -45,8 +46,8 @@ export const assignSeatToPlayer = functions.https.onCall(async (data, context: a
     
     const db = admin.firestore();
     
-    // トランザクション開始
-    const result = await db.runTransaction(async (transaction) => {
+    // トランザクション開始（scheduledTournamentsの更新）
+    const transactionResult = await db.runTransaction(async (transaction) => {
       // 1. トーナメントのtablesSeatサブコレクションから対象テーブルを取得
       const tableSeatRef = db
         .collection('scheduledTournaments')
@@ -80,24 +81,27 @@ export const assignSeatToPlayer = functions.https.onCall(async (data, context: a
       
       const waitingDoc = await transaction.get(waitingRef);
       
-      // 4. todaysBillsからユーザー情報を取得（userIdでクエリ）
-      const todayBillsQuery = db.collection('todaysBills')
-        .where('userId', '==', userId)
-        .where('status', '==', 'open')
-        .limit(1);
+      // 4. activeStaysからユーザー情報を取得（存在チェックは本callable側の責務）
+      const activeStayRef = db.collection('activeStays').doc(userId);
+      const activeStayDoc = await transaction.get(activeStayRef);
       
-      const todayBillsSnapshot = await transaction.get(todayBillsQuery);
-      
-      if (todayBillsSnapshot.empty) {
-        throw new Error(`ユーザー ${userId} のオープンなtodaysBillsドキュメントが存在しません`);
+      if (!activeStayDoc.exists) {
+        throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
       }
       
-      const todayBillsDoc = todayBillsSnapshot.docs[0];
-      const todayBillsData = todayBillsDoc.data();
+      const activeStayData = activeStayDoc.data()!;
+      const billId = activeStayData.billId as string;
+      
+      if (!billId) {
+        throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+      }
+      
+      // 5. ユーザー情報を取得（pokerNameはactiveStaysから取得、todaysBillsには依存しない）
+      const pokerName = activeStayData.pokerName || `Player_${userId}`;
       
       // すべての読み取り操作が完了したので、ここから書き込み操作を開始
       
-      // 5. 待機者リストから削除（書き込み操作）
+      // 6. 待機者リストから削除（書き込み操作）
       if (waitingDoc.exists) {
         const waitingData = waitingDoc.data()!;
         if (waitingData.waiting && waitingData.waiting[userId]) {
@@ -113,12 +117,6 @@ export const assignSeatToPlayer = functions.https.onCall(async (data, context: a
         }
       }
       
-      // 6. ユーザー情報を取得
-      let pokerName = `Player_${userId}`;
-      if (todayBillsData) {
-        pokerName = todayBillsData.pokerName || pokerName;
-      }
-      
       // 7. シートにユーザーを割り当て（書き込み操作）
       const updatedSeats = { ...tableSeatData.seats };
       updatedSeats[`seat${seatNumberStr}UserId`] = userId;
@@ -128,13 +126,9 @@ export const assignSeatToPlayer = functions.https.onCall(async (data, context: a
         seats: updatedSeats,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-
-      // 8. todaysBillsのcurrentTable/currentSeatを更新
-      transaction.update(todayBillsDoc.ref, {
-        currentTable: tableId,
-        currentSeat: seatNumber,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      
+      // billIdを返して、トランザクション外でupdatePlaceを呼び出す
+      return { success: true, userId, tableId, seatNumber, billId };
       
       // 5. usersサブコレクションにユーザー情報を記録
       // TODO: 今後実装予定 - usersサブコレクションへの記録
@@ -174,14 +168,27 @@ export const assignSeatToPlayer = functions.https.onCall(async (data, context: a
       //   seatNumber: seatNumber,
       //   timestamp: admin.firestore.FieldValue.serverTimestamp(),
       // });
-      
-      return { success: true, userId, tableId, seatNumber };
     });
     
-    console.log(`=== 待機者着席完了 ===`);
-    console.log(`結果:`, result);
+    // トランザクション完了後、トランザクション外でupdatePlaceを呼び出す
+    if (transactionResult.billId) {
+      try {
+        await updatePlace({
+          billId: transactionResult.billId,
+          table: transactionResult.tableId,
+          seat: transactionResult.seatNumber,
+        });
+      } catch (error) {
+        console.error('updatePlace failed', error);
+        // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
+        // ただし、エラーを再スローして呼び出し側に通知することも検討可能
+      }
+    }
     
-    return result;
+    console.log(`=== 待機者着席完了 ===`);
+    console.log(`結果:`, transactionResult);
+    
+    return transactionResult;
     
   } catch (error) {
     console.error('=== 待機者着席エラー ===');
@@ -189,9 +196,9 @@ export const assignSeatToPlayer = functions.https.onCall(async (data, context: a
     
     // エラーメッセージを適切に返す
     if (error instanceof Error) {
-      throw new functions.https.HttpsError('internal', error.message);
+      throw new HttpsError('internal', error.message);
     } else {
-      throw new functions.https.HttpsError('internal', '待機者着席に失敗しました');
+      throw new HttpsError('internal', '待機者着席に失敗しました');
     }
   }
 });

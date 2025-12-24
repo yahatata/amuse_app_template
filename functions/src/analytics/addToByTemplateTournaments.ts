@@ -9,7 +9,7 @@ export async function addToByTemplateTournaments(
   billData: any,
   templateDocs?: FirebaseFirestore.DocumentSnapshot[]
 ): Promise<void> {
-  const tournaments = billData.tournaments || {};
+  const tournamentsSnapshot = billData.tournamentsSnapshot || {};
   
   // テンプレートドキュメントのマップを作成
   const templateDocMap = new Map<string, FirebaseFirestore.DocumentSnapshot>();
@@ -18,40 +18,44 @@ export async function addToByTemplateTournaments(
       if (doc.exists) {
         const data = doc.data();
         if (data && data.templateName) {
-          const templateKey = data.templateName.replace(/[^a-zA-Z0-9]/g, '_');
+          const templateKey = doc.id;
           templateDocMap.set(templateKey, doc);
         }
       }
     }
   }
   
-  // 各トーナメントを処理
-  for (const [, tournamentData] of Object.entries(tournaments)) {
+  // 各トーナメントを処理（tournamentsSnapshot から取得）
+  for (const [templateKey, tournamentData] of Object.entries(tournamentsSnapshot)) {
     if (!tournamentData || typeof tournamentData !== 'object') continue;
     
-    const templateName = (tournamentData as any).templateName;
-    const templateId = (tournamentData as any).templateId;
+    const tournament = tournamentData as {
+      templateName: string;
+      entryCount: number;
+      entrySalesIncl: number;
+      reentryCount: number;
+      reentrySalesIncl: number;
+      addonCount: number;
+      addonSalesIncl: number;
+      totalTournamentSalesIncl: number;
+    };
+    
+    const templateName = tournament.templateName;
     if (!templateName) continue;
     
-    // templateKeyを作成（templateIdを優先、なければtemplateNameをキー化）
-    const templateKey = templateId || templateName.replace(/[^a-zA-Z0-9]/g, '_');
     const templateRef = admin.firestore()
       .collection('analyticsMonthly')
       .doc(month)
       .collection('byTemplateTournaments')
       .doc(templateKey);
     
-    const tournament = tournamentData as any;
-    const entryFee = tournament.entryFee || 0;
+    const entrySales = tournament.entrySalesIncl || 0;
+    const reentrySales = tournament.reentrySalesIncl || 0;
+    const addonSales = tournament.addonSalesIncl || 0;
+    const totalTournamentSales = tournament.totalTournamentSalesIncl || 0;
+    const entryCount = tournament.entryCount || 0;
     const reentryCount = tournament.reentryCount || 0;
-    const reentryFee = tournament.reentryFee || 0;
     const addonCount = tournament.addonCount || 0;
-    const addonFee = tournament.addonFee || 0;
-    
-    const entrySales = entryFee;
-    const reentrySales = reentryFee * reentryCount;
-    const addonSales = addonFee * addonCount;
-    const totalTournamentSales = entrySales + reentrySales + addonSales;
     
     // 日別データを更新（dailyDataは使用しないため削除）
     
@@ -62,7 +66,7 @@ export async function addToByTemplateTournaments(
     };
     
     // daily配列の更新（既存の日付があれば更新、なければ追加）
-    updateData[`daily.${businessDate}.entryCount`] = admin.firestore.FieldValue.increment(1);
+    updateData[`daily.${businessDate}.entryCount`] = admin.firestore.FieldValue.increment(entryCount);
     updateData[`daily.${businessDate}.entrySales`] = admin.firestore.FieldValue.increment(entrySales);
     updateData[`daily.${businessDate}.reentryCount`] = admin.firestore.FieldValue.increment(reentryCount);
     updateData[`daily.${businessDate}.reentrySales`] = admin.firestore.FieldValue.increment(reentrySales);
@@ -71,7 +75,7 @@ export async function addToByTemplateTournaments(
     updateData[`daily.${businessDate}.totalTournamentSales`] = admin.firestore.FieldValue.increment(totalTournamentSales);
     
     // totals更新
-    updateData['totals.entryCount'] = admin.firestore.FieldValue.increment(1);
+    updateData['totals.entryCount'] = admin.firestore.FieldValue.increment(entryCount);
     updateData['totals.entrySales'] = admin.firestore.FieldValue.increment(entrySales);
     updateData['totals.reentryCount'] = admin.firestore.FieldValue.increment(reentryCount);
     updateData['totals.reentrySales'] = admin.firestore.FieldValue.increment(reentrySales);

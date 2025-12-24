@@ -43,23 +43,29 @@ Future<void> showBustAndReentryDialog({
     
     tournamentData = tournamentDoc.data()!;
     
-    // todaysBillsからユーザーのトーナメント情報を取得
-    final todayBillsQuery = await FirebaseFirestore.instance
-        .collection('todaysBills')
-        .where('userId', isEqualTo: userId)
-        .where('status', isEqualTo: 'open')
-        .limit(1)
+    // activeStays から billId を取得
+    final activeStayDoc = await FirebaseFirestore.instance
+        .collection('activeStays')
+        .doc(userId)
         .get();
     
-    if (todayBillsQuery.docs.isNotEmpty) {
-      final todayBillsData = todayBillsQuery.docs.first.data();
-      final tournaments = todayBillsData['tournaments'] as Map<String, dynamic>? ?? {};
-      userTournamentData = tournaments[tournamentId];
+    if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
+      final billId = activeStayDoc.data()!['billId'] as String?;
       
-      // リエントリー回数を取得
-      if (userTournamentData != null) {
-        // todaysBillsのtournaments内の対象トーナメントのreentryCountを取得
-        currentReentryCount = userTournamentData['reentryCount'] as int? ?? 0;
+      if (billId != null) {
+        // bills サブコレクションからトーナメント情報を取得
+        final tournamentDoc = await FirebaseFirestore.instance
+            .collection('bills')
+            .doc(billId)
+            .collection('tournaments')
+            .doc(tournamentId)
+            .get();
+        
+        if (tournamentDoc.exists) {
+          final tournamentData = tournamentDoc.data()!;
+          currentReentryCount = tournamentData['reentryCount'] as int? ?? 0;
+          userTournamentData = tournamentData;
+        }
       }
     }
     

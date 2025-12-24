@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/services/active_stays_service.dart';
 
 class RegisterParticipantsDialog extends StatefulWidget {
   final String tournamentId;
@@ -72,10 +73,7 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
             const SizedBox(height: 16),
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('todaysBills')
-                    .where('status', isEqualTo: 'open')
-                    .snapshots(),
+                stream: ActiveStaysService.instance.stream,
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
                     return Center(
@@ -90,7 +88,7 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
                     return const Center(child: CircularProgressIndicator());
                   }
 
-                  final docs = snapshot.data?.docs ?? [];
+                  final activeStays = snapshot.data?.docs ?? [];
                   final availableUsers = <Map<String, dynamic>>[];
 
                   // FutureBuilderを使用して非同期処理を行う
@@ -109,28 +107,28 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
 
                       final excludedUserIds = excludedSnapshot.data ?? <String>{};
                       
-                      for (final doc in docs) {
+                      for (final doc in activeStays) {
                         try {
                           final data = doc.data() as Map<String, dynamic>?;
                           if (data == null) continue;
 
-                          final todaysBillsId = doc.id;
-                          final userId = data['userId'] as String?;
+                          final uid = doc.id; // activeStays のドキュメントID = uid
                           final pokerName = data['pokerName'] as String? ?? 'Unknown';
+                          final billId = data['billId'] as String?;
                           
-                          // userIdが存在しない場合は除外
-                          if (userId == null || userId.isEmpty) {
-                            debugPrint('userIdが存在しません (todaysBillsId: $todaysBillsId)');
+                          // uidが存在しない場合は除外
+                          if (uid.isEmpty) {
+                            debugPrint('uidが存在しません (docId: ${doc.id})');
                             continue;
                           }
                           
                           // 既に座席に着席しているか、または待機リストに入っているかチェック
-                          final isAlreadyInvolved = excludedUserIds.contains(userId);
+                          final isAlreadyInvolved = excludedUserIds.contains(uid);
 
                           if (!isAlreadyInvolved) {
                             availableUsers.add({
-                              'userId': userId,
-                              'todaysBillsId': todaysBillsId,
+                              'userId': uid,
+                              'billId': billId,
                               'pokerName': pokerName,
                               'status': 'open',
                             });

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/user_actions/user_action_home.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/services/active_stays_service.dart';
 
 class SideGameTableHomePage extends StatefulWidget {
   final String tableId;
@@ -399,13 +400,38 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
     }
   }
 
-  void _showUserActionPop(int seatNumber, String userId, String pokerName) {
+  void _showUserActionPop(int seatNumber, String userId, String pokerName) async {
+    // activeStaysからbillIdを取得
+    String? billId;
+    try {
+      final activeStayDoc = await _firestore.collection('activeStays').doc(userId).get();
+      if (activeStayDoc.exists) {
+        final data = activeStayDoc.data();
+        billId = data?['billId'] as String?;
+      }
+    } catch (e) {
+      print('activeStaysからのbillId取得に失敗: $e');
+    }
+
+    if (billId == null || billId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('伝票IDが見つかりません'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
     showUserActionHome(
       context: context,
       sourcePage: 'sideGameTableHome',
       user: {
         'userId': userId,
         'pokerName': pokerName,
+        'billId': billId, // billIdを追加
         'tableId': widget.tableId,
         'seatNumber': seatNumber,
       },
@@ -613,53 +639,7 @@ class _ParticipantRegistrationDialog extends StatefulWidget {
 
 class _ParticipantRegistrationDialogState extends State<_ParticipantRegistrationDialog> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  List<Map<String, dynamic>> _availableParticipants = [];
-  bool _isLoading = true;
   String? _selectedUserId;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadAvailableParticipants();
-  }
-
-  Future<void> _loadAvailableParticipants() async {
-    try {
-      final snapshot = await _firestore.collection('todaysBills').get();
-      final participants = <Map<String, dynamic>>[];
-      
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final pokerName = data['pokerName'] as String?;
-        final userId = data['userId'] as String?;
-        
-        if (pokerName != null && userId != null) {
-          participants.add({
-            'userId': userId,
-            'pokerName': pokerName,
-          });
-        }
-      }
-      
-      setState(() {
-        _availableParticipants = participants;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('参加者リストの読み込みに失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -668,40 +648,76 @@ class _ParticipantRegistrationDialogState extends State<_ParticipantRegistration
       content: SizedBox(
         width: double.maxFinite,
         height: 400,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _availableParticipants.isEmpty
-                ? const Center(
-                    child: Text('利用可能な参加者がいません'),
-                  )
-                : ListView.builder(
-                    itemCount: _availableParticipants.length,
-                    itemBuilder: (context, index) {
-                      final participant = _availableParticipants[index];
-                      final isSelected = _selectedUserId == participant['userId'];
-                      
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: isSelected ? Colors.blue : Colors.grey,
-                          child: Text(
-                            participant['pokerName'].toString().substring(0, 1).toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        title: Text(participant['pokerName']),
-                        subtitle: Text('ID: ${participant['userId']}'),
-                        selected: isSelected,
-                        onTap: () {
-                          setState(() {
-                            _selectedUserId = participant['userId'];
-                          });
-                        },
-                      );
-                    },
+        child: StreamBuilder<QuerySnapshot>(
+          stream: ActiveStaysService.instance.stream,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(
+                child: Text(
+                  '参加者リストの読み込みに失敗しました: ${snapshot.error}',
+                  style: const TextStyle(color: Colors.red),
+                ),
+              );
+            }
+
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final activeStays = snapshot.data?.docs ?? [];
+            final availableParticipants = <Map<String, dynamic>>[];
+
+            for (final doc in activeStays) {
+              final data = doc.data() as Map<String, dynamic>?;
+              if (data == null) continue;
+
+              final uid = doc.id; // activeStays のドキュメントID = uid
+              final pokerName = data['pokerName'] as String?;
+
+              if (pokerName != null && uid.isNotEmpty) {
+                availableParticipants.add({
+                  'userId': uid,
+                  'pokerName': pokerName,
+                });
+              }
+            }
+
+            if (availableParticipants.isEmpty) {
+              return const Center(
+                child: Text('利用可能な参加者がいません'),
+              );
+            }
+
+            return ListView.builder(
+              itemCount: availableParticipants.length,
+              itemBuilder: (context, index) {
+                final participant = availableParticipants[index];
+                final isSelected = _selectedUserId == participant['userId'];
+
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: isSelected ? Colors.blue : Colors.grey,
+                    child: Text(
+                      participant['pokerName'].toString().substring(0, 1).toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
+                  title: Text(participant['pokerName']),
+                  subtitle: Text('ID: ${participant['userId']}'),
+                  selected: isSelected,
+                  onTap: () {
+                    setState(() {
+                      _selectedUserId = participant['userId'];
+                    });
+                  },
+                );
+              },
+            );
+          },
+        ),
       ),
       actions: [
         TextButton(
@@ -718,6 +734,22 @@ class _ParticipantRegistrationDialogState extends State<_ParticipantRegistration
 
   Future<void> _registerParticipant() async {
     if (_selectedUserId == null) return;
+
+    // 処理中ダイアログを表示
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(width: 16),
+            const Text('登録処理中...'),
+          ],
+        ),
+      ),
+    );
 
     try {
       print('=== 参加登録開始 ===');
@@ -739,7 +771,13 @@ class _ParticipantRegistrationDialogState extends State<_ParticipantRegistration
       print('message: ${result.data['message']}');
       print('data: ${result.data['data']}');
 
+      // 処理中ダイアログを閉じる
       if (mounted) {
+        Navigator.of(context).pop();
+      }
+
+      if (mounted) {
+        // 参加登録ダイアログを閉じる
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -754,7 +792,9 @@ class _ParticipantRegistrationDialogState extends State<_ParticipantRegistration
       print('エラー: $e');
       print('エラータイプ: ${e.runtimeType}');
       
+      // 処理中ダイアログを閉じる
       if (mounted) {
+        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('登録に失敗しました: $e'),

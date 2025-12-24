@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
@@ -9,31 +9,31 @@ const createTemporaryTableSchema = z.object({
   maxSeats: z.number().int().positive().max(20, '最大座席数は20までです'),
 });
 
-export const createTemporaryTable = functions.https.onCall(async (data, context: any) => {
+export const createTemporaryTable = onCall(async (request) => {
   // 認証チェック
-  if (!context || !context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', '認証が必要です');
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const callerUid = context.auth.uid;
+  const callerUid = request.auth.uid;
 
   // デバイス権限の確認（role: admin または options.tournament: true）
   const device = await getCallerDeviceByUid(callerUid);
   if (!device || !isActive(device.status)) {
-    throw new functions.https.HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
   }
 
   const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
   if (!hasPermission) {
-    throw new functions.https.HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+    throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
   }
 
   try {
-    // 正しいデータの場所を取得
-    const actualData = data.data || data;
+    // データを取得
+    const { data } = request;
     
     // 入力検証
-    const { tableName, maxSeats } = createTemporaryTableSchema.parse(actualData);
+    const { tableName, maxSeats } = createTemporaryTableSchema.parse(data);
     
     console.log(`=== 一時テーブル作成開始 ===`);
     console.log(`tableName: ${tableName}`);
@@ -108,9 +108,9 @@ export const createTemporaryTable = functions.https.onCall(async (data, context:
     
     // エラーメッセージを適切に返す
     if (error instanceof Error) {
-      throw new functions.https.HttpsError('internal', error.message);
+      throw new HttpsError('internal', error.message);
     } else {
-      throw new functions.https.HttpsError('internal', '一時テーブル作成に失敗しました');
+      throw new HttpsError('internal', '一時テーブル作成に失敗しました');
     }
   }
 });

@@ -23,10 +23,10 @@ export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
 
     logger.info(`営業日: ${businessDate}, 月: ${month}`);
 
-    // 対象ドキュメントを取得
-    const billsQuery = await db.collection('todaysBills')
+    // 対象ドキュメントを取得（bills コレクションから親docのみ参照）
+    const billsQuery = await db.collection('bills')
       .where('status', '==', 'settled')
-      .where('date', '==', businessDate)
+      .where('businessDate', '==', businessDate)
       .get();
 
     if (billsQuery.empty) {
@@ -70,30 +70,27 @@ export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
         const monthlyRef = db.collection('analyticsMonthly').doc(month);
         const dailyRef = db.collection('analyticsMonthly').doc(month).collection('days').doc(businessDate);
         const byCategoryRef = db.collection('analyticsMonthly').doc(month).collection('byCategory').doc('summary');
-        const byUserRef = db.collection('analyticsMonthly').doc(month).collection('byUser').doc(billData.userId);
+        const userId = billData.party?.userId;
+        const byUserRef = userId
+          ? db.collection('analyticsMonthly').doc(month).collection('byUser').doc(userId)
+          : null;
         
         // 事前読み取り
         const [monthlyDoc, dailyDoc, byCategoryDoc, byUserDoc] = await Promise.all([
           monthlyRef.get(),
           dailyRef.get(),
           byCategoryRef.get(),
-          byUserRef.get()
+          byUserRef ? byUserRef.get() : Promise.resolve(undefined)
         ]);
 
-        // トーナメントテンプレート用の読み取り
-        const tournaments = billData.tournaments || {};
+        // トーナメントテンプレート用の読み取り（tournamentsSnapshot から取得）
+        const tournamentsSnapshot = billData.tournamentsSnapshot || {};
         const templateRefs = [];
-        for (const [, tournamentData] of Object.entries(tournaments)) {
+        for (const [templateKey, tournamentData] of Object.entries(tournamentsSnapshot)) {
           if (tournamentData && typeof tournamentData === 'object') {
-            const templateName = (tournamentData as any).templateName;
-            const templateId = (tournamentData as any).templateId;
-            if (templateName) {
-              // templateKeyを作成（templateIdを優先、なければtemplateNameをキー化）
-              const templateKey = templateId || templateName.replace(/[^a-zA-Z0-9]/g, '_');
-              const templateRef = db.collection('analyticsMonthly').doc(month)
-                .collection('byTemplateTournaments').doc(templateKey);
-              templateRefs.push(templateRef.get());
-            }
+            const templateRef = db.collection('analyticsMonthly').doc(month)
+              .collection('byTemplateTournaments').doc(templateKey);
+            templateRefs.push(templateRef.get());
           }
         }
         const templateDocs = await Promise.all(templateRefs);

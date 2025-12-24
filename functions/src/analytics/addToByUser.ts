@@ -9,7 +9,7 @@ export async function addToByUser(
   billData: any,
   byUserDoc?: FirebaseFirestore.DocumentSnapshot
 ): Promise<void> {
-  const userId = billData.userId;
+  const userId = billData.party?.userId;
   if (!userId) return;
   
   const byUserRef = admin.firestore()
@@ -21,12 +21,17 @@ export async function addToByUser(
   // カテゴリ別金額を計算
   const categoryAmounts = calculateCategoryAmounts(billData);
   
-  // 支払い方法の配賦
-  const paymentMethodsByCategory = billData.paymentMethodsByCategory || {};
-  const paymentTotals = distributePaymentMethods(paymentMethodsByCategory, categoryAmounts);
-  
   // 総売上を計算
   const grossSales = Array.from(categoryAmounts.values()).reduce((sum, amount) => sum + amount, 0);
+  
+  // 支払い方法の配賦（paymentTotals を直接使用、fallback用に総額を渡す）
+  const paymentTotals = distributePaymentMethods(billData.paymentTotals, {
+    fallbackCashAmount: billData.amounts?.grandTotalRounded || grossSales,
+    validMethods: ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'],
+  });
+  
+  // pokerName を取得（値があるときだけ更新するため）
+  const pokerName = billData.party?.pokerName;
   
   // 更新データを準備
   const updateData: any = {
@@ -36,9 +41,13 @@ export async function addToByUser(
     sideGameChipSales: admin.firestore.FieldValue.increment(categoryAmounts.get('sideGameChip') || 0),
     tournamentsSales: admin.firestore.FieldValue.increment(categoryAmounts.get('tournaments') || 0),
     orderCount: admin.firestore.FieldValue.increment(1),
-    pokerName: billData.pokerName || '', // pokerNameを保存
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
+  
+  // pokerName は値があるときだけ更新（既存値を空文字で上書きしない）
+  if (pokerName) {
+    updateData.pokerName = pokerName;
+  }
   
   // dailySales更新
   updateData[`dailySales.${businessDate}`] = admin.firestore.FieldValue.increment(grossSales);
@@ -66,7 +75,7 @@ export async function addToByUser(
         pointB: 0,
         sideGameChip: 0,
       },
-      pokerName: billData.pokerName || '', // pokerNameを初期化時にも保存
+      pokerName: pokerName ?? '', // pokerNameを初期化時にも保存
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });

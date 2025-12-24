@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../user_actions/user_action_home.dart';
+import '../services/active_stays_service.dart';
+import '../utils/sectioned_user_list_page.dart';
 
 class StayingUsersListPage extends StatefulWidget {
   const StayingUsersListPage({super.key});
@@ -10,79 +12,48 @@ class StayingUsersListPage extends StatefulWidget {
 }
 
 class _StayingUsersListPageState extends State<StayingUsersListPage> {
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
-  bool _loading = true;
-  String? _error;
-  List<Map<String, dynamic>> _users = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _fetch();
-  }
-
-  Future<void> _fetch() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final callable = _functions.httpsCallable('getOpenBills');
-      final result = await callable.call();
-      final data = result.data;
-      if (data is Map && data['success'] == true) {
-        final list = data['data'];
-        if (list is List) {
-          _users = list
-              .whereType<Map>()
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList();
-          // 並び順: pokerName でアルファベット順/アイウエオ順
-          _users.sort((a, b) {
-            final an = (a['pokerName'] ?? '').toString();
-            final bn = (b['pokerName'] ?? '').toString();
-            return an.toLowerCase().compareTo(bn.toLowerCase());
-          });
-        } else {
-          _error = '取得データ形式が不正です';
-        }
-      } else {
-        _error = (data is Map ? data['error'] : null) ?? '取得に失敗しました';
-      }
-    } catch (e) {
-      _error = '取得に失敗しました: $e';
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-        });
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('入店中user一覧'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _fetch,
-          )
-        ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text(_error!))
-              : ListView.builder(
-                  itemCount: _users.length,
-                  itemBuilder: (context, index) {
-                    final u = _users[index];
-                    return _buildUserItem(u);
-                  },
-                ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: ActiveStaysService.instance.stream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
+          if (snapshot.hasError) {
+            return Center(child: Text('取得に失敗しました: ${snapshot.error}'));
+          }
+          
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text('入店中のユーザーがいません'));
+          }
+          
+          // activeStays から user リストを生成
+          final users = snapshot.data!.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return {
+              'billId': data['billId'] as String? ?? '',
+              'userId': doc.id, // activeStays の docId = userId
+              'pokerName': data['pokerName'] as String? ?? '',
+              // currentTable と currentSeat は activeStays には含まれないため、表示時は '-' を表示
+              'currentTable': null,
+              'currentSeat': null,
+            };
+          }).toList();
+          
+          // セクション付きリスト表示（アルファベット順 → あいうえお順）
+          return buildSectionedUserListPage(
+            users: users,
+            nameKey: 'pokerName',
+            itemBuilder: (context, user) => _buildUserItem(user),
+          );
+        },
+      ),
     );
   }
 
@@ -115,7 +86,7 @@ class _StayingUsersListPageState extends State<StayingUsersListPage> {
           pokerName.isEmpty ? '(名前未設定)' : pokerName,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: Text('Table: ${currentTable ?? '-'}   Seat: ${currentSeat ?? '-'}'),
+        subtitle: Text('Table: ${currentTable ?? '-'}   Seat: ${currentSeat ?? '-'}'), // activeStays には含まれないため常に '-'
         // trailing は削除（アイコン非表示）
         onTap: () {
           showUserActionHome(
