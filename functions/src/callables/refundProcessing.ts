@@ -8,7 +8,6 @@
  * - ユーザー残高返還処理は postEventRefund のスコープ外（必要に応じて別途処理）
  */
 
-import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
@@ -37,7 +36,6 @@ export const processRefund = onCall(async (request) => {
   }
 
   const adminId = request.auth.uid;
-  const db = getFirestore();
 
   try {
     // デバイス権限の確認（role: admin または options.accounting: true）
@@ -106,7 +104,6 @@ export const getRefundHistory = onCall(async (request) => {
   }
 
   const adminId = request.auth.uid;
-  const db = getFirestore();
 
   try {
     // デバイス権限の確認（role: admin または options.accounting: true）

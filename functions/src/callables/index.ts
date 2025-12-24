@@ -51,5 +51,3 @@ export { leaveSeat } from '../sideGame/leaveSeat';
 export { withdrawTip } from '../sideGame/withdrawTip';
 export { depositTip } from '../sideGame/depositTip';
 export { updateDeviceOptions } from './updateDeviceOptions';
-export { getActionLogs } from './getActionLogs';
-export { rollbackAction } from './rollbackAction';
