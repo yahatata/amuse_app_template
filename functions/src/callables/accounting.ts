@@ -171,8 +171,18 @@ export const startAccounting = onCall(async (request) => {
     const tournamentsSnapshot = await billRef.collection('tournaments').get();
     categoryAmounts['tournaments'] = tournamentsSnapshot.docs.reduce((sum, doc) => {
       const data = doc.data();
-      // entryFeeIncl, reentryFeeIncl, addonFeeIncl を合計
-      return sum + (data.entryFeeIncl || 0) + (data.reentryFeeIncl || 0) + (data.addonFeeIncl || 0);
+      // entryFeeIncl, reentryFeeIncl, addonFeeIncl を回数と掛け算して合計
+      const entryFeeIncl = (data.entryFeeIncl as number | undefined) ?? 0;
+      const entryCount = (data.entryCount as number | undefined) ?? 0;
+      const reentryFeeIncl = (data.reentryFeeIncl as number | undefined) ?? 0;
+      const reentryCount = (data.reentryCount as number | undefined) ?? 0;
+      const addonFeeIncl = (data.addonFeeIncl as number | undefined) ?? 0;
+      const addonCount = (data.addonCount as number | undefined) ?? 0;
+      
+      return sum + 
+        entryFeeIncl * entryCount +
+        reentryFeeIncl * reentryCount +
+        addonFeeIncl * addonCount;
     }, 0);
 
     // items（フード・ドリンク）- /bills/{billId}/items から取得

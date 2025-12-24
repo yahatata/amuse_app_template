@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
@@ -12,32 +12,32 @@ const bustAndExitSchema = z.object({
   userId: z.string().min(1),
 });
 
-export const bustAndExit = functions.https.onCall(async (data, context: any) => {
+export const bustAndExit = onCall(async (request) => {
   // 認証チェック
-  if (!context || !context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', '認証が必要です');
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const callerUid = context.auth.uid;
+  const callerUid = request.auth.uid;
 
   // デバイス権限の確認（role: admin または options.tournament: true）
   const device = await getCallerDeviceByUid(callerUid);
   if (!device || !isActive(device.status)) {
-    throw new functions.https.HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
   }
 
   const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
   if (!hasPermission) {
-    throw new functions.https.HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+    throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
   }
 
   try {
     console.log('=== Bust&退席処理開始 ===');
+    const { data } = request;
     console.log('受信データ:', data);
 
     // 入力検証
-    const actualData = data.data || data;
-    const { tournamentId, tableId, seatNumber, userId } = bustAndExitSchema.parse(actualData);
+    const { tournamentId, tableId, seatNumber, userId } = bustAndExitSchema.parse(data);
 
     console.log(`tournamentId: ${tournamentId}`);
     console.log(`tableId: ${tableId}`);
