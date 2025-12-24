@@ -75,4 +75,30 @@ class GlobalConstants {
   // ポイント使用優先順位（支払い分割計算用）
   // Cloud Functions側（functions/src/utils/paymentSplitCalculator.ts）と同期必須
   static const List<String> POINT_PRIORITY = ['pointA', 'pointB', 'sideGameChip'];
+
+  // LINEプラン設定
+  // 'communication' | 'light' | 'standard'
+  // 変更時はCloud Functions側（functions/src/staff/*.ts）の環境変数も同期すること
+  static const String linePlan = 'communication';
+
+  // シフト要請機能の有効/無効
+  // コミュニケーションプラン: false（UI表示なし、機能実行不可）
+  // ライトプランまたはスタンダードプラン: true（UI表示あり、機能実行可能）
+  static bool get isShiftRequestEnabled {
+    return linePlan != 'communication';
+  }
+
+  // プラン名の表示用
+  static String get linePlanName {
+    switch (linePlan) {
+      case 'communication':
+        return 'コミュニケーションプラン';
+      case 'light':
+        return 'ライトプラン';
+      case 'standard':
+        return 'スタンダードプラン';
+      default:
+        return '不明';
+    }
+  }
 }

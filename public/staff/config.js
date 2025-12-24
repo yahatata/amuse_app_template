@@ -16,5 +16,14 @@ window.__CONFIG__ = {
   storeInfo: {
     name: "Amuse App Template",
     id: "amuse-app-template"
+  },
+  
+  // LINEプラン設定（globalConstant.dartと同期必須）
+  // 'communication' | 'light' | 'standard'
+  linePlan: "communication",
+  
+  // シフト要請機能の有効/無効
+  isShiftRequestEnabled: function() {
+    return this.linePlan !== 'communication';
   }
 };

@@ -1,5 +1,12 @@
 import { onCall } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { defineString } from "firebase-functions/params";
+
+// LINEプラン設定（globalConstant.dartと同期必須）
+const linePlan = defineString("LINE_PLAN", {
+  default: "communication", // 'communication' | 'light' | 'standard'
+});
 
 interface ConfirmShiftRequestRequest {
   requestId: string;
@@ -25,6 +32,14 @@ interface ConfirmShiftRequestResponse {
  */
 export const confirmShiftRequest = onCall(
   async (request): Promise<ConfirmShiftRequestResponse> => {
+    // プランチェック: コミュニケーションプランの場合は機能を無効化
+    if (linePlan.value() === 'communication') {
+      throw new HttpsError(
+        'permission-denied',
+        'シフト要請機能はライトプラン以上で利用可能です。'
+      );
+    }
+
     // 認証チェック
     if (!request.auth) {
       throw new Error("Authentication required.");

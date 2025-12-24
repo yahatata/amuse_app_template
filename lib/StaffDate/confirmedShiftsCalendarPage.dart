@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
+import 'package:amuse_app_template/globalConstant.dart';
 
 /// カレンダーで確定シフト確認画面
 class ConfirmedShiftsCalendarPage extends StatefulWidget {
@@ -25,7 +26,10 @@ class _ConfirmedShiftsCalendarPageState extends State<ConfirmedShiftsCalendarPag
     super.initState();
     _currentMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
     _loadShifts();
-    _loadShiftRequests();
+    // プランチェック: ライトプラン以上の場合のみ要請を読み込み
+    if (GlobalConstants.isShiftRequestEnabled) {
+      _loadShiftRequests();
+    }
   }
 
   @override
@@ -196,10 +200,10 @@ class _ConfirmedShiftsCalendarPageState extends State<ConfirmedShiftsCalendarPag
     return DateTime(date.year, date.month + 1, 0).day;
   }
 
-  /// 指定月の最初の日の曜日を取得（0: 月曜, 6: 日曜）
+  /// 指定月の最初の日の曜日を取得（0: 日曜, 6: 土曜）
   int _getFirstDayOfWeek(DateTime date) {
     final firstDay = DateTime(date.year, date.month, 1);
-    return (firstDay.weekday - 1) % 7;
+    return firstDay.weekday % 7; // weekday: 1=月曜, 7=日曜 → %7で0=日曜, 6=土曜
   }
 
   /// 指定月に必要な週数を計算
@@ -363,12 +367,15 @@ class _ConfirmedShiftsCalendarPageState extends State<ConfirmedShiftsCalendarPag
           title: const Text('確定シフト（カレンダー）'),
           backgroundColor: Colors.deepPurple,
           foregroundColor: Colors.white,
-        actions: [
+            actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
               _loadShifts();
-              _loadShiftRequests();
+              // プランチェック: ライトプラン以上の場合のみ要請を読み込み
+              if (GlobalConstants.isShiftRequestEnabled) {
+                _loadShiftRequests();
+              }
             },
             tooltip: '更新',
           ),
@@ -600,8 +607,8 @@ class _ConfirmedShiftsCalendarPageState extends State<ConfirmedShiftsCalendarPag
                 ),
               ),
             ),
-            // 要請マーク（左下）
-            if (requestsOnDate.isNotEmpty)
+            // 要請マーク（左下）- プランチェック
+            if (GlobalConstants.isShiftRequestEnabled && requestsOnDate.isNotEmpty)
               Positioned(
                 bottom: 2,
                 left: 4,
@@ -703,18 +710,19 @@ class _ConfirmedShiftsCalendarPageState extends State<ConfirmedShiftsCalendarPag
               children: [
                 // シフト一覧（確定シフト + 要請）
                 _buildShiftsAndRequestsList(shifts),
-                // 希望シフト要請ボタン（右下）
-                Positioned(
-                  bottom: 16,
-                  right: 16,
-                  child: FloatingActionButton.extended(
-                    onPressed: () => _showShiftRequestDialog(context),
-                    icon: const Icon(Icons.send),
-                    label: const Text('希望シフト要請を送信'),
-                    backgroundColor: Colors.deepPurple,
-                    foregroundColor: Colors.white,
+                // 希望シフト要請ボタン（右下）- プランチェック
+                if (GlobalConstants.isShiftRequestEnabled)
+                  Positioned(
+                    bottom: 16,
+                    right: 16,
+                    child: FloatingActionButton.extended(
+                      onPressed: () => _showShiftRequestDialog(context),
+                      icon: const Icon(Icons.send),
+                      label: const Text('希望シフト要請を送信'),
+                      backgroundColor: Colors.deepPurple,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
-                ),
               ],
             ),
     );
@@ -722,7 +730,8 @@ class _ConfirmedShiftsCalendarPageState extends State<ConfirmedShiftsCalendarPag
 
   /// シフトと要請の一覧を構築
   Widget _buildShiftsAndRequestsList(List<Map<String, dynamic>> shifts) {
-    final requests = _getSelectedDateShiftRequests();
+    // プランチェック: ライトプラン以上の場合のみ要請を取得
+    final requests = GlobalConstants.isShiftRequestEnabled ? _getSelectedDateShiftRequests() : [];
     final hasShifts = shifts.isNotEmpty;
     final hasRequests = requests.isNotEmpty;
 
@@ -905,6 +914,19 @@ class _ConfirmedShiftsCalendarPageState extends State<ConfirmedShiftsCalendarPag
 
   /// 希望シフト要請ダイアログを表示
   Future<void> _showShiftRequestDialog(BuildContext context) async {
+    // プランチェック: コミュニケーションプランの場合は機能を無効化
+    if (!GlobalConstants.isShiftRequestEnabled) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('この機能はライトプラン以上で利用可能です。'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
     if (_selectedDate == null) return;
 
     final FirebaseFunctions functions = FirebaseFunctions.instance;

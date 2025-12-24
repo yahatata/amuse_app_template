@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
+import 'package:amuse_app_template/globalConstant.dart';
 
 class ShiftRequestListPage extends StatefulWidget {
   const ShiftRequestListPage({super.key});
@@ -19,6 +20,10 @@ class _ShiftRequestListPageState extends State<ShiftRequestListPage> {
   @override
   void initState() {
     super.initState();
+    // プランチェック: コミュニケーションプランの場合は機能を無効化
+    if (!GlobalConstants.isShiftRequestEnabled) {
+      return;
+    }
     _loadRequests();
   }
 
@@ -121,6 +126,23 @@ class _ShiftRequestListPageState extends State<ShiftRequestListPage> {
 
   @override
   Widget build(BuildContext context) {
+    // プランチェック: コミュニケーションプランの場合は機能を無効化
+    if (!GlobalConstants.isShiftRequestEnabled) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('希望シフト要請一覧'),
+          backgroundColor: Colors.deepPurple,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
+          child: Text(
+            'この機能はライトプラン以上で利用可能です。',
+            style: TextStyle(fontSize: 16, color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('希望シフト要請一覧'),
