@@ -1298,7 +1298,8 @@
         // URLパラメータがある場合は自動入力
         if (date) {
           // 要請を確認済み状態に更新（非同期、エラー時も処理は続行）
-          if (requestId) {
+          // プランチェック: ライトプラン以上の場合のみ要請確認処理を実行
+          if (requestId && window.__CONFIG__ && window.__CONFIG__.isShiftRequestEnabled()) {
             // 動的インポートでhttpsCallableを取得
             (async () => {
               try {

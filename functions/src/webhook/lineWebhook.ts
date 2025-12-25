@@ -13,6 +13,10 @@ const staffRichMenuId = defineString("STAFF_RICHMENU_ID", {
 const userRichMenuId = defineString("USER_RICHMENU_ID", {
   default: "richmenu-31d87049e04ae740ceaa76cf59950f54"
 });
+// LINEプラン設定（globalConstant.dartと同期必須）
+const linePlan = defineString("LINE_PLAN", {
+  default: "communication", // 'communication' | 'light' | 'standard'
+});
 
 /**
  * LINE Webhook - リッチメニュー自動切り替え
@@ -105,6 +109,40 @@ export const lineWebhook = onRequest(async (request, response) => {
           const requestId = params.get("requestId");
 
           if (action === "decline" && requestId) {
+            // プランチェック: コミュニケーションプランの場合は機能を無効化
+            if (linePlan.value() === 'communication') {
+              logger.warn("Shift request decline attempted but plan is communication", { lineUserId, requestId });
+              // リプライメッセージを送信（機能が無効であることを通知）
+              try {
+                const replyResponse = await fetch("https://api.line.me/v2/bot/message/reply", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${channelAccessToken}`,
+                  },
+                  body: JSON.stringify({
+                    replyToken: event.replyToken,
+                    messages: [
+                      {
+                        type: "text",
+                        text: "この機能はライトプラン以上で利用可能です。",
+                      },
+                    ],
+                  }),
+                });
+                if (!replyResponse.ok) {
+                  const errorText = await replyResponse.text();
+                  logger.error("Failed to send reply message", {
+                    status: replyResponse.status,
+                    error: errorText,
+                  });
+                }
+              } catch (replyError) {
+                logger.error("Error sending reply message", { error: replyError });
+              }
+              continue; // 処理をスキップ
+            }
+
             // 希望シフト要請の辞退処理
             const requestRef = db.collection("shiftRequests").doc(requestId);
             const requestDoc = await requestRef.get();

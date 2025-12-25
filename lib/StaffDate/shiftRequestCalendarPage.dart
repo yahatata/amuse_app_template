@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
 
+import '../globalConstant.dart';
+
 class ShiftRequestCalendarPage extends StatefulWidget {
   const ShiftRequestCalendarPage({super.key});
 
@@ -24,6 +26,10 @@ class _ShiftRequestCalendarPageState extends State<ShiftRequestCalendarPage> {
   @override
   void initState() {
     super.initState();
+    // プランチェック: コミュニケーションプランの場合は機能を無効化
+    if (!GlobalConstants.isShiftRequestEnabled) {
+      return;
+    }
     _loadStaffs();
   }
 
@@ -161,6 +167,23 @@ class _ShiftRequestCalendarPageState extends State<ShiftRequestCalendarPage> {
 
   @override
   Widget build(BuildContext context) {
+    // プランチェック: コミュニケーションプランの場合は機能を無効化
+    if (!GlobalConstants.isShiftRequestEnabled) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('希望シフト要請'),
+          backgroundColor: Colors.deepPurple,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
+          child: Text(
+            'この機能はライトプラン以上で利用可能です。',
+            style: TextStyle(fontSize: 16, color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('希望シフト要請'),

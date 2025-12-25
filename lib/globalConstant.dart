@@ -103,4 +103,30 @@ class GlobalConstants {
   // Cloud Functions側（functions/src/utils/paymentSplitCalculator.ts）と同期必須
   static const int POINT_A_B_ROUNDING_UNIT = 1000; // pointA/pointB の切り捨て単位（円）
   static const int SIDE_GAME_CHIP_ROUNDING_UNIT = 100; // sideGameChip の切り捨て単位（チップ数）
+
+  // LINEプラン設定
+  // 'communication' | 'light' | 'standard'
+  // 変更時はCloud Functions側（functions/src/staff/*.ts）の環境変数も同期すること
+  static const String linePlan = 'communication';
+
+  // シフト要請機能の有効/無効
+  // コミュニケーションプラン: false（UI表示なし、機能実行不可）
+  // ライトプランまたはスタンダードプラン: true（UI表示あり、機能実行可能）
+  static bool get isShiftRequestEnabled {
+    return linePlan != 'communication';
+  }
+
+  // プラン名の表示用
+  static String get linePlanName {
+    switch (linePlan) {
+      case 'communication':
+        return 'コミュニケーションプラン';
+      case 'light':
+        return 'ライトプラン';
+      case 'standard':
+        return 'スタンダードプラン';
+      default:
+        return '不明';
+    }
+  }
 }
