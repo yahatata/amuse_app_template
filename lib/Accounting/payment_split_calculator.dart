@@ -152,9 +152,9 @@ PaymentSplitResult calculatePaymentSplit({
             ? remainingAmount
             : availableBalanceInYen.toInt();
         
-        // 100チップ区切りで切り捨て（チップ数として）
+        // チップ単位で切り捨て（チップ数として）
         final maxUsableChips = (maxUsableInYen / sideGameChipExchangeRate).floor();
-        final usableChipsRounded = (maxUsableChips / 100).floor() * 100; // 100チップ区切りで切り捨て
+        final usableChipsRounded = (maxUsableChips / GlobalConstants.SIDE_GAME_CHIP_ROUNDING_UNIT).floor() * GlobalConstants.SIDE_GAME_CHIP_ROUNDING_UNIT;
         
         // 円換算
         pointAmountToUse = (usableChipsRounded * sideGameChipExchangeRate).toInt();
@@ -165,8 +165,8 @@ PaymentSplitResult calculatePaymentSplit({
             ? remainingAmount
             : availableBalance.toInt();
         
-        // 1000円区切りで切り捨て
-        pointAmountToUse = (maxUsable / 1000).floor() * 1000;
+        // 指定単位で切り捨て
+        pointAmountToUse = (maxUsable / GlobalConstants.POINT_A_B_ROUNDING_UNIT).floor() * GlobalConstants.POINT_A_B_ROUNDING_UNIT;
       }
 
       if (pointAmountToUse > 0) {

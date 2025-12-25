@@ -54,7 +54,7 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   // 営業日を計算する関数
   String _getBusinessDate() {
     final now = DateTime.now();
-    final closeHour = GlobalConstants.STORE_CLOSE_HOUR;
+    final closeHour = GlobalConstants.normalizeStoreCloseHour(GlobalConstants.STORE_CLOSE_HOUR);
     
     // 現在時刻が店舗締め時間より前の場合は前日の営業日
     if (now.hour < closeHour) {
@@ -70,7 +70,7 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   Future<void> _loadAvailableOptions() async {
     // 営業時間の開始・終了時刻を計算
     final now = DateTime.now();
-    final closeHour = GlobalConstants.STORE_CLOSE_HOUR;
+    final closeHour = GlobalConstants.normalizeStoreCloseHour(GlobalConstants.STORE_CLOSE_HOUR);
 
     DateTime businessDayStart;
     DateTime businessDayEnd;

@@ -12,13 +12,16 @@ Future<void> showOrderFromUserDialog({
   required Map<String, dynamic> user,
   VoidCallback? onBackToUserActionHome,
 }) async {
-  final String userId = (user['userId'] ?? '').toString();
-  if (userId.isEmpty) {
+  final String billId = (user['billId'] ?? '').toString();
+  if (billId.isEmpty) {
     ScaffoldMessenger.of(pageContext).showSnackBar(
-      const SnackBar(content: Text('ユーザー識別子が見つかりません')),
+      const SnackBar(content: Text('伝票IDが見つかりません')),
     );
     return;
   }
+  
+  // userId は表示用に保持（billId が主要）
+  final String userId = (user['userId'] ?? '').toString();
 
   // 初期カテゴリーは All 相当
   String selectedCategory = 'All';
@@ -156,6 +159,7 @@ Future<void> showOrderFromUserDialog({
                                           // 一覧ポップは閉じず、その上に数量ポップを重ねて表示
                                           await _showQuantityAndConfirm(
                                             pageContext: pageContext,
+                                            billId: billId,
                                             userId: userId,
                                             item: item,
                                           );
@@ -182,10 +186,15 @@ Future<void> showOrderFromUserDialog({
 /// How: showDialog + TextField/Step 後に httpsCallable('placeOrder') を実行
 Future<void> _showQuantityAndConfirm({
   required BuildContext pageContext,
+  required String billId,
   required String userId,
   required MenuItem item,
 }) async {
   int quantity = 1;
+  // ✅ ダイアログが開いている間は固定の clientNonce（画面セッションで固定）
+  final String clientNonce = 'order_${DateTime.now().millisecondsSinceEpoch}_${userId.substring(0, 8)}';
+  bool isSubmitting = false; // 二重タップ対策フラグ
+
   await showDialog<void>(
     context: pageContext,
     barrierDismissible: true,
@@ -220,24 +229,26 @@ Future<void> _showQuantityAndConfirm({
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
+                onPressed: isSubmitting ? null : () => Navigator.of(ctx).pop(),
                 child: const Text('キャンセル'),
               ),
               ElevatedButton(
-                onPressed: () async {
-                  debugPrint('[OrderPop] confirm order for item=${item.id} qty=$quantity userId=$userId');
+                onPressed: isSubmitting ? null : () async {
+                  setState(() {
+                    isSubmitting = true; // 送信中フラグを立てる
+                  });
+
+                  debugPrint('[OrderPop] confirm order for item=${item.id} qty=$quantity billId=$billId clientNonce=$clientNonce');
                   try {
                     final functions = FirebaseFunctions.instance;
                     final callable = functions.httpsCallable('placeOrder');
                     final resp = await callable.call({
-                      'userId': userId,
+                      'billId': billId, // ✅ userId から billId に変更
                       'item': {
                         'menuItemId': item.id,
-                        'category': item.category,
-                        'name': item.name,
-                        'price': item.price,
                         'quantity': quantity,
                       },
+                      'clientNonce': clientNonce, // ✅ トップレベルに追加（ダイアログが開いている間は固定）
                     });
 
                     final data = resp.data;
@@ -258,6 +269,9 @@ Future<void> _showQuantityAndConfirm({
                           SnackBar(content: Text(err)),
                         );
                       }
+                      setState(() {
+                        isSubmitting = false; // エラー時はフラグを戻す
+                      });
                     }
                   } catch (e) {
                     if (pageContext.mounted) {
@@ -273,9 +287,18 @@ Future<void> _showQuantityAndConfirm({
                         SnackBar(content: Text('注文に失敗しました: $e')),
                       );
                     }
+                    setState(() {
+                      isSubmitting = false; // エラー時はフラグを戻す
+                    });
                   }
                 },
-                child: const Text('注文確定'),
+                child: isSubmitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('注文確定'),
               ),
             ],
           );

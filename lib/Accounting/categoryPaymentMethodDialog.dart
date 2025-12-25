@@ -23,21 +23,101 @@ class _CategoryPaymentMethodDialogState
   int _pointBBalance = 0;
   int _sideGameChipBalance = 0;
   bool _isLoadingBalance = true;
+  bool _isLoadingCategories = true;
+  Map<String, int> _categoriesWithAmounts = {};
 
   @override
   void initState() {
     super.initState();
-    // 各カテゴリのデフォルト支払い方法を「現金」に設定
-    _getCategoriesWithAmounts().forEach((category, _) {
-      _selectedPaymentMethods[category] = 'cash';
-    });
+    // カテゴリごとの金額を取得（非同期）
+    _loadCategoriesWithAmounts();
     // ユーザーの残高を取得
     _loadUserBalance();
   }
 
+  // カテゴリごとの金額を取得（billsスキーマ対応）
+  Future<void> _loadCategoriesWithAmounts() async {
+    final billId = widget.bill['id'] as String?;
+    if (billId == null || billId.isEmpty) {
+      setState(() {
+        _isLoadingCategories = false;
+      });
+      return;
+    }
+
+    try {
+      final billRef = FirebaseFirestore.instance.collection('bills').doc(billId);
+      final Map<String, int> categoriesWithAmounts = {};
+
+      // extras サブコレクション
+      final extrasSnapshot = await billRef.collection('extras').get();
+      int extraCostAmount = extrasSnapshot.docs.fold(0, (sum, doc) {
+        return sum + ((doc.data()['amountIncl'] as num?)?.toInt() ?? 0);
+      });
+      if (extraCostAmount > 0) {
+        categoriesWithAmounts['extraCost'] = extraCostAmount;
+      }
+
+      // items サブコレクション
+      final itemsSnapshot = await billRef.collection('items').get();
+      int itemsAmount = itemsSnapshot.docs.fold(0, (sum, doc) {
+        return sum + ((doc.data()['totalPriceIncl'] as num?)?.toInt() ?? 0);
+      });
+      if (itemsAmount > 0) {
+        categoriesWithAmounts['items'] = itemsAmount;
+      }
+
+      // sideGameChips サブコレクション（action='purchase'のみ）
+      final sideGameChipsSnapshot = await billRef.collection('sideGameChips').get();
+      int sideGameChipAmount = sideGameChipsSnapshot.docs
+          .where((doc) => doc.data()['action'] == 'purchase')
+          .fold(0, (sum, doc) {
+            return sum + ((doc.data()['amountIncl'] as num?)?.toInt() ?? 0);
+          });
+      if (sideGameChipAmount > 0) {
+        categoriesWithAmounts['sideGameChip'] = sideGameChipAmount;
+      }
+
+      // tournaments サブコレクション
+      final tournamentsSnapshot = await billRef.collection('tournaments').get();
+      int tournamentsAmount = tournamentsSnapshot.docs.fold(0, (sum, doc) {
+        final data = doc.data();
+        final entryCount = (data['entryCount'] as num?)?.toInt() ?? 0;
+        final entryFeeIncl = (data['entryFeeIncl'] as num?)?.toInt() ?? 0;
+        final reentryCount = (data['reentryCount'] as num?)?.toInt() ?? 0;
+        final reentryFeeIncl = (data['reentryFeeIncl'] as num?)?.toInt() ?? 0;
+        final addonCount = (data['addonCount'] as num?)?.toInt() ?? 0;
+        final addonFeeIncl = (data['addonFeeIncl'] as num?)?.toInt() ?? 0;
+        return sum +
+            (entryCount * entryFeeIncl) +
+            (reentryCount * reentryFeeIncl) +
+            (addonCount * addonFeeIncl);
+      });
+      if (tournamentsAmount > 0) {
+        categoriesWithAmounts['tournaments'] = tournamentsAmount;
+      }
+
+      setState(() {
+        _categoriesWithAmounts = categoriesWithAmounts;
+        // 各カテゴリのデフォルト支払い方法を「現金」に設定
+        categoriesWithAmounts.forEach((category, _) {
+          _selectedPaymentMethods[category] = 'cash';
+        });
+        _isLoadingCategories = false;
+      });
+    } catch (e) {
+      print('カテゴリ金額取得エラー: $e');
+      setState(() {
+        _isLoadingCategories = false;
+      });
+    }
+  }
+
   // ユーザーの残高を取得
   Future<void> _loadUserBalance() async {
-    final userId = widget.bill['userId'] as String?;
+    // billsスキーマでは party.userId から取得
+    final party = widget.bill['party'] as Map<String, dynamic>?;
+    final userId = party?['userId'] as String? ?? widget.bill['userId'] as String?;
     if (userId == null || userId.isEmpty) {
       setState(() {
         _isLoadingBalance = false;
@@ -73,58 +153,9 @@ class _CategoryPaymentMethodDialogState
     }
   }
 
-  // カテゴリごとの金額を計算
+  // カテゴリごとの金額を取得（既に読み込んだデータを使用）
   Map<String, int> _getCategoriesWithAmounts() {
-    final Map<String, int> categoriesWithAmounts = {};
-
-    // 入店料（extraCost）
-    final extraCosts = widget.bill['extraCost'] as List<dynamic>? ?? [];
-    int totalExtraCost = 0;
-    for (final extraCost in extraCosts) {
-      totalExtraCost += (extraCost['price'] as num? ?? 0).toInt();
-    }
-    if (totalExtraCost > 0) {
-      categoriesWithAmounts['extraCost'] = totalExtraCost;
-    }
-
-    // トーナメント参加費（tournaments）
-    final tournamentsData = widget.bill['tournaments'];
-    int totalTournamentFee = 0;
-    if (tournamentsData is Map<String, dynamic>) {
-      for (final tournament in tournamentsData.values) {
-        totalTournamentFee += (tournament['entryFee'] as num? ?? 0).toInt();
-      }
-    }
-    if (totalTournamentFee > 0) {
-      categoriesWithAmounts['tournaments'] = totalTournamentFee;
-    }
-
-    // フード・ドリンク（items）
-    final items = widget.bill['items'] as List<dynamic>? ?? [];
-    int totalOrderAmount = 0;
-    for (final item in items) {
-      final price = (item['price'] as num? ?? 0).toInt();
-      final quantity = (item['quantity'] as num? ?? 0).toInt();
-      totalOrderAmount += price * quantity;
-    }
-    if (totalOrderAmount > 0) {
-      categoriesWithAmounts['items'] = totalOrderAmount;
-    }
-
-    // サイドゲームチップ（sideGameChip、action='purchase'のみ）
-    final sideGameChips = widget.bill['sideGameChip'] as List<dynamic>? ?? [];
-    int totalSideGameChipAmount = 0;
-    for (final chip in sideGameChips) {
-      // action='purchase'のデータのみを集計
-      if (chip['action'] == 'purchase') {
-        totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
-      }
-    }
-    if (totalSideGameChipAmount > 0) {
-      categoriesWithAmounts['sideGameChip'] = totalSideGameChipAmount;
-    }
-
-    return categoriesWithAmounts;
+    return _categoriesWithAmounts;
   }
 
   // カテゴリ名の表示用ラベルを取得
@@ -244,7 +275,38 @@ class _CategoryPaymentMethodDialogState
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingCategories) {
+      return const AlertDialog(
+        content: Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('データを読み込み中...'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final categoriesWithAmounts = _getCategoriesWithAmounts();
+    if (categoriesWithAmounts.isEmpty) {
+      return AlertDialog(
+        title: const Text('エラー'),
+        content: const Text('カテゴリデータが見つかりませんでした。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('閉じる'),
+          ),
+        ],
+      );
+    }
+
     final totalAmount = categoriesWithAmounts.values.fold(
       0,
       (sum, amount) => sum + amount,
@@ -525,7 +587,15 @@ class _CategoryPaymentMethodDialogState
 
         // 残高が十分な場合
         if (availableValue >= categoryAmount) {
-          result[category] = selectedMethod; // 文字列のまま（既存互換）
+          if (selectedMethod == 'sideGameChip') {
+            // サイドゲームチップの場合は、円換算してチップ枚数を計算
+            final chips = (categoryAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
+            result[category] = selectedMethod; // 文字列のまま（既存互換）
+            // 注意: 文字列の場合、_calculatePaymentMethodsByAmountFromCategorySelection で
+            // 円換算してチップ枚数に変換されるため、ここでは文字列のまま返す
+          } else {
+            result[category] = selectedMethod; // 文字列のまま（既存互換）
+          }
         }
         // 残高不足の場合
         else {

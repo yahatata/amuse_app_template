@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:amuse_app_template/HomeBackAction.dart';
 import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
 
 
 class UserManualCheckInPage extends StatefulWidget {
@@ -47,6 +48,7 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
           'pin': pinInput,
           'entranceFee': GlobalConstants.entranceFee,
           'entranceFeeDescription': GlobalConstants.entranceFeeDescription,
+          'chargeEntranceFeeOnReentry': GlobalConstants.chargeEntranceFeeOnReentry,
         });
 
         final response = result.data;
@@ -54,26 +56,60 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
           final data = response['data'];
           final uid = data['uid'];
           final pokerName = data['pokerName'];
-          final message = data['message'];
+          final message = data['message'] ?? '${pokerName}様のログイン処理が完了しました';
 
           // ユーザーUIDを保存
           await _saveUserUID(uid);
 
           setState(() => _isLoading = false);
-          _showSnackbar(context, message);
           
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const PlaceholderPage(title: '仮ホーム')),
-          );
+          // userCheckInPage に遷移してダイアログを表示
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => UserCheckInPage(
+                  showDialogOnLoad: true,
+                  dialogMessage: message,
+                  isSuccess: true,
+                ),
+              ),
+            );
+          }
         } else {
           final error = response['error'] ?? 'ログイン処理に失敗しました';
           setState(() => _isLoading = false);
-          _showSnackbar(context, error);
+          
+          // userCheckInPage に遷移してダイアログを表示
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => UserCheckInPage(
+                  showDialogOnLoad: true,
+                  dialogMessage: error,
+                  isSuccess: false,
+                ),
+              ),
+            );
+          }
         }
       } catch (e) {
         setState(() => _isLoading = false);
-        _showSnackbar(context, 'ログイン処理に失敗しました: $e');
+        
+        // userCheckInPage に遷移してダイアログを表示
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => UserCheckInPage(
+                showDialogOnLoad: true,
+                dialogMessage: 'ログイン処理に失敗しました: $e',
+                isSuccess: false,
+              ),
+            ),
+          );
+        }
       }
     }
   }

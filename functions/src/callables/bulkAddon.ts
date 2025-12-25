@@ -2,6 +2,8 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
+import { recordTournamentAction } from '../helpers/billsApi/recordTournamentAction';
+import * as crypto from 'crypto';
 
 const bulkAddonSchema = z.object({
   tournamentId: z.string(),
@@ -66,10 +68,13 @@ export const bulkAddon = onCall(async (request) => {
     }
 
     const tournamentData = tournamentDoc.data();
+    const templateId = tournamentData?.templateId;
     const snapshot = tournamentData?.snapshot || {};
     const isAddon = snapshot.isAddon !== null && snapshot.isAddon !== undefined ? snapshot.isAddon : false;
     const addonFee = snapshot.addonFee !== null && snapshot.addonFee !== undefined ? snapshot.addonFee : 0;
     const addonStack = snapshot.addonStack !== null && snapshot.addonStack !== undefined ? snapshot.addonStack : 0;
+    const templateName = snapshot.name || '';
+    const startAt = tournamentData?.startAt;
 
     console.log('isAddon:', isAddon);
     console.log('addonFee:', addonFee);
@@ -77,6 +82,10 @@ export const bulkAddon = onCall(async (request) => {
 
     if (!isAddon) {
       throw new Error('このトーナメントではAddonができません');
+    }
+
+    if (!templateId) {
+      throw new Error('トーナメントのtemplateIdが存在しません');
     }
 
     // scheduledTournaments/views/mainを取得
@@ -95,43 +104,49 @@ export const bulkAddon = onCall(async (request) => {
     const viewsMainData = viewsMainDoc.data();
     const currentAddons = viewsMainData?.addons || 0;
 
-    // 各ユーザーのtodaysBillsドキュメントを取得
-    const todayBillsQueries = await Promise.all(
-      users.map(user => admin.firestore()
-        .collection('todaysBills')
-        .where('userId', '==', user.userId)
-        .where('status', '==', 'open')
-        .limit(1)
-        .get())
-    );
+    // 各ユーザーのactiveStaysドキュメントを取得
+    const activeStayRefs = users.map(user => admin.firestore().collection('activeStays').doc(user.userId));
+    const activeStayDocs = await Promise.all(activeStayRefs.map(ref => ref.get()));
 
     // 存在しないユーザーと既にAddon済みのユーザーをチェック
     const missingUsers: string[] = [];
-    const alreadyAddonUsers: Array<{ userId: string; pokerName: string }> = [];
-    const availableUsers: Array<{ userId: string; pokerName: string }> = [];
+    const alreadyAddonUsers: Array<{ userId: string; pokerName: string; billId: string }> = [];
+    const availableUsers: Array<{ userId: string; pokerName: string; billId: string }> = [];
 
     for (let i = 0; i < users.length; i++) {
       const user = users[i];
-      const query = todayBillsQueries[i];
+      const activeStayDoc = activeStayDocs[i];
 
-      if (query.empty) {
+      if (!activeStayDoc.exists) {
         missingUsers.push(user.pokerName);
       } else {
-        const todayBillsData = query.docs[0].data();
-        const tournaments = todayBillsData.tournaments || {};
-        const tournamentInfo = tournaments[tournamentId] || {};
-        const addonCount = tournamentInfo.addonCount || 0;
+        const activeStayData = activeStayDoc.data()!;
+        const billId = activeStayData.billId as string;
 
-        if (addonCount >= 1) {
-          alreadyAddonUsers.push(user);
+        if (!billId) {
+          missingUsers.push(user.pokerName);
         } else {
-          availableUsers.push(user);
+          // 既にAddon済みかチェック（/bills/{billId}/tournaments/{templateId} を確認）
+          const tournamentRef = admin.firestore().collection('bills').doc(billId).collection('tournaments').doc(templateId);
+          const existingTournamentDoc = await tournamentRef.get();
+          
+          if (existingTournamentDoc.exists) {
+            const tournamentInfo = existingTournamentDoc.data()!;
+            const addonCount = tournamentInfo.addonCount || 0;
+            if (addonCount >= 1) {
+              alreadyAddonUsers.push({ ...user, billId });
+            } else {
+              availableUsers.push({ ...user, billId });
+            }
+          } else {
+            availableUsers.push({ ...user, billId });
+          }
         }
       }
     }
 
     if (missingUsers.length > 0) {
-      throw new Error(`以下のユーザーのtodaysBillsドキュメントが見つかりません: ${missingUsers.join(', ')}`);
+      throw new Error(`以下のユーザーのactiveStaysドキュメントが見つからないか、billIdが設定されていません: ${missingUsers.join(', ')}`);
     }
 
     if (availableUsers.length === 0) {
@@ -146,31 +161,7 @@ export const bulkAddon = onCall(async (request) => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // 処理可能なユーザーのtodaysBillsを更新
-      for (const user of availableUsers) {
-        const userIndex = users.findIndex(u => u.userId === user.userId);
-        const todayBillsQuery = todayBillsQueries[userIndex];
-        const todayBillsDoc = todayBillsQuery.docs[0];
-        const todayBillsData = todayBillsDoc.data();
-        const existingTournaments = todayBillsData.tournaments || {};
-
-        // todaysBillsのtournamentsフィールドを更新
-        const existingTournamentInfo = existingTournaments[tournamentId] || {};
-        const updatedTournamentInfo = Object.assign(Object.assign({}, existingTournamentInfo), { 
-          addonCount: (existingTournamentInfo.addonCount || 0) + 1, 
-          addonFee: addonFee, 
-          lastAddonAt: admin.firestore.FieldValue.serverTimestamp() 
-        });
-
-        const updatedTournaments = Object.assign(Object.assign({}, existingTournaments), { 
-          [tournamentId]: updatedTournamentInfo 
-        });
-
-        transaction.update(todayBillsDoc.ref, {
-          tournaments: updatedTournaments,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
+      // todaysBillsのtournamentsフィールドへの直接更新は削除（recordTournamentAction内のDualWriteに集約）
 
       return {
         success: true,
@@ -178,8 +169,38 @@ export const bulkAddon = onCall(async (request) => {
         alreadyAddonCount: alreadyAddonUsers.length,
         addonFee,
         addonStack,
+        availableUsers: availableUsers.map(u => ({ 
+          userId: u.userId, 
+          billId: u.billId,
+        })),
       };
     });
+
+    // トランザクション完了後、各ユーザーに対してrecordTournamentActionを呼び出す（トランザクション外で実行）
+    const recordPromises = result.availableUsers.map(async (user) => {
+      const clientNonce = crypto.randomUUID();
+      const idempotencyKey = `${user.billId}:recordTournamentAction:addon:${clientNonce}`;
+
+      try {
+        await recordTournamentAction({
+          billId: user.billId,
+          templateId,
+          action: 'addon',
+          templateName: templateName,
+          entryFeeIncl: null, // 既存の値を保持（recordTournamentAction内で処理）
+          reentryFeeIncl: null, // 既存の値を保持（recordTournamentAction内で処理）
+          addonFeeIncl: addonFee,
+          startAt: startAt ? (startAt as admin.firestore.Timestamp) : null,
+          idempotencyKey,
+        });
+      } catch (error) {
+        console.error(`Failed to record tournament action for user ${user.userId}:`, error);
+        // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
+        // scheduledTournamentsの更新は成功しているため
+      }
+    });
+
+    await Promise.all(recordPromises);
 
     console.log('=== まとめてAddon処理完了 ===');
     console.log('処理完了ユーザー数:', result.processedCount);

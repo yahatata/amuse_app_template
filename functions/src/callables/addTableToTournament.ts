@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
@@ -10,38 +10,34 @@ const addTableToTournamentSchema = z.object({
   maxSeats: z.number().int().positive(),
 });
 
-export const addTableToTournament = functions.https.onCall(async (data, context: any) => {
+export const addTableToTournament = onCall(async (request) => {
   // 認証チェック
-  if (!context || !context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', '認証が必要です');
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
-  const callerUid = context.auth.uid;
+  const callerUid = request.auth.uid;
 
   // デバイス権限の確認（role: admin または options.tournament: true）
   const device = await getCallerDeviceByUid(callerUid);
   if (!device || !isActive(device.status)) {
-    throw new functions.https.HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
   }
 
   const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
   if (!hasPermission) {
-    throw new functions.https.HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+    throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
   }
 
   try {
     console.log('=== 卓追加: 受信データ ===');
+    const { data } = request;
     console.log('data:', data);
     console.log('data type:', typeof data);
     console.log('data keys:', Object.keys(data || {}));
     
-    // 正しいデータの場所を取得
-    const actualData = data.data || data;
-    console.log('actualData:', actualData);
-    console.log('actualData keys:', Object.keys(actualData || {}));
-    
     // 入力検証
-    const { tournamentId, tableId, maxSeats } = addTableToTournamentSchema.parse(actualData);
+    const { tournamentId, tableId, maxSeats } = addTableToTournamentSchema.parse(data);
     
     console.log(`=== 卓追加開始 ===`);
     console.log(`tournamentId: ${tournamentId}`);
@@ -122,9 +118,9 @@ export const addTableToTournament = functions.https.onCall(async (data, context:
     
     // エラーメッセージを適切に返す
     if (error instanceof Error) {
-      throw new functions.https.HttpsError('internal', error.message);
+      throw new HttpsError('internal', error.message);
     } else {
-      throw new functions.https.HttpsError('internal', '卓追加に失敗しました');
+      throw new HttpsError('internal', '卓追加に失敗しました');
     }
   }
 });
