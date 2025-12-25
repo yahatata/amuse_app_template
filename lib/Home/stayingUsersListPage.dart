@@ -86,7 +86,6 @@ class _StayingUsersListPageState extends State<StayingUsersListPage> {
           pokerName.isEmpty ? '(名前未設定)' : pokerName,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: Text('Table: ${currentTable ?? '-'}   Seat: ${currentSeat ?? '-'}'), // activeStays には含まれないため常に '-'
         // trailing は削除（アイコン非表示）
         onTap: () {
           showUserActionHome(
