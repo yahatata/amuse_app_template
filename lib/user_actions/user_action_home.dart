@@ -7,6 +7,13 @@ import 'side_game_tip_view_popup.dart';
 import 'side_game_tip_withdraw_popup.dart';
 import 'side_game_tip_deposit_popup.dart';
 import 'side_game_chip_purchase_popup.dart';
+import 'add_extra_popup.dart';
+import 'chip_point_view_popup.dart';
+import 'order_history_popup.dart';
+import 'tournament_history_popup.dart';
+import 'profile_popup.dart';
+import 'current_seat_popup.dart';
+import 'current_accounting_popup.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 /// When: ユーザー行をタップしてアクションを選択したいとき
@@ -181,32 +188,46 @@ _UserActionItem _buildBlockB(Map<String, dynamic> user) => _UserActionItem(
       icon: Icons.attach_money,
       color: Colors.green,
       onSelected: (ctx, u) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('追加料金（仮）')),
+        showAddExtraDialog(
+          context: ctx,
+          user: u,
         );
       },
     );
 
-// 塊C: チップ
+// 塊C: チップ（所持チップ・所持ポイント）
 _UserActionItem _buildBlockC(Map<String, dynamic> user) => _UserActionItem(
-      label: 'チップ',
+      label: '所持チップ・ポイント',
       icon: Icons.volunteer_activism,
       color: Colors.orange,
       onSelected: (ctx, u) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('チップ（仮）')),
+        final userId = u['userId'] as String?;
+        final pokerName = u['pokerName'] as String? ?? '(名前未設定)';
+        
+        if (userId == null || userId.isEmpty) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('ユーザー情報が不足しています')),
+          );
+          return;
+        }
+        
+        showChipPointViewDialog(
+          context: ctx,
+          userId: userId,
+          pokerName: pokerName,
         );
       },
     );
 
-// 塊D: 席移動
+// 塊D: 席移動（現在の座席確認）
 _UserActionItem _buildBlockD(Map<String, dynamic> user) => _UserActionItem(
-      label: '席移動',
+      label: '現在の座席確認',
       icon: Icons.event_seat,
       color: Colors.purple,
       onSelected: (ctx, u) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('席移動（仮）')),
+        showCurrentSeatDialog(
+          context: ctx,
+          user: u,
         );
       },
     );
@@ -217,32 +238,57 @@ _UserActionItem _buildBlockE(Map<String, dynamic> user) => _UserActionItem(
       icon: Icons.receipt_long,
       color: Colors.indigo,
       onSelected: (ctx, u) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('注文履歴（仮）')),
+        final userId = u['userId'] as String?;
+        final pokerName = u['pokerName'] as String? ?? '(名前未設定)';
+        
+        if (userId == null || userId.isEmpty) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('ユーザー情報が不足しています')),
+          );
+          return;
+        }
+        
+        showOrderHistoryDialog(
+          context: ctx,
+          userId: userId,
+          pokerName: pokerName,
         );
       },
     );
 
-// 塊F: 会計
+// 塊F: 現在の会計参照
 _UserActionItem _buildBlockF(Map<String, dynamic> user) => _UserActionItem(
-      label: '会計',
+      label: '現在の会計参照',
       icon: Icons.point_of_sale,
       color: Colors.teal,
       onSelected: (ctx, u) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('会計（仮）')),
+        showCurrentAccountingDialog(
+          context: ctx,
+          user: u,
         );
       },
     );
 
-// 塊G: トーナメント
+// 塊G: トーナメント（トーナメント履歴）
 _UserActionItem _buildBlockG(Map<String, dynamic> user) => _UserActionItem(
-      label: 'トーナメント',
+      label: 'トーナメント履歴',
       icon: Icons.emoji_events,
       color: Colors.redAccent,
       onSelected: (ctx, u) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('トーナメント（仮）')),
+        final userId = u['userId'] as String?;
+        final pokerName = u['pokerName'] as String? ?? '(名前未設定)';
+        
+        if (userId == null || userId.isEmpty) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('ユーザー情報が不足しています')),
+          );
+          return;
+        }
+        
+        showTournamentHistoryDialog(
+          context: ctx,
+          userId: userId,
+          pokerName: pokerName,
         );
       },
     );
@@ -253,8 +299,20 @@ _UserActionItem _buildBlockH(Map<String, dynamic> user) => _UserActionItem(
       icon: Icons.account_circle,
       color: Colors.brown,
       onSelected: (ctx, u) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('プロフィール（仮）')),
+        final userId = u['userId'] as String?;
+        final pokerName = u['pokerName'] as String? ?? '(名前未設定)';
+        
+        if (userId == null || userId.isEmpty) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('ユーザー情報が不足しています')),
+          );
+          return;
+        }
+        
+        showProfileDialog(
+          context: ctx,
+          userId: userId,
+          pokerName: pokerName,
         );
       },
     );
