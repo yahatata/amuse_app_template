@@ -9,6 +9,12 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true; // 開発用：全許可
       allow write: if false; // 書き込みはCloud Functions経由のみ
+      
+      // ログサブコレクション（pointALogs, pointBLogs, sideGameChipLogs）
+      match /{logCollection=**} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
     }
 
     match /staffs/{staffId} {
