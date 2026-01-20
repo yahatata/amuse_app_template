@@ -79,10 +79,16 @@ export const verifyPaymentSplit = onCall(async (request) => {
 
     // items → items サブコレクションから取得
     const itemsSnap = await billRef.collection('items').get();
-    categoryAmounts['items'] = itemsSnap.docs.reduce(
-      (sum, doc) => sum + (doc.data().totalPriceIncl || 0),
-      0
-    );
+    categoryAmounts['items'] = itemsSnap.docs
+      .filter((doc) => {
+        const data = doc.data();
+        // voided: true のアイテムは算出対象外
+        return data.voided !== true;
+      })
+      .reduce(
+        (sum, doc) => sum + (doc.data().totalPriceIncl || 0),
+        0
+      );
 
     // sideGameChip → sideGameChips サブコレクションから取得（action='purchase'のみ）
     const sideGameChipsSnap = await billRef.collection('sideGameChips').get();

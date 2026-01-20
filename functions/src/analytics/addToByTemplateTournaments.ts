@@ -2,14 +2,25 @@ import { Transaction } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
 // import { calculateTournamentSales } from "./helpers";
 
+export interface ByTemplateTournamentsUpdateInfo {
+  collection: string;
+  subcollection: string;
+  documentId: string;
+  templateKey: string;
+  templateName: string;
+  isNewDocument: boolean;
+  updatedFields: Record<string, any>;
+}
+
 export async function addToByTemplateTournaments(
   transaction: Transaction,
   month: string,
   businessDate: string,
   billData: any,
   templateDocs?: FirebaseFirestore.DocumentSnapshot[]
-): Promise<void> {
+): Promise<ByTemplateTournamentsUpdateInfo[]> {
   const tournamentsSnapshot = billData.tournamentsSnapshot || {};
+  const updateInfos: ByTemplateTournamentsUpdateInfo[] = [];
   
   // テンプレートドキュメントのマップを作成
   const templateDocMap = new Map<string, FirebaseFirestore.DocumentSnapshot>();
@@ -83,6 +94,32 @@ export async function addToByTemplateTournaments(
     updateData['totals.addonSales'] = admin.firestore.FieldValue.increment(addonSales);
     updateData['totals.totalTournamentSales'] = admin.firestore.FieldValue.increment(totalTournamentSales);
     
+    // 更新内容を準備（ログ用）
+    const dailyLog: Record<string, string> = {
+      [`daily.${businessDate}.entryCount`]: `increment(${entryCount})`,
+      [`daily.${businessDate}.entrySales`]: `increment(${entrySales})`,
+      [`daily.${businessDate}.reentryCount`]: `increment(${reentryCount})`,
+      [`daily.${businessDate}.reentrySales`]: `increment(${reentrySales})`,
+      [`daily.${businessDate}.addonCount`]: `increment(${addonCount})`,
+      [`daily.${businessDate}.addonSales`]: `increment(${addonSales})`,
+      [`daily.${businessDate}.totalTournamentSales`]: `increment(${totalTournamentSales})`,
+    };
+    
+    const updatedFields: Record<string, any> = {
+      templateName,
+      daily: dailyLog,
+      totals: {
+        'totals.entryCount': `increment(${entryCount})`,
+        'totals.entrySales': `increment(${entrySales})`,
+        'totals.reentryCount': `increment(${reentryCount})`,
+        'totals.reentrySales': `increment(${reentrySales})`,
+        'totals.addonCount': `increment(${addonCount})`,
+        'totals.addonSales': `increment(${addonSales})`,
+        'totals.totalTournamentSales': `increment(${totalTournamentSales})`,
+      },
+      updatedAt: 'serverTimestamp()',
+    };
+    
     // ドキュメントが存在しない場合は初期化
     const templateDoc = templateDocMap.get(templateKey);
     if (!templateDoc || !templateDoc.exists) {
@@ -104,5 +141,17 @@ export async function addToByTemplateTournaments(
     }
     
     transaction.update(templateRef, updateData);
+
+    updateInfos.push({
+      collection: 'analyticsMonthly',
+      subcollection: 'byTemplateTournaments',
+      documentId: `${month}/${templateKey}`,
+      templateKey,
+      templateName,
+      isNewDocument: !templateDocMap.get(templateKey) || !templateDocMap.get(templateKey)!.exists,
+      updatedFields,
+    });
   }
+
+  return updateInfos;
 }

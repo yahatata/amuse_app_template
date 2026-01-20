@@ -306,7 +306,12 @@ class _CurrentAccountingDialog extends StatelessWidget {
                                     categoryName: _getCategoryName('items'),
                                     totalAmount: itemsAmount,
                                     children: [
-                                      ...itemsList.map((item) {
+                                      ...itemsList
+                                          .where((item) {
+                                            // voided: true のアイテムは表示対象外
+                                            return (item['voided'] as bool?) != true;
+                                          })
+                                          .map((item) {
                                         final name = item['name'] as String? ?? '不明';
                                         final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
                                         final totalPriceIncl = (item['totalPriceIncl'] as num?)?.toInt() ?? 0;
@@ -542,7 +547,13 @@ class _CurrentAccountingDialog extends StatelessWidget {
     });
 
     final itemsSnapshot = await billRef.collection('items').get();
-    int itemsAmount = itemsSnapshot.docs.fold(0, (sum, doc) {
+    int itemsAmount = itemsSnapshot.docs
+        .where((doc) {
+          final data = doc.data() as Map<String, dynamic>? ?? {};
+          // voided: true のアイテムは算出対象外
+          return (data['voided'] as bool?) != true;
+        })
+        .fold(0, (sum, doc) {
       final data = doc.data() as Map<String, dynamic>? ?? {};
       return sum + ((data['totalPriceIncl'] as num?)?.toInt() ?? 0);
     });
@@ -599,7 +610,13 @@ class _CurrentAccountingDialog extends StatelessWidget {
         return sum + ((data['amountIncl'] as num?)?.toInt() ?? 0);
       });
 
-      int itemsAmount = items.fold(0, (sum, doc) {
+      int itemsAmount = items
+          .where((doc) {
+            final data = doc.data() as Map<String, dynamic>? ?? {};
+            // voided: true のアイテムは算出対象外
+            return (data['voided'] as bool?) != true;
+          })
+          .fold(0, (sum, doc) {
         final data = doc.data() as Map<String, dynamic>? ?? {};
         return sum + ((data['totalPriceIncl'] as num?)?.toInt() ?? 0);
       });

@@ -1,13 +1,8 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
-import * as admin from "firebase-admin";
 import { logger } from "firebase-functions";
 import { resolveBusinessDate } from "./helpers";
-import { addToMonthlyIndex } from "./addToMonthlyIndex";
-import { addToDailySummary } from "./addToDailySummary";
-import { addToByCategory } from "./addToByCategory";
-import { addToByTemplateTournaments } from "./addToByTemplateTournaments";
-import { addToByUser } from "./addToByUser";
+import { processBillAnalyticsAtomically } from "./updateAnalyticsForBill";
 
 export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
   const db = getFirestore();
@@ -48,11 +43,11 @@ export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
 
     // 各ドキュメントを処理
     for (const billDoc of billsQuery.docs) {
-      const billId = billDoc.id;
+      const billId = billDoc.id;  // ✅ billDoc.id は docId（bills コレクションのドキュメントID）
       const billData = billDoc.data();
 
       try {
-        // 重複チェック
+        // オプション: トランザクション外で marker チェック（早期スキップ用、パフォーマンス向上）
         const markerRef = db
           .collection('analyticsMonthly')
           .doc(month)
@@ -63,76 +58,35 @@ export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
         if (markerDoc.exists) {
           logger.info(`スキップ: ${billId} (既に処理済み)`);
           skippedCount++;
-          continue;
+          continue;  // 早期スキップ（最終的な正しさは processBillAnalyticsAtomically 内で担保）
         }
 
-        // 必要なドキュメントを事前に読み取り
-        const monthlyRef = db.collection('analyticsMonthly').doc(month);
-        const dailyRef = db.collection('analyticsMonthly').doc(month).collection('days').doc(businessDate);
-        const byCategoryRef = db.collection('analyticsMonthly').doc(month).collection('byCategory').doc('summary');
-        const userId = billData.party?.userId;
-        const byUserRef = userId
-          ? db.collection('analyticsMonthly').doc(month).collection('byUser').doc(userId)
-          : null;
-        
-        // 事前読み取り
-        const [monthlyDoc, dailyDoc, byCategoryDoc, byUserDoc] = await Promise.all([
-          monthlyRef.get(),
-          dailyRef.get(),
-          byCategoryRef.get(),
-          byUserRef ? byUserRef.get() : Promise.resolve(undefined)
-        ]);
-
-        // トーナメントテンプレート用の読み取り（tournamentsSnapshot から取得）
-        const tournamentsSnapshot = billData.tournamentsSnapshot || {};
-        const templateRefs = [];
-        for (const [templateKey, tournamentData] of Object.entries(tournamentsSnapshot)) {
-          if (tournamentData && typeof tournamentData === 'object') {
-            const templateRef = db.collection('analyticsMonthly').doc(month)
-              .collection('byTemplateTournaments').doc(templateKey);
-            templateRefs.push(templateRef.get());
-          }
-        }
-        const templateDocs = await Promise.all(templateRefs);
-
-        // トランザクションで処理
-        await db.runTransaction(async (transaction) => {
-          // 再度重複チェック（トランザクション内）
-          const markerDocInTx = await transaction.get(markerRef);
-          if (markerDocInTx.exists) {
-            throw new Error(`重複処理: ${billId}`);
-          }
-
-          // 1. analyticsMonthly への加算蓄積（読み取り済みデータを使用）
-          await addToMonthlyIndex(transaction, month, billData, businessDate, monthlyDoc);
-          await addToDailySummary(transaction, month, businessDate, billData, dailyDoc);
-          await addToByCategory(transaction, month, billData, byCategoryDoc);
-          await addToByTemplateTournaments(transaction, month, businessDate, billData, templateDocs);
-          await addToByUser(transaction, month, businessDate, billData, byUserDoc);
-
-          // 2. settledBills への転記
-          const settledBillsRef = db
-            .collection('settledBills')
-            .doc(businessDate.replace(/-/g, '')) // YYYY-MM-DD → YYYYMMDD
-            .collection('bills')
-            .doc(billId);
-
-          transaction.set(settledBillsRef, {
-            ...billData,
-            migratedAt: admin.firestore.FieldValue.serverTimestamp(),
-            originalBillId: billId,
-          });
-
-          // 3. マーカー作成
-          transaction.set(markerRef, {
-            billId,
-            businessDate,
-            processedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
+        logger.info('migrateSettledBillsForBusinessDay: starting analytics update', {
+          billId,
+          month,
+          businessDate,
         });
 
+        // 共通関数で analytics 更新（トランザクション内で marker チェック・作成）
+        // runTransaction は共通関数内で実施されるため、ネストトランザクションにならない
+        await processBillAnalyticsAtomically(db, {
+          month,
+          businessDate,
+          billId,  // ✅ billId = docId として統一
+          billData,
+        });
+
+        // ⚠️ settledBills への転記は廃止（両者で転記しない仕様に統一）
+        // 転記が不要な理由:
+        // - settledBills コレクションは既に利用されていない／必要がない
+        // - enqueueSettlement は転記を行わないため、両者の動作を揃える
+
         processedCount++;
-        logger.info(`処理完了: ${billId}`);
+        logger.info('migrateSettledBillsForBusinessDay: analytics update completed', {
+          billId,
+          month,
+          businessDate,
+        });
 
       } catch (error) {
         logger.error(`処理失敗: ${billId}`, error);

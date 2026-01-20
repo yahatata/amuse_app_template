@@ -5,3 +5,4 @@ export { toggleSoldOutForMenuItem } from './toggleSoldOutForMenuItem';
 export { placeOrder } from './placeOrder';
 export { placeOrderByUser } from './placeOrderByUser';
 export { getUserOrderHistory } from './getUserOrderHistory';
+export { cancelOrder } from './cancelOrder';

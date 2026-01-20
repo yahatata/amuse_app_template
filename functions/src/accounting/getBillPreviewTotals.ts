@@ -89,6 +89,10 @@ export const getBillPreviewTotals = onCall(async (request) => {
     let itemsMonetary = 0;
     for (const doc of itemsSnapshot.docs) {
       const data = doc.data();
+      // voided: true のアイテムは算出対象外
+      if (data.voided === true) {
+        continue;
+      }
       // totalPriceIncl があればそれを使い、なければ price * quantity で計算
       if (data.totalPriceIncl !== undefined) {
         itemsMonetary += (data.totalPriceIncl as number) ?? 0;

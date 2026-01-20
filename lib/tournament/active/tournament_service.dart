@@ -29,6 +29,10 @@ abstract class TournamentService {
     required String tableId,
     required int maxSeats,
   });
+  Future<Map<String, dynamic>> removeTableFromTournament({
+    required String tournamentId,
+    required String tableId,
+  });
   
   Future<Map<String, dynamic>> assignSeatToPlayer({
     required String tournamentId,
@@ -179,6 +183,26 @@ class TournamentServiceImpl implements TournamentService {
     }
   }
   
+  @override
+  Future<Map<String, dynamic>> removeTableFromTournament({
+    required String tournamentId,
+    required String tableId,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable('removeTableFromTournament');
+      
+      final result = await callable.call({
+        'tournamentId': tournamentId,
+        'tableId': tableId,
+      });
+
+      final response = result.data as Map<String, dynamic>;
+      return response;
+    } catch (e) {
+      throw Exception('卓削除に失敗しました: $e');
+    }
+  }
+
   @override
   Future<Map<String, dynamic>> assignSeatToPlayer({
     required String tournamentId,
@@ -392,6 +416,21 @@ class MockTournamentService implements TournamentService {
       'tableId': tableId,
       'maxSeats': maxSeats,
       'message': 'モック卓追加が完了しました',
+    };
+  }
+  
+  @override
+  Future<Map<String, dynamic>> removeTableFromTournament({
+    required String tournamentId,
+    required String tableId,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 800));
+    
+    // Mock response
+    return {
+      'success': true,
+      'tableId': tableId,
+      'message': 'モック卓削除が完了しました',
     };
   }
   

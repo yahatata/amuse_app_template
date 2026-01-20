@@ -7,35 +7,46 @@
  */
 
 import { BillDoc, EventDoc } from './types';
-import { buildSettlementDelta, buildEventDelta } from './delta';
+import { buildEventDelta } from './delta';
 import { applyMonthlyDailyDelta, appendEventLog } from './writer';
-import { checkAndSetBillMarker, checkAndSetEventMarker } from './markers';
+import { checkAndSetEventMarker } from './markers';
+import { processBillAnalyticsAtomically } from '../updateAnalyticsForBill';
+import { getFirestore } from 'firebase-admin/firestore';
+import { logger } from 'firebase-functions';
 
 /**
  * Settlement 集計をキューに追加（実際には即座に実行）
+ * 
+ * 【仕様】bill.billId は必ず bills コレクションのドキュメントID（docId）でなければならない
+ * - docId でない billId を渡すことは仕様違反
+ * - docId が取れない形で呼び出されている場合は、呼び出し元（トリガ等）で docId を渡す責務がある
+ * - docId 統一が崩れると marker が効かず二重計上になる可能性がある
  */
 export async function enqueueSettlement(bill: BillDoc): Promise<void> {
   const businessDate = bill.businessDate;
   const monthKey = businessDate.substring(0, 7);
+  const db = getFirestore();
 
-  // 冪等性チェック
-  const alreadyProcessed = await checkAndSetBillMarker(monthKey, bill.billId);
-  if (alreadyProcessed) {
-    console.log(`Settlement already processed: ${bill.billId}`);
-    return;
-  }
-
-  // Delta 計算
-  const delta = buildSettlementDelta(bill);
-
-  // 書き込み
-  await applyMonthlyDailyDelta(monthKey, businessDate, delta, {
-    monthKey,
-    businessDate,
+  logger.info('enqueueSettlement: starting analytics update', {
     billId: bill.billId,
+    month: monthKey,
+    businessDate,
   });
 
-  console.log(`Settlement aggregated: ${bill.billId}, month: ${monthKey}`);
+  // 共通関数で旧スキーマ更新（トランザクション内で marker チェック・作成）
+  // bill.billId は bills コレクションのドキュメントID（docId）であることを前提
+  await processBillAnalyticsAtomically(db, {
+    month: monthKey,
+    businessDate,
+    billId: bill.billId,  // 【必須】bill.billId は docId
+    billData: bill,  // BillDoc から必要なフィールドを抽出（categoryBreakdown, paymentTotals, etc.）
+  });
+
+  logger.info('enqueueSettlement: analytics update completed', {
+    billId: bill.billId,
+    month: monthKey,
+    businessDate,
+  });
 }
 
 /**

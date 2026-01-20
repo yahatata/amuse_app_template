@@ -51,8 +51,8 @@ function normalizePaymentMethods(options: {
         if (paymentValue === 'pointA' || paymentValue === 'pointB') {
           normalized[paymentValue] = (normalized[paymentValue] || 0) + categoryAmount;
         } else if (paymentValue === 'sideGameChip') {
-          const requiredChips = Math.ceil(categoryAmount / SIDE_GAME_CHIP_EXCHANGE_RATE);
-          normalized[paymentValue] = (normalized[paymentValue] || 0) + requiredChips;
+          // categoryAmountは既に円換算値なので、そのまま使用（チップ枚数に変換しない）
+          normalized[paymentValue] = (normalized[paymentValue] || 0) + categoryAmount;
         }
       } else if (Array.isArray(paymentValue)) {
         for (const split of paymentValue) {
@@ -64,10 +64,9 @@ function normalizePaymentMethods(options: {
           if (method === 'pointA' || method === 'pointB') {
             normalized[method] = (normalized[method] || 0) + amount;
           } else if (method === 'sideGameChip') {
-            const chips = amount % SIDE_GAME_CHIP_EXCHANGE_RATE === 0
-              ? Math.round(amount / SIDE_GAME_CHIP_EXCHANGE_RATE)
-              : Math.ceil(amount / SIDE_GAME_CHIP_EXCHANGE_RATE);
-            normalized[method] = (normalized[method] || 0) + chips;
+            // split.amountはチップ枚数なので、円換算値に変換して格納
+            const yenAmount = Math.floor(amount * SIDE_GAME_CHIP_EXCHANGE_RATE);
+            normalized[method] = (normalized[method] || 0) + yenAmount;
           }
         }
       }
@@ -187,10 +186,16 @@ export const startAccounting = onCall(async (request) => {
 
     // items（フード・ドリンク）- /bills/{billId}/items から取得
     const itemsSnapshot = await billRef.collection('items').get();
-    categoryAmounts['items'] = itemsSnapshot.docs.reduce((sum, doc) => {
-      const data = doc.data();
-      return sum + ((data.unitPriceIncl || 0) * (data.quantity || 0));
-    }, 0);
+    categoryAmounts['items'] = itemsSnapshot.docs
+      .filter((doc) => {
+        const data = doc.data();
+        // voided: true のアイテムは算出対象外
+        return data.voided !== true;
+      })
+      .reduce((sum, doc) => {
+        const data = doc.data();
+        return sum + ((data.unitPriceIncl || 0) * (data.quantity || 0));
+      }, 0);
 
     // sideGameChip（サイドゲームチップ、action='purchase'のみ）- /bills/{billId}/sideGameChips から取得
     const sideGameChipsSnapshot = await billRef.collection('sideGameChips')
@@ -247,9 +252,8 @@ export const startAccounting = onCall(async (request) => {
 
     const totalPaid = Object.entries(normalizedPaymentMethods).reduce((sum, [method, amount]) => {
       if (amount <= 0) return sum;
-      if (method === 'sideGameChip') {
-        return sum + amount * SIDE_GAME_CHIP_EXCHANGE_RATE;
-      }
+      // normalizedPaymentMethodsの値は全て円換算値で統一されているため、そのまま加算
+      // sideGameChipも円換算値として格納されているため、特別な処理は不要
       return sum + amount;
     }, 0);
 
@@ -273,7 +277,8 @@ export const startAccounting = onCall(async (request) => {
       const balanceDeductions: Record<string, number> = {
         pointA: Math.floor(normalizedPaymentMethods['pointA'] || 0),
         pointB: Math.floor(normalizedPaymentMethods['pointB'] || 0),
-        sideGameChip: Math.floor(normalizedPaymentMethods['sideGameChip'] || 0),
+        // 円換算値からチップ枚数に変換
+        sideGameChip: Math.floor((normalizedPaymentMethods['sideGameChip'] || 0) / SIDE_GAME_CHIP_EXCHANGE_RATE),
       };
 
       for (const [fieldName, amount] of Object.entries(balanceDeductions)) {

@@ -396,62 +396,57 @@ class _PostAccountingAdjustmentsPageState extends State<PostAccountingAdjustment
             const SizedBox(height: 16),
 
             // 操作ボタン
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // 返金ボタン
-                if (_canRefund(bill))
-                  ElevatedButton.icon(
-                    onPressed: () => _showRefundDialog(bill),
-                    icon: const Icon(Icons.money_off, size: 18),
-                    label: const Text('返金'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                // 追加徴収ボタン
-                if (_canAdjust(bill))
-                  ElevatedButton.icon(
-                    onPressed: () => _showAdjustmentDialog(bill, 1),
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('追加徴収'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                // 減額ボタン
-                if (_canAdjust(bill))
-                  ElevatedButton.icon(
-                    onPressed: () => _showAdjustmentDialog(bill, -1),
-                    icon: const Icon(Icons.remove, size: 18),
-                    label: const Text('減額'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                // キャンセルボタン
-                if (_canCancel(bill))
-                  ElevatedButton.icon(
-                    onPressed: () => _showCancelDialog(bill),
-                    icon: const Icon(Icons.cancel, size: 18),
-                    label: const Text('キャンセル'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                // 再開ボタン
+                // 左寄せ: 返金、減額、追加徴収
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    // 返金ボタン
+                    if (_canRefund(bill))
+                      ElevatedButton.icon(
+                        onPressed: () => _showRefundDialog(bill),
+                        icon: const Icon(Icons.money_off, size: 18),
+                        label: const Text('返金'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    // 減額ボタン
+                    if (_canAdjust(bill))
+                      ElevatedButton.icon(
+                        onPressed: () => _showAdjustmentDialog(bill, -1),
+                        icon: const Icon(Icons.remove, size: 18),
+                        label: const Text('減額'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    // 追加徴収ボタン
+                    if (_canAdjust(bill))
+                      ElevatedButton.icon(
+                        onPressed: () => _showAdjustmentDialog(bill, 1),
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('追加徴収'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                  ],
+                ),
+                // 右寄せ: 会計前に戻すボタン
                 if (_canReopen(bill))
                   ElevatedButton.icon(
                     onPressed: () => _showReopenDialog(bill),
                     icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text('再開'),
+                    label: const Text('会計前に戻す'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
+                      backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                     ),
                   ),
