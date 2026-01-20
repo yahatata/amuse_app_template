@@ -11,6 +11,7 @@ import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { logger } from 'firebase-functions';
+import { defineString } from 'firebase-functions/params';
 import { cleanupIdempotencyOnSettle } from './onSettleCleanupIdempotency';
 import {
   calculateAmounts,
@@ -22,6 +23,12 @@ import {
   calculatePaymentsSummary,
   calculateContentHash,
 } from '../helpers/billsApi/snapshots';
+import { enqueueSettlement } from '../analytics/aggregator';
+
+// 環境変数定義（Firebase Functions v2の推奨方法）
+const enableSettlementAggregator = defineString('ENABLE_SETTLEMENT_AGGREGATOR', {
+  default: 'false',
+});
 
 /**
  * Settlement トリガ
@@ -169,7 +176,7 @@ export const billsOnSettle = onDocumentUpdated(
       await cleanupIdempotencyOnSettle(billId);
 
       // enqueueSettlement を環境変数で制御
-      if (process.env.ENABLE_SETTLEMENT_AGGREGATOR === 'true') {
+      if (enableSettlementAggregator.value() === 'true') {
         // snapshot 更新後の内容を再読み込みして enqueueSettlement に渡す
         const updatedBillDoc = await billRef.get();
         if (updatedBillDoc.exists) {
@@ -181,12 +188,14 @@ export const billsOnSettle = onDocumentUpdated(
             status: updatedBillData.status,
             amounts: updatedBillData.amounts,
             categoryBreakdown: updatedBillData.categoryBreakdown,
+            itemsSnapshot: updatedBillData.itemsSnapshot,
+            tournamentsSnapshot: updatedBillData.tournamentsSnapshot,
             paymentTotals: updatedBillData.paymentTotals,
             paymentsSummary: updatedBillData.paymentsSummary,
             postEvents: updatedBillData.postEvents,
             party: updatedBillData.party,
           };
-          const { enqueueSettlement } = await import('../analytics/aggregator');
+          // 静的 import を使用（動的 import を避ける）
           await enqueueSettlement(billDoc);
         }
       }

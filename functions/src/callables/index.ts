@@ -1,5 +1,4 @@
 export { createScheduledTournament } from './createScheduledTournament';
-export { getScheduledTournaments } from './getScheduledTournaments';
 export { getTodayTournaments } from './getTodayTournaments';
 export { getUpcomingTournaments } from './getUpcomingTournaments';
 export { registerForTournament } from './registerForTournament';
@@ -7,6 +6,7 @@ export { updateStaffHourlyWage } from './updateStaffHourlyWage';
 export { updateStaffBankInfo } from './updateStaffBankInfo';
 export { getPayrollData } from './getPayrollData';
 export { addTableToTournament } from './addTableToTournament';
+export { removeTableFromTournament } from './removeTableFromTournament';
 export { assignSeatToPlayer } from './assignSeatToPlayer';
 export { reseatAllPlayers } from './reseatAllPlayers';
 export { getAvailableTables } from './getAvailableTables';

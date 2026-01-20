@@ -171,7 +171,7 @@ class _ChipPointViewDialog extends StatelessWidget {
                               Text(
                                 pokerName,
                                 style: const TextStyle(
-                                  fontSize: 9,
+                                  fontSize: 13, // 9 * 1.4 = 12.6 → 13
                                   fontWeight: FontWeight.bold,
                                   color: Colors.blue,
                                 ),
@@ -299,7 +299,7 @@ class _ChipPointViewDialog extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 7,
+                    fontSize: 10, // 7 * 1.4 = 9.8 → 10
                     color: textColor,
                     fontWeight: FontWeight.w500,
                   ),
@@ -311,7 +311,7 @@ class _ChipPointViewDialog extends StatelessWidget {
                     (Match m) => '${m[1]},',
                   ),
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 17, // 12 * 1.4 = 16.8 → 17
                     fontWeight: FontWeight.bold,
                     color: color,
                   ),

@@ -8,6 +8,9 @@
 import * as crypto from 'crypto';
 import * as admin from 'firebase-admin';
 
+// サイドゲームチップ換算率（globalConstant.dartと同期必須）
+const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0; // サイドゲームチップ1 = 10円相当
+
 // itemsSnapshot 圧縮閾値（schema_plan.md に記載の「700KB 超は Top50 + その他合算に圧縮」に準拠）
 // テストで差し替え可能にするため export（テスト時のみ使用）
 export const ITEMS_SNAPSHOT_SIZE_THRESHOLD = 700 * 1024; // 700KB
@@ -48,6 +51,10 @@ export function calculateAmounts(params: CalculateAmountsParams): Amounts {
   let itemsMonetary = 0;
   for (const doc of items) {
     const data = doc.data();
+    // voided: true のアイテムは算出対象外
+    if (data.voided === true) {
+      continue;
+    }
     // totalPriceIncl があればそれを使い、なければ price * quantity で計算
     if (data.totalPriceIncl !== undefined) {
       itemsMonetary += (data.totalPriceIncl as number) ?? 0;
@@ -120,6 +127,10 @@ export function calculateCategoryBreakdown(params: CalculateAmountsParams): Cate
   let itemsTotal = 0;
   for (const doc of items) {
     const data = doc.data();
+    // voided: true のアイテムは算出対象外
+    if (data.voided === true) {
+      continue;
+    }
     if (data.totalPriceIncl !== undefined) {
       itemsTotal += (data.totalPriceIncl as number) ?? 0;
     } else {
@@ -189,6 +200,10 @@ export function buildItemsSnapshot(items: admin.firestore.QueryDocumentSnapshot[
   // まず全商品を集計
   for (const doc of items) {
     const data = doc.data();
+    // voided: true のアイテムは算出対象外
+    if (data.voided === true) {
+      continue;
+    }
     const menuItemId = (data.menuItemId as string | undefined) ?? doc.id;
     const name = (data.name as string | undefined) ?? '';
     const category = (data.category as string | undefined) ?? null;
@@ -398,9 +413,9 @@ export function calculatePaymentTotals(params: CalculatePaymentTotalsParams): Pa
     const totals: PaymentTotals = {};
     for (const [method, amount] of Object.entries(metaPaymentMethodsByAmount)) {
       if (amount > 0) {
-        // sideGameChip の場合は金額に換算（枚数 × 換算率）
+        // sideGameChip の場合は既に円換算値として保存されているため、そのまま使用
         if (method === 'sideGameChip') {
-          totals[method] = (totals[method] || 0) + amount; // 既に枚数として保存されている場合はそのまま
+          totals[method] = (totals[method] || 0) + amount; // amountは円換算値
         } else {
           totals[method] = (totals[method] || 0) + amount;
         }
@@ -433,7 +448,14 @@ export function calculatePaymentTotals(params: CalculatePaymentTotalsParams): Pa
 
           const validMethods = ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'];
           const validMethod = validMethods.includes(method) ? method : defaultPaymentMethod;
-          totals[validMethod] = (totals[validMethod] || 0) + amount;
+          
+          // sideGameChipの場合、split.amountはチップ枚数なので円換算値に変換
+          if (method === 'sideGameChip') {
+            const yenAmount = Math.floor(amount * SIDE_GAME_CHIP_EXCHANGE_RATE);
+            totals[validMethod] = (totals[validMethod] || 0) + yenAmount;
+          } else {
+            totals[validMethod] = (totals[validMethod] || 0) + amount;
+          }
         }
       }
     }

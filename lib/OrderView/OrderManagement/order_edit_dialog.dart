@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class OrderEditDialog extends StatefulWidget {
   final String orderId;
@@ -381,36 +383,31 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
     });
 
     try {
-      // billId がある場合は /bills/{billId}/items/{orderId} を削除（voided=true にマーク）
-      // ない場合は /orders/{date}/_TodaysOrders/{orderId} を削除（後方互換性）
-      if (widget.billId != null && widget.billId!.isNotEmpty) {
-        await FirebaseFirestore.instance
-            .collection('bills')
-            .doc(widget.billId)
-            .collection('items')
-            .doc(widget.orderId)
-            .update({
-          'voided': true,
-        });
-      } else {
-        // 後方互換性: _TodaysOrders を削除
-        final today = DateTime.now();
-        final dateString = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
-        
-        await FirebaseFirestore.instance
-            .collection('orders')
-            .doc(dateString)
-            .collection('_TodaysOrders')
-            .doc(widget.orderId)
-            .delete();
-      }
+      // Cloud Functions経由で注文を取り消し
+      final functions = FirebaseFunctions.instance;
+      final callable = functions.httpsCallable('cancelOrder');
 
-      if (mounted) {
-        Navigator.of(context).pop();
-        widget.onOrderUpdated();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('注文を取り消しました')),
-        );
+      final result = await callable.call({
+        'orderId': widget.orderId,
+        'billId': widget.billId,
+      }).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました');
+        },
+      );
+
+      final data = result.data as Map<String, dynamic>? ?? {};
+      if (data['success'] == true) {
+        if (mounted) {
+          Navigator.of(context).pop();
+          widget.onOrderUpdated();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('注文を取り消しました')),
+          );
+        }
+      } else {
+        throw Exception(data['error'] ?? '注文の取り消しに失敗しました');
       }
     } catch (e) {
       if (mounted) {

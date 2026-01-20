@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/add_table_dialog.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/remove_table_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/assign_seat_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/reseat_all_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/register_participants_dialog.dart';
@@ -154,6 +155,31 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
             // テーブル追加後の処理
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('卓が追加されました')),
+            );
+            // データを再読み込み
+            _loadTournamentData();
+          },
+          service: _service,
+        );
+      },
+    );
+  }
+
+  void _removeTable() {
+    _showRemoveTableDialog();
+  }
+  
+  /// 卓削除ダイアログを表示
+  void _showRemoveTableDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return RemoveTableDialog(
+          tournamentId: widget.tournamentId,
+          onTableRemoved: () {
+            // テーブル削除後の処理
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('卓が削除されました')),
             );
             // データを再読み込み
             _loadTournamentData();
@@ -659,6 +685,38 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
     ) ?? false;
   }
 
+  String _getPlayersValue(Map<String, dynamic> data) {
+    // XX: playersIn
+    // YY: entries + reentries - playersBusted
+    final playersIn = data['playersIn'] as int? ?? 0;
+    final entries = data['entries'] as int? ?? 0;
+    final reentries = data['reentries'] as int? ?? 0;
+    final playersBusted = data['playersBusted'] as int? ?? 0;
+    final yy = entries + reentries - playersBusted;
+    return '$yy/$playersIn';
+  }
+
+  String _getTotalEntriesValue(Map<String, dynamic> data) {
+    final entries = data['entries'] as int? ?? 0;
+    final reentries = data['reentries'] as int? ?? 0;
+    return (entries + reentries).toString();
+  }
+
+  String _getStatusText(String status) {
+    switch (status) {
+      case 'scheduled':
+        return '開催前';
+      case 'running':
+        return 'レジスト前';
+      case 'registered':
+        return 'レジスト後';
+      case 'ended':
+        return '終了済';
+      default:
+        return status;
+    }
+  }
+
   /// 統計アイテムを構築
   Widget _buildStatItem({
     required IconData icon,
@@ -756,117 +814,127 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                       ? Map<String, dynamic>.from(snapshot.data!.data()! as Map)
                       : null;
                   
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // ヘッダー部分
-                      Row(
-                        children: [
-                          Icon(Icons.emoji_events, color: Colors.blue[700], size: 18),
-                          const SizedBox(width: 6),
-                          Text(
-                            'トーナメント状況',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue[700],
-                              fontSize: 15,
-                            ),
-                          ),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.blue[100],
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              'LIVE',
-                              style: TextStyle(
-                                color: Colors.blue[700],
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
+                  return StreamBuilder<DocumentSnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('scheduledTournaments')
+                        .doc(widget.tournamentId)
+                        .snapshots(),
+                    builder: (context, tournamentSnapshot) {
+                      final tournamentData = tournamentSnapshot.data?.data() as Map<String, dynamic>?;
+                      final status = tournamentData?['status'] as String? ?? 'scheduled';
+                      final statusText = _getStatusText(status);
                       
-                      if (data != null) ...[
-                        // メイン統計情報（3列レイアウト）
-                        Row(
-                          children: [
-                            // 左列: 基本情報
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _buildStatItem(
-                                    icon: Icons.people,
-                                    label: 'エントリー',
-                                    value: '${data['entries'] ?? 0}',
-                                    color: Colors.green[700]!,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  _buildStatItem(
-                                    icon: Icons.sports_esports,
-                                    label: '参加中',
-                                    value: '${data['playersIn'] ?? 0}',
-                                    color: Colors.blue[700]!,
-                                  ),
-                                ],
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // ヘッダー部分
+                          Row(
+                            children: [
+                              Icon(Icons.emoji_events, color: Colors.blue[700], size: 18),
+                              const SizedBox(width: 6),
+                              Text(
+                                'トーナメント状況',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue[700],
+                                  fontSize: 15,
+                                ),
                               ),
-                            ),
-                            
-                            const SizedBox(width: 8),
-                            
-                            // 中央列: 詳細情報
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _buildStatItem(
-                                    icon: Icons.trending_up,
-                                    label: 'レベル',
-                                    value: '${data['currentLevel'] ?? 0}',
-                                    color: Colors.purple[700]!,
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue[100],
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  'LIVE',
+                                  style: TextStyle(
+                                    color: Colors.blue[700],
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
                                   ),
-                                  const SizedBox(height: 8),
-                                  _buildStatItem(
-                                    icon: Icons.refresh,
-                                    label: 'リエントリー',
-                                    value: '${data['reentries'] ?? 0}',
-                                    color: Colors.purple[700]!,
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
-                            
-                            const SizedBox(width: 8),
-                            
-                            // 右列: 追加情報
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _buildStatItem(
-                                    icon: Icons.add_circle,
-                                    label: 'アドオン',
-                                    value: '${data['addons'] ?? 0}',
-                                    color: Colors.teal[700]!,
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          
+                          if (data != null) ...[
+                            // メイン統計情報（3列レイアウト）
+                            Row(
+                              children: [
+                                // 左列: 基本情報
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      _buildStatItem(
+                                        icon: Icons.people,
+                                        label: 'Players',
+                                        value: _getPlayersValue(data),
+                                        color: Colors.green[700]!,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _buildStatItem(
+                                        icon: Icons.trending_up,
+                                        label: 'ステータス',
+                                        value: statusText,
+                                        color: Colors.purple[700]!,
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 8),
-                                  _buildStatItem(
-                                    icon: Icons.remove_circle,
-                                    label: 'バースト',
-                                    value: '${data['busted'] ?? 0}',
-                                    color: Colors.red[700]!,
+                                ),
+                                
+                                const SizedBox(width: 8),
+                                
+                                // 中央列: 詳細情報
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      _buildStatItem(
+                                        icon: Icons.sports_esports,
+                                        label: '総エントリー',
+                                        value: _getTotalEntriesValue(data),
+                                        color: Colors.blue[700]!,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _buildStatItem(
+                                        icon: Icons.refresh,
+                                        label: 'リエントリー',
+                                        value: '${data['reentries'] ?? 0}',
+                                        color: Colors.purple[700]!,
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
+                                ),
+                                
+                                const SizedBox(width: 8),
+                                
+                                // 右列: 追加情報
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      _buildStatItem(
+                                        icon: Icons.add_circle,
+                                        label: 'アドオン',
+                                        value: '${data['addons'] ?? 0}',
+                                        color: Colors.teal[700]!,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _buildStatItem(
+                                        icon: Icons.remove_circle,
+                                        label: 'バースト',
+                                        value: '${data['playersBusted'] ?? 0}',
+                                        color: Colors.red[700]!,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
                         
                         const SizedBox(height: 10),
                         
@@ -923,6 +991,8 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                         ),
                       ],
                     ],
+                  );
+                    },
                   );
                 },
               ),
@@ -999,6 +1069,17 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                       minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => _showActionHistory(),
+                    icon: const Icon(Icons.history),
+                    label: const Text('操作履歴'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey,
+                      foregroundColor: Colors.white,
+                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -1009,11 +1090,56 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
     );
   }
 
+  void _showActionHistory() {
+    // 仮の画面に遷移
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('操作履歴'),
+        content: const Text('操作履歴画面は今後実装予定です。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.tournamentName),
+        title: StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('scheduledTournaments')
+              .doc(widget.tournamentId)
+              .snapshots(),
+          builder: (context, snapshot) {
+            String title = widget.tournamentName;
+            List<String> statusLabels = [];
+            
+            if (snapshot.hasData && snapshot.data!.exists) {
+              final data = snapshot.data!.data() as Map<String, dynamic>?;
+              final setedPrize = data?['SetedPrize'] as bool? ?? false;
+              final setedRanking = data?['SetedRanking'] as bool? ?? false;
+              
+              if (setedPrize) {
+                statusLabels.add('プライズ確定済み');
+              }
+              if (setedRanking) {
+                statusLabels.add('ランキング確定済み');
+              }
+            }
+            
+            if (statusLabels.isNotEmpty) {
+              title = '$title (${statusLabels.join('・')})';
+            }
+            
+            return Text(title);
+          },
+        ),
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         actions: [
@@ -1302,6 +1428,18 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                     label: const Text('卓追加', style: TextStyle(fontSize: 12)),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.blue[600],
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      minimumSize: const Size(0, 28),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  ElevatedButton.icon(
+                                    onPressed: () => _removeTable(),
+                                    icon: const Icon(Icons.remove, size: 16),
+                                    label: const Text('卓削除', style: TextStyle(fontSize: 12)),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.red[600],
                                       foregroundColor: Colors.white,
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                       minimumSize: const Size(0, 28),

@@ -53,6 +53,13 @@ export const setPrizeData = onCall(async (request) => {
     
     await mainViewRef.update(prizeData);
     
+    // scheduledTournamentsの親DocにSetedPrize: trueを格納
+    const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
+    await tournamentRef.update({
+      SetedPrize: true,
+      updatedAt: new Date(),
+    });
+    
     return {
       success: true,
       message: 'Prize data saved successfully',

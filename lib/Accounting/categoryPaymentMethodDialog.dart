@@ -60,7 +60,13 @@ class _CategoryPaymentMethodDialogState
 
       // items サブコレクション
       final itemsSnapshot = await billRef.collection('items').get();
-      int itemsAmount = itemsSnapshot.docs.fold(0, (sum, doc) {
+      int itemsAmount = itemsSnapshot.docs
+          .where((doc) {
+            final data = doc.data();
+            // voided: true のアイテムは算出対象外
+            return (data['voided'] as bool?) != true;
+          })
+          .fold(0, (sum, doc) {
         return sum + ((doc.data()['totalPriceIncl'] as num?)?.toInt() ?? 0);
       });
       if (itemsAmount > 0) {

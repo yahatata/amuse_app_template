@@ -309,7 +309,13 @@ Stream<List<Map<String, dynamic>>> _getBillSubcollections(String billId) async* 
   
   // items
   final itemsSnapshot = await billRef.collection('items').get();
-  int itemsAmount = itemsSnapshot.docs.fold(0, (sum, doc) {
+  int itemsAmount = itemsSnapshot.docs
+      .where((doc) {
+        final data = doc.data();
+        // voided: true のアイテムは算出対象外
+        return (data['voided'] as bool?) != true;
+      })
+      .fold(0, (sum, doc) {
     return sum + ((doc.data()['totalPriceIncl'] as num?)?.toInt() ?? 0);
   });
   
@@ -363,7 +369,13 @@ Stream<List<Map<String, dynamic>>> _getBillSubcollections(String billId) async* 
       return sum + ((data['amountIncl'] as num?)?.toInt() ?? 0);
     });
     
-    int itemsAmount = items.fold(0, (sum, doc) {
+    int itemsAmount = items
+        .where((doc) {
+          final data = doc.data() as Map<String, dynamic>? ?? {};
+          // voided: true のアイテムは算出対象外
+          return (data['voided'] as bool?) != true;
+        })
+        .fold(0, (sum, doc) {
       final data = doc.data() as Map<String, dynamic>? ?? {};
       return sum + ((data['totalPriceIncl'] as num?)?.toInt() ?? 0);
     });

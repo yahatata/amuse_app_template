@@ -2,15 +2,25 @@ import { Transaction } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
 import { calculateCategoryAmounts, distributePaymentMethods } from "./helpers";
 
+export interface ByUserUpdateInfo {
+  collection: string;
+  subcollection: string;
+  documentId: string;
+  userId: string;
+  pokerName: string | null;
+  isNewDocument: boolean;
+  updatedFields: Record<string, any>;
+}
+
 export async function addToByUser(
   transaction: Transaction,
   month: string,
   businessDate: string,
   billData: any,
   byUserDoc?: FirebaseFirestore.DocumentSnapshot
-): Promise<void> {
+): Promise<ByUserUpdateInfo | null> {
   const userId = billData.party?.userId;
-  if (!userId) return;
+  if (!userId) return null;
   
   const byUserRef = admin.firestore()
     .collection('analyticsMonthly')
@@ -57,6 +67,28 @@ export async function addToByUser(
     updateData[`paymentTotals.${method}`] = admin.firestore.FieldValue.increment(amount);
   });
   
+  // 更新内容を準備（ログ用）
+  const paymentTotalsLog: Record<string, string> = {};
+  paymentTotals.forEach((amount, method) => {
+    paymentTotalsLog[`paymentTotals.${method}`] = `increment(${amount})`;
+  });
+  
+  const updatedFields: Record<string, any> = {
+    grossSales: `increment(${grossSales})`,
+    itemsSales: `increment(${categoryAmounts.get('items') || 0})`,
+    extraCostSales: `increment(${categoryAmounts.get('extraCost') || 0})`,
+    sideGameChipSales: `increment(${categoryAmounts.get('sideGameChip') || 0})`,
+    tournamentsSales: `increment(${categoryAmounts.get('tournaments') || 0})`,
+    orderCount: 'increment(1)',
+    [`dailySales.${businessDate}`]: `increment(${grossSales})`,
+    paymentTotals: paymentTotalsLog,
+    updatedAt: 'serverTimestamp()',
+  };
+  
+  if (pokerName) {
+    updatedFields.pokerName = pokerName;
+  }
+  
   // ドキュメントが存在しない場合は初期化
   if (!byUserDoc || !byUserDoc.exists) {
     transaction.set(byUserRef, {
@@ -82,4 +114,14 @@ export async function addToByUser(
   }
   
   transaction.update(byUserRef, updateData);
+
+  return {
+    collection: 'analyticsMonthly',
+    subcollection: 'byUser',
+    documentId: `${month}/${userId}`,
+    userId,
+    pokerName: pokerName || null,
+    isNewDocument: !byUserDoc || !byUserDoc.exists,
+    updatedFields,
+  };
 }

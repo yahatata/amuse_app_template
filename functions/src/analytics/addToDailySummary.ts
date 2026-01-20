@@ -2,13 +2,21 @@ import { Transaction } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
 import { calculateCategoryAmounts, distributePaymentMethods } from "./helpers";
 
+export interface DailySummaryUpdateInfo {
+  collection: string;
+  subcollection: string;
+  documentId: string;
+  isNewDocument: boolean;
+  updatedFields: Record<string, any>;
+}
+
 export async function addToDailySummary(
   transaction: Transaction,
   month: string,
   businessDate: string,
   billData: any,
   dailyDoc?: FirebaseFirestore.DocumentSnapshot
-): Promise<void> {
+): Promise<DailySummaryUpdateInfo> {
   const dailyRef = admin.firestore()
     .collection('analyticsMonthly')
     .doc(month)
@@ -48,6 +56,29 @@ export async function addToDailySummary(
     updateData[`byPaymentMethod.${method}`] = admin.firestore.FieldValue.increment(amount);
   });
   
+  // 更新内容を準備（ログ用）
+  const byCategoryLog: Record<string, string> = {};
+  categoryAmounts.forEach((amount, category) => {
+    byCategoryLog[`byCategory.${category}`] = `increment(${amount})`;
+  });
+  
+  const byPaymentMethodLog: Record<string, string> = {};
+  paymentTotals.forEach((amount, method) => {
+    byPaymentMethodLog[`byPaymentMethod.${method}`] = `increment(${amount})`;
+  });
+  
+  const updatedFields: Record<string, any> = {
+    itemsSales: `increment(${categoryAmounts.get('items') || 0})`,
+    sideGameChipSales: `increment(${categoryAmounts.get('sideGameChip') || 0})`,
+    extraCostSales: `increment(${categoryAmounts.get('extraCost') || 0})`,
+    tournamentsSales: `increment(${categoryAmounts.get('tournaments') || 0})`,
+    grossSales: `increment(${grossSales})`,
+    orderCount: 'increment(1)',
+    byCategory: byCategoryLog,
+    byPaymentMethod: byPaymentMethodLog,
+    updatedAt: 'serverTimestamp()',
+  };
+  
   // ドキュメントが存在しない場合は初期化
   if (!dailyDoc || !dailyDoc.exists) {
     transaction.set(dailyRef, {
@@ -65,4 +96,12 @@ export async function addToDailySummary(
   }
   
   transaction.update(dailyRef, updateData);
+
+  return {
+    collection: 'analyticsMonthly',
+    subcollection: 'days',
+    documentId: `${month}/${businessDate}`,
+    isNewDocument: !dailyDoc || !dailyDoc.exists,
+    updatedFields,
+  };
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/tournament/active/pages/tournament_home_page.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
@@ -15,6 +16,7 @@ class ScheduledTournamentListPage extends StatefulWidget {
 class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPage> {
   final TournamentService _service = TournamentServiceImpl();
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _isLoading = false;
   List<Map<String, dynamic>> _tournamentTemplates = [];
   
@@ -27,9 +29,17 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
     {'key': 'all', 'label': '7日前以降', 'icon': Icons.all_inclusive},
   ];
   
-  // Firestoreから取得するスケジュール済みトーナメント
-  List<Map<String, dynamic>> _scheduledTournaments = [];
-  bool _isLoadingTournaments = false;
+  // 各期間のトーナメントデータを保持
+  final Map<String, List<Map<String, dynamic>>> _tournamentsByPeriod = {};
+  
+  // テンプレート情報のキャッシュ
+  final Map<String, Map<String, dynamic>> _templateCache = {};
+  
+  // 各期間のストリームをキャッシュ
+  final Map<String, Stream<QuerySnapshot>> _streamCache = {};
+  
+  // 処理中の期間を追跡（重複処理を防ぐ）
+  final Set<String> _processingPeriods = {};
 
   @override
   void initState() {
@@ -44,67 +54,9 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
     }
     
     _loadTournamentTemplates();
-    _loadScheduledTournaments();
+    // StreamBuilderが自動的にデータを読み込むため、初期読み込みは不要
   }
 
-  /// スケジュール済みトーナメントを読み込み
-  Future<void> _loadScheduledTournaments() async {
-    setState(() {
-      _isLoadingTournaments = true;
-    });
-
-    try {
-      debugPrint('=== スケジュール済みトーナメント取得開始 ===');
-      debugPrint('選択期間: $_selectedPeriod');
-      
-      final callable = _functions.httpsCallable('getScheduledTournaments');
-      final result = await callable.call({
-        'period': _selectedPeriod,
-      });
-      final response = result.data;
-
-      debugPrint('Cloud Functions レスポンス: $response');
-
-      if (response['success'] == true) {
-        final List<dynamic> rawTournaments = response['scheduledTournaments'] ?? [];
-        debugPrint('生データ件数: ${rawTournaments.length}');
-        
-        if (rawTournaments.isNotEmpty) {
-          debugPrint('最初のトーナメント: ${rawTournaments.first}');
-        }
-        
-        final List<Map<String, dynamic>> convertedTournaments = rawTournaments.map((tournament) {
-          final Map<String, dynamic> converted = {};
-          (tournament as Map).forEach((key, value) {
-            converted[key.toString()] = value;
-          });
-          return converted;
-        }).toList();
-
-        debugPrint('変換後件数: ${convertedTournaments.length}');
-
-        setState(() {
-          _scheduledTournaments = convertedTournaments;
-          _isLoadingTournaments = false;
-        });
-        
-        debugPrint('setState完了: _scheduledTournaments.length = ${_scheduledTournaments.length}');
-      } else {
-        debugPrint('Cloud Functions エラー: ${response['error']}');
-        throw Exception(response['error'] ?? 'スケジュール済みトーナメントの取得に失敗しました');
-      }
-    } catch (e) {
-      debugPrint('例外発生: $e');
-      setState(() {
-        _isLoadingTournaments = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('スケジュール済みトーナメント取得エラー: $e')),
-        );
-      }
-    }
-  }
 
   /// トーナメントテンプレートを読み込み
   Future<void> _loadTournamentTemplates() async {
@@ -196,11 +148,16 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
                         child: ElevatedButton.icon(
                           onPressed: () {
                             debugPrint('期間切り替え: ${period['key']}');
+                            final oldPeriod = _selectedPeriod;
                             setState(() {
                               _selectedPeriod = period['key'];
                             });
-                            // 期間が変更されたらデータを再読み込み
-                            _loadScheduledTournaments();
+                            // 古い期間のストリームキャッシュをクリア（メモリ節約のため）
+                            if (oldPeriod != period['key']) {
+                              _streamCache.remove(oldPeriod);
+                              _processingPeriods.remove(oldPeriod);
+                            }
+                            // StreamBuilderが自動的に新しい期間のデータを読み込む
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: isSelected ? Colors.blue : Colors.grey[200],
@@ -227,8 +184,11 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
           
           // トーナメント一覧
           Expanded(
-            child: _isLoadingTournaments
-                ? const Center(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _getTournamentsStream(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -237,36 +197,93 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
                         Text('トーナメントを読み込み中...'),
                       ],
                     ),
-                  )
-                : _getFilteredTournaments().isEmpty
-                    ? const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.event_note,
-                              size: 64,
-                              color: Colors.grey,
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              '選択された期間にスケジュールされたトーナメントがありません',
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
+                  );
+                }
+                
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error, color: Colors.red, size: 48),
+                        const SizedBox(height: 16),
+                        Text(
+                          'エラーが発生しました: ${snapshot.error}',
+                          style: const TextStyle(fontSize: 16, color: Colors.red),
                         ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _getFilteredTournaments().length,
-                        itemBuilder: (context, index) {
-                          final tournament = _getFilteredTournaments()[index];
-                          return _buildTournamentCard(context, tournament);
-                        },
-                      ),
+                      ],
+                    ),
+                  );
+                }
+                
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.event_note,
+                          size: 64,
+                          color: Colors.grey,
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          '選択された期間にスケジュールされたトーナメントがありません',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                
+                // ストリームから最新データを取得して更新（非同期処理）
+                // 重複処理を防ぐため、処理中でない場合のみ実行
+                if (snapshot.hasData && !_processingPeriods.contains(_selectedPeriod)) {
+                  _processingPeriods.add(_selectedPeriod);
+                  _convertSnapshotToTournaments(snapshot.data!).then((streamTournaments) {
+                    if (mounted) {
+                      setState(() {
+                        _tournamentsByPeriod[_selectedPeriod] = streamTournaments;
+                        _processingPeriods.remove(_selectedPeriod);
+                      });
+                    } else {
+                      _processingPeriods.remove(_selectedPeriod);
+                    }
+                  }).catchError((error) {
+                    _processingPeriods.remove(_selectedPeriod);
+                    debugPrint('トーナメントデータ変換エラー: $error');
+                  });
+                }
+                
+                // 現在のデータを表示（非同期処理が完了するまでの間は既存データを表示）
+                final tournaments = _getCurrentTournaments();
+                
+                if (tournaments.isEmpty) {
+                  return const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('トーナメントを読み込み中...'),
+                      ],
+                    ),
+                  );
+                }
+                
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: tournaments.length,
+                  itemBuilder: (context, index) {
+                    final tournament = tournaments[index];
+                    return _buildTournamentCard(context, tournament);
+                  },
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -471,92 +488,177 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
     );
   }
 
-  /// 選択された期間に応じてトーナメントをフィルタリング（日本時間基準）
-  List<Map<String, dynamic>> _getFilteredTournaments() {
+  /// 現在選択されている期間のトーナメントを取得
+  List<Map<String, dynamic>> _getCurrentTournaments() {
+    return _tournamentsByPeriod[_selectedPeriod] ?? [];
+  }
+  
+  /// 現在選択されている期間のトーナメントストリームを取得
+  Stream<QuerySnapshot> _getTournamentsStream() {
+    // キャッシュにストリームがある場合はそれを返す
+    if (_streamCache.containsKey(_selectedPeriod)) {
+      return _streamCache[_selectedPeriod]!;
+    }
+    
+    // 期間に応じたクエリを構築
+    Query query = _firestore
+        .collection('scheduledTournaments')
+        .where('isArchived', isEqualTo: false);
+    
+    // 期間に応じたフィルタリング（日本時間基準）
+    final jstToday = DateTimeUtils.getTodayStartJST();
+    final jstTodayUTC = DateTimeUtils.jstToUTC(jstToday);
+    final jstTodayTimestamp = Timestamp.fromDate(jstTodayUTC);
+    
     switch (_selectedPeriod) {
       case 'yesterday':
-        final yesterday = DateTimeUtils.getYesterdayStartJST();
-        return _scheduledTournaments.where((tournament) {
-          try {
-            // Firestoreから取得したデータはUTCのISO文字列なので、日本時間に変換
-            final startAt = DateTimeUtils.parseISOToJST(tournament['startAt'] ?? '');
-            return DateTimeUtils.isSameDayJSTAlready(startAt, yesterday);
-          } catch (e) {
-            return false;
-          }
-        }).toList();
+        final jstYesterday = DateTimeUtils.getYesterdayStartJST();
+        final jstYesterdayUTC = DateTimeUtils.jstToUTC(jstYesterday);
+        final jstYesterdayTimestamp = Timestamp.fromDate(jstYesterdayUTC);
+        final jstYesterdayEndTimestamp = Timestamp.fromDate(jstTodayUTC);
+        
+        query = query
+            .where('startAt', isGreaterThanOrEqualTo: jstYesterdayTimestamp)
+            .where('startAt', isLessThan: jstYesterdayEndTimestamp);
+        break;
         
       case 'today':
-        final today = DateTimeUtils.getTodayStartJST();
+        final jstTomorrow = DateTimeUtils.getTomorrowStartJST();
+        final jstTomorrowUTC = DateTimeUtils.jstToUTC(jstTomorrow);
+        final jstTomorrowTimestamp = Timestamp.fromDate(jstTomorrowUTC);
         
-        // デバッグ用ログ
-        debugPrint('=== 今日のフィルタリング ===');
-        debugPrint('現在時刻 (JST): ${DateTimeUtils.getCurrentJST()}');
-        debugPrint('今日の開始 (JST): $today');
-        debugPrint('フィルタリング対象トーナメント数: ${_scheduledTournaments.length}');
-        
-        final filtered = _scheduledTournaments.where((tournament) {
-          try {
-            // Firestoreから取得したデータはUTCのISO文字列なので、日本時間に変換
-            final startAt = DateTimeUtils.parseISOToJST(tournament['startAt'] ?? '');
-            final isSameDay = DateTimeUtils.isSameDayJSTAlready(startAt, today);
-            
-            // デバッグ用ログ
-            debugPrint('トーナメント: ${tournament['name']} (${tournament['startAt']})');
-            debugPrint('  startAt (UTC): ${tournament['startAt']}');
-            debugPrint('  startAt (JST): $startAt');
-            debugPrint('  today (JST): $today');
-            debugPrint('  今日と同じ日: $isSameDay');
-            
-            return isSameDay;
-          } catch (e) {
-            debugPrint('エラー: $e');
-            return false;
-          }
-        }).toList();
-        
-        debugPrint('フィルタリング結果: ${filtered.length}件');
-        return filtered;
+        query = query
+            .where('startAt', isGreaterThanOrEqualTo: jstTodayTimestamp)
+            .where('startAt', isLessThan: jstTomorrowTimestamp);
+        break;
         
       case 'thisWeek':
-        final next7DaysStart = DateTimeUtils.getNext7DaysStartJST();
-        final next7DaysEnd = DateTimeUtils.getNext7DaysEndJST();
+        final jstNext7DaysStart = DateTimeUtils.getNext7DaysStartJST();
+        final jstNext7DaysEnd = DateTimeUtils.getNext7DaysEndJST();
+        final jstNext7DaysStartUTC = DateTimeUtils.jstToUTC(jstNext7DaysStart);
+        final jstNext7DaysEndUTC = DateTimeUtils.jstToUTC(jstNext7DaysEnd);
+        final jstNext7DaysStartTimestamp = Timestamp.fromDate(jstNext7DaysStartUTC);
+        final jstNext7DaysEndTimestamp = Timestamp.fromDate(jstNext7DaysEndUTC);
         
-        // デバッグ用ログ
-        debugPrint('=== 今後7日のフィルタリング ===');
-        debugPrint('next7DaysStart: $next7DaysStart');
-        debugPrint('next7DaysEnd: $next7DaysEnd');
-        debugPrint('フィルタリング対象トーナメント数: ${_scheduledTournaments.length}');
-        
-        final filtered = _scheduledTournaments.where((tournament) {
-          try {
-            // Firestoreから取得したデータはUTCのISO文字列なので、日本時間に変換
-            final startAt = DateTimeUtils.parseISOToJST(tournament['startAt'] ?? '');
-            final isInRange = DateTimeUtils.isInDateRangeJSTAlready(startAt, next7DaysStart, next7DaysEnd);
-            
-            // デバッグ用ログ
-            debugPrint('トーナメント: ${tournament['name']} (${tournament['startAt']})');
-            debugPrint('  startAt (JST): $startAt');
-            debugPrint('  範囲内: $isInRange');
-            
-            return isInRange;
-          } catch (e) {
-            debugPrint('エラー: $e');
-            return false;
-          }
-        }).toList();
-        
-        debugPrint('フィルタリング結果: ${filtered.length}件');
-        return filtered;
+        query = query
+            .where('startAt', isGreaterThanOrEqualTo: jstNext7DaysStartTimestamp)
+            .where('startAt', isLessThanOrEqualTo: jstNext7DaysEndTimestamp);
+        break;
         
       case 'all':
       default:
-        // Cloud Functions側で7日前以降にフィルタリング済み
-        debugPrint('=== 7日前以降のフィルタリング ===');
-        debugPrint('フィルタリング対象トーナメント数: ${_scheduledTournaments.length}');
-        debugPrint('Cloud Functions側でフィルタリング済み');
-        return _scheduledTournaments;
+        // 7日前以降
+        final jst7DaysAgo = jstToday.subtract(const Duration(days: 7));
+        final jst7DaysAgoUTC = DateTimeUtils.jstToUTC(jst7DaysAgo);
+        final jst7DaysAgoTimestamp = Timestamp.fromDate(jst7DaysAgoUTC);
+        
+        query = query.where('startAt', isGreaterThanOrEqualTo: jst7DaysAgoTimestamp);
+        break;
     }
+    
+    // 開始時刻で昇順ソート
+    query = query.orderBy('startAt', descending: false);
+    
+    // 最大100件まで取得
+    query = query.limit(100);
+    
+    // ストリームをキャッシュに保存
+    final stream = query.snapshots();
+    _streamCache[_selectedPeriod] = stream;
+    
+    return stream;
+  }
+  
+  /// QuerySnapshotをトーナメントデータに変換
+  Future<List<Map<String, dynamic>>> _convertSnapshotToTournaments(QuerySnapshot snapshot) async {
+    // トーナメントテンプレート情報を取得
+    final templateIds = snapshot.docs
+        .map((doc) {
+          final data = doc.data() as Map<String, dynamic>?;
+          return data?['templateId'] as String?;
+        })
+        .where((id) => id != null)
+        .toSet()
+        .toList();
+    
+    // キャッシュにないテンプレートIDのみ取得
+    final missingTemplateIds = templateIds.where((id) => !_templateCache.containsKey(id)).toList();
+    
+    // whereInは最大10個までなので、バッチ処理
+    if (missingTemplateIds.isNotEmpty) {
+      for (var i = 0; i < missingTemplateIds.length; i += 10) {
+        final batch = missingTemplateIds.skip(i).take(10).toList();
+        final templateSnapshots = await _firestore
+            .collection('tournamentTemplates')
+            .where(FieldPath.documentId, whereIn: batch)
+            .get();
+        
+        for (final doc in templateSnapshots.docs) {
+          _templateCache[doc.id] = doc.data() as Map<String, dynamic>;
+        }
+      }
+    }
+    
+    final templateMap = _templateCache;
+    
+    // トーナメントデータを変換
+    final List<Map<String, dynamic>> tournaments = snapshot.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final templateId = data['templateId'] as String?;
+      final templateData = templateId != null ? templateMap[templateId] : null;
+      final snapshotData = data['snapshot'] as Map<String, dynamic>?;
+      
+      // トーナメント名と詳細情報を取得
+      String tournamentName = '無名トーナメント';
+      int maxEntrants = 0;
+      int entryFee = 0;
+      
+      if (snapshotData != null && snapshotData['name'] != null) {
+        tournamentName = snapshotData['name'] as String;
+        maxEntrants = (snapshotData['maxEntrants'] as num?)?.toInt() ?? 0;
+        entryFee = (snapshotData['entryFee'] as num?)?.toInt() ?? 0;
+      } else if (templateData != null) {
+        tournamentName = templateData['name'] as String? ?? '無名トーナメント';
+        maxEntrants = (templateData['maxEntrants'] as num?)?.toInt() ?? 0;
+        entryFee = (templateData['entryFee'] as num?)?.toInt() ?? 0;
+      }
+      
+      // TimestampをISO文字列に変換
+      String convertTimestamp(Timestamp? timestamp) {
+        if (timestamp == null) return '';
+        return timestamp.toDate().toIso8601String();
+      }
+      
+      return {
+        'id': doc.id,
+        'name': tournamentName,
+        'templateId': templateId,
+        'startAt': convertTimestamp(data['startAt'] as Timestamp?),
+        'regEndAt': convertTimestamp(data['regEndAt'] as Timestamp?),
+        'status': data['status'] as String? ?? 'scheduled', // ドキュメント直下のstatusを参照
+        'entries': (data['views'] as Map<String, dynamic>?)?['main']?['entries'] as num? ?? 0,
+        'maxEntrants': maxEntrants,
+        'entryFee': entryFee,
+        'currentLevel': (data['views'] as Map<String, dynamic>?)?['main']?['currentLevel'] as num? ?? 1,
+        'playersIn': (data['views'] as Map<String, dynamic>?)?['main']?['playersIn'] as num? ?? 0,
+        'seatedCount': (data['views'] as Map<String, dynamic>?)?['main']?['seatedCount'] as num? ?? 0,
+        'waitingCount': (data['views'] as Map<String, dynamic>?)?['main']?['waitingCount'] as num? ?? 0,
+        'createdAt': convertTimestamp(data['createdAt'] as Timestamp?),
+        'updatedAt': convertTimestamp(data['updatedAt'] as Timestamp?),
+      };
+    }).toList();
+    
+    // 開始時刻で降順ソート（最新が上）
+    tournaments.sort((a, b) {
+      final dateA = DateTime.tryParse(a['startAt'] as String? ?? '');
+      final dateB = DateTime.tryParse(b['startAt'] as String? ?? '');
+      if (dateA == null && dateB == null) return 0;
+      if (dateA == null) return 1;
+      if (dateB == null) return -1;
+      return dateB.compareTo(dateA);
+    });
+    
+    return tournaments;
   }
 
   /// トーナメントを作成
@@ -633,7 +735,10 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
           );
 
           // スケジュール済みトーナメントリストを更新
-          await _loadScheduledTournaments();
+          // StreamBuilderが自動的に更新するため、手動更新は不要
+          // ストリームキャッシュをクリアして再読み込みを促す
+          _streamCache.remove(_selectedPeriod);
+          _processingPeriods.remove(_selectedPeriod);
 
           // 作成されたトーナメントの画面に遷移
           if (mounted) {
@@ -665,8 +770,10 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
   }
 
   Widget _buildTournamentCard(BuildContext context, Map<String, dynamic> tournament) {
-    final statusColor = _getStatusColor(tournament['status']);
-    final statusText = _getStatusText(tournament['status']);
+    // ドキュメント直下のstatusを参照
+    final status = tournament['status'] as String? ?? 'scheduled';
+    final statusColor = _getStatusColor(status);
+    final statusText = _getStatusText(status);
     
     return Card(
       margin: const EdgeInsets.only(bottom: 12),

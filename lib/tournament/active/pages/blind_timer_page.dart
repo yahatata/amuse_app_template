@@ -268,6 +268,9 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
 
         // 画面右部 - 追加情報
         _buildRightContent(screenSize, progress, runtimeData),
+        
+        // 画面下部 - プライズ情報
+        _buildPrizeContent(screenSize),
       ],
     );
   }
@@ -362,11 +365,11 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
         ),
         child: Column(
           children: [
+            _buildLeftItem('Players', _getPlayerCount(), screenSize),
             _buildLeftItem('総エントリー', _getTotalEntries(), screenSize),
-            _buildLeftItem('Reentry', _getReentryCount(), screenSize),
             _buildLeftItem('Addon', _getAddonCount(), screenSize),
             _buildLeftItem('Avg Stack', _getAvgStack(), screenSize),
-            _buildLeftItem('Players', _getPlayerCount(), screenSize),
+            _buildLeftItem('Reentry', _getReentryCount(), screenSize),
           ],
         ),
       ),
@@ -557,7 +560,8 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
   String _getTotalEntries() {
     // main view データから取得
     final entries = _mainViewData?['entries'] as int? ?? 0;
-    return entries.toString();
+    final reentries = _mainViewData?['reentries'] as int? ?? 0;
+    return (entries + reentries).toString();
   }
 
   String _getReentryCount() {
@@ -580,9 +584,14 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
 
   String _getPlayerCount() {
     // main view データから取得
+    // XX: playersIn
+    // YY: entries + reentries - playersBusted
     final playersIn = _mainViewData?['playersIn'] as int? ?? 0;
     final entries = _mainViewData?['entries'] as int? ?? 0;
-    return '$playersIn/$entries';
+    final reentries = _mainViewData?['reentries'] as int? ?? 0;
+    final playersBusted = _mainViewData?['playersBusted'] as int? ?? 0;
+    final yy = entries + reentries - playersBusted;
+    return '$yy/$playersIn';
   }
 
   String _getTotalTime(Map<String, dynamic> runtimeData) {
@@ -727,6 +736,125 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     final minutes = timeToRegist ~/ 60;
     final seconds = timeToRegist % 60;
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  Widget _buildPrizeContent(Size screenSize) {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: _firestore
+          .collection('scheduledTournaments')
+          .doc(widget.tournamentId)
+          .collection('views')
+          .doc('main')
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return const SizedBox.shrink();
+        }
+
+        final data = snapshot.data!.data() as Map<String, dynamic>?;
+        final prizeReceiverCount = data?['prizeReceiverCount'] as int?;
+
+        // prizeReceiverCountが存在しない場合は表示しない
+        if (prizeReceiverCount == null || prizeReceiverCount <= 0) {
+          return const SizedBox.shrink();
+        }
+
+        // プライズ情報を取得
+        final prizes = <Map<String, dynamic>>[];
+        for (int i = 1; i <= prizeReceiverCount; i++) {
+          final prizeKey = '${i}stPrize';
+          final prizeValue = data?[prizeKey];
+          if (prizeValue != null) {
+            prizes.add({
+              'rank': i,
+              'prize': prizeValue,
+            });
+          }
+        }
+
+        if (prizes.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        // 画面サイズの安全性チェック
+        final safeWidth = screenSize.width > 0 ? screenSize.width : 100.0;
+        final safeHeight = screenSize.height > 0 ? screenSize.height : 100.0;
+        
+        // 枠のサイズを計算（個数によって横幅を調整）
+        // 余白を考慮して安全性を向上（左右に各1%の余白）
+        final padding = safeWidth * 0.01;
+        final availableWidth = safeWidth - (padding * 2);
+        final prizeHeight = safeHeight * 0.15;
+
+        return Positioned(
+          left: 0,
+          bottom: 0,
+          child: Container(
+            width: safeWidth,
+            height: prizeHeight,
+            padding: EdgeInsets.symmetric(horizontal: padding),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!),
+              color: Colors.white,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.max,
+              children: prizes.asMap().entries.map((entry) {
+                final index = entry.key;
+                final prize = entry.value;
+                final isLast = index == prizes.length - 1;
+                
+                return Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: isLast 
+                          ? null 
+                          : Border(
+                              right: BorderSide(color: Colors.grey[300]!),
+                            ),
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              '${prize['rank']}stPrize',
+                              style: TextStyle(
+                                fontSize: safeHeight * 0.02,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Flexible(
+                            child: Text(
+                              '¥${prize['prize']}',
+                              style: TextStyle(
+                                fontSize: safeHeight * 0.025,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.amber[700],
+                              ),
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        );
+      },
+    );
   }
 
 

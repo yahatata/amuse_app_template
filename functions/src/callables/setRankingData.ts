@@ -68,6 +68,33 @@ export const setRankingData = onCall(async (request) => {
     // プライズ付与処理
     await _awardPrizes(db, tournamentId, cleanRankingData);
     
+    // 全ての順位が確定しているかチェック
+    const mainViewDoc = await mainViewRef.get();
+    const mainViewData = mainViewDoc.data();
+    const prizeReceiverCount = mainViewData?.prizeReceiverCount || 0;
+    
+    if (prizeReceiverCount > 0) {
+      let allRanksFilled = true;
+      for (let i = 1; i <= prizeReceiverCount; i++) {
+        const uidKey = `${i}stPlayerUid`;
+        const playerUid = mainViewData?.[uidKey];
+        if (!playerUid) {
+          allRanksFilled = false;
+          break;
+        }
+      }
+      
+      // 全ての順位が確定している場合のみSetedRanking: trueを格納
+      if (allRanksFilled) {
+        const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
+        await tournamentRef.update({
+          SetedRanking: true,
+          updatedAt: new Date(),
+        });
+        console.log('全ての順位が確定しました。SetedRanking: trueを格納しました。');
+      }
+    }
+    
     console.log('=== setRankingData 成功 ===');
     
     return {

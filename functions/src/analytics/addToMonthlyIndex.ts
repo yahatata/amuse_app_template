@@ -2,13 +2,20 @@ import { Transaction } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
 import { calculateCategoryAmounts, distributePaymentMethods } from "./helpers";
 
+export interface MonthlyIndexUpdateInfo {
+  collection: string;
+  documentId: string;
+  isNewDocument: boolean;
+  updatedFields: Record<string, any>;
+}
+
 export async function addToMonthlyIndex(
   transaction: Transaction,
   month: string,
   billData: any,
   businessDate: string,
   monthlyDoc?: FirebaseFirestore.DocumentSnapshot
-): Promise<void> {
+): Promise<MonthlyIndexUpdateInfo> {
   const monthlyRef = admin.firestore().collection('analyticsMonthly').doc(month);
   
   // カテゴリ別金額を計算（tournamentsも含む）
@@ -42,6 +49,25 @@ export async function addToMonthlyIndex(
     updateData[`paymentTotals.${method}`] = admin.firestore.FieldValue.increment(amount);
   });
   
+  // 更新内容を準備（ログ用）
+  const updatedFields: Record<string, any> = {
+    itemsSales: `increment(${categoryAmounts.get('items') || 0})`,
+    sideGameChipSales: `increment(${categoryAmounts.get('sideGameChip') || 0})`,
+    extraCostSales: `increment(${categoryAmounts.get('extraCost') || 0})`,
+    tournamentsSales: `increment(${categoryAmounts.get('tournaments') || 0})`,
+    grossSales: `increment(${grossSales})`,
+    orderCount: 'increment(1)',
+    [`dailySales.${businessDate}`]: `increment(${grossSales})`,
+    updatedAt: 'serverTimestamp()',
+  };
+  
+  // paymentTotals の更新内容を追加
+  const paymentTotalsLog: Record<string, string> = {};
+  paymentTotals.forEach((amount, method) => {
+    paymentTotalsLog[`paymentTotals.${method}`] = `increment(${amount})`;
+  });
+  updatedFields.paymentTotals = paymentTotalsLog;
+  
   // ドキュメントが存在しない場合は初期化
   if (!monthlyDoc || !monthlyDoc.exists) {
     transaction.set(monthlyRef, {
@@ -60,4 +86,11 @@ export async function addToMonthlyIndex(
   }
   
   transaction.update(monthlyRef, updateData);
+
+  return {
+    collection: 'analyticsMonthly',
+    documentId: month,
+    isNewDocument: !monthlyDoc || !monthlyDoc.exists,
+    updatedFields,
+  };
 }

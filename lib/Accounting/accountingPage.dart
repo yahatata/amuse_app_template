@@ -206,7 +206,14 @@ class _AccountingPageState extends State<AccountingPage> {
 
       // items サブコレクション
       final itemsSnapshot = await billRef.collection('items').get();
-      final itemsList = itemsSnapshot.docs.map((doc) => doc.data()).toList();
+      final itemsList = itemsSnapshot.docs
+          .where((doc) {
+            final data = doc.data();
+            // voided: true のアイテムは算出対象外
+            return (data['voided'] as bool?) != true;
+          })
+          .map((doc) => doc.data())
+          .toList();
       int itemsAmount = itemsList.fold(0, (sum, data) {
         return sum + ((data['totalPriceIncl'] as num?)?.toInt() ?? 0);
       });
@@ -305,7 +312,12 @@ class _AccountingPageState extends State<AccountingPage> {
                     categoryName: _getCategoryName('items'),
                     totalAmount: itemsAmount,
                     children: [
-                      ...itemsList.map((item) {
+                      ...itemsList
+                          .where((item) {
+                            // voided: true のアイテムは表示対象外
+                            return (item['voided'] as bool?) != true;
+                          })
+                          .map((item) {
                         final name = item['name'] as String? ?? '不明';
                         final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
                         final totalPriceIncl = (item['totalPriceIncl'] as num?)?.toInt() ?? 0;
@@ -645,13 +657,10 @@ class _AccountingPageState extends State<AccountingPage> {
 
                             // サイドゲームチップの場合はチップ枚数と円換算額を表示
                             if (categoryKey == 'sideGameChip') {
-                              final chipValue =
-                                  (categoryValue *
-                                          GlobalConstants
-                                              .SIDE_GAME_CHIP_EXCHANGE_RATE)
-                                      .toInt();
+                              final yenAmount = categoryValue; // 保存されている値は円換算値
+                              final chipCount = (yenAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round(); // チップ枚数に変換
                               displayAmount =
-                                  'チップ${categoryValue}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
+                                  'チップ${chipCount.toString()}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
                             } else {
                               displayAmount =
                                   '¥${categoryValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
@@ -717,13 +726,10 @@ class _AccountingPageState extends State<AccountingPage> {
                             String displayText;
 
                             if (method == 'sideGameChip') {
-                              final chipValue =
-                                  (amount *
-                                          GlobalConstants
-                                              .SIDE_GAME_CHIP_EXCHANGE_RATE)
-                                      .toInt();
+                              final yenAmount = amount; // 保存されている値は円換算値
+                              final chipCount = (yenAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round(); // チップ枚数に変換
                               displayText =
-                                  'チップ${amount}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
+                                  'チップ${chipCount.toString()}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
                             } else {
                               displayText =
                                   '¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
@@ -810,12 +816,13 @@ class _AccountingPageState extends State<AccountingPage> {
         // 文字列の場合（単一支払い方法）
         if (paymentValue is String) {
           if (paymentValue == 'sideGameChip') {
-            // サイドゲームチップの場合は円換算してチップ枚数に変換
+            // 円換算値を格納（チップ枚数 × 換算率）
             // CategoryPaymentMethodDialog では残高チェック時に円換算しているため、
-            // ここでも円換算してチップ枚数に変換
+            // チップ枚数を計算してから円換算値を格納
             final chips = (categoryAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
+            final yenAmount = (chips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
             paymentMethodsByAmount[paymentValue] =
-                (paymentMethodsByAmount[paymentValue] ?? 0) + chips;
+                (paymentMethodsByAmount[paymentValue] ?? 0) + yenAmount;
           } else {
             paymentMethodsByAmount[paymentValue] =
                 (paymentMethodsByAmount[paymentValue] ?? 0) + categoryAmount;
@@ -828,10 +835,11 @@ class _AccountingPageState extends State<AccountingPage> {
               final method = split['method']?.toString() ?? 'cash';
               final amount = (split['amount'] as num?)?.toInt() ?? 0;
 
-              // サイドゲームチップの場合はそのままチップ枚数を保存
+              // サイドゲームチップの場合は円換算値を格納（amountはチップ枚数）
               if (method == 'sideGameChip') {
+                final yenAmount = (amount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
                 paymentMethodsByAmount[method] =
-                    (paymentMethodsByAmount[method] ?? 0) + amount;
+                    (paymentMethodsByAmount[method] ?? 0) + yenAmount;
               } else {
                 // その他の支払い方法は円単位
                 paymentMethodsByAmount[method] =
@@ -922,10 +930,11 @@ class _AccountingPageState extends State<AccountingPage> {
               final method = split['method']?.toString() ?? 'cash';
               final amount = (split['amount'] as num?)?.toInt() ?? 0;
 
-              // サイドゲームチップの場合はそのままチップ枚数を保存
+              // サイドゲームチップの場合は円換算値を格納（amountはチップ枚数）
               if (method == 'sideGameChip') {
+                final yenAmount = (amount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
                 paymentMethodsByAmount[method] =
-                    (paymentMethodsByAmount[method] ?? 0) + amount;
+                    (paymentMethodsByAmount[method] ?? 0) + yenAmount;
               } else {
                 // その他の支払い方法は円単位
                 paymentMethodsByAmount[method] =
@@ -1335,7 +1344,8 @@ class _AccountingPageState extends State<AccountingPage> {
           final chips = (amount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE)
               .round();
           if (chips > 0) {
-            paymentMethodsByAmount['sideGameChip'] = chips;
+            // 円換算値を格納（チップ枚数 × 換算率）
+            paymentMethodsByAmount['sideGameChip'] = (chips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
           }
         } else {
           paymentMethodsByAmount[method] = amount;
@@ -1452,7 +1462,8 @@ class _AccountingPageState extends State<AccountingPage> {
           final chips = (amount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE)
               .round();
           if (chips > 0) {
-            verifiedPaymentMethodsByAmount['sideGameChip'] = chips;
+            // 円換算値を格納（チップ枚数 × 換算率）
+            verifiedPaymentMethodsByAmount['sideGameChip'] = (chips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
           }
         } else {
           verifiedPaymentMethodsByAmount[method] = amount;
@@ -1747,7 +1758,8 @@ class _AccountingPageState extends State<AccountingPage> {
           if (method == 'sideGameChip') {
             final chips = (amount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
             if (chips > 0) {
-              paymentMethodsByAmount['sideGameChip'] = chips;
+              // 円換算値を格納（チップ枚数 × 換算率）
+              paymentMethodsByAmount['sideGameChip'] = (chips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
             }
           } else {
             paymentMethodsByAmount[method] = amount;
@@ -2611,10 +2623,10 @@ class _AccountingPageState extends State<AccountingPage> {
     // サイドゲームチップの場合は換算して表示
     String displayText;
     if (method == 'sideGameChip' && amount != null) {
-      final chipValue = (amount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE)
-          .toInt();
+      final yenAmount = amount; // amountは円換算値
+      final chipCount = (yenAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round(); // チップ枚数に変換
       displayText =
-          '${_getPaymentMethodName(method)} チップ${amount}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
+          '${_getPaymentMethodName(method)} チップ${chipCount}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
     } else if (amount != null) {
       displayText =
           '${_getPaymentMethodName(method)} ¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
@@ -2756,9 +2768,8 @@ class _AccountingPageState extends State<AccountingPage> {
       // サイドゲームチップの場合はチップ枚数と換算額を表示
       String displayText;
       if (method == 'sideGameChip') {
-        final chipCount = amount; // 保存されている値は既にチップ枚数
-        final yenAmount =
-            (chipCount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+        final yenAmount = amount; // 保存されている値は円換算値
+        final chipCount = (yenAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round(); // チップ枚数に変換
         displayText =
             'チップ${chipCount.toString()} (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
       } else {
