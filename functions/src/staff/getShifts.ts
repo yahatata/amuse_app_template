@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { isInsufficientDaysNotificationSent } from "../shift/helpers";
 
 interface GetShiftsResponse {
   success: boolean;
@@ -69,27 +70,178 @@ export const getShifts = onCall(
         throw new Error("スタッフ情報が見つかりません。");
       }
 
-      // 現在のスタッフのシフト申請を取得
-      const shiftsRef = admin.firestore().collection("shifts");
-      const q = shiftsRef
-        .where("userId", "==", uid)
-        .orderBy("date", "asc"); // 昇順に変更（インデックス要件に合わせる）
+      const db = admin.firestore();
+      const shifts: any[] = [];
 
-      const snapshot = await q.get();
-
-      if (snapshot.empty) {
-        return {
-          success: true,
-          shifts: []
-        };
+      // 現在の月から2ヶ月先まで取得（今月と来月）
+      const now = new Date();
+      const months: string[] = [];
+      
+      for (let i = 0; i < 3; i++) {
+        const date = new Date(now.getFullYear(), now.getMonth() + i, 1);
+        const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        months.push(yearMonth);
       }
 
-      const shifts = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      // 1. shifts/{yearMonth}/days/{dateKey}.assignmentsから確定シフトを取得
+      console.log(`[getShifts] 対象月: ${months.join(', ')}`);
+      console.log(`[getShifts] 検索対象のuid: ${uid}`);
+      for (const yearMonth of months) {
+        const shiftsDocRef = db.collection("shifts").doc(yearMonth);
+        const daysSnapshot = await shiftsDocRef.collection("days").get();
+        
+        console.log(`[getShifts] ${yearMonth}: ${daysSnapshot.size}日のデータを取得`);
+        
+        // デバッグ: ドキュメントが存在するか確認
+        if (daysSnapshot.size === 0) {
+          console.log(`[getShifts] 警告: ${yearMonth}のdaysサブコレクションにドキュメントが存在しません`);
+        }
 
-      // フロントエンド側で降順にソート（最新のシフトを先頭に）
+        for (const dayDoc of daysSnapshot.docs) {
+          const dayData = dayDoc.data();
+          const assignments = dayData.assignments || [];
+          const dateKey = dayDoc.id;
+          
+          console.log(`[getShifts] ${dateKey}: assignments数=${assignments.length}`);
+          
+          // 店休日チェック
+          const businessHours = dayData.businessHours as { isClosed?: boolean } | undefined;
+          const isClosed = businessHours?.isClosed === true;
+          
+          if (isClosed) {
+            console.log(`[getShifts] 店休日のためスキップ: ${dateKey}`);
+            continue; // 店休日の場合はその日のシフトをすべてスキップ
+          }
+          
+          // このスタッフの割当を検索
+          for (const assignment of assignments) {
+            console.log(`[getShifts] ${dateKey}: assignment.staffId="${assignment.staffId}", uid="${uid}", 一致=${assignment.staffId === uid}`);
+            if (assignment.staffId === uid) {
+              // 分を時刻文字列に変換（例: 540 -> "09:00"）
+              const startHour = Math.floor(assignment.startMinute / 60);
+              const startMin = assignment.startMinute % 60;
+              const endHour = Math.floor(assignment.endMinute / 60);
+              const endMin = assignment.endMinute % 60;
+              
+              const dateKey = dayDoc.id; // YYYY-MM-DD形式
+              
+              console.log(`[getShifts] assignmentsから取得: ${dateKey}, ${assignment.staffId}, ${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}-${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}, sourceRequestId: ${assignment.sourceRequestId || 'N/A'}`);
+              
+              // assignmentsに含まれている = 中間確定または最終確定
+              shifts.push({
+                id: `${dateKey}_${assignment.sourceRequestId || 'assignment'}`,
+                date: dateKey,
+                start: `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
+                end: `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`,
+                confirmed: true, // assignmentsに含まれている = 確定済み
+                staffId: assignment.staffId,
+                staffName: assignment.staffName,
+              });
+            }
+          }
+        }
+      }
+      
+      console.log(`[getShifts] assignmentsから取得したシフト数: ${shifts.length}`);
+
+      // 2. shiftRequestsから申請中のシフトのみを取得
+      // 注意: 中間確定・最終確定されたシフトは shifts/{yearMonth}/days/{dateKey}.assignments から取得されるため、
+      // shiftRequestsからは status: "pending" のみを取得する
+      // ただし、期間②で募集内容送信後、または期間③以降は申請中シフトを非表示にする
+      const requestsSnapshot = await db
+        .collection("shiftRequests")
+        .where("staffId", "==", uid)
+        .where("status", "==", "pending")
+        .get();
+      
+      console.log(`[getShifts] shiftRequestsから取得: ${requestsSnapshot.size}件 (status: pending のみ)`);
+
+      for (const requestDoc of requestsSnapshot.docs) {
+        const requestData = requestDoc.data();
+        const dateKey = requestData.dateKey;
+        const yearMonth = dateKey.substring(0, 7); // YYYY-MM-DDからYYYY-MMを抽出
+        
+        // 店休日チェック: その日のshifts/{yearMonth}/days/{dateKey}を取得してisClosedを確認
+        const dayDocRef = db.collection("shifts").doc(yearMonth).collection("days").doc(dateKey);
+        const dayDoc = await dayDocRef.get();
+        
+        if (dayDoc.exists) {
+          const dayData = dayDoc.data()!;
+          const businessHours = dayData.businessHours as { isClosed?: boolean } | undefined;
+          const isClosed = businessHours?.isClosed === true;
+          
+          if (isClosed) {
+            console.log(`[getShifts] 店休日のためスキップ（申請中）: ${dateKey}, requestId: ${requestDoc.id}`);
+            continue; // 店休日の場合は申請中シフトもスキップ
+          }
+        }
+        
+        // 期間②で募集内容送信済みの場合は申請中シフトを非表示
+        const notificationSent = await isInsufficientDaysNotificationSent(yearMonth);
+        if (notificationSent) {
+          console.log(`[getShifts] 募集内容送信済みのため申請中シフトを非表示: ${dateKey}, requestId: ${requestDoc.id}`);
+          continue;
+        }
+        
+        // 月全体が最終確定されている場合は申請中シフトを非表示
+        const monthDocRef = db.collection("shifts").doc(yearMonth);
+        const monthDoc = await monthDocRef.get();
+        if (monthDoc.exists) {
+          const monthData = monthDoc.data();
+          if (monthData?.allDaysFinalized === true) {
+            console.log(`[getShifts] 月全体が最終確定済みのため申請中シフトを非表示: ${dateKey}, requestId: ${requestDoc.id}`);
+            continue;
+          }
+        }
+        
+        // 分を時刻文字列に変換
+        const startMinute = requestData.startMinute || requestData.start;
+        const endMinute = requestData.endMinute || requestData.end;
+        
+        let startTime = "";
+        let endTime = "";
+        
+        if (typeof startMinute === "number") {
+          const startHour = Math.floor(startMinute / 60);
+          const startMin = startMinute % 60;
+          startTime = `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`;
+        } else if (typeof startMinute === "string") {
+          startTime = startMinute;
+        }
+        
+        if (typeof endMinute === "number") {
+          const endHour = Math.floor(endMinute / 60);
+          const endMin = endMinute % 60;
+          endTime = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
+        } else if (typeof endMinute === "string") {
+          endTime = endMinute;
+        }
+        
+        console.log(`[getShifts] shiftRequestsから取得: ${dateKey}, status: ${requestData.status}, ${startTime}-${endTime}, requestId: ${requestDoc.id}`);
+        
+        // assignmentsから既に取得済みの場合はスキップ（確定シフトが優先）
+        const alreadyExists = shifts.some(
+          s => s.date === dateKey && s.start === startTime && s.end === endTime
+        );
+        
+        if (alreadyExists) {
+          console.log(`[getShifts] スキップ: ${dateKey} ${startTime}-${endTime} は既にassignmentsから取得済み`);
+        } else {
+            shifts.push({
+              id: requestDoc.id,
+              date: dateKey,
+              start: startTime,
+              end: endTime,
+              confirmed: null, // shiftRequestsから取得されるのは申請中（pending）のみ
+              staffId: requestData.staffId,
+              staffName: requestData.staffName,
+            });
+        }
+      }
+      
+      console.log(`[getShifts] 最終的なシフト数: ${shifts.length}`);
+
+      // 日付順にソート（降順：最新が先頭）
       shifts.sort((a: any, b: any) => {
         if (a.date < b.date) return 1;
         if (a.date > b.date) return -1;

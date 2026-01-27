@@ -110,6 +110,30 @@ service cloud.firestore {
 
       // 書き込み: 全ユーザー（テスト用）
       allow write: if true;
+      
+      // days サブコレクション
+      match /days/{dayId} {
+        allow read: if true;
+        allow write: if true;
+      }
+    }
+
+    // 営業時間月次マップコレクション
+    match /businessHoursMonthlyMap/{yearMonth} {
+      // 読み取り: 全ユーザー（テスト用）
+      allow read: if true;
+      
+      // 書き込み: Cloud Functions経由のみ
+      allow write: if false;
+    }
+
+    // シフト申請コレクション
+    match /shiftRequests/{requestId} {
+      // 読み取り: 全ユーザー（テスト用）
+      allow read: if true;
+      
+      // 書き込み: Cloud Functions経由のみ（申請作成はCallable経由）
+      allow write: if false;
     }
 
     // 勤怠コレクション（開発用：読み取り全許可）
@@ -255,6 +279,23 @@ service cloud.firestore {
         // 書き込み: Functions のみ許可
         allow write: if false;
       }
+    }
+
+    // storeMeta/currentBusinessDay コレクション
+    match /storeMeta/currentBusinessDay {
+      // 読み取り: 全ユーザー許可（UIがsnapshot購読するため）
+      // 必要に応じて request.auth != null や staff/admin チェックに変更可能
+      allow read: if true;
+      // 書き込み: Functions経由のみ（UIからの直接書き込み禁止）
+      allow write: if false; // Functionsはadmin権限で実行されるため
+    }
+
+    // storeMeta/currentBusinessDay/logs サブコレクション
+    match /storeMeta/currentBusinessDay/logs/{logId} {
+      // 読み取り: 全ユーザー許可（必要に応じて制限可能）
+      allow read: if true;
+      // 書き込み: Functions経由のみ
+      allow write: if false;
     }
 
     // その他のコレクションは読み書き禁止
