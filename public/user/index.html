@@ -279,7 +279,7 @@
           <button class="category-btn active" onclick="showCategory('food')">食事</button>
           <button class="category-btn" onclick="showCategory('drink')">ドリンク</button>
           <button class="category-btn" onclick="showCategory('dessert')">デザート</button>
-        </div>
+          </div>
         <div id="menu-items" class="menu-items">
           <div class="spinner"></div>
         </div>
@@ -298,14 +298,14 @@
             <button class="modal-close-btn" onclick="closeCartModal()">×</button>
           </div>
           <div class="modal-body">
-            <div id="cart-items" class="cart-items">
-              <!-- カートアイテムがここに表示される -->
-            </div>
+          <div id="cart-items" class="cart-items">
+            <!-- カートアイテムがここに表示される -->
+          </div>
           </div>
           <div class="modal-footer">
             <div class="cart-summary">
-              <div class="cart-total">
-                <strong>合計: ¥<span id="cart-total-price">0</span></strong>
+            <div class="cart-total">
+              <strong>合計: ¥<span id="cart-total-price">0</span></strong>
               </div>
               <button class="btn secondary-btn" onclick="clearCart()">カートを空にする</button>
             </div>
@@ -679,50 +679,50 @@
         
         try {
           await executeWithButtonLoading(async () => {
-            const pokerName = document.getElementById('pokerName').value;
-            const email = document.getElementById('email').value;
-            const pin = document.getElementById('pin').value;
-            const birthMonth = document.getElementById('birthMonth').value;
-            const birthDay = document.getElementById('birthDay').value;
-            
-            // LiffFirebaseが存在するかチェック
-            if (!window.LiffFirebase || !window.LiffFirebase.user) {
-              throw new Error('認証が完了していません。再度ログインしてください。');
-            }
-            
-            const { user } = window.LiffFirebase;
+          const pokerName = document.getElementById('pokerName').value;
+          const email = document.getElementById('email').value;
+          const pin = document.getElementById('pin').value;
+          const birthMonth = document.getElementById('birthMonth').value;
+          const birthDay = document.getElementById('birthDay').value;
+          
+          // LiffFirebaseが存在するかチェック
+          if (!window.LiffFirebase || !window.LiffFirebase.user) {
+            throw new Error('認証が完了していません。再度ログインしてください。');
+          }
+          
+          const { user } = window.LiffFirebase;
 
-            // Firebase Functionsを呼び出してユーザー登録とQRコード生成
-            const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-            const functions = getFunctions(window.Firebase.app);
-            const createUserAccount = httpsCallable(functions, 'createUserAccount');
-            
-            const result = await createUserAccount({
-              pokerName: pokerName,
-              email: email,
-              pin: pin,
-              birthMonth: birthMonth,
-              birthDay: birthDay
-            });
+          // Firebase Functionsを呼び出してユーザー登録とQRコード生成
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const createUserAccount = httpsCallable(functions, 'createUserAccount');
+          
+          const result = await createUserAccount({
+            pokerName: pokerName,
+            email: email,
+            pin: pin,
+            birthMonth: birthMonth,
+            birthDay: birthDay
+          });
 
-            if (result.data.success) {
-              // デバッグ情報を画面に表示
-              alert('ユーザー登録成功:\nUID: ' + result.data.uid + 
-                    '\nQRコード: ' + (result.data.qrCode ? 'Base64生成済み' : 'Base64なし') +
-                    '\nStorage URL: ' + (result.data.qrCodeUrl ? '生成済み' : 'なし') +
-                    '\n有効期限: ' + (result.data.expiresAt ? new Date(result.data.expiresAt).toLocaleString('ja-JP') : 'なし'));
-              
+          if (result.data.success) {
+            // デバッグ情報を画面に表示
+            alert('ユーザー登録成功:\nUID: ' + result.data.uid + 
+                  '\nQRコード: ' + (result.data.qrCode ? 'Base64生成済み' : 'Base64なし') +
+                  '\nStorage URL: ' + (result.data.qrCodeUrl ? '生成済み' : 'なし') +
+                  '\n有効期限: ' + (result.data.expiresAt ? new Date(result.data.expiresAt).toLocaleString('ja-JP') : 'なし'));
+            
               // ローディング画面を表示
               const loadingEl = document.getElementById('loading');
               if (loadingEl) {
                 loadingEl.style.display = 'block';
               }
               
-              // ホームページに遷移
-              checkStoreRegistration();
-            } else {
-              throw new Error('ユーザー登録に失敗しました。');
-            }
+            // ホームページに遷移
+            checkStoreRegistration();
+          } else {
+            throw new Error('ユーザー登録に失敗しました。');
+          }
           }, submitBtn, '登録中...');
           
         } catch (error) {
@@ -1102,17 +1102,17 @@
             // キャッシュがない場合は新しく取得
             menuItems.innerHTML = '<div class="spinner"></div>';
             try {
-              const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-              const functions = getFunctions(window.Firebase.app);
-              const getMenuItems = httpsCallable(functions, 'getMenuItems');
-              
-              const result = await getMenuItems({});
-              
-              if (!result.data || !result.data.success) {
-                throw new Error(result.data?.error || 'メニューの取得に失敗しました');
-              }
+            const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+            const functions = getFunctions(window.Firebase.app);
+            const getMenuItems = httpsCallable(functions, 'getMenuItems');
+            
+            const result = await getMenuItems({});
+            
+            if (!result.data || !result.data.success) {
+              throw new Error(result.data?.error || 'メニューの取得に失敗しました');
+            }
 
-              allMenuItems = result.data.data || [];
+            allMenuItems = result.data.data || [];
             } catch (error) {
               menuItems.innerHTML = `<p class="error-message">メニューの取得に失敗しました: ${error.message}</p>`;
               return;
@@ -1332,35 +1332,35 @@
           // 注文ボタンを無効化
           const orderBtn = document.getElementById('order-all-btn');
           orderBtn.disabled = true;
-          
-          try {
-            // ユーザーIDを取得（LIFF認証済みの場合）
-            const { auth } = window.Firebase;
-            if (!auth.currentUser) {
+        
+        try {
+          // ユーザーIDを取得（LIFF認証済みの場合）
+          const { auth } = window.Firebase;
+          if (!auth.currentUser) {
               cartItems.innerHTML = originalContent;
               orderBtn.disabled = false;
-              alert('認証が必要です。ページを再読み込みしてください。');
-              return;
-            }
+            alert('認証が必要です。ページを再読み込みしてください。');
+            return;
+          }
 
-            const userId = auth.currentUser.uid;
-            
-            // 入店状態を確認
-            const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-            const functions = getFunctions(window.Firebase.app);
-            const getUserStatus = httpsCallable(functions, 'getUserStatus');
-            
-            const statusResult = await getUserStatus({ uid: userId });
-            if (!statusResult.data.success || !statusResult.data.user.isStaying) {
+          const userId = auth.currentUser.uid;
+          
+          // 入店状態を確認
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getUserStatus = httpsCallable(functions, 'getUserStatus');
+          
+          const statusResult = await getUserStatus({ uid: userId });
+          if (!statusResult.data.success || !statusResult.data.user.isStaying) {
               cartItems.innerHTML = originalContent;
               orderBtn.disabled = false;
-              alert('入店していません。先に入店してください。');
-              return;
-            }
-            
-            // 一括注文（1回の呼び出しで全アイテムを処理）
-            const placeOrderByUser = httpsCallable(functions, 'placeOrderByUser');
-            
+            alert('入店していません。先に入店してください。');
+            return;
+          }
+          
+          // 一括注文（1回の呼び出しで全アイテムを処理）
+          const placeOrderByUser = httpsCallable(functions, 'placeOrderByUser');
+          
             const result = await placeOrderByUser({
               items: cart.map(item => ({
                 menuItemId: item.menuItemId,

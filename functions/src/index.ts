@@ -28,6 +28,8 @@ export * from "./tournamentBlind";
 export * from "./tournamentTemplate";
 // スタッフ関連関数
 export * from "./staff";
+// シフト管理関連関数
+export * from "./shift";
 // 勤怠管理関連関数
 export * from "./attendance";
 // スケジュール済みトーナメント関連関数
@@ -72,3 +74,10 @@ export const updateAdministrativeMenuWithDescription = onCall(async (request) =>
   return { message: "This function is maintained remotely" };
 });
 
+export const cancelOrder = onCall(async (request) => {
+  return { message: "This function is maintained remotely" };
+});
+
+export const removeTableFromTournament = onCall(async (request) => {
+  return { message: "This function is maintained remotely" };
+});

@@ -1,6 +1,5 @@
 import 'package:amuse_app_template/StaffDate/createStaffAccountPage.dart';
-import 'package:amuse_app_template/StaffDate/shiftApprovalPage.dart';
-import 'package:amuse_app_template/StaffDate/confirmedShiftsCalendarPage.dart';
+import 'package:amuse_app_template/StaffDate/shiftMenuPage.dart';
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/AttendanceManagement/allStaffAttendancePage.dart';
@@ -30,8 +29,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final buttonHeight = (screenHeight - kToolbarHeight - 80) / 2.3;
 
           final List<({String label, Widget destination})> buttons = [
-        (label: 'シフト一覧', destination: const ConfirmedShiftsCalendarPage()),
-        (label: 'シフト承認', destination: const ShiftApprovalPage()),
+        (label: 'シフト', destination: const ShiftMenuPage()),
         (label: '全スタッフ勤怠', destination: const AllStaffAttendancePage()),
         (label: '勤怠修正申請', destination: const AttendanceCorrectionRequestsPage()),
         (label: 'デバイス管理', destination: const DeviceManagementPage()),
@@ -76,7 +74,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
             : GridView.custom(
           key: const ValueKey('admin'),
           padding: const EdgeInsets.all(16),
-          physics: const NeverScrollableScrollPhysics(),
+          physics: const ClampingScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
             crossAxisSpacing: 12,

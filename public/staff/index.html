@@ -10,6 +10,12 @@
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <!-- 店舗別設定ファイル -->
     <script src="./config.js"></script>
+    <!-- 日本の祝日判定ライブラリ: japanese-holidays-js -->
+    <!-- 読み込み失敗してもフォールバック判定で動作します -->
+    <script src="https://cdn.jsdelivr.net/gh/osamutake/japanese-holidays-js@master/lib/japanese-holidays.min.js" 
+            async
+            onerror="window.__HOLIDAY_LIB_ERROR__ = true;"
+            onload="if (typeof JapaneseHolidays === 'undefined') { window.__HOLIDAY_LIB_ERROR__ = true; }"></script>
 
     <!-- Firebase初期化スクリプト -->
   <script type="module">
@@ -376,48 +382,61 @@
         <div id="shift-application-section" class="shift-application-section flexible-container-center" style="display: block;">
         
         <!-- 翌月カレンダー表示 -->
-        <div class="calendar-container flexible-container">
+        <div id="calendar-container" class="calendar-container flexible-container">
           <h2>翌月シフト申請</h2>
           <div class="month-info" id="current-month">2024年9月</div>
-          <p class="note">※1ヶ月分まとめての申請を推奨します<br>※日付選択後に時間入力が可能です</p>
+          <p class="note">※日付を選択して「次へ」を押してください<br>※複数の日付を一度に選択可能です<br>※✓マークは申請中の日付です<br>※✓マークを選択すると以前の申請を修正できます</p>
           
 
           <div id="calendar" class="calendar flexible-container">
             <!-- カレンダーが動的に生成される -->
           </div>
           
-          <!-- ホームに戻るボタン -->
+          <!-- ボタンエリア -->
+          <div style="margin-top: 20px; text-align: center; display: flex; gap: 10px; justify-content: center;">
+            <button id="go-to-edit-page-btn" class="btn primary-btn" style="display: none;">次へ</button>
+            <button onclick="showStaffHomePage()" class="btn secondary-btn">ホームに戻る</button>
+          </div>
+        </div>
+        
+        <!-- 次月が最終確定済みの場合のメッセージ表示 -->
+        <div id="finalized-message-container" class="finalized-message-container flexible-container" style="display: none;">
+          <h2>シフト申請</h2>
+          <div style="text-align: center; padding: 20px;">
+            <p style="margin-bottom: 20px; font-size: 1.1rem; color: #333;">シフトが確定したため申請を送ることはできません</p>
+            <p id="next-month-message" style="font-size: 1rem; color: #666;"></p>
+          </div>
           <div style="margin-top: 20px; text-align: center;">
             <button onclick="showStaffHomePage()" class="btn secondary-btn">ホームに戻る</button>
           </div>
         </div>
+        
         <!-- シフト時間入力 -->
         <div id="shift-input-container" class="shift-input-container flexible-container" style="display: none;">
+          <h4 id="selected-date-display" style="margin-bottom: 10px; font-size: 16px; font-weight: bold; color: #333;"></h4>
           <h3>シフト時間入力</h3>
                       <div class="shift-input-form flexible-container">
                           <div class="time-inputs flexible-container">
                 <div class="form-group flexible-container">
                   <label>開始時刻</label>
-                  <div class="custom-time-selector" style="display: flex; gap: 10px; align-items: center;">
-                    <select id="shift-start-hour" required style="flex: 1; height: 40px; font-size: 16px; padding: 8px;">
+                  <div class="custom-time-selector" style="display: flex; gap: 10px; align-items: center; justify-content: center;">
+                    <select id="shift-start-hour" required style="width: 50%; height: 40px; font-size: 16px; padding: 8px;">
                       <option value="">時</option>
                     </select>
-                    <span style="font-weight: bold;">:</span>
-                    <select id="shift-start-minute" required style="flex: 1; height: 40px; font-size: 16px; padding: 8px;">
-                      <option value="">分</option>
+                    <select id="shift-start-minute" required style="display: none;">
+                      <option value="00" selected>00</option>
                     </select>
                   </div>
                 </div>
 
                 <div class="form-group flexible-container">
                   <label>終了時刻</label>
-                  <div class="custom-time-selector" style="display: flex; gap: 10px; align-items: center;">
-                    <select id="shift-end-hour" required style="flex: 1; height: 40px; font-size: 16px; padding: 8px;">
+                  <div class="custom-time-selector" style="display: flex; gap: 10px; align-items: center; justify-content: center;">
+                    <select id="shift-end-hour" required style="width: 50%; height: 40px; font-size: 16px; padding: 8px;">
                       <option value="">時</option>
                     </select>
-                    <span style="font-weight: bold;">:</span>
-                    <select id="shift-end-minute" required style="flex: 1; height: 40px; font-size: 16px; padding: 8px;">
-                      <option value="">分</option>
+                    <select id="shift-end-minute" required style="display: none;">
+                      <option value="00" selected>00</option>
                     </select>
                   </div>
                 </div>
@@ -473,6 +492,32 @@
         </div>
   </div>
 
+  <!-- シフト編集ページ（完全に別ページ） -->
+  <div id="shift-edit-page" class="page shift-edit-page flexible-container-center" style="display: none;">
+    <h1>シフト時間編集</h1>
+    <p class="note">次月分のシフト時間を編集してください</p>
+    <div id="shift-edit-list" class="shift-edit-list flexible-container" style="width: 100%; max-width: 600px; margin: 0 auto; padding: 0 20px;">
+      <!-- 日付カードが動的に生成される -->
+    </div>
+    <div style="margin-top: 20px; text-align: center; display: flex; gap: 10px; justify-content: center;">
+      <button id="go-to-confirm-page-btn" class="btn primary-btn">確認へ</button>
+      <button id="back-to-calendar-btn" class="btn secondary-btn">戻る</button>
+    </div>
+  </div>
+  
+  <!-- シフト確認ページ（完全に別ページ） -->
+  <div id="shift-confirm-page" class="page shift-confirm-page flexible-container-center" style="display: none;">
+    <h1>シフト申請確認</h1>
+    <p class="note">以下の内容で申請します。内容を確認してください。</p>
+    <div id="shift-confirm-list" class="shift-confirm-list flexible-container" style="width: 100%; max-width: 600px; margin: 0 auto; padding: 0 20px;">
+      <!-- 確認用のシフトリストが動的に生成される -->
+    </div>
+    <div style="margin-top: 20px; text-align: center; display: flex; gap: 10px; justify-content: center;">
+      <button id="submit-shifts-btn" class="btn primary-btn">申請</button>
+      <button id="back-to-edit-btn" class="btn secondary-btn">戻る</button>
+    </div>
+  </div>
+
   <!-- プロフィール画面 -->
   <div id="profile-page" class="page profile-page" style="display: none;">
     <h1>プロフィール</h1>
@@ -499,6 +544,8 @@
       const qrPageEl = document.getElementById('qr-page');
       const shiftPageEl = document.getElementById('shift-page');
   const profilePageEl = document.getElementById('profile-page');
+  const shiftEditPageEl = document.getElementById('shift-edit-page');
+  const shiftConfirmPageEl = document.getElementById('shift-confirm-page');
   const errorEl = document.getElementById('error-message');
       const successEl = document.getElementById('error-message');
   const profileInfoEl = document.getElementById('profile-info');
@@ -602,6 +649,8 @@
       shiftPageEl.style.display = 'none';
       profilePageEl.style.display = 'none';
       document.getElementById('attendance-page').style.display = 'none';
+      if (shiftEditPageEl) shiftEditPageEl.style.display = 'none';
+      if (shiftConfirmPageEl) shiftConfirmPageEl.style.display = 'none';
       
       // 指定されたページを表示
       pageElement.style.display = 'block';
@@ -652,7 +701,7 @@
   async function checkStaffRegistration() {
     try {
       const { db } = window.Firebase;
-          const { doc, getDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+      const { doc, getDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
 
       // LiffFirebaseが存在するかチェック
       if (!window.LiffFirebase || !window.LiffFirebase.user) {
@@ -663,36 +712,46 @@
 
       // Firestoreでスタッフ情報を確認
       const staffDocRef = doc(db, 'staffs', user.uid);
-          
       const staffDoc = await getDoc(staffDocRef);
+
+      // ローディング画面を非表示にする（必ず実行）
+      const loadingEl = document.getElementById('loading');
+      if (loadingEl) {
+        loadingEl.style.display = 'none';
+      }
 
       if (staffDoc.exists()) {
             // 登録済みの場合
         // スタッフ情報はプロフィール画面で表示するため、ここでは何もしない
         
-        // ローディング画面を非表示にする（必ず実行）
-        loadingEl.style.display = 'none';
-        
         // URLハッシュをチェックして適切なページに遷移
         try {
           await handleHashNavigation();
         } catch (error) {
-          console.error("ハッシュナビゲーションエラー:", error);
+          console.error("[ハッシュナビゲーションエラー]:", error);
           // ハッシュナビゲーションでエラーが発生した場合はホームページを表示
-          showPage(homePageEl);
+          const homePageEl = document.getElementById('home-page');
+          if (homePageEl) {
+            showPage(homePageEl);
+          }
         }
       } else {
             // 未登録の場合
-        // ローディング画面を非表示にする（必ず実行）
-        loadingEl.style.display = 'none';
-        showPage(registrationPageEl);
+        const registrationPageEl = document.getElementById('registration-page');
+        if (registrationPageEl) {
+          showPage(registrationPageEl);
+        }
 
       }
     } catch (error) {
-      console.error("スタッフ登録確認エラー:", error);
+      console.error("[スタッフ登録確認エラー]:", error);
       // エラーが発生した場合でもローディング画面を非表示にする
-      loadingEl.style.display = 'none';
+      const loadingEl = document.getElementById('loading');
+      if (loadingEl) {
+        loadingEl.style.display = 'none';
+      }
       showError('スタッフ情報の確認に失敗しました', error);
+      throw error; // エラーを再スローして呼び出し元でも処理できるように
     }
   }
 
@@ -976,8 +1035,8 @@
 
       // カレンダーとシフト管理の機能
       let currentMonth = new Date();
-      let selectedDate = null; // 日付文字列を保存
-      let pendingShifts = [];
+      let selectedDates = []; // 複数の日付文字列を保存（YYYY-MM-DD形式の配列）
+      let shiftEditData = {}; // 編集ページのデータ { dateKey: { startHour, startMinute, endHour, endMinute } }
 
       // 翌月の最初の日を取得
       function getNextMonth() {
@@ -985,15 +1044,98 @@
         return new Date(now.getFullYear(), now.getMonth() + 1, 1);
       }
 
+      // 祝日判定関数（japanese-holidays-jsライブラリ優先、読み込み失敗時はフォールバック）
+      function isJapaneseHoliday(date) {
+        try {
+          // 外部ライブラリが読み込まれているか確認
+          if (typeof window !== 'undefined' && 
+              typeof window.JapaneseHolidays !== 'undefined' && 
+              window.JapaneseHolidays && 
+              typeof window.JapaneseHolidays.isHoliday === 'function') {
+            // 外部ライブラリを使用
+            const result = window.JapaneseHolidays.isHoliday(date);
+            return result !== undefined && result !== null;
+          }
+        } catch (error) {
+          // ライブラリエラーは無視してフォールバックに
+          console.warn('祝日判定ライブラリの呼び出しに失敗:', error);
+        }
+        
+        // フォールバック: 簡易的な判定
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const day = date.getDate();
+        const weekday = date.getDay();
+        
+        // 固定祝日
+        const fixedHolidays = [
+          { month: 1, day: 1, name: '元日' },
+          { month: 2, day: 11, name: '建国記念の日' },
+          { month: 2, day: 23, name: '天皇誕生日' }, // 2019年以降は2月23日
+          { month: 4, day: 29, name: '昭和の日' },
+          { month: 5, day: 3, name: '憲法記念日' },
+          { month: 5, day: 4, name: 'みどりの日' },
+          { month: 5, day: 5, name: 'こどもの日' },
+          { month: 8, day: 11, name: '山の日' },
+          { month: 11, day: 3, name: '文化の日' },
+          { month: 11, day: 23, name: '勤労感謝の日' }
+        ];
+        
+        for (const holiday of fixedHolidays) {
+          if (holiday.month === month && holiday.day === day) {
+            return true;
+          }
+        }
+        
+        // 春分の日・秋分の日（簡易計算）
+        if (month === 3 && (day === 20 || day === 21)) {
+          return true;
+        }
+        if (month === 9 && (day === 22 || day === 23)) {
+          return true;
+        }
+        
+        // 海の日（7月第3月曜日）
+        if (month === 7 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 14 && day < firstMonday + 21) {
+            return true;
+          }
+        }
+        
+        // 敬老の日（9月第3月曜日）
+        if (month === 9 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 14 && day < firstMonday + 21) {
+            return true;
+          }
+        }
+        
+        // スポーツの日（10月第2月曜日）
+        if (month === 10 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 7 && day < firstMonday + 14) {
+            return true;
+          }
+        }
+        
+        return false;
+      }
+      
       // カレンダーを初期化
       function initializeCalendar() {
         currentMonth = getNextMonth();
-        renderCalendar();
+        // renderCalendarはasyncだが、awaitなしで呼び出す（エラーが発生しても処理を続行）
+        // 初期化フローを止めないために非同期で実行
+        renderCalendar().catch(error => {
+          console.error('カレンダー描画エラー:', error);
+          alert('カレンダーの描画中にエラーが発生しました。一部の機能が正しく表示されない可能性があります。');
+        });
         setupCalendarEventListeners();
       }
 
       // カレンダーを描画
-      function renderCalendar() {
+      async function renderCalendar() {
         const calendar = document.getElementById('calendar');
         const monthDisplay = document.getElementById('current-month');
         
@@ -1006,93 +1148,1148 @@
         
         const firstDay = new Date(year, month, 1);
         const lastDay = new Date(year, month + 1, 0);
-        const startDate = new Date(firstDay);
-        startDate.setDate(startDate.getDate() - firstDay.getDay());
+        const daysInMonth = lastDay.getDate();
+        const firstDayOfMonth = firstDay.getDay();
+        
+        // 営業時間データを取得（店休日判定用）
+        const yearMonth = `${year}-${String(month + 1).padStart(2, '0')}`;
+        let businessHoursMap = {};
+        let businessHoursLoadFailed = false;
+        try {
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const mapDocRef = doc(window.Firebase.db, 'businessHoursMonthlyMap', yearMonth);
+          const mapDocSnap = await getDoc(mapDocRef);
+          if (mapDocSnap.exists()) {
+            const mapData = mapDocSnap.data();
+            businessHoursMap = mapData.days || {};
+          }
+        } catch (error) {
+          console.warn('営業時間データの取得に失敗しました:', error);
+          businessHoursLoadFailed = true;
+        }
+        
+        // ②期間中で送信済みの場合、不足日・不足時間のみ選択可能にする
+        let insufficientDaysSet = new Set();
+        const isSchedulingPeriod = isInShiftSchedulingPeriod();
+        if (isSchedulingPeriod) {
+          const notificationSent = await isInsufficientDaysNotificationSent(yearMonth);
+          if (notificationSent) {
+            const insufficientDays = await fetchInsufficientDays(yearMonth);
+            insufficientDaysSet = new Set(insufficientDays);
+          }
+        }
+        
+        // 申請中（shiftRequestsのpending）の日付は、カレンダー描画後に非同期で反映する
+        // ※ここでawaitするとカレンダー表示自体が遅延/停止するため
+        const pendingUid = window.LiffFirebase?.user?.uid || window.Firebase?.auth?.currentUser?.uid;
+        const pendingCacheKey = `${pendingUid || 'anon'}:${yearMonth}`;
+        window.__PENDING_SHIFT_DATES_CACHE__ = window.__PENDING_SHIFT_DATES_CACHE__ || {};
+        const cachedPendingDates = window.__PENDING_SHIFT_DATES_CACHE__[pendingCacheKey] || [];
+        const pendingShiftDates = new Set(cachedPendingDates);
+        const renderToken = `${pendingCacheKey}:${Date.now()}`;
+        window.__SHIFT_APP_CALENDAR_TOKEN__ = renderToken;
+        
+        // 祝日判定ライブラリの読み込み状態をチェック
+        let holidayLibFailed = false;
+        if (typeof window !== 'undefined' && window.__HOLIDAY_LIB_ERROR__) {
+          holidayLibFailed = true;
+        } else if (typeof window !== 'undefined' && typeof window.JapaneseHolidays === 'undefined') {
+          // ライブラリがまだ読み込まれていない可能性もあるが、エラーフラグがない場合は問題なし
+          // ただし、少し待ってから再チェックする方が良いかもしれないが、今回は簡易的に
+        }
+        
+        // 機能が欠けた場合のalert（最初の1回のみ）
+        if (!window.__ALERTED_MISSING_FEATURES__) {
+          window.__ALERTED_MISSING_FEATURES__ = true;
+          const missingFeatures = [];
+          if (holidayLibFailed) {
+            missingFeatures.push('祝日判定ライブラリが読み込まれていません。簡易的な祝日判定を使用します。');
+          }
+          if (businessHoursLoadFailed) {
+            missingFeatures.push('営業時間データの取得に失敗しました。店休日のグレーアウト表示ができません。');
+          }
+          if (missingFeatures.length > 0) {
+            setTimeout(() => {
+              alert('一部の機能が正しく動作していません：\n\n' + missingFeatures.join('\n'));
+            }, 1000); // カレンダー描画後に表示
+          }
+        }
         
         let calendarHTML = '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
-        calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">日</div>';
-        calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">月</div>';
-        calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">火</div>';
-        calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">水</div>';
-        calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">木</div>';
-        calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">金</div>';
-        calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">土</div>';
+        const weekdayColors = [
+          { day: '日', color: '#ff0000' }, // 赤
+          { day: '月', color: '#000000' }, // 黒
+          { day: '火', color: '#000000' }, // 黒
+          { day: '水', color: '#000000' }, // 黒
+          { day: '木', color: '#000000' }, // 黒
+          { day: '金', color: '#000000' }, // 黒
+          { day: '土', color: '#0000ff' }  // 青
+        ];
+        weekdayColors.forEach(({ day, color }) => {
+          calendarHTML += `<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem; font-weight: bold; color: ${color};">${day}</div>`;
+        });
         calendarHTML += '</div>';
         
         calendarHTML += '<div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
         
-        for (let i = 0; i < 42; i++) {
-          const currentDate = new Date(startDate);
-          currentDate.setDate(startDate.getDate() + i);
-          
-          const isCurrentMonth = currentDate.getMonth() === month;
+        // 前月の日付を埋める（空セル）
+        for (let i = 0; i < firstDayOfMonth; i++) {
+          calendarHTML += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
+        }
+        
+        // 当月の日付を表示
+        for (let day = 1; day <= daysInMonth; day++) {
+          const currentDate = new Date(year, month, day);
           const isToday = currentDate.toDateString() === new Date().toDateString();
+          const weekday = currentDate.getDay(); // 0=日曜日, 6=土曜日
           
           // YYYY-MM-DD形式の日付文字列を生成
-          const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          
+          // 店休日判定
+          const dayStr = String(day).padStart(2, '0');
+          const dayData = businessHoursMap[dayStr];
+          const isClosed = dayData && dayData.isClosed === true;
+          
+          // 祝日判定
+          const isHoliday = isJapaneseHoliday(currentDate);
+          
+          // 曜日と祝日に応じた色を設定
+          let dayColor = '#000000'; // デフォルトは黒
+          if (weekday === 6) { // 土曜日
+            dayColor = isHoliday ? '#ff0000' : '#0000ff'; // 祝日なら赤、そうでなければ青
+          } else if (weekday === 0 || isHoliday) { // 日曜日または祝日
+            dayColor = '#ff0000'; // 赤
+          }
           
           let dayClass = 'calendar-day';
-          if (!isCurrentMonth) dayClass += ' other-month';
           if (isToday) dayClass += ' today';
           
-          calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;">`;
-          calendarHTML += currentDate.getDate();
+          // 選択済みの日付かどうか
+          const isSelected = selectedDates.includes(dateStr);
+          if (isSelected) {
+            dayClass += ' selected';
+          }
+          
+          // ②期間中で送信済みの場合、不足日・不足時間以外は選択不可
+          const isInsufficient = insufficientDaysSet.has(dateStr);
+          const isSelectable = !isSchedulingPeriod || !insufficientDaysSet.size || isInsufficient;
+          
+          // 店休日または選択不可の場合はグレーアウト
+          let dayStyle = 'min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem; position: relative;';
+          let textColor = isToday ? '#0000ff' : dayColor;
+          if (isClosed || !isSelectable) {
+            dayStyle += ' background-color: #e0e0e0; opacity: 0.6;';
+            textColor = '#808080'; // グレー
+          }
+          if (isSelected && !isClosed && isSelectable) {
+            dayStyle += ' background-color: #4caf50;';
+          }
+          
+          calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" data-is-closed="${isClosed ? '1' : '0'}" data-is-selectable="${isSelectable ? '1' : '0'}" style="${dayStyle}"`;
+          if (!isClosed && isSelectable) {
+            if (isSelected) {
+              // 選択済みの場合は緑色を維持
+              calendarHTML += ` onmouseover="this.style.backgroundColor='#4caf50'" onmouseout="this.style.backgroundColor='#4caf50'"`;
+            } else {
+              // 未選択の場合はonmouseoverで背景色を白に設定（タップ時にグレーを表示しない）
+              calendarHTML += ` onmouseover="this.style.backgroundColor='white'" onmouseout="this.style.backgroundColor='white'"`;
+            }
+          }
+          calendarHTML += '>';
+          // 申請中のシフトがある日付にチェックマークを表示（キャッシュ分のみ。最新は描画後に反映）
+          if (pendingShiftDates.has(dateStr) && !isClosed) {
+            const checkColor = isSelected ? '#ffffff' : '#4caf50';
+            const shadow = isSelected ? 'text-shadow: 0 0 2px rgba(0,0,0,0.4);' : '';
+            calendarHTML += `<span class="pending-checkmark" style="position: absolute; top: 1px; right: 2px; font-size: 0.75rem; color: ${checkColor}; ${shadow}">✓</span>`;
+          }
+          calendarHTML += `<span style="font-weight: bold; color: ${textColor};">${day}</span>`;
           calendarHTML += '</div>';
         }
         
         calendarHTML += '</div>';
         calendar.innerHTML = calendarHTML;
+
+        // カレンダー描画後に申請中日付を取得し、チェックマークを反映（非ブロッキング）
+        if (pendingUid) {
+          // まずFirestore直読みを試し（速い）、失敗したらgetShiftsにフォールバック（遅い可能性あり）
+          fetchPendingShiftDatesForMonth(pendingUid, yearMonth)
+            .then((dates) => {
+              if (window.__SHIFT_APP_CALENDAR_TOKEN__ !== renderToken) return;
+              window.__PENDING_SHIFT_DATES_CACHE__[pendingCacheKey] = dates;
+              // localStorageにも保存（次回は即表示）
+              try {
+                localStorage.setItem(`pendingShiftDates:${pendingCacheKey}`, JSON.stringify(dates));
+              } catch (_) {}
+              applyPendingShiftMarks(new Set(dates));
+            })
+            .catch((error) => {
+              console.warn('申請中シフトの取得に失敗しました:', error);
+            });
+        }
+      }
+
+      async function fetchPendingShiftDatesForMonth(userId, yearMonth) {
+        const prefix = `${yearMonth}-`;
+
+        // 1) Firestoreから shiftRequests を直接取得（コールドスタート無しで速い）
+        // キャッシュは使わず、常に最新のデータを取得する（status: "pending"のみ）
+        try {
+          const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const q = query(
+            collection(window.Firebase.db, "shiftRequests"),
+            where("staffId", "==", userId),
+            where("status", "==", "pending")
+          );
+          const snap = await getDocs(q);
+          const dates = [];
+          snap.forEach((docSnap) => {
+            const data = docSnap.data();
+            const dateKey = data?.dateKey;
+            // statusが"pending"であることを再確認（念のため）
+            if (data?.status === "pending" && typeof dateKey === "string" && dateKey.startsWith(prefix)) {
+              dates.push(dateKey);
+            }
+          });
+          const uniqueDates = Array.from(new Set(dates));
+          
+          // 取得したデータをキャッシュに保存
+          try {
+            localStorage.setItem(`pendingShiftDates:${userId}:${yearMonth}`, JSON.stringify(uniqueDates));
+          } catch (_) {}
+          
+          return uniqueDates;
+        } catch (e) {
+          // 権限/インデックスなどで失敗したらフォールバックへ
+          console.warn("shiftRequests direct query failed (fallback to getShifts):", e);
+        }
+
+        // 2) フォールバック: getShifts（遅い可能性あり）
+        const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+        const functions = getFunctions(window.Firebase.app);
+        const getShifts = httpsCallable(functions, "getShifts");
+        const result = await getShifts({ userId });
+        if (!result?.data?.success) return [];
+
+        const allShifts = result.data.shifts || [];
+        const pendingDates = allShifts
+          .filter((shift) => shift && shift.confirmed === null && typeof shift.date === "string" && shift.date.startsWith(prefix))
+          .map((shift) => shift.date);
+
+        const uniqueDates = Array.from(new Set(pendingDates));
+        
+        // 取得したデータをキャッシュに保存
+        try {
+          localStorage.setItem(`pendingShiftDates:${userId}:${yearMonth}`, JSON.stringify(uniqueDates));
+        } catch (_) {}
+        
+        return uniqueDates;
+      }
+
+      function applyPendingShiftMarks(pendingSet) {
+        const calendar = document.getElementById('calendar');
+        if (!calendar) return;
+
+        const dayEls = calendar.querySelectorAll('.calendar-day:not(.empty)');
+        dayEls.forEach((dayEl) => {
+          const dateStr = dayEl.getAttribute('data-date');
+          const isClosed = dayEl.getAttribute('data-is-closed') === '1';
+          const existing = dayEl.querySelector('.pending-checkmark');
+          if (existing) existing.remove();
+
+          if (!dateStr || isClosed || !pendingSet.has(dateStr)) return;
+
+          const isSelected = dayEl.classList.contains('selected');
+          const checkColor = isSelected ? '#ffffff' : '#4caf50';
+          const shadow = isSelected ? 'text-shadow: 0 0 2px rgba(0,0,0,0.4);' : '';
+
+          const mark = document.createElement('span');
+          mark.className = 'pending-checkmark';
+          mark.textContent = '✓';
+          mark.style.position = 'absolute';
+          mark.style.top = '1px';
+          mark.style.right = '2px';
+          mark.style.fontSize = '0.75rem';
+          mark.style.color = checkColor;
+          if (shadow) {
+            mark.style.textShadow = '0 0 2px rgba(0,0,0,0.4)';
+          }
+          dayEl.appendChild(mark);
+        });
       }
 
       // カレンダーのイベントリスナーを設定
+      let calendarClickHandler = null;
       function setupCalendarEventListeners() {
         const calendar = document.getElementById('calendar');
         if (!calendar) return;
 
+        // 既存のリスナーを削除
+        if (calendarClickHandler) {
+          calendar.removeEventListener('click', calendarClickHandler);
+        }
+
         // 日付クリックイベント
-        calendar.addEventListener('click', (e) => {
-          if (e.target.classList.contains('calendar-day') && !e.target.classList.contains('other-month')) {
-            // data-date属性から日付を取得（なければtextContentから生成）
-            const dateAttr = e.target.getAttribute('data-date');
-            if (dateAttr) {
-              selectDate(dateAttr, e.target);
-            } else {
-              // フォールバック: textContentから日付を生成
-              const dayNumber = parseInt(e.target.textContent.trim());
-              if (!isNaN(dayNumber)) {
-                const year = currentMonth.getFullYear();
-                const month = currentMonth.getMonth() + 1;
-                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
-                selectDate(dateStr, e.target);
+        calendarClickHandler = (e) => {
+          // クリックされた要素またはその親要素から.calendar-dayを取得
+          const dayElement = e.target.closest('.calendar-day');
+          if (!dayElement || dayElement.classList.contains('empty') || dayElement.classList.contains('other-month')) {
+            return;
+          }
+          
+          // data-date属性から日付を取得
+          const dateAttr = dayElement.getAttribute('data-date');
+          if (dateAttr) {
+            selectDate(dateAttr, dayElement);
+          } else {
+            // フォールバック: textContentから日付を生成
+            const dayNumber = parseInt(dayElement.textContent.trim());
+            if (!isNaN(dayNumber)) {
+              const year = currentMonth.getFullYear();
+              const month = currentMonth.getMonth() + 1;
+              const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
+              selectDate(dateStr, dayElement);
+            }
+          }
+        };
+        
+        calendar.addEventListener('click', calendarClickHandler);
+      }
+
+      // 日付を日本語形式に変換（YYYY-MM-DD -> YYYY年M月D日）
+      function formatDateToJapanese(dateStr) {
+        if (!dateStr) return '';
+        
+        // YYYY-MM-DD形式の場合
+        if (dateStr.includes('-')) {
+          const [year, month, day] = dateStr.split('-').map(Number);
+          return `${year}年${month}月${day}日`;
+        }
+        
+        // 数字のみの場合（日付のみ）
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth() + 1;
+        const day = parseInt(dateStr);
+        return `${year}年${month}月${day}日`;
+      }
+
+      // 営業時間に基づいて時刻選択のオプションを生成
+      async function updateTimeOptionsForBusinessHours(dateStr) {
+        try {
+          // dateStrからyearMonthを取得（例: "2026-02-15" -> "2026-02"）
+          const dateParts = dateStr.split('-');
+          if (dateParts.length !== 3) {
+            // 数字のみの場合（日付のみ）
+            const year = currentMonth.getFullYear();
+            const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
+            const day = String(dateStr).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+          }
+          
+          const yearMonth = dateStr.substring(0, 7); // "YYYY-MM"
+          const dayStr = dateStr.substring(8, 10); // "DD"
+          
+          // businessHoursMonthlyMapから営業時間を取得
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const mapDocRef = doc(window.Firebase.db, 'businessHoursMonthlyMap', yearMonth);
+          const mapDocSnap = await getDoc(mapDocRef);
+          
+          let openMinute = 540; // デフォルト: 09:00
+          let closeMinute = 1320; // デフォルト: 22:00
+          let isClosed = false;
+          
+          if (mapDocSnap.exists()) {
+            const mapData = mapDocSnap.data();
+            const days = mapData.days || {};
+            const dayData = days[dayStr];
+            
+            if (dayData) {
+              openMinute = dayData.openMinute || openMinute;
+              closeMinute = dayData.closeMinute || closeMinute;
+              isClosed = dayData.isClosed || false;
+            }
+          }
+          
+          // 営業時間に基づいて時刻選択のオプションを更新
+          generateTimeOptionsForBusinessHours(openMinute, closeMinute, isClosed);
+          
+        } catch (error) {
+          console.error('営業時間の取得に失敗しました:', error);
+          // エラー時はデフォルト値（09:00-22:00）を使用
+          generateTimeOptionsForBusinessHours(540, 1320, false);
+        }
+      }
+      
+      // 営業時間に基づいて時刻選択のオプションを生成
+      function generateTimeOptionsForBusinessHours(openMinute, closeMinute, isClosed) {
+        // 分を時間と分に変換（例: 540分 -> 9時0分）
+        const openHour = Math.floor(openMinute / 60);
+        const openMin = openMinute % 60;
+        const closeHour = Math.floor(closeMinute / 60);
+        const closeMin = closeMinute % 60;
+        
+        // 開始時刻のセレクトボックス
+        const startHourSelect = document.getElementById('shift-start-hour');
+        if (startHourSelect) {
+          // 既存のオプションをクリア
+          startHourSelect.innerHTML = '<option value="">時</option>';
+          
+          if (!isClosed) {
+            // 営業時間内の時間のみオプションを追加
+            for (let hour = openHour; hour <= closeHour; hour++) {
+              const option = document.createElement('option');
+              option.value = hour.toString().padStart(2, '0');
+              option.textContent = hour.toString().padStart(2, '0');
+              // デフォルト値として開始時刻を設定
+              if (hour === openHour) {
+                option.selected = true;
+              }
+              startHourSelect.appendChild(option);
+            }
+          }
+        }
+        
+        // 終了時刻のセレクトボックス
+        const endHourSelect = document.getElementById('shift-end-hour');
+        if (endHourSelect) {
+          // 既存のオプションをクリア
+          endHourSelect.innerHTML = '<option value="">時</option>';
+          
+          if (!isClosed) {
+            // 営業時間内の時間のみオプションを追加
+            for (let hour = openHour; hour <= closeHour; hour++) {
+              const option = document.createElement('option');
+              option.value = hour.toString().padStart(2, '0');
+              option.textContent = hour.toString().padStart(2, '0');
+              // デフォルト値として終了時刻を設定
+              if (hour === closeHour) {
+                option.selected = true;
+              }
+              endHourSelect.appendChild(option);
+            }
+          }
+        }
+        
+        // 分のセレクトボックスを明示的に設定（常に00分）
+        const startMinuteSelect = document.getElementById('shift-start-minute');
+        if (startMinuteSelect) {
+          startMinuteSelect.value = '00';
+        }
+        
+        const endMinuteSelect = document.getElementById('shift-end-minute');
+        if (endMinuteSelect) {
+          endMinuteSelect.value = '00';
+        }
+      }
+
+      // 日付選択（複数選択対応）
+      async function selectDate(date, targetElement) {
+        // YYYY-MM-DD形式の日付文字列を取得
+        let dateStr;
+        if (date.includes('-')) {
+          dateStr = date;
+        } else {
+          const year = currentMonth.getFullYear();
+          const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
+          const day = String(date).padStart(2, '0');
+          dateStr = `${year}-${month}-${day}`;
+        }
+        
+        // 店休日判定
+        try {
+          const yearMonth = dateStr.substring(0, 7); // "YYYY-MM"
+          const dayStr = dateStr.substring(8, 10); // "DD"
+          
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const mapDocRef = doc(window.Firebase.db, 'businessHoursMonthlyMap', yearMonth);
+          const mapDocSnap = await getDoc(mapDocRef);
+          
+          let isClosed = false;
+          if (mapDocSnap.exists()) {
+            const mapData = mapDocSnap.data();
+            const days = mapData.days || {};
+            const dayData = days[dayStr];
+            
+            if (dayData) {
+              isClosed = dayData.isClosed || false;
+            }
+          }
+          
+          // 店休日の場合はダイアログを表示して処理を終了
+          if (isClosed) {
+            const dateObj = new Date(dateStr + 'T00:00:00');
+            const year = dateObj.getFullYear();
+            const month = dateObj.getMonth() + 1;
+            const day = dateObj.getDate();
+            const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
+            const weekday = weekdayNames[dateObj.getDay()];
+            const formattedDate = `${year}年${month}月${day}日(${weekday})`;
+            
+            alert(formattedDate + ' は店休日です。');
+            return;
+          }
+          
+          // ②期間中で送信済みの場合、不足日・不足時間以外は選択不可
+          const isSchedulingPeriod = isInShiftSchedulingPeriod();
+          if (isSchedulingPeriod) {
+            const notificationSent = await isInsufficientDaysNotificationSent(yearMonth);
+            if (notificationSent) {
+              const insufficientDays = await fetchInsufficientDays(yearMonth);
+              const isInsufficient = insufficientDays.includes(dateStr);
+              
+              if (!isInsufficient) {
+                const dateObj = new Date(dateStr + 'T00:00:00');
+                const year = dateObj.getFullYear();
+                const month = dateObj.getMonth() + 1;
+                const day = dateObj.getDate();
+                const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
+                const weekday = weekdayNames[dateObj.getDay()];
+                const formattedDate = `${year}年${month}月${day}日(${weekday})`;
+                
+                alert(formattedDate + ' は不足日・不足時間のみ申請可能です。');
+                return;
               }
             }
           }
+        } catch (error) {
+          console.error('日付選択判定エラー:', error);
+          // エラー時は通常の処理を続行
+        }
+        
+        // 既に選択されている場合は選択解除、そうでなければ選択追加
+        const index = selectedDates.indexOf(dateStr);
+        if (index > -1) {
+          // 選択解除
+          selectedDates.splice(index, 1);
+          if (targetElement) {
+            targetElement.classList.remove('selected');
+            // インラインスタイルで背景色を白に明示的に設定（CSSの:hoverを上書き）
+            targetElement.style.backgroundColor = 'white';
+            targetElement.style.border = '';
+            // onmouseover/onmouseoutを設定（タップ時にグレーを表示しないように背景色を白に設定）
+            targetElement.setAttribute('onmouseover', "this.style.backgroundColor='white'");
+            targetElement.setAttribute('onmouseout', "this.style.backgroundColor='white'");
+          }
+        } else {
+          // 選択追加
+          selectedDates.push(dateStr);
+          if (targetElement) {
+            targetElement.classList.add('selected');
+            // インラインスタイルを直接更新（背景色を緑に設定）
+            targetElement.style.backgroundColor = '#4caf50';
+            targetElement.style.border = '';
+            // onmouseover/onmouseoutを選択済み用に更新
+            targetElement.setAttribute('onmouseover', "this.style.backgroundColor='#4caf50'");
+            targetElement.setAttribute('onmouseout', "this.style.backgroundColor='#4caf50'");
+          }
+        }
+        
+        // 他の日付の選択状態を更新（選択解除された日付のスタイルをクリア）
+        const allDayElements = document.querySelectorAll('.calendar-day:not(.empty)');
+        allDayElements.forEach(dayEl => {
+          const dayDate = dayEl.getAttribute('data-date');
+          if (dayDate && dayDate !== dateStr) {
+            const isSelected = selectedDates.includes(dayDate);
+            if (isSelected) {
+              dayEl.classList.add('selected');
+              dayEl.style.backgroundColor = '#4caf50';
+              dayEl.style.border = '';
+              // onmouseover/onmouseoutを選択済み用に更新
+              dayEl.setAttribute('onmouseover', "this.style.backgroundColor='#4caf50'");
+              dayEl.setAttribute('onmouseout', "this.style.backgroundColor='#4caf50'");
+            } else {
+              dayEl.classList.remove('selected');
+              // インラインスタイルで背景色を白に明示的に設定（CSSの:hoverを上書き）
+              dayEl.style.backgroundColor = 'white';
+              dayEl.style.border = '';
+              // onmouseover/onmouseoutを設定（タップ時にグレーを表示しないように背景色を白に設定）
+              dayEl.setAttribute('onmouseover', "this.style.backgroundColor='white'");
+              dayEl.setAttribute('onmouseout', "this.style.backgroundColor='white'");
+            }
+          }
+        });
+        
+        // 「次へ」ボタンの表示/非表示を更新
+        updateNextButton();
+      }
+      
+      // 「次へ」ボタンの表示/非表示を更新
+      function updateNextButton() {
+        const nextBtn = document.getElementById('go-to-edit-page-btn');
+        if (nextBtn) {
+          nextBtn.style.display = selectedDates.length > 0 ? 'block' : 'none';
+        }
+      }
+      
+      // 編集ページを表示
+      async function showEditPage() {
+        if (selectedDates.length === 0) {
+          alert('日付を選択してください');
+          return;
+        }
+        
+        // 編集ページを表示（完全に別ページとして）
+        if (shiftEditPageEl) {
+          showPage(shiftEditPageEl);
+        }
+        
+        // 次月の全日のカードを生成
+        await renderEditPage();
+      }
+      
+      // 編集ページを描画
+      async function renderEditPage() {
+        const editList = document.getElementById('shift-edit-list');
+        if (!editList) return;
+        
+        const yearMonth = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`;
+        const lastDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+        const daysInMonth = lastDay.getDate();
+        
+        // 営業時間データを取得
+        let businessHoursMap = {};
+        try {
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const mapDocRef = doc(window.Firebase.db, 'businessHoursMonthlyMap', yearMonth);
+          const mapDocSnap = await getDoc(mapDocRef);
+          if (mapDocSnap.exists()) {
+            const mapData = mapDocSnap.data();
+            businessHoursMap = mapData.days || {};
+          }
+        } catch (error) {
+          console.error('営業時間データの取得に失敗しました:', error);
+        }
+        
+        // 既存の申請データを取得（提出期間中のみ）
+        const existingRequests = new Map();
+        const currentUid = getCurrentUid();
+        if (currentUid && selectedDates.length > 0) {
+          try {
+            const { collection, query, where, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+            const requestsQuery = query(
+              collection(window.Firebase.db, 'shiftRequests'),
+              where('staffId', '==', currentUid),
+              where('status', '==', 'pending')
+            );
+            const requestsSnapshot = await getDocs(requestsQuery);
+            requestsSnapshot.forEach(doc => {
+              const data = doc.data();
+              if (selectedDates.includes(data.dateKey)) {
+                existingRequests.set(data.dateKey, {
+                  requestId: doc.id,
+                  startMinute: data.startMinute,
+                  endMinute: data.endMinute,
+                });
+              }
+            });
+          } catch (error) {
+            console.error('既存申請データの取得エラー:', error);
+          }
+        }
+        
+        // 編集データを初期化
+        shiftEditData = {};
+        
+        let html = '';
+        for (let day = 1; day <= daysInMonth; day++) {
+          const dayStr = String(day).padStart(2, '0');
+          const dateKey = `${yearMonth}-${dayStr}`;
+          const dateObj = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+          const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
+          const weekday = weekdayNames[dateObj.getDay()];
+          const weekdayNum = dateObj.getDay(); // 0=日曜日, 6=土曜日
+          
+          // 祝日判定
+          const isHoliday = isJapaneseHoliday(dateObj);
+          
+          // 曜日と祝日に応じた色を設定
+          let dayColor = '#000000'; // デフォルトは黒
+          if (weekdayNum === 6) { // 土曜日
+            dayColor = isHoliday ? '#ff0000' : '#0000ff'; // 祝日なら赤、そうでなければ青
+          } else if (weekdayNum === 0 || isHoliday) { // 日曜日または祝日
+            dayColor = '#ff0000'; // 赤
+          }
+          
+          const formattedDate = `${currentMonth.getMonth() + 1}/${day}(<span style="color: ${dayColor};">${weekday}</span>)`;
+          
+          // 店休日判定
+          const dayData = businessHoursMap[dayStr];
+          const isClosed = dayData && dayData.isClosed === true;
+          
+          // 選択された日付かどうか
+          const isSelected = selectedDates.includes(dateKey);
+          
+          // デフォルトの営業時間を取得
+          let defaultStartHour = '09';
+          let defaultEndHour = '22';
+          
+          if (isSelected && dayData && !isClosed) {
+            // 選択された日付で店休日でない場合、営業時間をデフォルト値として設定
+            const openMinute = dayData.openMinute || 540; // デフォルト: 09:00
+            const closeMinute = dayData.closeMinute || 1320; // デフォルト: 22:00
+            
+            // 開始時刻（1時間刻み）
+            defaultStartHour = String(Math.floor(openMinute / 60)).padStart(2, '0');
+            
+            // 終了時刻（1時間刻み、1440分の場合は24:00として扱う）
+            if (closeMinute >= 1440) {
+              defaultEndHour = '24';
+            } else {
+              defaultEndHour = String(Math.floor(closeMinute / 60)).padStart(2, '0');
+            }
+          }
+          
+          // 営業時間データを取得（選択した日のみ）
+          let openHour = 9;
+          let closeHour = 22;
+          let closeHourStr = '22';
+          if (isSelected && !isClosed && dayData) {
+            const openMinute = dayData.openMinute || 540;
+            const closeMinute = dayData.closeMinute || 1320;
+            openHour = Math.floor(openMinute / 60);
+            if (closeMinute >= 1440) {
+              closeHour = 24;
+              closeHourStr = '24';
+            } else {
+              closeHour = Math.floor(closeMinute / 60);
+              closeHourStr = String(closeHour).padStart(2, '0');
+            }
+          }
+          
+          // 既存の申請データを取得（選択されていない日付でも確認）
+          const existingRequest = existingRequests.get(dateKey);
+          let existingRequestTimeText = '';
+          if (existingRequest) {
+            const formatTime = (minutes) => {
+              if (minutes === 1440) return '24:00';
+              const hours = Math.floor(minutes / 60);
+              const mins = minutes % 60;
+              return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+            };
+            const startTimeStr = formatTime(existingRequest.startMinute);
+            const endTimeStr = formatTime(existingRequest.endMinute);
+            existingRequestTimeText = `${startTimeStr} - ${endTimeStr}`;
+          }
+          
+          // 編集データを初期化（選択した日のみ）
+          if (isSelected && !isClosed) {
+            if (!shiftEditData[dateKey]) {
+              // 既存の申請がある場合はそのデータを使用、ない場合はデフォルト値
+              let initialStartHour = defaultStartHour;
+              let initialEndHour = defaultEndHour;
+              
+              if (existingRequest) {
+                // 既存の申請データを使用
+                const formatTime = (minutes) => {
+                  if (minutes === 1440) return '24:00';
+                  const hours = Math.floor(minutes / 60);
+                  return `${String(hours).padStart(2, '0')}:00`;
+                };
+                const startTimeStr = formatTime(existingRequest.startMinute);
+                const endTimeStr = formatTime(existingRequest.endMinute);
+                initialStartHour = startTimeStr === '24:00' ? '24' : startTimeStr.split(':')[0];
+                initialEndHour = endTimeStr === '24:00' ? '24' : endTimeStr.split(':')[0];
+              }
+              
+              shiftEditData[dateKey] = {
+                startHour: initialStartHour,
+                startMinute: '00', // 常に00（1時間刻み）
+                endHour: initialEndHour,
+                endMinute: '00', // 常に00（1時間刻み）
+                enabled: true, // 選択した日はデフォルトで有効
+                openHour: openHour,
+                closeHour: closeHour,
+                existingRequestId: existingRequest ? existingRequest.requestId : null
+              };
+            }
+          }
+          
+          // 営業時間の表示用文字列を生成
+          let businessHoursText = '';
+          if (!isClosed && dayData) {
+            const openMinute = dayData.openMinute || 540;
+            const closeMinute = dayData.closeMinute || 1320;
+            const openHourDisp = Math.floor(openMinute / 60);
+            const openMinDisp = openMinute % 60;
+            let closeHourDisp = Math.floor(closeMinute / 60);
+            const closeMinDisp = closeMinute % 60;
+            
+            // 1440分の場合は24:00として表示
+            if (closeMinute >= 1440) {
+              businessHoursText = `${String(openHourDisp).padStart(2, '0')}:${String(openMinDisp).padStart(2, '0')} - 24:00`;
+            } else {
+              businessHoursText = `${String(openHourDisp).padStart(2, '0')}:${String(openMinDisp).padStart(2, '0')} - ${String(closeHourDisp).padStart(2, '0')}:${String(closeMinDisp).padStart(2, '0')}`;
+            }
+          } else if (!isClosed) {
+            businessHoursText = '09:00 - 22:00'; // デフォルト
+          }
+          
+          html += `
+            <div class="shift-edit-card" data-date="${dateKey}" data-open-hour="${openHour}" data-close-hour="${closeHour}" style="border: 1px solid #ddd; border-radius: 8px; padding: ${isClosed ? '10px' : '15px'}; margin-bottom: ${isClosed ? '10px' : '15px'}; background-color: ${isClosed ? '#f5f5f5' : isSelected ? '#fff' : '#f9f9f9'};">
+              <div style="display: flex; justify-content: space-between; align-items: center; ${isClosed ? '' : 'margin-bottom: 10px;'}">
+                <h4 style="margin: 0; color: ${isClosed ? '#999' : '#333'}; font-weight: ${isClosed ? 'normal' : 'bold'};">
+                  ${isClosed ? formattedDate.replace(`<span style="color: ${dayColor};">`, `<span style="color: ${dayColor}; font-weight: normal;">`) : formattedDate}
+                  ${isSelected ? (existingRequest ? '<span style="color: #ff9800; font-size: 0.9em;">（修正可能）</span>' : '<span style="color: #4caf50; font-size: 0.9em;">(選択済)</span>') : !isSelected && !isClosed ? (existingRequest ? '' : '<span style="color: #666; font-size: 0.9em;">(未選択)</span>') : isClosed ? '<span style="color: #333; font-size: 0.9em; margin-left: 8px;">店休日</span>' : ''}
+                </h4>
+                ${isSelected && !isClosed ? `
+                  <label style="display: flex; align-items: center; gap: 5px;">
+                    <input type="checkbox" class="shift-enable-checkbox" data-date="${dateKey}" checked>
+                    <span style="font-size: 0.9em;">申請する</span>
+                  </label>
+                ` : ''}
+              </div>
+              ${isClosed ? '' : 
+                isSelected ? `
+                ${existingRequest ? `<p style="color: #ff9800; margin: 0 0 10px 0; font-size: 0.9em; font-weight: bold;">以前の申請時間: ${existingRequestTimeText}</p>` : ''}
+                <div class="shift-time-inputs" style="display: flex; flex-direction: row; gap: 15px; align-items: flex-start;">
+                  <div style="flex: 1; display: flex; flex-direction: column;">
+                    <label style="font-size: 0.9em; color: #666; margin-bottom: 5px;">開始時刻</label>
+                    <select class="start-hour-select" data-date="${dateKey}" style="width: 100%; height: 40px; font-size: 16px; padding: 8px;">
+                      ${generateHourOptionsInBusinessHours(openHour, closeHour, (shiftEditData[dateKey] && shiftEditData[dateKey].startHour) ? shiftEditData[dateKey].startHour : defaultStartHour, null, (shiftEditData[dateKey] && shiftEditData[dateKey].endHour) ? shiftEditData[dateKey].endHour : defaultEndHour)}
+                    </select>
+                  </div>
+                  <div style="flex: 1; display: flex; flex-direction: column;">
+                    <label style="font-size: 0.9em; color: #666; margin-bottom: 5px;">終了時刻</label>
+                    <select class="end-hour-select" data-date="${dateKey}" style="width: 100%; height: 40px; font-size: 16px; padding: 8px;">
+                      ${generateHourOptionsInBusinessHours(openHour, closeHour, (shiftEditData[dateKey] && shiftEditData[dateKey].endHour) ? shiftEditData[dateKey].endHour : defaultEndHour, (shiftEditData[dateKey] && shiftEditData[dateKey].startHour) ? shiftEditData[dateKey].startHour : defaultStartHour, null)}
+                    </select>
+                  </div>
+                </div>
+                <p style="color: #666; margin: 10px 0 0 0; font-size: 0.9em;">営業時間: ${businessHoursText}</p>
+              ` : `
+                <p style="color: #666; margin: 0; font-size: 0.9em;">営業時間: ${businessHoursText}</p>
+                ${existingRequest ? `<p style="color: #ff9800; margin: 5px 0 0 0; font-size: 0.9em; font-weight: bold;">以前の申請時間: ${existingRequestTimeText}</p>` : ''}
+                <p style="color: #999; margin: 5px 0 0 0; font-size: 0.85em;">※カレンダーページで選択すると編集可能になります</p>
+              `}
+            </div>
+          `;
+        }
+        
+        editList.innerHTML = html;
+        
+        // イベントリスナーを設定
+        setupEditPageListeners();
+      }
+      
+      // 営業時間内の時間選択オプションを生成
+      // openHour: 営業開始時刻（時）
+      // closeHour: 営業終了時刻（時、24の場合は24:00）
+      // selected: 選択されている時刻
+      // minHour: 最小時刻（開始時刻の場合はnull、終了時刻の場合は開始時刻）
+      // maxHour: 最大時刻（開始時刻の場合は終了時刻、終了時刻の場合はnull）
+      function generateHourOptionsInBusinessHours(openHour, closeHour, selected, minHour, maxHour) {
+        let options = '';
+        const startHour = minHour !== null ? Math.max(openHour, parseInt(minHour) + 1) : openHour;
+        const endHour = maxHour !== null ? Math.min(closeHour, parseInt(maxHour) - 1) : closeHour;
+        
+        for (let hour = startHour; hour <= endHour; hour++) {
+          const hourStr = hour === 24 ? '24' : String(hour).padStart(2, '0');
+          const displayStr = hour === 24 ? '24:00' : `${hourStr}:00`;
+          const isSelected = (hour === 24 && selected === '24') || (hour !== 24 && hourStr === selected);
+          options += `<option value="${hourStr}" ${isSelected ? 'selected' : ''}>${displayStr}</option>`;
+        }
+        return options;
+      }
+      
+      // 編集ページのイベントリスナーを設定
+      function setupEditPageListeners() {
+        // チェックボックスの変更
+        document.querySelectorAll('.shift-enable-checkbox').forEach(checkbox => {
+          checkbox.addEventListener('change', function() {
+            const dateKey = this.getAttribute('data-date');
+            const enabled = this.checked;
+            
+            if (shiftEditData[dateKey]) {
+              shiftEditData[dateKey].enabled = enabled;
+              
+              // 入力フィールドの有効/無効を切り替え
+              const card = this.closest('.shift-edit-card');
+              if (card) {
+                card.querySelectorAll('select').forEach(select => {
+                  select.disabled = !enabled;
+                });
+              }
+            }
+          });
+        });
+        
+        // 時間選択の変更（1時間刻みなので分は常に00）
+        document.querySelectorAll('.start-hour-select').forEach(select => {
+          select.addEventListener('change', function() {
+            const dateKey = this.getAttribute('data-date');
+            const card = this.closest('.shift-edit-card');
+            const openHour = parseInt(card.getAttribute('data-open-hour'));
+            const closeHour = parseInt(card.getAttribute('data-close-hour'));
+            const startHour = this.value;
+            
+            if (shiftEditData[dateKey]) {
+              shiftEditData[dateKey].startHour = startHour;
+              shiftEditData[dateKey].startMinute = '00';
+              
+              // 終了時刻の選択肢を更新（開始時刻より後の時刻のみ、かつ営業時間内）
+              const endSelect = card.querySelector('.end-hour-select');
+              if (endSelect) {
+                const currentEndHour = shiftEditData[dateKey].endHour;
+                const endHourInt = currentEndHour === '24' ? 24 : parseInt(currentEndHour);
+                const startHourInt = parseInt(startHour);
+                
+                // 開始時刻より終了時刻が早い場合は、開始時刻+1に調整
+                if (endHourInt <= startHourInt) {
+                  const newEndHour = Math.min(startHourInt + 1, closeHour);
+                  shiftEditData[dateKey].endHour = newEndHour === 24 ? '24' : String(newEndHour).padStart(2, '0');
+                }
+                
+                endSelect.innerHTML = generateHourOptionsInBusinessHours(
+                  openHour,
+                  closeHour,
+                  shiftEditData[dateKey].endHour,
+                  startHour,
+                  null
+                );
+              }
+            }
+          });
+        });
+        
+        document.querySelectorAll('.end-hour-select').forEach(select => {
+          select.addEventListener('change', function() {
+            const dateKey = this.getAttribute('data-date');
+            const card = this.closest('.shift-edit-card');
+            const openHour = parseInt(card.getAttribute('data-open-hour'));
+            const closeHour = parseInt(card.getAttribute('data-close-hour'));
+            const endHour = this.value;
+            
+            if (shiftEditData[dateKey]) {
+              shiftEditData[dateKey].endHour = endHour;
+              shiftEditData[dateKey].endMinute = '00';
+              
+              // 開始時刻の選択肢を更新（終了時刻より前の時刻のみ、かつ営業時間内）
+              const startSelect = card.querySelector('.start-hour-select');
+              if (startSelect) {
+                const currentStartHour = shiftEditData[dateKey].startHour;
+                const endHourInt = endHour === '24' ? 24 : parseInt(endHour);
+                const startHourInt = parseInt(currentStartHour);
+                
+                // 終了時刻より開始時刻が遅い場合は、終了時刻-1に調整
+                if (startHourInt >= endHourInt) {
+                  const newStartHour = Math.max(endHourInt - 1, openHour);
+                  shiftEditData[dateKey].startHour = String(newStartHour).padStart(2, '0');
+                }
+                
+                startSelect.innerHTML = generateHourOptionsInBusinessHours(
+                  openHour,
+                  closeHour,
+                  shiftEditData[dateKey].startHour,
+                  null,
+                  endHour
+                );
+              }
+            }
+          });
         });
       }
-
-      // 日付選択
-      function selectDate(date, targetElement) {
-        selectedDate = date;
+      
+      // 確認ページを表示
+      function showConfirmPage() {
+        // 編集ページのデータを取得
+        const enabledShifts = [];
+        for (const [dateKey, data] of Object.entries(shiftEditData)) {
+          if (data.enabled) {
+            // 24:00の場合は24:00として表示、それ以外は時:00として表示
+            const endTime = data.endHour === '24' ? '24:00' : `${data.endHour}:00`;
+            enabledShifts.push({
+              date: dateKey,
+              start: `${data.startHour}:00`,
+              end: endTime,
+              displayText: formatShiftDisplay(dateKey, data.startHour, '00', data.endHour, '00'),
+              existingRequestId: data.existingRequestId || null // 既存の申請IDを保存
+            });
+          }
+        }
         
-        // カレンダーの選択状態を更新
-        document.querySelectorAll('.calendar-day').forEach(day => {
-          day.classList.remove('selected');
+        if (enabledShifts.length === 0) {
+          alert('申請するシフトがありません。編集ページで「申請する」にチェックを入れてください。');
+          return;
+        }
+        
+        // 確認ページを表示（完全に別ページとして）
+        if (shiftConfirmPageEl) {
+          showPage(shiftConfirmPageEl);
+        }
+        
+        // 確認ページを描画
+        renderConfirmPage(enabledShifts);
+      }
+      
+      // 確認ページを描画
+      function renderConfirmPage(shifts) {
+        const confirmList = document.getElementById('shift-confirm-list');
+        if (!confirmList) return;
+        
+        let html = '';
+        shifts.forEach(shift => {
+          const dateObj = new Date(shift.date + 'T00:00:00');
+          const month = dateObj.getMonth() + 1;
+          const day = dateObj.getDate();
+          const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
+          const weekday = weekdayNames[dateObj.getDay()];
+          const weekdayNum = dateObj.getDay();
+          
+          // 祝日判定
+          const isHoliday = isJapaneseHoliday(dateObj);
+          
+          // 曜日と祝日に応じた色を設定
+          let dayColor = '#000000'; // デフォルトは黒
+          if (weekdayNum === 6) { // 土曜日
+            dayColor = isHoliday ? '#ff0000' : '#0000ff'; // 祝日なら赤、そうでなければ青
+          } else if (weekdayNum === 0 || isHoliday) { // 日曜日または祝日
+            dayColor = '#ff0000'; // 赤
+          }
+          
+          const formattedDate = `${month}/${day}(<span style="color: ${dayColor};">${weekday}</span>)`;
+          
+          html += `
+            <div class="shift-confirm-card" style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 15px; background-color: #fff;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h4 style="margin: 0; color: #333;">
+                  ${formattedDate}
+                  <span style="color: #333; margin-left: 8px;">${shift.start} - ${shift.end}</span>
+                </h4>
+              </div>
+            </div>
+          `;
         });
         
-        // 選択された日付にselectedクラスを追加
-        if (targetElement) {
-          targetElement.classList.add('selected');
+        confirmList.innerHTML = html;
+        
+        // グローバル変数に保存（申請時に使用）
+        window.confirmShifts = shifts;
+      }
+      
+      // シフト表示用のフォーマット
+      function formatShiftDisplay(dateKey, startHour, startMinute, endHour, endMinute) {
+        const dateObj = new Date(dateKey + 'T00:00:00');
+        const year = dateObj.getFullYear();
+        const month = dateObj.getMonth() + 1;
+        const day = dateObj.getDate();
+        return `${year}年${month}月${day}日 ${startHour}:${startMinute} - ${endHour}:${endMinute}`;
+      }
+      
+      // シフト申請を実行
+      async function submitShifts() {
+        const shifts = window.confirmShifts || [];
+        
+        if (shifts.length === 0) {
+          alert('申請するシフトがありません');
+          return;
         }
         
-        // シフト時間入力と未提出シフト一覧を表示
-        const shiftInputContainer = document.getElementById('shift-input-container');
-        const pendingShiftsContainer = document.getElementById('pending-shifts-container');
+        // ローディング表示
+        showGlobalLoading('シフト申請中...');
         
-        if (shiftInputContainer) {
-          shiftInputContainer.style.display = 'block';
+        try {
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          
+          // 既存の申請があるものと新規作成するものを分ける
+          const shiftsToUpdate = [];
+          const shiftsToCreate = [];
+          
+          shifts.forEach(shift => {
+            if (shift.existingRequestId) {
+              // 既存の申請を更新
+              shiftsToUpdate.push({
+                requestId: shift.existingRequestId,
+                start: shift.start,
+                end: shift.end
+              });
+            } else {
+              // 新規作成
+              shiftsToCreate.push({
+                date: shift.date,
+                start: shift.start,
+                end: shift.end
+              });
+            }
+          });
+          
+          // 既存の申請を更新
+          const updatePromises = shiftsToUpdate.map(shift => {
+            const updateShiftRequest = httpsCallable(functions, 'updateShiftRequest');
+            return updateShiftRequest({
+              requestId: shift.requestId,
+              start: shift.start,
+              end: shift.end,
+            });
+          });
+          
+          // 新規作成
+          let createResult = null;
+          if (shiftsToCreate.length > 0) {
+            const createMultipleShifts = httpsCallable(functions, 'createMultipleShifts');
+            createResult = await createMultipleShifts({ shifts: shiftsToCreate });
+          }
+          
+          // 更新処理を実行
+          const updateResults = await Promise.all(updatePromises);
+          
+          // エラーチェック
+          const updateErrors = updateResults.filter(result => !result.data.success);
+          if (updateErrors.length > 0) {
+            throw new Error('一部のシフトの更新に失敗しました');
+          }
+          
+          if (shiftsToCreate.length > 0 && (!createResult || !createResult.data.success)) {
+            throw new Error(createResult?.data?.error || '新規シフトの作成に失敗しました');
+          }
+          
+          // ローディング非表示
+          hideGlobalLoading();
+          
+          const updateCount = shiftsToUpdate.length;
+          const createCount = shiftsToCreate.length;
+          let message = '✅ シフト申請完了！\n\n';
+          if (updateCount > 0 && createCount > 0) {
+            message += `${updateCount}件のシフトを更新し、${createCount}件のシフトを新規作成しました。`;
+          } else if (updateCount > 0) {
+            message += `${updateCount}件のシフトを更新しました。`;
+          } else {
+            message += `${createCount}件のシフトが正常に保存されました。`;
+          }
+          alert(message);
+          
+          // 初期状態に戻す
+          selectedDates = [];
+          shiftEditData = {};
+          window.confirmShifts = [];
+          
+          // カレンダーページに戻る（シフト管理ページを表示）
+          showPage(shiftPageEl);
+          showShiftApplication();
+          
+          // カレンダーを再描画
+          initializeCalendar();
+        } catch (error) {
+          // ローディング非表示
+          hideGlobalLoading();
+          
+          console.error('シフト申請エラー:', error);
+          alert(`❌ シフト申請失敗！\n\nエラー: ${error.message || error}\n\nシフトは保存されていません。\n再度お試しください。`);
         }
-        if (pendingShiftsContainer) {
-          pendingShiftsContainer.style.display = 'block';
+      }
+      
+      // カレンダーページに戻る
+      function backToCalendar() {
+        // シフト管理ページを表示
+        showPage(shiftPageEl);
+        showShiftApplication();
+      }
+      
+      // 編集ページに戻る
+      function backToEdit() {
+        // 編集ページを表示
+        if (shiftEditPageEl) {
+          showPage(shiftEditPageEl);
         }
       }
 
@@ -1106,11 +2303,11 @@
 
         // セレクトボックスから値を取得
         const startHour = document.getElementById('shift-start-hour').value;
-        const startMinute = document.getElementById('shift-start-minute').value;
+        const startMinute = '00'; // 分は常に00分
         const endHour = document.getElementById('shift-end-hour').value;
-        const endMinute = document.getElementById('shift-end-minute').value;
+        const endMinute = '00'; // 分は常に00分
         
-        if (!startHour || !startMinute || !endHour || !endMinute) {
+        if (!startHour || !endHour) {
           showError('開始時刻と終了時刻を入力してください');
           alert('❌ エラー！\n\n開始時刻と終了時刻を入力してください。');
           return;
@@ -1289,11 +2486,68 @@
       }
 
 
+      // ===== 確定シフト用: getShifts 事前fetch（タブ切替の待ち時間削減）=====
+      function getCurrentUid() {
+        return window.LiffFirebase?.user?.uid || window.Firebase?.auth?.currentUser?.uid || null;
+      }
+
+      async function fetchAllShiftsViaGetShifts(uid) {
+        const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+        const functions = getFunctions(window.Firebase.app);
+        const getShifts = httpsCallable(functions, "getShifts");
+        const result = await getShifts({ userId: uid });
+        if (!result?.data?.success) {
+          throw new Error(result?.data?.error || "getShifts failed");
+        }
+        return result.data.shifts || [];
+      }
+
+      function startPrefetchGetShifts(reason = "") {
+        try {
+          const uid = getCurrentUid();
+          if (!uid) return;
+          if (!window.Firebase?.app) return;
+
+          const now = Date.now();
+          const cache = (window.__GET_SHIFTS_PREFETCH__ ||= {});
+
+          // 同一UIDで、直近に開始済みなら再利用
+          if (cache.uid === uid) {
+            if (cache.data && now - (cache.completedAt || 0) < 30 * 1000) return; // 30秒は新鮮扱い
+            if (cache.promise && now - (cache.startedAt || 0) < 30 * 1000) return; // 実行中を再利用
+          }
+
+          cache.uid = uid;
+          cache.startedAt = now;
+          cache.completedAt = null;
+          cache.error = null;
+          cache.data = null;
+          cache.reason = reason;
+
+          cache.promise = fetchAllShiftsViaGetShifts(uid)
+            .then((shifts) => {
+              cache.data = shifts;
+              cache.completedAt = Date.now();
+              return shifts;
+            })
+            .catch((err) => {
+              cache.error = err;
+              cache.completedAt = Date.now();
+              throw err;
+            });
+        } catch (_) {
+          // 事前fetchは失敗してもUIに影響を出さない
+        }
+      }
+
       // シフト管理ページを開いた時の初期化
       window.openShiftManagement = (requestId, date, start, end) => {
         showPage(shiftPageEl);
         showShiftApplication();
         initializeCalendar();
+
+        // 確定シフト用にgetShiftsを事前fetch（タブ切替の待ち時間削減）
+        startPrefetchGetShifts("openShiftManagement");
         
         // URLパラメータがある場合は自動入力
         if (date) {
@@ -1322,7 +2576,9 @@
             
             // カレンダーを該当月に移動
             currentMonth = new Date(year, month, 1);
-            renderCalendar();
+            renderCalendar().catch(error => {
+              console.error('カレンダー描画エラー:', error);
+            });
             
             // 日付を選択（カレンダーが再描画されるまで待つ）
             setTimeout(() => {
@@ -1388,8 +2644,230 @@
         }
       };
 
+      // 不足日・不足時間の日付リストを取得（キャッシュ付き）
+      let insufficientDaysCache = null;
+      let insufficientDaysCacheKey = null;
+      
+      async function fetchInsufficientDays(yearMonth) {
+        const cacheKey = `insufficientDays:${yearMonth}`;
+        if (insufficientDaysCacheKey === cacheKey && insufficientDaysCache) {
+          return insufficientDaysCache;
+        }
+        
+        try {
+          // localStorageキャッシュを確認
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed)) {
+              insufficientDaysCache = parsed;
+              insufficientDaysCacheKey = cacheKey;
+              return parsed;
+            }
+          }
+          
+          // Firestoreから直接取得
+          const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const daysSnapshot = await getDocs(
+            collection(window.Firebase.db, "shifts", yearMonth, "days")
+          );
+          
+          const insufficientDates = [];
+          daysSnapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            const businessHours = data.businessHours || {};
+            
+            // 不足日の条件: !isFinalized && !isClosed && isSufficient==false
+            if (
+              data.isFinalized !== true &&
+              businessHours.isClosed !== true &&
+              data.isSufficient === false
+            ) {
+              insufficientDates.push(data.dateKey);
+            }
+          });
+          
+          insufficientDaysCache = insufficientDates;
+          insufficientDaysCacheKey = cacheKey;
+          
+          // localStorageに保存
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify(insufficientDates));
+          } catch (_) {}
+          
+          return insufficientDates;
+        } catch (error) {
+          console.warn('不足日の取得に失敗しました:', error);
+          return [];
+        }
+      }
+      
+      // 管理者が不足日・不足時間を送信したかどうかを判定
+      async function isInsufficientDaysNotificationSent(yearMonth) {
+        try {
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const monthDocRef = doc(window.Firebase.db, 'shifts', yearMonth);
+          const monthDocSnap = await getDoc(monthDocRef);
+          
+          if (!monthDocSnap.exists()) {
+            return false;
+          }
+          
+          const data = monthDocSnap.data();
+          return data?.insufficientDaysNotificationSent === true;
+        } catch (error) {
+          console.warn('不足日送信フラグの取得に失敗しました:', error);
+          return false;
+        }
+      }
+      
+      // 次月が最終確定済みかどうかを判定
+      async function isNextMonthFinalized() {
+        try {
+          // 次月を計算
+          const now = new Date();
+          const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+          const currentYear = jstNow.getUTCFullYear();
+          const currentMonth = jstNow.getUTCMonth() + 1; // getUTCMonth()は0-11、+1で1-12
+          
+          let nextMonthYear = currentYear;
+          let nextMonthMonth = currentMonth + 1;
+          if (nextMonthMonth > 12) {
+            nextMonthMonth = 1;
+            nextMonthYear++;
+          }
+          
+          const nextYearMonth = `${nextMonthYear}-${String(nextMonthMonth).padStart(2, '0')}`;
+          
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const monthDocRef = doc(window.Firebase.db, 'shifts', nextYearMonth);
+          const monthDocSnap = await getDoc(monthDocRef);
+          
+          if (!monthDocSnap.exists()) {
+            return false;
+          }
+          
+          const data = monthDocSnap.data();
+          return data?.allDaysFinalized === true;
+        } catch (error) {
+          console.warn('次月の最終確定フラグの取得に失敗しました:', error);
+          return false;
+        }
+      }
+      
+      // ②期間（シフトを組む期間）かどうかを判定
+      // 対象月の前月16日〜22日が②期間
+      // この期間中は基本的に提出・修正不可。管理者が不足日・不足時間を送信したタイミングで、不足日・不足時間のみ提出可能になる
+      function isInShiftSchedulingPeriod() {
+        // JSTの現在日付を取得
+        const now = new Date();
+        const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+        const currentYear = jstNow.getUTCFullYear();
+        const currentMonth = jstNow.getUTCMonth() + 1; // getUTCMonth()は0-11、+1で1-12
+        const currentDay = jstNow.getUTCDate();
+        
+        // 次月を計算（対象月）
+        let nextMonthYear = currentYear;
+        let nextMonthMonth = currentMonth + 1;
+        if (nextMonthMonth > 12) {
+          nextMonthMonth = 1;
+          nextMonthYear++;
+        }
+        
+        // 対象月の前月を計算
+        let prevMonthYear = nextMonthYear;
+        let prevMonth = nextMonthMonth - 1;
+        if (prevMonth < 1) {
+          prevMonth = 12;
+          prevMonthYear--;
+        }
+        
+        // 現在の日付が前月の16日〜22日の間かどうかを判定
+        if (currentYear === prevMonthYear && currentMonth === prevMonth) {
+          return currentDay >= 16 && currentDay <= 22;
+        }
+        
+        return false;
+      }
+      
+      // 提出済み申請リストを表示
+      async function loadSubmittedShiftsList() {
+        const listContainer = document.getElementById('submitted-shifts-list');
+        if (!listContainer) return;
+        
+        try {
+          listContainer.innerHTML = '<p>申請を読み込み中...</p>';
+          
+          const currentUid = getCurrentUid();
+          if (!currentUid) {
+            listContainer.innerHTML = '<p>ユーザーIDを取得できませんでした。再度ログインしてください。</p>';
+            return;
+          }
+          
+          // getShiftsで申請中（pending）のシフトを取得
+          const allShifts = await fetchAllShiftsViaGetShifts(currentUid);
+          
+          // 申請中（pending）のシフトのみフィルタリング
+          const pendingShifts = allShifts.filter(shift => {
+            // statusがnullまたは"pending"のものを申請中とみなす
+            return shift.status === null || shift.status === 'pending';
+          });
+          
+          if (pendingShifts.length === 0) {
+            listContainer.innerHTML = '<p>提出済みの申請はありません。</p>';
+            return;
+          }
+          
+          // 日付順にソート
+          pendingShifts.sort((a, b) => {
+            if (a.date < b.date) return -1;
+            if (a.date > b.date) return 1;
+            return 0;
+          });
+          
+          // リストを生成
+          const listHTML = pendingShifts.map(shift => {
+            const dateObj = new Date(shift.date + 'T00:00:00');
+            const year = dateObj.getFullYear();
+            const month = dateObj.getMonth() + 1;
+            const day = dateObj.getDate();
+            const weekday = ['日', '月', '火', '水', '木', '金', '土'][dateObj.getDay()];
+            
+            // 時刻をフォーマット（分からHH:MM形式に変換）
+            const formatTime = (minutes) => {
+              if (minutes === 1440) return '24:00';
+              const hours = Math.floor(minutes / 60);
+              const mins = minutes % 60;
+              return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+            };
+            
+            const startTime = shift.startMinute !== undefined ? formatTime(shift.startMinute) : shift.start || '--';
+            const endTime = shift.endMinute !== undefined ? formatTime(shift.endMinute) : shift.end || '--';
+            
+            return `
+              <div class="submitted-shift-item" style="padding: 15px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">
+                <div style="font-weight: bold; font-size: 1.1em; margin-bottom: 5px;">
+                  ${year}年${month}月${day}日(${weekday})
+                </div>
+                <div style="color: #666;">
+                  ${startTime} - ${endTime}
+                </div>
+                <div style="color: #999; font-size: 0.9em; margin-top: 5px;">
+                  ステータス: 申請中
+                </div>
+              </div>
+            `;
+          }).join('');
+          
+          listContainer.innerHTML = listHTML;
+        } catch (error) {
+          console.error('提出済み申請の取得エラー:', error);
+          listContainer.innerHTML = '<p>申請の取得に失敗しました。再度お試しください。</p>';
+        }
+      }
+
       // シフト申請セクションを表示
-      function showShiftApplication() {
+      async function showShiftApplication() {
         // ボタンのクラスを切り替え（選択中を緑、非選択中を灰色）
         const shiftApplicationBtn = document.getElementById('shift-application-btn');
         const confirmedShiftsBtn = document.getElementById('confirmed-shifts-btn');
@@ -1415,16 +2893,95 @@
           pendingShiftsContainer.style.display = 'none';
         }
         
-        // 選択された日付をリセット
-        selectedDate = null;
+        // 次月が最終確定済みかどうかを判定
+        const isNextMonthFinalizedFlag = await isNextMonthFinalized();
+        const calendarContainer = document.getElementById('calendar-container');
+        const submittedListContainer = document.getElementById('submitted-shifts-list-container');
+        const finalizedMessageContainer = document.getElementById('finalized-message-container');
         
-        // カレンダーの選択状態をクリア
-        document.querySelectorAll('.calendar-day').forEach(day => {
-          day.classList.remove('selected');
-        });
-        
-        // カレンダーを初期化
-        initializeCalendar();
+        if (isNextMonthFinalizedFlag) {
+          // 次月が最終確定済み: カレンダーと申請リストを非表示、メッセージを表示
+          if (calendarContainer) {
+            calendarContainer.style.display = 'none';
+          }
+          if (submittedListContainer) {
+            submittedListContainer.style.display = 'none';
+          }
+          if (finalizedMessageContainer) {
+            finalizedMessageContainer.style.display = 'block';
+            
+            // 次月と次々月の情報を計算してメッセージを表示
+            const now = new Date();
+            const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+            const currentYear = jstNow.getUTCFullYear();
+            const currentMonth = jstNow.getUTCMonth() + 1;
+            
+            let nextMonthYear = currentYear;
+            let nextMonthMonth = currentMonth + 1;
+            if (nextMonthMonth > 12) {
+              nextMonthMonth = 1;
+              nextMonthYear++;
+            }
+            
+            let nextNextMonthYear = nextMonthYear;
+            let nextNextMonthMonth = nextMonthMonth + 1;
+            if (nextNextMonthMonth > 12) {
+              nextNextMonthMonth = 1;
+              nextNextMonthYear++;
+            }
+            
+            const nextMonthMessage = document.getElementById('next-month-message');
+            if (nextMonthMessage) {
+              nextMonthMessage.textContent = `${nextMonthMonth}月になると${nextNextMonthMonth}月のシフト申請が可能になります`;
+            }
+          }
+        } else {
+          // 次月が最終確定済みでない場合
+          if (finalizedMessageContainer) {
+            finalizedMessageContainer.style.display = 'none';
+          }
+          
+          // ②期間（シフトを組む期間）かどうかを判定
+          const isSchedulingPeriod = isInShiftSchedulingPeriod();
+          
+          if (isSchedulingPeriod) {
+            // ②期間中: カレンダーを非表示、申請リストを表示
+            if (calendarContainer) {
+              calendarContainer.style.display = 'none';
+            }
+            if (submittedListContainer) {
+              submittedListContainer.style.display = 'block';
+              loadSubmittedShiftsList();
+            }
+          } else {
+            // ②期間外（提出期間中）: カレンダーを表示、申請リストを非表示、修正用リストを表示
+            if (calendarContainer) {
+              calendarContainer.style.display = 'block';
+            }
+            if (submittedListContainer) {
+              submittedListContainer.style.display = 'none';
+            }
+            
+            // 修正用リストは削除（カレンダーから選択可能）
+            
+            // 新しいページはshowPage関数で管理されるため、ここでは何もしない
+            
+            // 選択された日付をリセット
+            selectedDates = [];
+            shiftEditData = {};
+            
+            // カレンダーの選択状態をクリア
+            document.querySelectorAll('.calendar-day').forEach(day => {
+              day.classList.remove('selected');
+            });
+            
+            // 「次へ」ボタンを非表示
+            updateNextButton();
+            
+            // カレンダーを初期化
+            initializeCalendar();
+          }
+        }
       }
 
       // 確定シフトセクションを表示
@@ -1443,6 +3000,9 @@
 
         document.getElementById('shift-application-section').style.display = 'none';
         document.getElementById('confirmed-shifts-section').style.display = 'block';
+
+        // 事前fetchを確実に開始（既に走っていれば再利用）
+        startPrefetchGetShifts("showConfirmedShifts");
         
         // 直接確定シフトの内容を表示
         openConfirmedShiftsPage();
@@ -1496,8 +3056,6 @@
              // 確定シフトの読み込み
        async function loadConfirmedShifts() {
          try {
-
-           
            // 現在のユーザーのuidを取得
            let currentUid = null;
            
@@ -1511,17 +3069,34 @@
              alert('ユーザーIDを取得できませんでした。再度ログインしてください。');
              return;
            }
-           
-           // Cloud Functionを呼び出し（既存の方法と同じ動的インポート）
-           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-           const functions = getFunctions(window.Firebase.app);
-           const getShifts = httpsCallable(functions, 'getShifts');
-           
-           const result = await getShifts({ userId: currentUid });
-          
-          if (result.data.success) {
-            // 却下済み（confirmed: false）以外のシフトを取得
-            const allShifts = result.data.shifts || [];
+
+           // 事前fetchがあればそれを利用（なければここで開始して待つ）
+           startPrefetchGetShifts("loadConfirmedShifts");
+           let allShifts = null;
+           try {
+             const cache = window.__GET_SHIFTS_PREFETCH__;
+             if (cache && cache.uid === currentUid) {
+               if (Array.isArray(cache.data)) {
+                 allShifts = cache.data;
+               } else if (cache.promise) {
+                 allShifts = await cache.promise;
+               }
+             }
+           } catch (_) {
+             // キャッシュが失敗してもフォールバックする
+           }
+
+           // フォールバック（prefetch失敗/未初期化時）
+           if (!Array.isArray(allShifts)) {
+             allShifts = await fetchAllShiftsViaGetShifts(currentUid);
+           }
+
+          if (Array.isArray(allShifts)) {
+            
+            // データ内訳を集計
+            const confirmedCount = allShifts.filter(s => s.confirmed === true).length;
+            const pendingCount = allShifts.filter(s => s.confirmed === null).length;
+            const rejectedCount = allShifts.filter(s => s.confirmed === false).length;
             
             // 当日以降のシフトのみフィルタリング
             const today = new Date();
@@ -1546,7 +3121,7 @@
             if (calendarGrid) {
               calendarGrid.innerHTML = '<p>シフトの取得に失敗しました。</p>';
             }
-            alert('シフト取得エラー: ' + (result.data.error || '不明なエラー'));
+            alert('シフト取得エラー: 不明なエラー');
           }
         } catch (error) {
           // エラー時はスピナーを削除
@@ -1554,12 +3129,14 @@
           if (calendarGrid) {
             calendarGrid.innerHTML = '<p>シフトの取得に失敗しました。</p>';
           }
-          alert('シフトの取得に失敗しました: ' + error.message);
+          alert('❌ シフトの取得に失敗しました\n\n' +
+                'エラー: ' + error.message + '\n\n' +
+                '取得元: getShifts Cloud Function');
         }
       }
       
       // 確定シフトカレンダーの表示
-      function renderConfirmedShiftsCalendar(shifts) {
+      async function renderConfirmedShiftsCalendar(shifts) {
         try {
           const calendarGrid = document.getElementById('calendar-grid');
           const detailsContent = document.getElementById('shift-details-content');
@@ -1574,6 +3151,25 @@
           const now = new Date();
           const currentMonth = window.currentDisplayMonth !== undefined ? window.currentDisplayMonth : now.getMonth();
           const currentYear = window.currentDisplayYear !== undefined ? window.currentDisplayYear : now.getFullYear();
+          
+          // 営業時間データを取得（店休日判定用）
+          const yearMonth = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+          let businessHoursMap = {};
+          try {
+            const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+            const mapDocRef = doc(window.Firebase.db, 'businessHoursMonthlyMap', yearMonth);
+            const mapDocSnap = await getDoc(mapDocRef);
+            if (mapDocSnap.exists()) {
+              const mapData = mapDocSnap.data();
+              businessHoursMap = mapData.days || {};
+            }
+          } catch (error) {
+            console.warn('営業時間データの取得に失敗しました:', error);
+          }
+          
+          // グローバル変数に保存（日付クリック時の店休日判定用）
+          window.businessHoursMap = businessHoursMap;
+          window.currentYearMonth = yearMonth;
           
           // 表示月の日数を取得
           const displayMonthDate = new Date(currentYear, currentMonth + 1, 0);
@@ -1623,9 +3219,17 @@
           let calendarHTML = '';
           
           calendarHTML += '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
-          const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-          weekdays.forEach(day => {
-            calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">' + day + '</div>';
+          const weekdayColors = [
+            { day: '日', color: '#ff0000' }, // 赤
+            { day: '月', color: '#000000' }, // 黒
+            { day: '火', color: '#000000' }, // 黒
+            { day: '水', color: '#000000' }, // 黒
+            { day: '木', color: '#000000' }, // 黒
+            { day: '金', color: '#000000' }, // 黒
+            { day: '土', color: '#0000ff' }  // 青
+          ];
+          weekdayColors.forEach(({ day, color }) => {
+            calendarHTML += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem; font-weight: bold; color: ' + color + ';">' + day + '</div>';
           });
           calendarHTML += '</div>';
           
@@ -1648,6 +3252,25 @@
                            String(currentMonth + 1).padStart(2, '0') + '-' + 
                            String(day).padStart(2, '0');
             
+            const currentDate = new Date(currentYear, currentMonth, day);
+            const weekday = currentDate.getDay(); // 0=日曜日, 6=土曜日
+            
+            // 店休日判定
+            const dayStr = String(day).padStart(2, '0');
+            const dayData = businessHoursMap[dayStr];
+            const isClosed = dayData && dayData.isClosed === true;
+            
+            // 祝日判定
+            const isHoliday = isJapaneseHoliday(currentDate);
+            
+            // 曜日と祝日に応じた色を設定
+            let dayColor = '#000000'; // デフォルトは黒
+            if (weekday === 6) { // 土曜日
+              dayColor = isHoliday ? '#ff0000' : '#0000ff'; // 祝日なら赤、そうでなければ青
+            } else if (weekday === 0 || isHoliday) { // 日曜日または祝日
+              dayColor = '#ff0000'; // 赤
+            }
+            
             // その日のシフトがあるかチェック
             const dayShifts = shifts.filter(shift => shift.date === dateStr);
             let dayClass = 'calendar-day';
@@ -1666,8 +3289,24 @@
               }
             }
             
-            calendarHTML += '<div class="' + dayClass + '" data-date="' + dateStr + '" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;">';
-            calendarHTML += '<span class="day-number">' + day + '</span>';
+            // 店休日の場合はグレーアウト
+            let dayStyle = 'min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;';
+            let textColor = dayColor;
+            if (isClosed) {
+              dayStyle += ' background-color: #e0e0e0; opacity: 0.6;';
+              textColor = '#808080'; // グレー
+            }
+            
+            // クリック可能にするためのスタイルを追加
+            if (!isClosed) {
+              dayStyle += ' cursor: pointer; transition: background-color 0.2s;';
+            }
+            calendarHTML += '<div class="' + dayClass + '" data-date="' + dateStr + '" style="' + dayStyle + '"';
+            if (!isClosed) {
+              calendarHTML += ' onmouseover="this.style.backgroundColor=\'#f0f0f0\'" onmouseout="this.style.backgroundColor=\'\'"';
+            }
+            calendarHTML += '>';
+            calendarHTML += '<span class="day-number" style="font-weight: bold; color: ' + textColor + ';">' + day + '</span>';
             if (shiftInfo) {
               calendarHTML += '<span class="shift-indicator">' + shiftInfo + '</span>';
             }
@@ -1678,70 +3317,8 @@
           
           calendarGrid.innerHTML = calendarHTML;
           
-          // シフト詳細の表示
-          if (shifts.length > 0) {
-            let detailsHTML = '<h4>シフト詳細</h4>';
-            
-            // シフトを日付の古い順（昇順）にソート
-            const sortedShifts = [...shifts].sort((a, b) => {
-              const dateA = new Date(a.date);
-              const dateB = new Date(b.date);
-              return dateA - dateB; // 昇順（古い日付が上）
-            });
-            
-            sortedShifts.forEach(shift => {
-              const status = shift.confirmed === true ? '確定' : '申請中';
-              const statusClass = shift.confirmed === true ? 'confirmed' : 'pending';
-              
-              // 時間を適切にフォーマット
-              let startTime = '不明';
-              let endTime = '不明';
-              
-              // 様々なフィールド名に対応
-              if (shift.start) {
-                if (shift.start.seconds) {
-                  // Firestore Timestamp形式
-                  const startDate = new Date(shift.start.seconds * 1000);
-                  startTime = startDate.getHours().toString().padStart(2, '0') + ':' + 
-                             startDate.getMinutes().toString().padStart(2, '0');
-                } else if (shift.start.toDate) {
-                  // Firestore Timestamp形式（toDate()メソッドあり）
-                  const startDate = shift.start.toDate();
-                  startTime = startDate.getHours().toString().padStart(2, '0') + ':' + 
-                             startDate.getMinutes().toString().padStart(2, '0');
-                } else if (typeof shift.start === 'string') {
-                  // 文字列形式
-                  startTime = shift.start;
-                }
-              }
-              
-              if (shift.end) {
-                if (shift.end.seconds) {
-                  // Firestore Timestamp形式
-                  const endDate = new Date(shift.end.seconds * 1000);
-                  endTime = endDate.getHours().toString().padStart(2, '0') + ':' + 
-                           endDate.getMinutes().toString().padStart(2, '0');
-                } else if (shift.end.toDate) {
-                  // Firestore Timestamp形式（toDate()メソッドあり）
-                  const endDate = shift.end.toDate();
-                  endTime = endDate.getHours().toString().padStart(2, '0') + ':' + 
-                           endDate.getMinutes().toString().padStart(2, '0');
-                } else if (typeof shift.end === 'string') {
-                  // 文字列形式
-                  endTime = shift.end;
-                }
-              }
-              
-              detailsHTML += '<div class="shift-detail ' + statusClass + ' flexible-container-flex" style="box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; justify-content: center;">';
-              detailsHTML += '<div class="shift-date flexible-container-center" style="min-width: 0; flex: 1; word-wrap: break-word;">' + shift.date + '</div>';
-              detailsHTML += '<div class="shift-time flexible-container-center" style="min-width: 0; flex: 1; word-wrap: break-word;">' + startTime + ' - ' + endTime + '</div>';
-              detailsHTML += '<div class="shift-status flexible-container-center" style="min-width: 0; flex-shrink: 0; word-wrap: break-word;">' + status + '</div>';
-              detailsHTML += '</div>';
-            });
-            detailsContent.innerHTML = detailsHTML;
-          } else {
-            detailsContent.innerHTML = '<p>シフトがありません。</p>';
-          }
+          // 初期状態ではシフト詳細を非表示（日付を選択するよう促すメッセージを表示）
+          detailsContent.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">カレンダーから日付を選択すると、その日のシフト詳細が表示されます。</p>';
           
           // シフトデータをグローバル変数に保存（月切り替え時に使用）
           window.confirmedShiftsData = shifts;
@@ -1849,7 +3426,141 @@
       
       // 特定の日付のシフト詳細を表示
       function showShiftDetailsForDate(date) {
-        // この関数は必要に応じて実装
+        const detailsContent = document.getElementById('shift-details-content');
+        if (!detailsContent) {
+          console.error("シフト詳細表示エリアが見つかりません");
+          return;
+        }
+        
+        // グローバル変数からシフトデータを取得
+        const shifts = window.confirmedShiftsData || [];
+        
+        // 店休日判定
+        const dateObj = new Date(date + 'T00:00:00');
+        const day = dateObj.getDate();
+        const dayStr = String(day).padStart(2, '0');
+        const businessHoursMap = window.businessHoursMap || {};
+        const dayData = businessHoursMap[dayStr];
+        const isClosed = dayData && dayData.isClosed === true;
+        
+        // 選択された日付のシフトをフィルタリング
+        const dayShifts = shifts.filter(shift => shift.date === date);
+        
+        // 選択された日付の背景色を変更（視覚的フィードバック）
+        const calendarDays = document.querySelectorAll('.calendar-day:not(.empty)');
+        calendarDays.forEach(day => {
+          const dayDate = day.getAttribute('data-date');
+          if (dayDate === date) {
+            day.style.backgroundColor = '#e3f2fd'; // 選択された日付をハイライト
+            day.style.border = '2px solid #2196f3';
+          } else {
+            // 他の日付のハイライトを解除
+            const dayData = day.getAttribute('data-date');
+            if (dayData) {
+              const yearMonth = dayData.substring(0, 7);
+              // 店休日チェック（簡易版、実際のデータは取得済みのbusinessHoursMapを使用）
+              day.style.border = '';
+              if (!day.classList.contains('has-confirmed-shift') && !day.classList.contains('has-pending-shift')) {
+                day.style.backgroundColor = '';
+              }
+            }
+          }
+        });
+        
+        // 店休日の場合は「店休日です」と表示
+        if (isClosed) {
+          const year = dateObj.getFullYear();
+          const month = dateObj.getMonth() + 1;
+          const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
+          const weekday = weekdayNames[dateObj.getDay()];
+          const formattedDate = `${year}年${month}月${day}日(${weekday})`;
+          
+          detailsContent.innerHTML = '<p style="text-align: center; color: #666; padding: 20px; font-size: 1.1em; font-weight: normal;">' + formattedDate + ' は店休日です。</p>';
+          return;
+        }
+        
+        if (dayShifts.length > 0) {
+          // 日付をフォーマット（YYYY-MM-DD -> YYYY年MM月DD日）
+          const dateObj = new Date(date + 'T00:00:00');
+          const year = dateObj.getFullYear();
+          const month = dateObj.getMonth() + 1;
+          const day = dateObj.getDate();
+          const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
+          const weekday = weekdayNames[dateObj.getDay()];
+          const formattedDate = `${year}年${month}月${day}日(${weekday})`;
+          
+          let detailsHTML = '<p style="text-align: center; color: #666; padding: 20px; font-size: 1.1em; font-weight: normal; margin-bottom: 10px;">' + formattedDate + ' のシフト</p>';
+          
+          // シフトを時刻順にソート
+          const sortedShifts = [...dayShifts].sort((a, b) => {
+            const timeA = a.start || '00:00';
+            const timeB = b.start || '00:00';
+            return timeA.localeCompare(timeB);
+          });
+          
+          sortedShifts.forEach(shift => {
+            const status = shift.confirmed === true ? '確定' : '申請中';
+            const statusClass = shift.confirmed === true ? 'confirmed' : 'pending';
+            const statusColor = '#000000'; // 確定・申請中ともに黒色
+            
+            // 時間を適切にフォーマット
+            let startTime = '不明';
+            let endTime = '不明';
+            
+            // 様々なフィールド名に対応
+            if (shift.start) {
+              if (shift.start.seconds) {
+                // Firestore Timestamp形式
+                const startDate = new Date(shift.start.seconds * 1000);
+                startTime = startDate.getHours().toString().padStart(2, '0') + ':' + 
+                           startDate.getMinutes().toString().padStart(2, '0');
+              } else if (shift.start.toDate) {
+                // Firestore Timestamp形式（toDate()メソッドあり）
+                const startDate = shift.start.toDate();
+                startTime = startDate.getHours().toString().padStart(2, '0') + ':' + 
+                           startDate.getMinutes().toString().padStart(2, '0');
+              } else if (typeof shift.start === 'string') {
+                // 文字列形式
+                startTime = shift.start;
+              }
+            }
+            
+            if (shift.end) {
+              if (shift.end.seconds) {
+                // Firestore Timestamp形式
+                const endDate = new Date(shift.end.seconds * 1000);
+                endTime = endDate.getHours().toString().padStart(2, '0') + ':' + 
+                         endDate.getMinutes().toString().padStart(2, '0');
+              } else if (shift.end.toDate) {
+                // Firestore Timestamp形式（toDate()メソッドあり）
+                const endDate = shift.end.toDate();
+                endTime = endDate.getHours().toString().padStart(2, '0') + ':' + 
+                         endDate.getMinutes().toString().padStart(2, '0');
+              } else if (typeof shift.end === 'string') {
+                // 文字列形式
+                endTime = shift.end;
+              }
+            }
+            
+            detailsHTML += '<div class="shift-detail ' + statusClass + ' flexible-container-flex" style="box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; justify-content: center; padding: 10px; margin-bottom: 8px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9;">';
+            detailsHTML += '<div class="shift-time flexible-container-center" style="min-width: 0; flex: 1; word-wrap: break-word; font-weight: bold; font-size: 1.1em;">' + startTime + ' - ' + endTime + '</div>';
+            detailsHTML += '<div class="shift-status flexible-container-center" style="min-width: 0; flex-shrink: 0; word-wrap: break-word; color: ' + statusColor + '; font-weight: bold;">' + status + '</div>';
+            detailsHTML += '</div>';
+          });
+          
+          detailsContent.innerHTML = detailsHTML;
+        } else {
+          // その日にシフトがない場合
+          const dateObj = new Date(date + 'T00:00:00');
+          const year = dateObj.getFullYear();
+          const month = dateObj.getMonth() + 1;
+          const day = dateObj.getDate();
+          const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
+          const weekday = weekdayNames[dateObj.getDay()];
+          const formattedDate = `${year}年${month}月${day}日(${weekday})`;
+          
+          detailsContent.innerHTML = '<p style="text-align: center; color: #666; padding: 20px; font-size: 1.1em; font-weight: normal;">' + formattedDate + ' にはシフトがありません。</p>';
+        }
       }
 
 
@@ -1904,7 +3615,31 @@
           submitAllBtn.addEventListener('click', submitAllShifts);
         }
         
-
+        // 新しいフローのボタンイベントリスナー
+        const goToEditPageBtn = document.getElementById('go-to-edit-page-btn');
+        if (goToEditPageBtn) {
+          goToEditPageBtn.addEventListener('click', showEditPage);
+        }
+        
+        const goToConfirmPageBtn = document.getElementById('go-to-confirm-page-btn');
+        if (goToConfirmPageBtn) {
+          goToConfirmPageBtn.addEventListener('click', showConfirmPage);
+        }
+        
+        const backToCalendarBtn = document.getElementById('back-to-calendar-btn');
+        if (backToCalendarBtn) {
+          backToCalendarBtn.addEventListener('click', backToCalendar);
+        }
+        
+        const backToEditBtn = document.getElementById('back-to-edit-btn');
+        if (backToEditBtn) {
+          backToEditBtn.addEventListener('click', backToEdit);
+        }
+        
+        const submitShiftsBtn = document.getElementById('submit-shifts-btn');
+        if (submitShiftsBtn) {
+          submitShiftsBtn.addEventListener('click', submitShifts);
+        }
         
         // シフト管理メニューのイベントリスナー
         const shiftApplicationBtn = document.getElementById('shift-application-btn');
@@ -1965,9 +3700,17 @@
         
         // カレンダーHTMLを生成
         let html = '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
-        const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-        weekdays.forEach(day => {
-          html += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem;">' + day + '</div>';
+        const weekdayColors = [
+          { day: '日', color: '#ff0000' }, // 赤
+          { day: '月', color: '#000000' }, // 黒
+          { day: '火', color: '#000000' }, // 黒
+          { day: '水', color: '#000000' }, // 黒
+          { day: '木', color: '#000000' }, // 黒
+          { day: '金', color: '#000000' }, // 黒
+          { day: '土', color: '#0000ff' }  // 青
+        ];
+        weekdayColors.forEach(({ day, color }) => {
+          html += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem; font-weight: bold; color: ' + color + ';">' + day + '</div>';
         });
         html += '</div>';
         
@@ -1990,6 +3733,20 @@
           const todayString = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
           const isToday = dateString === todayString;
           
+          const currentDate = new Date(year, month - 1, day);
+          const weekday = currentDate.getDay(); // 0=日曜日, 6=土曜日
+          
+          // 祝日判定
+          const isHoliday = isJapaneseHoliday(currentDate);
+          
+          // 曜日と祝日に応じた色を設定
+          let dayColor = '#000000'; // デフォルトは黒
+          if (weekday === 6) { // 土曜日
+            dayColor = isHoliday ? '#ff0000' : '#0000ff'; // 祝日なら赤、そうでなければ青
+          } else if (weekday === 0 || isHoliday) { // 日曜日または祝日
+            dayColor = '#ff0000'; // 赤
+          }
+          
           let dayClass = 'calendar-day';
           if (isToday) dayClass += ' today';
           if (window.attendanceData && window.attendanceData[dateString]) {
@@ -1997,7 +3754,7 @@
           }
           
           html += '<div class="' + dayClass + '" data-date="' + dateString + '" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;">';
-          html += '<span class="day-number">' + day + '</span>';
+          html += '<span class="day-number" style="font-weight: bold; color: ' + (isToday ? '#0000ff' : dayColor) + ';">' + day + '</span>';
           if (window.attendanceData && window.attendanceData[dateString]) {
             html += '<span class="shift-indicator">●</span>';
           }
@@ -2689,22 +4446,35 @@
           
           // タイムアウト処理（30秒）
           const timeoutId = setTimeout(() => {
-            console.error("初期化タイムアウト");
             loadingEl.style.display = 'none';
             showError('初期化がタイムアウトしました。ページを更新してください。');
           }, 30000);
           
           // LIFF初期化
-          await window.initLiffAndFirebaseAuth();
+          try {
+            await window.initLiffAndFirebaseAuth();
+          } catch (liffError) {
+            clearTimeout(timeoutId);
+            loadingEl.style.display = 'none';
+            showError('LIFF初期化に失敗しました', liffError);
+            return;
+          }
           
           // スタッフ登録確認
-      await checkStaffRegistration();
+          try {
+            await checkStaffRegistration();
+          } catch (checkError) {
+            clearTimeout(timeoutId);
+            loadingEl.style.display = 'none';
+            showError('スタッフ登録確認に失敗しました', checkError);
+            return;
+          }
           
           // タイムアウトをクリア
           clearTimeout(timeoutId);
           
     } catch (error) {
-      console.error("初期化エラー:", error);
+      console.error("[初期化エラー]:", error);
       // エラーが発生した場合でもローディング画面を非表示にする
       loadingEl.style.display = 'none';
       showError('初期化に失敗しました', error);

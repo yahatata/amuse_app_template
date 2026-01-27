@@ -55,6 +55,7 @@ dependencies:
   intl: ^0.20.2
   flutter_localizations:
     sdk: flutter
+  holiday_jp: ^0.0.8
 
 
 dev_dependencies:

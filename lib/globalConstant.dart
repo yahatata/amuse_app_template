@@ -129,4 +129,88 @@ class GlobalConstants {
         return '不明';
     }
   }
+
+  // 時間帯別の必要人数設定（1時間単位）
+  // 例: {startHour: 19, endHour: 22, requiredCount: 3} → 19:00~22:00に3人必要
+  // 管理者がカスタム可能、または契約時に設定
+  static const List<Map<String, int>> requiredStaffByTimeSlot = [
+    {'startHour': 19, 'endHour': 22, 'requiredCount': 2}, // 19:00~22:00に3人必要
+    // 追加の時間帯設定例:
+    {'startHour': 10, 'endHour': 12, 'requiredCount': 3}, // 10:00~12:00に2人必要
+  ];
+
+  // 営業時間スタイル定義
+  // ⚠️ 重要: この定義を変更する場合は、Cloud Functions側（functions/src/shift/styles.ts）にも必ず同期すること
+  // Cloud Functions側: functions/src/shift/styles.ts の BUSINESS_HOURS_STYLES と値が一致している必要があります
+  
+  /// 営業スタイルID（平日）
+  static const String businessHoursStyleWeekday = 'weekday';
+  
+  /// 営業スタイルID（週末・祝日）
+  static const String businessHoursStyleWeekendHoliday = 'weekendHoliday';
+  
+  /// 営業スタイルID（休業日）
+  static const String businessHoursStyleClosed = 'closed';
+
+  /// 営業スタイル定義
+  /// - weekday: 平日（月〜金、祝日を除く）
+  /// - weekendHoliday: 週末・祝日（土・日・祝日）
+  /// - closed: 休業日（現在は手動設定でのみ使用中。自動で特定曜日を休業日にしたい場合にも使用可能）
+  static const Map<String, Map<String, dynamic>> businessHoursStyles = {
+    'weekday': {
+      'styleId': 'weekday',
+      'openMinute': 900,   // 15:00
+      'closeMinute': 1440, // 24:00
+      'isClosed': false,
+    },
+    'weekendHoliday': {
+      'styleId': 'weekendHoliday',
+      'openMinute': 720,   // 12:00
+      'closeMinute': 1440, // 24:00
+      'isClosed': false,
+    },
+    'closed': {
+      'styleId': 'closed',
+      'openMinute': 0,     // 任意だが検証簡略のため0
+      'closeMinute': 0,    // 任意だが検証簡略のため0
+      'isClosed': true,
+    },
+  };
+
+  /// 営業スタイルから営業時間を取得
+  /// [styleId] スタイルID
+  /// 戻り値: { 'openMinute': int, 'closeMinute': int, 'isClosed': bool }
+  static Map<String, dynamic>? getBusinessHoursByStyleId(String styleId) {
+    return businessHoursStyles[styleId];
+  }
+
+  // ========================================
+  // シフト管理フロー期間設定
+  // ========================================
+  // 対象月の前月の何日から何日まで、という形で設定します
+  // 例: 2月シフトの場合、前月（1月）の日付で設定
+  // 
+  // フロー:
+  // ①提出期間: スタッフは無制限でシフトの提出および修正が可能
+  // ②組む期間（不足日再提出期間を含む）: 管理者が提出されたものからシフトを組む。スタッフは提出したシフトのみ確認可能で提出や修正は行えない
+  //   管理者が不足日・不足時間を送信したタイミングで、不足日・不足時間のみ提出および修正が可能になる
+  // ④最終確定送付: 全シフトが決まり次第全スタッフに送付
+
+  /// ①シフト提出期間の開始日（前月の何日から）
+  /// 例: 1 → 前月1日から
+  static const int SHIFT_SUBMISSION_START_DAY = 1;
+
+  /// ①シフト提出期間の終了日（前月の何日まで）
+  /// 例: 15 → 前月15日まで
+  static const int SHIFT_SUBMISSION_END_DAY = 15;
+
+  /// ②シフトを組む期間の開始日（前月の何日から）
+  /// 例: 16 → 前月16日から（以降は管理者の裁量で最終確定可能）
+  /// この期間中は基本的に提出・修正不可。管理者が不足日・不足時間を送信したタイミングで、不足日・不足時間のみ提出可能になる
+  /// 16日以降は管理者の裁量で最終確定可能（isFinalized=true）
+  static const int SHIFT_SCHEDULING_START_DAY = 16;
+
+  /// 管理者が直接作成したシフトのsourceRequestIdに使用する識別子
+  /// Cloud Functions側（functions/src/shift/helpers.ts）のADMIN_CREATED_SHIFT_IDと同期必須
+  static const String ADMIN_CREATED_SHIFT_ID = "admin-created";
 }
