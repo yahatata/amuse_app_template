@@ -45,8 +45,6 @@ export async function upsertBusinessHoursForMonth(
   });
   const existingDocs = await db.getAll(...dayDocRefs);
 
-  const daysMap: Record<string, { openMinute: number; closeMinute: number; isClosed: boolean; styleId: string | null; source: "auto" | "manual" }> = {};
-
   for (let i = 0; i < days.length; i++) {
     const day = days[i];
     const dayStr = day.day.toString().padStart(2, "0"); // "1" -> "01"
@@ -70,7 +68,20 @@ export async function upsertBusinessHoursForMonth(
     }
 
     batch.set(dayDocRef, dayData, { merge: true });
+  }
 
+  // キャッシュ: businessHoursMonthlyMap/{YYYY-MM} を該当日のみ差分更新
+  // ドット記法は使わず、既存の days を読み取り該当キーだけ上書きしてから days を丸ごと set する
+  const mapDocRef = db.collection("businessHoursMonthlyMap").doc(yearMonth);
+  const existingMapDoc = await mapDocRef.get();
+
+  const existingDays = existingMapDoc.exists && existingMapDoc.data()?.days
+    ? (existingMapDoc.data()!.days as Record<string, unknown>)
+    : {};
+  const daysMap: Record<string, unknown> = { ...existingDays };
+
+  for (const day of days) {
+    const dayStr = day.day.toString().padStart(2, "0");
     daysMap[dayStr] = {
       openMinute: day.openMinute,
       closeMinute: day.closeMinute,
@@ -80,20 +91,13 @@ export async function upsertBusinessHoursForMonth(
     };
   }
 
-  // キャッシュ: businessHoursMonthlyMap/{YYYY-MM} を再生成
-  // createdAt保護のため、既存ドキュメントを確認
-  const mapDocRef = db.collection("businessHoursMonthlyMap").doc(yearMonth);
-  const existingMapDoc = await mapDocRef.get();
-
-  const mapData: any = {
+  const mapData: Record<string, unknown> = {
     days: daysMap,
     updatedAt: now,
   };
-
   if (!existingMapDoc.exists) {
     mapData.createdAt = now;
   }
-
   batch.set(mapDocRef, mapData, { merge: true });
 
   return batch;

@@ -122,15 +122,8 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
           assignments: _assignments,
         );
       } catch (e) {
-        // エラー時はユーザーに通知
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('保存エラー: ${e.toString()}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        // エラーは呼び出し元に伝える（新規作成時は「作成しました」を出さないため）
+        rethrow;
       }
     }
   }
@@ -1016,24 +1009,12 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
                           });
                         }
                         
-                        // Firestoreに保存
+                        // Firestoreに保存（成功時のみ「作成しました」を表示するためフラグで制御）
+                        bool didSaveSucceed = false;
                         try {
                           if (mounted) {
                             await _updateDayData();
-                            
-                            // ダイアログを閉じる
-                            if (dialogContext.mounted) {
-                              Navigator.pop(dialogContext);
-                            }
-                            
-                            if (mounted && parentContext.mounted) {
-                              ScaffoldMessenger.of(parentContext).showSnackBar(
-                                const SnackBar(
-                                  content: Text('シフトを作成しました'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-                            }
+                            didSaveSucceed = true;
                           }
                         } catch (e) {
                           // エラー時はローカル状態から削除
@@ -1053,6 +1034,21 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
                               SnackBar(
                                 content: Text('シフトの保存に失敗しました: $e'),
                                 backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                        // 成功した場合のみダイアログを閉じ、成功スナックバーを表示
+                        if (didSaveSucceed) {
+                          isLoadingNotifier.value = false;
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                          if (mounted && parentContext.mounted) {
+                            ScaffoldMessenger.of(parentContext).showSnackBar(
+                              const SnackBar(
+                                content: Text('シフトを作成しました'),
+                                backgroundColor: Colors.green,
                               ),
                             );
                           }

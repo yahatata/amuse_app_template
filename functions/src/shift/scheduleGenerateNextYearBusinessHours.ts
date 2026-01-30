@@ -1,6 +1,6 @@
 /**
  * 年次自動生成: 毎年1月に翌年分の営業時間を自動生成
- * - トリガー: 毎年1月20日 19:52 JST
+ * - トリガー: 毎年1月28日 23:25 JST
  * - 処理: 翌年12ヶ月分の営業時間をスタイルから自動生成
  * - manual保護: source=="manual"の日は上書きしない（forceManualOverwrite=false）
  */
@@ -20,7 +20,7 @@ const db = admin.firestore();
  */
 export const scheduleGenerateNextYearBusinessHours = onSchedule(
   {
-    schedule: '52 19 20 1 *', // 毎年1月20日 19:52 JST
+    schedule: '25 23 28 1 *', // 毎年1月28日 23:25 JST
     timeZone: 'Asia/Tokyo',
     timeoutSeconds: 540, // v2の最大値（12ヶ月分の処理に対応）
     memory: '512MiB', // メモリも調整（必要に応じて）

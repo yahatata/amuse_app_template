@@ -220,6 +220,27 @@ class ShiftRepository {
     return result;
   }
 
+  /// 営業時間を購読（businessHoursMonthlyMap の snapshot、保存後のUI更新はこれで反映）
+  Stream<Map<String, BusinessHours>> streamBusinessHoursForMonth(String yearMonth) {
+    return _firestore
+        .collection('businessHoursMonthlyMap')
+        .doc(yearMonth)
+        .snapshots()
+        .map((doc) {
+          if (!doc.exists) return <String, BusinessHours>{};
+          final data = doc.data()!;
+          final days = data['days'] as Map<String, dynamic>? ?? {};
+          final result = <String, BusinessHours>{};
+          for (final entry in days.entries) {
+            final dayStr = entry.key;
+            final dayData = entry.value as Map<String, dynamic>;
+            final dateKey = '$yearMonth-${dayStr.padLeft(2, '0')}';
+            result[dateKey] = _parseBusinessHours(dayData);
+          }
+          return result;
+        });
+  }
+
   /// 営業時間を初期化
   Future<void> initBusinessHoursForMonth({
     required String yearMonth,

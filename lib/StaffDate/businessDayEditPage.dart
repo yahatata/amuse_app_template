@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:holiday_jp/holiday_jp.dart' as holiday_jp;
@@ -32,66 +33,89 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
   
   bool _isLoading = false;
   bool _isSaving = false;
+  /// 保存中に立てる。snapshot で該当月の更新を検知したらローディング解除・成功メッセージ表示
+  String? _pendingSaveYearMonth;
+  
+  StreamSubscription<Map<String, BusinessHours>>? _businessHoursSubscription;
   
   @override
   void initState() {
     super.initState();
-    _loadBusinessHours();
+    _subscribeBusinessHours();
   }
   
-  /// 既存の営業時間データを読み込む
-  Future<void> _loadBusinessHours() async {
-    setState(() {
-      _isLoading = true;
-    });
-    
-    try {
-      final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
-      final existingData = await _repository.getBusinessHoursForMonth(yearMonth);
-      
-      final daysInMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0).day;
-      final newDaysData = <int, DayBusinessHours>{};
-      
-      for (int day = 1; day <= daysInMonth; day++) {
-        final dayStr = day.toString().padLeft(2, '0');
-        final dateKey = '$yearMonth-$dayStr';
-        
-        if (existingData.containsKey(dateKey)) {
-          // 既存データがある場合
-          final businessHours = existingData[dateKey]!;
-          newDaysData[day] = DayBusinessHours(
-            startTime: minutesToTimeOfDay(businessHours.openMinute),
-            endTime: minutesToTimeOfDay(businessHours.closeMinute),
-            isClosed: businessHours.isClosed,
-            styleId: businessHours.styleId,
-          );
-        } else {
-          // 既存データがない場合はデフォルト値
-          newDaysData[day] = DayBusinessHours(
-            startTime: _defaultStartTime,
-            endTime: _defaultEndTime,
-            isClosed: false,
-            styleId: null,
-          );
-        }
-      }
-      
-      setState(() {
-        _daysData = newDaysData;
-        _existingBusinessHours = existingData; // 既存データを保持
-        _isLoading = false;
-      });
-    } catch (e) {
-      // エラー時はデフォルト値で初期化
-      _initializeMonthWithDefaults();
-      if (mounted) {
+  @override
+  void dispose() {
+    _businessHoursSubscription?.cancel();
+    super.dispose();
+  }
+  
+  /// businessHoursMonthlyMap を snapshot 購読（保存後のUI更新はここで反映）
+  void _subscribeBusinessHours() {
+    _businessHoursSubscription?.cancel();
+    final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
+    setState(() => _isLoading = true);
+    _businessHoursSubscription = _repository.streamBusinessHoursForMonth(yearMonth).listen(
+      (existingData) {
+        if (!mounted) return;
+        _applyBusinessHoursFromSnapshot(existingData);
+      },
+      onError: (e) {
+        if (!mounted) return;
+        _initializeMonthWithDefaults();
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('既存データの読み込みに失敗しました: ${e.toString()}'),
+            content: Text('既存データの読み込みに失敗しました: $e'),
             backgroundColor: Colors.orange,
           ),
         );
+      },
+    );
+  }
+  
+  /// snapshot で受け取った営業時間を UI に反映（保存完了時はローディング解除・成功メッセージも snapshot で行う）
+  void _applyBusinessHoursFromSnapshot(Map<String, BusinessHours> existingData) {
+    final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
+    final daysInMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0).day;
+    final newDaysData = <int, DayBusinessHours>{};
+    for (int day = 1; day <= daysInMonth; day++) {
+      final dayStr = day.toString().padLeft(2, '0');
+      final dateKey = '$yearMonth-$dayStr';
+      if (existingData.containsKey(dateKey)) {
+        final businessHours = existingData[dateKey]!;
+        newDaysData[day] = DayBusinessHours(
+          startTime: minutesToTimeOfDay(businessHours.openMinute),
+          endTime: minutesToTimeOfDay(businessHours.closeMinute),
+          isClosed: businessHours.isClosed,
+          styleId: businessHours.styleId,
+        );
+      } else {
+        newDaysData[day] = DayBusinessHours(
+          startTime: _defaultStartTime,
+          endTime: _defaultEndTime,
+          isClosed: false,
+          styleId: null,
+        );
       }
+    }
+    final wasPendingSave = _pendingSaveYearMonth == yearMonth;
+    setState(() {
+      _daysData = newDaysData;
+      _existingBusinessHours = existingData;
+      _isLoading = false;
+      if (wasPendingSave) {
+        _isSaving = false;
+        _pendingSaveYearMonth = null;
+      }
+    });
+    if (wasPendingSave && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${DateFormat('yyyy年M月').format(_selectedMonth)}の営業時間を保存し、シフト日を初期化しました'),
+          backgroundColor: Colors.green,
+        ),
+      );
     }
   }
   
@@ -143,84 +167,31 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
         setState(() {
           _selectedMonth = newMonth;
         });
-        _loadBusinessHours();
+        _subscribeBusinessHours();
       }
     }
   }
   
-  /// デフォルト開始時刻を選択
-  Future<void> _selectDefaultStartTime() async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: _defaultStartTime,
-    );
-    if (picked != null) {
-      setState(() {
-        _defaultStartTime = picked;
-      });
-    }
-  }
-  
-  /// デフォルト終了時刻を選択
-  Future<void> _selectDefaultEndTime() async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: _defaultEndTime,
-    );
-    if (picked != null) {
-      setState(() {
-        _defaultEndTime = picked;
-      });
-    }
-  }
-  
-  /// デフォルト値をすべての日（休業日以外）に適用
-  void _applyDefaultToAllDays() {
-    final updatedData = <int, DayBusinessHours>{};
-    
-    for (final entry in _daysData.entries) {
-      updatedData[entry.key] = DayBusinessHours(
-        startTime: entry.value.isClosed ? entry.value.startTime : _defaultStartTime,
-        endTime: entry.value.isClosed ? entry.value.endTime : _defaultEndTime,
-        isClosed: entry.value.isClosed,
-        styleId: entry.value.styleId,
-      );
-    }
-    
-    setState(() {
-      _daysData = updatedData;
-    });
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('デフォルト値を適用しました（休業日は除く）')),
-    );
-  }
-  
-  /// 営業時間を保存
+  /// 営業時間を保存（ローディング解除・成功メッセージは snapshot で行う）
   Future<void> _saveBusinessHours() async {
-    setState(() {
-      _isSaving = true;
-    });
-    
-    try {
-      final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
-      final days = <Map<String, dynamic>>[];
-      
+    final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
+    final days = <Map<String, dynamic>>[];
+
       for (final entry in _daysData.entries) {
         final day = entry.key;
         final data = entry.value;
         final dayStr = day.toString().padLeft(2, '0');
         final dateKey = '$yearMonth-$dayStr';
-        
+
         // 休業日の場合は、openMinuteとcloseMinuteを0にする
         // 終了時刻が23:59の場合は1440（24:00）として扱う（TimeOfDayは24:00を表現できないため）
         final openMinute = data.isClosed ? 0 : timeOfDayToMinutes(data.startTime);
-        final closeMinute = data.isClosed 
-            ? 0 
+        final closeMinute = data.isClosed
+            ? 0
             : (data.endTime.hour == 23 && data.endTime.minute == 59)
-                ? 1440  // 24:00として扱う
+                ? 1440 // 24:00として扱う
                 : timeOfDayToMinutes(data.endTime);
-        
+
         // 既存データと比較して変更があったかチェック
         final existing = _existingBusinessHours[dateKey];
         final hasChanged = existing == null || // 新規データ
@@ -228,81 +199,81 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
             existing.closeMinute != closeMinute ||
             existing.isClosed != data.isClosed ||
             existing.styleId != data.styleId;
-        
-        // 変更があった日のみsource: "manual"、変更がない日は既存のsourceを保持
-        final source = hasChanged 
-            ? 'manual' 
-            : (existing?.source ?? 'auto'); // 既存のsourceがない場合は"auto"
-        
+
+        if (!hasChanged) continue;
+
         // 休業日の場合はstyleIdを"closed"に設定
-        final finalStyleId = data.isClosed 
-            ? GlobalConstants.businessHoursStyleClosed 
+        final finalStyleId = data.isClosed
+            ? GlobalConstants.businessHoursStyleClosed
             : data.styleId;
-        
+
         days.add({
           'day': day,
           'openMinute': openMinute,
           'closeMinute': closeMinute,
           'isClosed': data.isClosed,
           'styleId': finalStyleId,
-          'source': source,
+          'source': 'manual',
         });
       }
-      
-      // 営業時間を保存
-      await _repository.initBusinessHoursForMonth(
-        yearMonth: yearMonth,
-        days: days,
-      );
-      
-      // 営業時間保存後、自動的にシフト日も初期化
+
+      if (days.isEmpty) {
+        if (mounted) {
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('変更がありません'),
+              backgroundColor: Colors.grey,
+            ),
+          );
+        }
+        return;
+      }
+
       try {
-        await _repository.initShiftDaysForMonth(yearMonth);
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${DateFormat('yyyy年M月').format(_selectedMonth)}の営業時間を保存し、シフト日を初期化しました'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (initError) {
-        // シフト日初期化に失敗した場合でも、営業時間保存は成功している
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('営業時間は保存しましたが、シフト日の初期化に失敗しました: ${initError.toString()}'),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
-      }
-      
-      if (mounted) {
-        // 保存後にデータを再読み込み（Firestoreの更新を反映）
-        await _loadBusinessHours();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラー: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
         setState(() {
-          _isSaving = false;
+          _isSaving = true;
+          _pendingSaveYearMonth = yearMonth;
         });
+
+        // 編集された日のみ営業時間を保存（該当日のフィールドのみ上書き）
+        await _repository.initBusinessHoursForMonth(
+          yearMonth: yearMonth,
+          days: days,
+        );
+        // ここで Firestore に書き込まれる → snapshot が発火 → ローディング解除・成功メッセージ表示
+
+        // 営業時間保存後、自動的にシフト日も初期化
+        try {
+          await _repository.initShiftDaysForMonth(yearMonth);
+        } catch (initError) {
+          // シフト日初期化に失敗した場合でも、営業時間保存は成功している（snapshot で既に成功表示済み）
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('営業時間は保存しましたが、シフト日の初期化に失敗しました: ${initError.toString()}'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _isSaving = false;
+            _pendingSaveYearMonth = null;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('エラー: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
-    }
   }
 
-  
   /// シフト日を初期化
   Future<void> _initShiftDays({bool silent = false}) async {
     if (!silent) {
@@ -415,7 +386,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '※営業時間編集：日付をタップすると営業時間を個別に編集できます',
+                                  '※営業スタイル編集：日付をタップすると営業スタイルを個別に編集できます',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey[700],
@@ -428,74 +399,73 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      // デフォルト営業時間
-                      const Text('デフォルト営業時間:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _selectDefaultStartTime,
-                              icon: const Icon(Icons.access_time),
-                              label: Text(_formatTimeOfDay(_defaultStartTime)),
-                            ),
-                          ),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 8),
-                            child: Text('〜'),
-                          ),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _selectDefaultEndTime,
-                              icon: const Icon(Icons.access_time),
-                              label: Text(_formatTimeOfDay(_defaultEndTime)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          OutlinedButton(
-                            onPressed: _applyDefaultToAllDays,
-                            child: const Text('全て適用'),
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
                 // 日付リスト
                 Expanded(
-                  child: ListView.builder(
-                    itemCount: daysInMonth,
-                    itemBuilder: (context, index) {
-                      final day = index + 1;
-                      final date = DateTime(_selectedMonth.year, _selectedMonth.month, day);
-                      final weekday = ['日', '月', '火', '水', '木', '金', '土'][date.weekday % 7];
-                      final data = _daysData[day]!;
-                      
-                      // 曜日と祝日に応じた色を設定
-                      Color weekdayColor;
-                      final isHoliday = holiday_jp.isHoliday(date);
-                      if (date.weekday == DateTime.saturday) {
-                        // 土曜日: 青（祝日でない場合のみ）
-                        weekdayColor = isHoliday ? Colors.red : Colors.blue;
-                      } else if (date.weekday == DateTime.sunday || isHoliday) {
-                        // 日曜日または祝日: 赤
-                        weekdayColor = Colors.red;
-                      } else {
-                        // 平日: デフォルト色（黒）
-                        weekdayColor = Colors.black;
-                      }
-                      
-                      return Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        child: ListTile(
-                          title: Text(
-                            '$day日 ($weekday)',
-                            style: TextStyle(color: weekdayColor, fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: data.isClosed
-                              ? const Text('休業日', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
-                              : Text('${_formatTimeOfDay(data.startTime)} 〜 ${_formatTimeOfDay(data.endTime)}'),
-                          trailing: Row(
+                  child: Scrollbar(
+                    thumbVisibility: true,
+                    child: ListView.builder(
+                      itemCount: daysInMonth,
+                      itemBuilder: (context, index) {
+                        final day = index + 1;
+                        final date = DateTime(_selectedMonth.year, _selectedMonth.month, day);
+                        final weekday = ['日', '月', '火', '水', '木', '金', '土'][date.weekday % 7];
+                        final data = _daysData[day]!;
+                        
+                        // 曜日と祝日に応じた色を設定
+                        Color weekdayColor;
+                        final isHoliday = holiday_jp.isHoliday(date);
+                        if (date.weekday == DateTime.saturday) {
+                          // 土曜日: 青（祝日でない場合のみ）
+                          weekdayColor = isHoliday ? Colors.red : Colors.blue;
+                        } else if (date.weekday == DateTime.sunday || isHoliday) {
+                          // 日曜日または祝日: 赤
+                          weekdayColor = Colors.red;
+                        } else {
+                          // 平日: デフォルト色（黒）
+                          weekdayColor = Colors.black;
+                        }
+
+                        // 表示用の営業時間テキスト（25:00対応）
+                        // カードは常に _daysData（現在の編集状態）を表示し、ダイアログでの変更も反映する
+                        String subtitleText;
+                        if (data.isClosed) {
+                          subtitleText = '休業日';
+                        } else {
+                          int openMinute;
+                          int closeMinute;
+                          if (data.styleId != null) {
+                            final styleData = GlobalConstants.getBusinessHoursByStyleId(data.styleId!);
+                            if (styleData != null) {
+                              openMinute = styleData['openMinute'] as int;
+                              closeMinute = styleData['closeMinute'] as int;
+                            } else {
+                              openMinute = timeOfDayToMinutes(data.startTime);
+                              closeMinute = timeOfDayToMinutes(data.endTime);
+                            }
+                          } else {
+                            openMinute = timeOfDayToMinutes(data.startTime);
+                            closeMinute = timeOfDayToMinutes(data.endTime);
+                          }
+                          subtitleText = '${formatMinutes(openMinute)} 〜 ${formatMinutes(closeMinute)}';
+                        }
+                        
+                        return Card(
+                          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          child: ListTile(
+                            title: Text(
+                              '$day日 ($weekday)',
+                              style: TextStyle(color: weekdayColor, fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Text(
+                              subtitleText,
+                              style: data.isClosed
+                                  ? const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)
+                                  : const TextStyle(),
+                            ),
+                            trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               const Text(
@@ -551,12 +521,11 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                               ? null
                               : () async {
                                   await _showDayEditDialog(day, data);
-                                  // _showDayEditDialog内で既にsetBusinessHoursManualForDayを呼び出し、
-                                  // データ再読み込みも行っているため、ここでの処理は不要
                                 },
                         ),
                       );
                     },
+                    ),
                   ),
                 ),
                 // 保存ボタン
@@ -595,24 +564,33 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
     );
   }
   
-  /// 日の営業時間編集ダイアログ（styleId選択対応）
+  /// 日の営業時間編集ダイアログ（スタイル選択のみ）
   Future<void> _showDayEditDialog(int day, DayBusinessHours current) async {
-    // 時間のみを管理（分は00固定）
-    int startHour = current.startTime.hour;
-    // 23:59の場合は24:00（1440分）として扱う
-    int endHour = (current.endTime.hour == 23 && current.endTime.minute == 59)
-        ? 24
-        : current.endTime.hour;
-    String? selectedStyleId;
+    // 現在のスタイルIDを初期値として設定
+    String? selectedStyleId = current.styleId;
     
-    // 0時から23時までのオプション
-    final List<int> hourOptions = List.generate(24, (index) => index);
-    
-    // スタイル選択肢
+    // スタイル選択肢（5つのスタイル）
     final styleOptions = [
-      {'id': GlobalConstants.businessHoursStyleWeekday, 'label': '平日（15:00-24:00）'},
-      {'id': GlobalConstants.businessHoursStyleWeekendHoliday, 'label': '週末・祝日（12:00-24:00）'},
-      {'id': GlobalConstants.businessHoursStyleClosed, 'label': '休業日'},
+      {
+        'id': GlobalConstants.businessHoursStyleWeekday,
+        'label': '平日（15:00-25:00）',
+      },
+      {
+        'id': GlobalConstants.businessHoursStyleWeekendHoliday,
+        'label': '週末・祝日（12:00-25:00）',
+      },
+      {
+        'id': GlobalConstants.businessHoursStyleEvent,
+        'label': 'イベント（10:00-25:00）',
+      },
+      {
+        'id': GlobalConstants.businessHoursStyleAllDay,
+        'label': '終日（6:00-25:00）',
+      },
+      {
+        'id': GlobalConstants.businessHoursStyleClosed,
+        'label': '休業日',
+      },
     ];
     
     final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
@@ -623,6 +601,33 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
+          // スタイルが選択されている場合、営業時間を表示用に取得
+          String? displayTimeRange;
+          if (selectedStyleId != null) {
+            final styleData = GlobalConstants.getBusinessHoursByStyleId(selectedStyleId!);
+            if (styleData != null) {
+              final openMinute = styleData['openMinute'] as int;
+              final closeMinute = styleData['closeMinute'] as int;
+              final isClosed = styleData['isClosed'] as bool;
+              
+              if (isClosed) {
+                displayTimeRange = '休業日';
+              } else {
+                final openHour = openMinute ~/ 60;
+                final openMin = openMinute % 60;
+                final closeHour = closeMinute ~/ 60;
+                final closeMin = closeMinute % 60;
+                
+                // 25:00の場合は25:00と表示
+                if (closeHour == 25) {
+                  displayTimeRange = '${openHour.toString().padLeft(2, '0')}:${openMin.toString().padLeft(2, '0')}-25:00';
+                } else {
+                  displayTimeRange = '${openHour.toString().padLeft(2, '0')}:${openMin.toString().padLeft(2, '0')}-${closeHour.toString().padLeft(2, '0')}:${closeMin.toString().padLeft(2, '0')}';
+                }
+              }
+            }
+          }
+          
           return AlertDialog(
             title: Text('$day日の営業時間'),
             content: SingleChildScrollView(
@@ -636,7 +641,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                   DropdownButton<String>(
                     value: selectedStyleId,
                     isExpanded: true,
-                    hint: const Text('スタイルを選択（省略可）'),
+                    hint: const Text('スタイルを選択'),
                     items: styleOptions.map((style) {
                       return DropdownMenuItem<String>(
                         value: style['id'] as String,
@@ -644,83 +649,38 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                       );
                     }).toList(),
                     onChanged: (value) {
-                      if (value != null) {
-                        setDialogState(() {
-                          selectedStyleId = value;
-                          // スタイルを選択すると、対応する営業時間を自動設定
-                          final styleData = GlobalConstants.getBusinessHoursByStyleId(value);
-                          if (styleData != null) {
-                            startHour = (styleData['openMinute'] as int) ~/ 60;
-                            endHour = (styleData['closeMinute'] as int) ~/ 60;
-                            // 24:00の場合は24を表示
-                            if (endHour == 24) {
-                              endHour = 24;
-                            }
-                          }
-                        });
-                      }
+                      setDialogState(() {
+                        selectedStyleId = value;
+                        // スタイルが変更されたので、displayTimeRangeも再計算される
+                      });
                     },
                   ),
-                  const SizedBox(height: 24),
-                  // 開始時刻
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text('開始時刻'),
-                      ),
-                      Expanded(
-                        child: DropdownButton<int>(
-                          value: startHour,
-                          items: hourOptions.map((hour) {
-                            return DropdownMenuItem<int>(
-                              value: hour,
-                              child: Text('${hour.toString().padLeft(2, '0')}:00'),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            if (value != null) {
-                              setDialogState(() {
-                                startHour = value;
-                              });
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 16),
-                  // 終了時刻
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text('終了時刻'),
+                  // 選択されたスタイルの営業時間を表示（編集不可）
+                  if (selectedStyleId != null && displayTimeRange != null)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      Expanded(
-                        child: DropdownButton<int>(
-                          value: endHour >= 24 ? 24 : endHour,
-                          items: [
-                            ...hourOptions,
-                            24, // 24:00（終日）
-                          ].map((hour) {
-                            return DropdownMenuItem<int>(
-                              value: hour,
-                              child: Text(hour == 24 ? '24:00' : '${hour.toString().padLeft(2, '0')}:00'),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            if (value != null) {
-                              setDialogState(() {
-                                endHour = value;
-                              });
-                            }
-                          },
-                        ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.access_time, size: 20, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Text(
+                            '営業時間: $displayTimeRange',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
                   const SizedBox(height: 8),
                   Text(
-                    '※スタイルを選択すると営業時間が自動設定されます。手動で時間を変更することも可能です。',
+                    '※営業スタイルを選択すると、対応する営業時間が自動的に設定されます。',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.grey[600],
@@ -735,61 +695,34 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                 child: const Text('キャンセル'),
               ),
               ElevatedButton(
-                onPressed: () async {
-                  // スタイルが選択されている場合はsetBusinessHoursManualForDayを使用
-                  if (selectedStyleId != null) {
-                    try {
-                      final openMinute = startHour * 60;
-                      final closeMinute = endHour >= 24 ? 1440 : endHour * 60;
-                      
-                      await _repository.setBusinessHoursManualForDay(
-                        dateKey: dateKey,
-                        styleId: selectedStyleId!,
-                        openMinute: openMinute,
-                        closeMinute: closeMinute,
-                        isClosed: selectedStyleId == GlobalConstants.businessHoursStyleClosed,
-                      );
-                      
-                      // データを再読み込み
-                      await _loadBusinessHours();
-                      
-                      if (mounted) {
+                onPressed: selectedStyleId == null
+                    ? null
+                    : () {
+                        if (selectedStyleId == null) return;
+                        final styleData = GlobalConstants.getBusinessHoursByStyleId(selectedStyleId!);
+                        if (styleData == null) return;
+                        final openMinute = styleData['openMinute'] as int;
+                        final closeMinute = styleData['closeMinute'] as int;
+                        final isClosed = styleData['isClosed'] as bool;
+                        setState(() {
+                          _daysData[day] = DayBusinessHours(
+                            startTime: minutesToTimeOfDay(openMinute),
+                            endTime: minutesToTimeOfDay(closeMinute),
+                            isClosed: isClosed,
+                            styleId: isClosed
+                                ? GlobalConstants.businessHoursStyleClosed
+                                : selectedStyleId,
+                          );
+                        });
                         Navigator.pop(dialogContext);
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('営業時間を保存しました（手動設定）'),
-                            backgroundColor: Colors.green,
+                            content: Text('編集内容は「営業時間を保存」で反映されます'),
+                            backgroundColor: Colors.blue,
                           ),
                         );
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('保存に失敗しました: ${e.toString()}'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    }
-                  } else {
-                    // スタイルが選択されていない場合は、既存の動作（ローカル保存のみ）
-                    // 分は00固定でTimeOfDayを作成
-                    final newStartTime = TimeOfDay(hour: startHour, minute: 0);
-                    final newEndTime = TimeOfDay(hour: endHour >= 24 ? 23 : endHour, minute: 0);
-                    
-                    Navigator.pop(dialogContext);
-                    setState(() {
-                      _daysData[day] = DayBusinessHours(
-                        startTime: newStartTime,
-                        endTime: newEndTime,
-                        isClosed: false,
-                        styleId: current.styleId,
-                      );
-                    });
-                  }
-                },
-                child: const Text('保存'),
+                      },
+                child: const Text('決定'),
               ),
             ],
           );

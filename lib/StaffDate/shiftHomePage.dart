@@ -30,6 +30,8 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
   
   // シフトデータ（Firestoreから取得）
   Map<String, ShiftDayData> _shiftData = {};
+  /// 日付ごとの未処理申請数（shiftRequests の pending 件数。dayDoc の pendingRequestCount と不整合時に表示を補正する）
+  Map<String, int> _pendingRequestCountByDate = {};
   bool _isLoading = false;
   
   // 不足日集計・募集作成用の状態
@@ -75,8 +77,22 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
 
       final data = await _repository.getShiftDaysForMonths(currentMonth, nextMonth);
 
+      // ドラフト内の申請件数を shiftRequests から取得（dayDoc の pendingRequestCount と不整合時も正しく表示するため）
+      final currentYearMonth = DateFormat('yyyy-MM').format(currentMonth);
+      final nextYearMonth = DateFormat('yyyy-MM').format(nextMonth);
+      final pendingCurrent = await _repository.getPendingRequestsForMonth(currentYearMonth);
+      final pendingNext = await _repository.getPendingRequestsForMonth(nextYearMonth);
+      final pendingCountByDate = <String, int>{};
+      for (final e in pendingCurrent.entries) {
+        pendingCountByDate[e.key] = (pendingCountByDate[e.key] ?? 0) + e.value.length;
+      }
+      for (final e in pendingNext.entries) {
+        pendingCountByDate[e.key] = (pendingCountByDate[e.key] ?? 0) + e.value.length;
+      }
+
       setState(() {
         _shiftData = data;
+        _pendingRequestCountByDate = pendingCountByDate;
         _isLoading = false;
       });
     } catch (e) {
@@ -148,6 +164,13 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
 
   String _getDateKey(DateTime date) {
     return DateFormat('yyyy-MM-dd').format(date);
+  }
+
+  /// 表示用の未処理申請数（dayDoc の pendingRequestCount と shiftRequests の実際の件数の大きい方）
+  int _effectivePendingRequestCount(String dateKey, ShiftDayData? dayData) {
+    final fromDay = dayData?.pendingRequestCount ?? 0;
+    final fromRequests = _pendingRequestCountByDate[dateKey] ?? 0;
+    return fromDay > fromRequests ? fromDay : fromRequests;
   }
 
   int _getDaysInMonth(DateTime date) {
@@ -552,60 +575,66 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                     : const SizedBox.shrink(),
               ),
               // 状態フラグ（右上に中間or未処理or最終）
+              // 未処理申請数は dayDoc の pendingRequestCount と shiftRequests の実際の件数の大きい方を使用（不整合時も正しく表示）
               Positioned(
                 top: 2,
                 right: 2,
                 child: dayData != null
-                    ? Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          dayData.isFinalized || dayData.isInterimConfirmed || dayData.pendingRequestCount > 0
-                              ? Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: dayData.isFinalized
-                                        ? Colors.green
-                                        : dayData.isInterimConfirmed
-                                            ? Colors.blue
-                                            : Colors.orange,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
+                    ? Builder(
+                        builder: (context) {
+                          final effectivePendingCount = _effectivePendingRequestCount(dateKey, dayData);
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              dayData!.isFinalized || dayData!.isInterimConfirmed || effectivePendingCount > 0
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: dayData!.isFinalized
+                                            ? Colors.green
+                                            : dayData!.isInterimConfirmed
+                                                ? Colors.blue
+                                                : Colors.orange,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        dayData!.isFinalized
+                                            ? '最終'
+                                            : dayData!.isInterimConfirmed
+                                                ? '中間'
+                                                : '未処理申請${effectivePendingCount}件',
+                                        style: const TextStyle(
+                                          fontSize: 8,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    )
+                                  : Text(
+                                      '申請なし',
+                                      style: const TextStyle(
+                                        fontSize: 8,
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                              // 未処理申請数表示（中間確定済みで未処理申請がある場合のみ表示）
+                              if (dayData!.isInterimConfirmed && effectivePendingCount > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
                                   child: Text(
-                                    dayData.isFinalized
-                                        ? '最終'
-                                        : dayData.isInterimConfirmed
-                                            ? '中間'
-                                            : '未処理申請${dayData.pendingRequestCount}件',
+                                    '未処理申請：${effectivePendingCount}件',
                                     style: const TextStyle(
-                                      fontSize: 8,
-                                      color: Colors.white,
+                                      fontSize: 9.1, // 7 * 1.3
+                                      color: Colors.black,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                )
-                              : Text(
-                                  '申請なし',
-                                  style: const TextStyle(
-                                    fontSize: 8,
-                                    color: Colors.black,
-                                    fontWeight: FontWeight.bold,
-                                  ),
                                 ),
-                          // 未承認申請数表示（中間確定済みで未処理申請がある場合のみ表示）
-                          if (dayData.isInterimConfirmed && dayData.pendingRequestCount > 0)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: Text(
-                                '未承認申請：${dayData.pendingRequestCount}件',
-                                style: const TextStyle(
-                                  fontSize: 9.1, // 7 * 1.3
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                        ],
+                            ],
+                          );
+                        },
                       )
                     : const SizedBox.shrink(),
               ),
