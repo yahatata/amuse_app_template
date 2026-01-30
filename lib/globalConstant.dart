@@ -149,24 +149,44 @@ class GlobalConstants {
   /// 営業スタイルID（週末・祝日）
   static const String businessHoursStyleWeekendHoliday = 'weekendHoliday';
   
+  /// 営業スタイルID（イベント）
+  static const String businessHoursStyleEvent = 'event';
+  
+  /// 営業スタイルID（終日）
+  static const String businessHoursStyleAllDay = 'allDay';
+  
   /// 営業スタイルID（休業日）
   static const String businessHoursStyleClosed = 'closed';
 
   /// 営業スタイル定義
   /// - weekday: 平日（月〜金、祝日を除く）
   /// - weekendHoliday: 週末・祝日（土・日・祝日）
+  /// - event: イベント（10:00-25:00）
+  /// - allDay: 終日（6:00-25:00）
   /// - closed: 休業日（現在は手動設定でのみ使用中。自動で特定曜日を休業日にしたい場合にも使用可能）
   static const Map<String, Map<String, dynamic>> businessHoursStyles = {
     'weekday': {
       'styleId': 'weekday',
       'openMinute': 900,   // 15:00
-      'closeMinute': 1440, // 24:00
+      'closeMinute': 1500, // 25:00
       'isClosed': false,
     },
     'weekendHoliday': {
       'styleId': 'weekendHoliday',
       'openMinute': 720,   // 12:00
-      'closeMinute': 1440, // 24:00
+      'closeMinute': 1500, // 25:00
+      'isClosed': false,
+    },
+    'event': {
+      'styleId': 'event',
+      'openMinute': 600,   // 10:00
+      'closeMinute': 1500, // 25:00
+      'isClosed': false,
+    },
+    'allDay': {
+      'styleId': 'allDay',
+      'openMinute': 360,   // 6:00
+      'closeMinute': 1500, // 25:00
       'isClosed': false,
     },
     'closed': {
