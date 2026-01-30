@@ -41,7 +41,8 @@ async function getRequiredStaffByTimeSlot(): Promise<
  * シフト日の割当を更新
  * - adminDeviceのみ
  * - shifts/{yearMonth}/days/{dateKey}.assignments を更新
- * - isFinalized==true の場合は拒否
+ * - 同一日の同一スタッフ重複は拒否
+ * - isFinalized==true の場合は通常の編集は拒否するが、管理者による新規作成（追加のみ）は許可
  * - isSufficient を再計算して更新（override==null のときのみ）
  */
 export const updateDayAssignments = onCall(
@@ -113,13 +114,39 @@ export const updateDayAssignments = onCall(
       }
 
       const dayData = dayDoc.data()!;
+      const currentAssignments = (dayData.assignments as Assignment[]) || [];
+      const currentStaffIds = new Set(currentAssignments.map((a) => a.staffId));
 
-      // isFinalized==true は拒否
-      if (dayData.isFinalized === true) {
+      // 同一日の同一スタッフ重複は拒否（リクエスト内で重複、または既存と重複する新規は不可）
+      const requestStaffIds = assignments.map((a) => a.staffId);
+      if (requestStaffIds.length !== new Set(requestStaffIds).size) {
         throw new HttpsError(
           "failed-precondition",
-          `Shift day ${dateKey} is already finalized and cannot be edited`
+          "その日には既に同一スタッフのシフトが存在するため追加できません"
         );
+      }
+      // isFinalized==true の場合は、管理者による新規追加（admin-created のみ）以外は拒否
+      if (dayData.isFinalized === true) {
+        for (const a of assignments) {
+          if (currentStaffIds.has(a.staffId)) continue;
+          const isAdminCreated =
+            a.sourceRequestId === ADMIN_CREATED_SHIFT_ID || a.sourceRequestId == null;
+          if (!isAdminCreated) {
+            throw new HttpsError(
+              "failed-precondition",
+              `Shift day ${dateKey} is already finalized and cannot be edited`
+            );
+          }
+        }
+        const existingStaffIdsInRequest = new Set(
+          assignments.filter((a) => currentStaffIds.has(a.staffId)).map((a) => a.staffId)
+        );
+        if (existingStaffIdsInRequest.size < currentStaffIds.size) {
+          throw new HttpsError(
+            "failed-precondition",
+            `Shift day ${dateKey} is already finalized and cannot be edited (cannot remove assignments)`
+          );
+        }
       }
 
       const businessHours = dayData.businessHours as {

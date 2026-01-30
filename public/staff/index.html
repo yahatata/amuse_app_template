@@ -385,7 +385,7 @@
         <div id="calendar-container" class="calendar-container flexible-container">
           <h2>翌月シフト申請</h2>
           <div class="month-info" id="current-month">2024年9月</div>
-          <p class="note">※日付を選択して「次へ」を押してください<br>※複数の日付を一度に選択可能です<br>※✓マークは申請中の日付です<br>※✓マークを選択すると以前の申請を修正できます</p>
+          <p class="note">※日付を選択して「次へ」を押してください（複数の日付を一度に選択可能）<br>※✓マークを選択すると以前の申請を修正できます<br>※<span style="color: #ff9800;">オレンジ</span>の点は終日営業、<span style="color: #9c27b0;">紫</span>の点はイベント営業の日です</p>
           
 
           <div id="calendar" class="calendar flexible-container">
@@ -1246,10 +1246,11 @@
           // YYYY-MM-DD形式の日付文字列を生成
           const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
           
-          // 店休日判定
+          // 店休日・営業スタイル判定
           const dayStr = String(day).padStart(2, '0');
           const dayData = businessHoursMap[dayStr];
           const isClosed = dayData && dayData.isClosed === true;
+          const styleId = dayData && dayData.styleId ? String(dayData.styleId) : '';
           
           // 祝日判定
           const isHoliday = isJapaneseHoliday(currentDate);
@@ -1297,6 +1298,12 @@
             }
           }
           calendarHTML += '>';
+          // 営業スタイルの点（日付の上に表示）：終日=オレンジ、イベント=紫
+          if (styleId === 'allDay') {
+            calendarHTML += '<span class="style-dot" style="display: block; width: 6px; height: 6px; border-radius: 50%; background-color: #ff9800; margin: 0 auto 2px;"></span>';
+          } else if (styleId === 'event') {
+            calendarHTML += '<span class="style-dot" style="display: block; width: 6px; height: 6px; border-radius: 50%; background-color: #9c27b0; margin: 0 auto 2px;"></span>';
+          }
           // 申請中のシフトがある日付にチェックマークを表示（キャッシュ分のみ。最新は描画後に反映）
           if (pendingShiftDates.has(dateStr) && !isClosed) {
             const checkColor = isSelected ? '#ffffff' : '#4caf50';
