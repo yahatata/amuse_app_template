@@ -3,6 +3,8 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { enqueueStartTask, enqueueRegistTask } from "../lib/tasks";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../lib/devicePermissions";
+import { calcBusinessDate } from "../helpers/billsApi/calcBusinessDate";
+import { logger } from "firebase-functions";
 
 // 入力スキーマの定義
 const createScheduledTournamentSchema = z.object({
@@ -56,11 +58,45 @@ export const createScheduledTournament = onCall(async (request) => {
     // 入力検証
     const validatedData = createScheduledTournamentSchema.parse(request.data);
     const { templateId, startAt, regEndAt, freeze, storeId, tenantId } = validatedData;
+    // selectedBusinessDateKeyはスキーマに含まれていないため、request.dataから直接取得
+    const selectedBusinessDateKey = (request.data as any)?.selectedBusinessDateKey as string | undefined;
 
     const db = getFirestore();
     const now = new Date();
     const startAtDate = new Date(startAt);
     const regEndAtDate = new Date(regEndAt);
+
+    // startAtから営業日を計算
+    const businessDateResult = await calcBusinessDate(startAtDate);
+    let businessDate: string;
+    
+    if (businessDateResult.status === 'NONE') {
+      throw new HttpsError(
+        'failed-precondition',
+        `The start time ${startAt} does not belong to any business day.`
+      );
+    }
+    
+    if (businessDateResult.status === 'AMBIGUOUS') {
+      // AMBIGUOUSの場合は、UIでどちらの営業日に属するデータなのかを選択させる
+      // リクエストにselectedBusinessDateKeyが含まれている場合はそれを使用
+      if (!selectedBusinessDateKey || !businessDateResult.candidates.includes(selectedBusinessDateKey)) {
+        throw new HttpsError(
+          'failed-precondition',
+          `The start time ${startAt} is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
+          { candidates: businessDateResult.candidates }
+        );
+      }
+      businessDate = selectedBusinessDateKey;
+      logger.warn('calcBusinessDate returned AMBIGUOUS, using selected candidate', {
+        candidates: businessDateResult.candidates,
+        selected: selectedBusinessDateKey,
+        startAt,
+      });
+    } else {
+      // OKの場合
+      businessDate = businessDateResult.businessDateKey;
+    }
 
     // 冪等制御キー（templateId + startAt）
     // const idempotentKey = `${templateId}_${startAtDate.getTime()}`;
@@ -109,8 +145,9 @@ export const createScheduledTournament = onCall(async (request) => {
       storeId,
       tenantId,
       status: 'scheduled',
-      startAt: Timestamp.fromDate(startAtDate), // 一時的にstartAtDateを使用
-      regEndAt: Timestamp.fromDate(regEndAtDate), // 一時的にregEndAtDateを使用un
+      startAt: Timestamp.fromDate(startAtDate),
+      regEndAt: Timestamp.fromDate(regEndAtDate),
+      businessDate, // 追加: startAtから計算した営業日
       freeze: freeze || false,
       isPrizeConfirmed: false,
       isArchived: false,

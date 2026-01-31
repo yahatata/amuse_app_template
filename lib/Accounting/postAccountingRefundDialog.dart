@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import '../utils/business_date_ambiguous_dialog.dart';
 
 class PostAccountingRefundDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
@@ -39,6 +40,68 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
     _refundAmountController.dispose();
     _refundReasonController.dispose();
     super.dispose();
+  }
+
+  /// 選択された営業日キーで再試行
+  Future<void> _retryWithSelectedBusinessDate(String selectedBusinessDateKey) async {
+    if (!mounted) return;
+    
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      final billId = widget.bill['id'] ?? '';
+      final idempotencyKey = '$billId:refund:${DateTime.now().millisecondsSinceEpoch}';
+      final refundAmount = int.tryParse(_refundAmountController.text) ?? 0;
+
+      final result = await _functions.httpsCallable('processRefund').call({
+        'billId': billId,
+        'idempotencyKey': idempotencyKey,
+        'eventPayload': {
+          'amountIncl': refundAmount,
+          'reason': _refundReasonController.text.trim(),
+          'method': _refundMethod,
+        },
+        'selectedBusinessDateKey': selectedBusinessDateKey, // 選択された営業日キーを追加
+      });
+
+      if (result.data['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('返金処理を完了しました\n返金額: ${refundAmount}円')),
+          );
+          widget.onUpdated();
+          Navigator.of(context).pop();
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('返金処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        String errorMessage = '返金処理に失敗しました';
+        if (e.toString().contains('failed-precondition')) {
+          errorMessage = '返金処理に失敗しました: この伝票は返金できません';
+        } else if (e.toString().contains('invalid-argument')) {
+          errorMessage = '返金処理に失敗しました: 入力値が無効です';
+        } else if (e.toString().contains('not-found')) {
+          errorMessage = '返金処理に失敗しました: 伝票が見つかりません';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$errorMessage: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
   }
 
   Future<void> _processRefund() async {
@@ -128,6 +191,28 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
       }
     } catch (e) {
       if (mounted) {
+        // AMBIGUOUSエラーの場合、ダイアログを表示
+        final candidates = extractAmbiguousCandidates(e);
+        if (candidates != null && candidates.isNotEmpty) {
+          final selectedBusinessDateKey = await showBusinessDateAmbiguousDialog(
+            context: context,
+            candidates: candidates,
+            onSelected: (selectedKey) {
+              // 選択された営業日キーで再試行
+              _retryWithSelectedBusinessDate(selectedKey);
+            },
+          );
+          
+          if (selectedBusinessDateKey != null) {
+            // 選択された営業日キーで再試行
+            await _retryWithSelectedBusinessDate(selectedBusinessDateKey);
+            return;
+          } else {
+            // キャンセルされた場合は処理を終了
+            return;
+          }
+        }
+        
         String errorMessage = '返金処理に失敗しました';
         if (e.toString().contains('failed-precondition')) {
           errorMessage = '返金処理に失敗しました: この伝票は返金できません';

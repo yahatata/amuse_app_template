@@ -19,8 +19,8 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import * as crypto from 'crypto';
-import { calcBusinessDate } from './calcBusinessDate';
 import { dualWriteTodaysBillsSkeleton, shouldDualWrite } from './dualWrite';
+import { getCurrentBusinessDateKeyOrThrow } from '../stateDoc/getCurrentBusinessDateKeyOrThrow';
 
 /**
  * リクエストペイロードの正規化ハッシュを生成
@@ -92,10 +92,10 @@ export async function createBillWithActiveStay(
     entranceFeeDescription: entranceFeeDescription || null,
   });
 
-  // 営業日計算（サーバ専任、STORE_CLOSE_HOUR 準拠）
-  // STORE_CLOSE_HOUR は calcBusinessDate 内で getStoreCloseHour() から取得（単一路線）
+  // 営業日計算（サーバ専任、state docから取得）
+  // Phase1: state docのcurrentBusinessDateKeyを使用（店舗が閉店中の場合はエラー）
   const now = new Date();
-  const businessDate = calcBusinessDate(now);
+  const businessDate = await getCurrentBusinessDateKeyOrThrow();
 
   // expiresAt = now + 48h
   const expiresAt = Timestamp.fromDate(new Date(now.getTime() + 48 * 60 * 60 * 1000));

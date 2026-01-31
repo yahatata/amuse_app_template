@@ -8,6 +8,7 @@ export { createBillWithActiveStay } from './createBillWithActiveStay';
 export type { CreateBillWithActiveStayRequest, CreateBillWithActiveStayResponse } from './createBillWithActiveStay';
 
 export { calcBusinessDate } from './calcBusinessDate';
+export type { BusinessDateResult } from './types';
 
 export { shouldDualWrite, dualWriteTodaysBillsSkeleton } from './dualWrite';
 

@@ -35,28 +35,27 @@ class _ScheduledTournamentInCalendarPageState extends State<ScheduledTournamentI
     });
 
     try {
-      // 現在表示可能な範囲（前月〜次の次の月）
-      final now = DateTime.now();
-      final startDate = DateTime(now.year, now.month - 1, 1); // 前月の1日
-      final endDate = DateTime(now.year, now.month + 3, 1); // 次の次の月の翌月1日
-
       debugPrint('=== トーナメント読み込み開始 ===');
-      debugPrint('期間: ${startDate} 〜 ${endDate}');
 
+      // 全件取得してからクライアント側でbusinessDateで分類
       final snapshot = await FirebaseFirestore.instance
           .collection('scheduledTournaments')
-          .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-          .where('startAt', isLessThan: Timestamp.fromDate(endDate))
-          .orderBy('startAt')
+          .where('isArchived', isEqualTo: false)
           .get();
 
       debugPrint('取得したトーナメント数: ${snapshot.docs.length}');
 
-      // 日付ごとにトーナメントを分類
+      // 日付ごとにトーナメントを分類（businessDateを使用）
       final Map<String, List<Map<String, dynamic>>> tournamentsByDate = {};
       
       for (var doc in snapshot.docs) {
         final data = doc.data();
+        final businessDate = data['businessDate'] as String?;
+        
+        if (businessDate == null) {
+          continue; // businessDateが無い場合はスキップ
+        }
+        
         final startAt = (data['startAt'] as Timestamp).toDate();
         
         // 時刻変換の確認と適切な処理
@@ -77,26 +76,26 @@ class _ScheduledTournamentInCalendarPageState extends State<ScheduledTournamentI
           debugPrint('UTC時刻をJST変換しました');
         }
         
-        final dateKey = DateFormat('yyyy-MM-dd').format(startAtJST);
         debugPrint('JST時刻: $startAtJST');
         debugPrint('表示時刻: ${DateFormat('HH:mm').format(startAtJST)}');
+        debugPrint('businessDate: $businessDate');
         debugPrint('====================');
         
         final snapshot = data['snapshot'] as Map<String, dynamic>?;
         final name = snapshot?['name'] ?? '名称未設定';
         
-        if (!tournamentsByDate.containsKey(dateKey)) {
-          tournamentsByDate[dateKey] = [];
+        if (!tournamentsByDate.containsKey(businessDate)) {
+          tournamentsByDate[businessDate] = [];
         }
         
-        tournamentsByDate[dateKey]!.add({
+        tournamentsByDate[businessDate]!.add({
           'id': doc.id,
           'name': name,
           'startAt': startAtJST,
           'snapshot': snapshot,
         });
 
-        debugPrint('トーナメント: $name, 開始: $startAtJST, dateKey: $dateKey');
+        debugPrint('トーナメント: $name, 開始: $startAtJST, businessDate: $businessDate');
       }
 
       setState(() {

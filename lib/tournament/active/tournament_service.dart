@@ -1,6 +1,7 @@
 
-
+import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import '../../utils/business_date_ambiguous_dialog.dart';
 
 // 後フェーズで実装予定のインターフェース
 abstract class TournamentService {
@@ -12,6 +13,7 @@ abstract class TournamentService {
     bool freeze = false,
     String storeId = 'default-store',
     String tenantId = 'default-tenant',
+    BuildContext? context,
   });
   // エントリー関連
   Future<bool> registerEntry(String tournamentId, String userId);
@@ -84,6 +86,7 @@ class TournamentServiceImpl implements TournamentService {
     bool freeze = false,
     String storeId = 'default-store',
     String tenantId = 'default-tenant',
+    BuildContext? context,
   }) async {
     try {
       final callable = _functions.httpsCallable('createScheduledTournament');
@@ -100,6 +103,47 @@ class TournamentServiceImpl implements TournamentService {
       final response = result.data as Map<String, dynamic>;
       return response;
     } catch (e) {
+      // AMBIGUOUSエラーの場合、ダイアログを表示（contextが提供されている場合のみ）
+      if (context != null) {
+        final candidates = extractAmbiguousCandidates(e);
+        if (candidates != null && candidates.isNotEmpty) {
+          final selectedBusinessDateKey = await showBusinessDateAmbiguousDialog(
+            context: context,
+            candidates: candidates,
+            onSelected: (selectedKey) {
+              // 選択された営業日キーで再試行
+              return createScheduledTournament(
+                templateId: templateId,
+                startAt: startAt,
+                regEndAt: regEndAt,
+                freeze: freeze,
+                storeId: storeId,
+                tenantId: tenantId,
+                context: context,
+              );
+            },
+          );
+          
+          if (selectedBusinessDateKey != null) {
+            // 選択された営業日キーで再試行
+            final callable = _functions.httpsCallable('createScheduledTournament');
+            final result = await callable.call({
+              'templateId': templateId,
+              'startAt': startAt.toIso8601String(),
+              'regEndAt': regEndAt.toIso8601String(),
+              'freeze': freeze,
+              'storeId': storeId,
+              'tenantId': tenantId,
+              'selectedBusinessDateKey': selectedBusinessDateKey, // 選択された営業日キーを追加
+            });
+            return result.data as Map<String, dynamic>;
+          } else {
+            // キャンセルされた場合はエラーをスロー
+            throw Exception('トーナメント作成がキャンセルされました');
+          }
+        }
+      }
+      
       throw Exception('トーナメント作成に失敗しました: $e');
     }
   }
@@ -324,6 +368,7 @@ class MockTournamentService implements TournamentService {
     bool freeze = false,
     String storeId = 'default-store',
     String tenantId = 'default-tenant',
+    BuildContext? context,
   }) async {
     await Future.delayed(const Duration(milliseconds: 1000));
     

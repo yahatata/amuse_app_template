@@ -4,11 +4,12 @@
 
 /**
  * 営業日計算結果
+ * Phase2: businessHoursMonthlyMap導入により、OK/NONE/AMBIGUOUSの3つの状態を返す
  */
-export interface BusinessDateResult {
-  businessDate: string; // YYYY-MM-DD形式
-  storeCloseHour: number; // 使用したSTORE_CLOSE_HOUR値
-}
+export type BusinessDateResult = 
+  | { status: 'OK'; businessDateKey: string }  // 単一の営業日に属する（営業日を返す）
+  | { status: 'NONE' }  // どの営業日にも属さない
+  | { status: 'AMBIGUOUS'; candidates: string[] };  // 複数営業日に跨る（候補のリストを返す）
 
 /**
  * デュアルライト結果

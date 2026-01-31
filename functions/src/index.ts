@@ -32,6 +32,8 @@ export * from "./staff";
 export * from "./attendance";
 // スケジュール済みトーナメント関連関数
 export * from "./callables";
+// 開閉店管理関数（Phase1）
+export * from "./storeManagement";
 // アナリティクス関連関数
 export * from "./analytics";
 // クロージング処理関連関数

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
 
@@ -88,34 +89,59 @@ class _TournamentSelectPageState extends State<TournamentSelectPage>
   }
 
   Widget _buildTournamentList(List<String> statuses) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _firestore
-          .collection('scheduledTournaments')
-          .orderBy('startAt', descending: false)
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('storeMeta')
+          .doc('currentBusinessDay')
           .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('エラー: ${snapshot.error}'));
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      builder: (context, stateSnapshot) {
+        if (!stateSnapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-
-        // クライアント側でstatusをフィルタリング
-        final statusFilteredDocs = (snapshot.data?.docs ?? []).where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          final status = data['status'] as String? ?? '';
-          return statuses.contains(status);
-        }).toList();
-
-        // 卓番フィルタリングが有効で、卓番が指定されている場合
-        if (widget.filterByDeviceTable && _myTableId != null) {
-          return _buildFilteredByTableList(statusFilteredDocs, statuses);
+        
+        final stateData = stateSnapshot.data?.data() as Map<String, dynamic>?;
+        final status = stateData?['status'] as String?;
+        final currentBusinessDateKey = stateData?['currentBusinessDateKey'] as String?;
+        
+        String businessDateKey;
+        if (status == 'running' && currentBusinessDateKey != null) {
+          businessDateKey = currentBusinessDateKey;
+        } else {
+          // 閉店中の場合は、現在の日時が属する日付をbusinessDateとして使用
+          businessDateKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
         }
+        
+        return StreamBuilder<QuerySnapshot>(
+          stream: _firestore
+              .collection('scheduledTournaments')
+              .where('businessDate', isEqualTo: businessDateKey)
+              .orderBy('startAt', descending: false)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(child: Text('エラー: ${snapshot.error}'));
+            }
 
-        // 通常表示
-        return _buildListView(statusFilteredDocs);
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            // クライアント側でstatusをフィルタリング
+            final statusFilteredDocs = (snapshot.data?.docs ?? []).where((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              final status = data['status'] as String? ?? '';
+              return statuses.contains(status);
+            }).toList();
+
+            // 卓番フィルタリングが有効で、卓番が指定されている場合
+            if (widget.filterByDeviceTable && _myTableId != null) {
+              return _buildFilteredByTableList(statusFilteredDocs, statuses);
+            }
+
+            // 通常表示
+            return _buildListView(statusFilteredDocs);
+          },
+        );
       },
     );
   }
