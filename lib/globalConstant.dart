@@ -59,6 +59,15 @@ class GlobalConstants {
   static const int STORE_CLOSE_HOUR = 9; // 9:00まで（日付跨ぎ勤務可能）
   static const String STORE_CLOSE_DESCRIPTION = "$STORE_CLOSE_HOUR:00までの打刻は日付跨ぎ勤務として記録されます";
   
+  // 営業日計算時のバッファ時間設定（分単位）
+  // calcBusinessDate で営業時間の前後に適用するバッファ時間
+  // 例: 営業時間が20:00-28:00、バッファが30分の場合、19:30-28:30の範囲を拡張ウィンドウとして扱う
+  static const int CALC_BUSINESS_DATE_BUFFER_MINUTES = 70; // デフォルト: 30分
+  // ⚠️ 重要: この値を変更する場合は、必ず以下も同時に修正してください:
+  // - functions/src/helpers/billsApi/calcBusinessDateHelpers.ts の getCalcBusinessDateBufferMinutes() 関数内の return 30; の部分
+  // 両方の値を同期させてください（デプロイ時も両方をデプロイが必要です）
+  static const String CALC_BUSINESS_DATE_BUFFER_DESCRIPTION = "営業日計算時のバッファ時間: ${CALC_BUSINESS_DATE_BUFFER_MINUTES}分";
+  
   /// STORE_CLOSE_HOUR を正規化（24以上は翌日繰り上がりとして扱う）
   /// @param hour 0-48 の整数
   ///   - 0-23: 当日の時刻としてそのまま使用

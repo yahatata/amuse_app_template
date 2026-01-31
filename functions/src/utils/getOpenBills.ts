@@ -1,6 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
-import { calcBusinessDate } from "../helpers/billsApi/calcBusinessDate";
+import { getCurrentBusinessDateKeyOrThrow } from "../helpers/stateDoc/getCurrentBusinessDateKeyOrThrow";
 
 /**
  * When: 入店中ユーザー一覧が必要なとき（例: 注文ダイアログ表示前、利用者一覧画面表示時）
@@ -12,9 +12,8 @@ export const getOpenBills = onCall(async () => {
   try {
     const db = getFirestore();
     
-    // 当日の営業日を計算（共通ユーティリティ calcBusinessDate を使用）
-    const now = new Date();
-    const businessDate = calcBusinessDate(now);
+    // 当日の営業日を取得（state docから取得）
+    const businessDate = await getCurrentBusinessDateKeyOrThrow();
 
     const snap = await db
       .collection("bills")

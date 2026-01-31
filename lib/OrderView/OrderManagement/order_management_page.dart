@@ -111,58 +111,87 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
 
   /// 注文一覧を構築
   Widget _buildOrderList() {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _getOrdersStream(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(
-            child: Text('エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red)),
-          );
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('storeMeta')
+          .doc('currentBusinessDay')
+          .snapshots(),
+      builder: (context, stateSnapshot) {
+        if (!stateSnapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-
-        final orders = snapshot.data ?? [];
         
-        if (orders.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  _selectedTabIndex == 0 ? Icons.restaurant : Icons.check_circle,
-                  size: 64,
-                  color: Colors.grey,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  _selectedTabIndex == 0 
-                      ? '準備中・提供中の注文はありません'
-                      : '提供済みの注文はありません',
-                  style: const TextStyle(color: Colors.grey, fontSize: 16),
-                ),
-              ],
+        final stateData = stateSnapshot.data?.data() as Map<String, dynamic>?;
+        final status = stateData?['status'] as String?;
+        final currentBusinessDateKey = stateData?['currentBusinessDateKey'] as String?;
+        
+        if (status != 'running' || currentBusinessDateKey == null) {
+          // 閉店中は「閉店中」と表示（body部分を薄いグレーアウト）
+          return Container(
+            color: Colors.grey.withOpacity(0.3),
+            child: const Center(
+              child: Text(
+                '閉店中',
+                style: TextStyle(fontSize: 18, color: Colors.grey),
+              ),
             ),
           );
         }
+        
+        return StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _getOrdersStream(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(
+                child: Text('エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red)),
+              );
+            }
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: orders.length,
-          itemBuilder: (context, index) {
-            final order = orders[index];
-            return OrderCard(
-              order: order,
-              onStatusChanged: (orderId, newStatus) {
-                _updateOrderStatus(orderId, newStatus);
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final orders = snapshot.data ?? [];
+            
+            if (orders.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _selectedTabIndex == 0 ? Icons.restaurant : Icons.check_circle,
+                      size: 64,
+                      color: Colors.grey,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _selectedTabIndex == 0 
+                          ? '準備中・提供中の注文はありません'
+                          : '提供済みの注文はありません',
+                      style: const TextStyle(color: Colors.grey, fontSize: 16),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: orders.length,
+              itemBuilder: (context, index) {
+                final order = orders[index];
+                return OrderCard(
+                  order: order,
+                  onStatusChanged: (orderId, newStatus) {
+                    _updateOrderStatus(orderId, newStatus);
+                  },
+                  onEdit: (orderId, billId) {
+                    _showEditDialog(orderId, billId);
+                  },
+                  localStatus: _localOrderStatus[order['id']],
+                  isActiveTab: _selectedTabIndex == 0, // 準備中・提供中タブの場合 true
+                );
               },
-              onEdit: (orderId, billId) {
-                _showEditDialog(orderId, billId);
-              },
-              localStatus: _localOrderStatus[order['id']],
-              isActiveTab: _selectedTabIndex == 0, // 準備中・提供中タブの場合 true
             );
           },
         );
@@ -172,10 +201,31 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
 
   /// 注文ストリームを取得
   Stream<List<Map<String, dynamic>>> _getOrdersStream() {
-    final today = DateFormat('yyyyMMdd').format(DateTime.now());
-    final yesterday = DateFormat('yyyyMMdd').format(DateTime.now().subtract(const Duration(days: 1)));
-    
-    return Stream.periodic(const Duration(seconds: 1)).asyncMap((_) async {
+    return FirebaseFirestore.instance
+        .collection('storeMeta')
+        .doc('currentBusinessDay')
+        .snapshots()
+        .asyncMap((stateSnapshot) async {
+      if (!stateSnapshot.exists) {
+        return <Map<String, dynamic>>[];
+      }
+      
+      final stateData = stateSnapshot.data() as Map<String, dynamic>?;
+      final status = stateData?['status'] as String?;
+      final currentBusinessDateKey = stateData?['currentBusinessDateKey'] as String?;
+      
+      if (status != 'running' || currentBusinessDateKey == null) {
+        return <Map<String, dynamic>>[];
+      }
+      
+      // YYYY-MM-DD形式をYYYYMMDD形式に変換
+      final today = currentBusinessDateKey.replaceAll('-', '');
+      
+      // 前日を計算（DateTime加算で暦日の繰り上がりを正しく処理）
+      final currentDate = DateTime.parse(currentBusinessDateKey);
+      final yesterdayDate = currentDate.subtract(const Duration(days: 1));
+      final yesterday = DateFormat('yyyyMMdd').format(yesterdayDate);
+      
       List<Map<String, dynamic>> allOrders = [];
       
       // 当日と前日の注文を取得

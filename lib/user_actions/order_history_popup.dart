@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
-import '../globalConstant.dart';
+import 'package:intl/intl.dart';
 
 /// 注文履歴参照ポップアップ
 Future<void> showOrderHistoryDialog({
@@ -36,22 +36,8 @@ class _OrderHistoryDialog extends StatelessWidget {
     required this.pokerName,
   });
 
-  String _getBusinessDate() {
-    final now = DateTime.now();
-    final closeHour = GlobalConstants.normalizeStoreCloseHour(GlobalConstants.STORE_CLOSE_HOUR);
-    
-    if (now.hour < closeHour) {
-      final businessDate = now.subtract(const Duration(days: 1));
-      return businessDate.toIso8601String().split('T')[0];
-    } else {
-      return now.toIso8601String().split('T')[0];
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final businessDate = _getBusinessDate();
-
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
@@ -90,201 +76,222 @@ class _OrderHistoryDialog extends StatelessWidget {
             ),
             // 注文一覧
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
+              child: StreamBuilder<DocumentSnapshot>(
                 stream: FirebaseFirestore.instance
-                    .collection('bills')
-                    .where('party.userId', isEqualTo: userId)
-                    .where('businessDate', isEqualTo: businessDate)
+                    .collection('storeMeta')
+                    .doc('currentBusinessDay')
                     .snapshots(),
-                builder: (context, billsSnapshot) {
-                  if (billsSnapshot.connectionState == ConnectionState.waiting) {
+                builder: (context, stateSnapshot) {
+                  if (!stateSnapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
-
-                  if (billsSnapshot.hasError) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.error, color: Colors.red, size: 48),
-                          const SizedBox(height: 16),
-                          Text(
-                            'エラーが発生しました',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.red[700],
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            billsSnapshot.error.toString(),
-                            style: const TextStyle(fontSize: 14),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  if (!billsSnapshot.hasData || billsSnapshot.data!.docs.isEmpty) {
-                    return const Center(
-                      child: Text('当日の注文履歴がありません'),
-                    );
-                  }
-
-                  // 全てのbillsからitemsを取得
-                  final List<Map<String, dynamic>> allItems = [];
                   
-                  for (final billDoc in billsSnapshot.data!.docs) {
-                    final billId = billDoc.id;
-                    // itemsサブコレクションを取得（非同期のため、StreamBuilderを使用）
-                  }
-
-                  // StreamBuilderでitemsを取得
-                  return StreamBuilder<List<Map<String, dynamic>>>(
-                    stream: _getAllItemsStream(billsSnapshot.data!.docs),
-                    builder: (context, itemsSnapshot) {
-                      if (itemsSnapshot.connectionState == ConnectionState.waiting) {
+                  final stateData = stateSnapshot.data?.data() as Map<String, dynamic>?;
+                  final status = stateData?['status'] as String?;
+                  final currentBusinessDateKey = stateData?['currentBusinessDateKey'] as String?;
+                  
+                  // 閉店中の場合は、現在の日時が属する日付をbusinessDateとして使用
+                  final businessDateKey = (status == 'running' && currentBusinessDateKey != null)
+                      ? currentBusinessDateKey
+                      : DateFormat('yyyy-MM-dd').format(DateTime.now());
+                  
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('bills')
+                        .where('party.userId', isEqualTo: userId)
+                        .where('businessDate', isEqualTo: businessDateKey)
+                        .snapshots(),
+                    builder: (context, billsSnapshot) {
+                      if (billsSnapshot.connectionState == ConnectionState.waiting) {
                         return const Center(child: CircularProgressIndicator());
                       }
 
-                      if (itemsSnapshot.hasError) {
+                      if (billsSnapshot.hasError) {
                         return Center(
-                          child: Text('エラー: ${itemsSnapshot.error}'),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.error, color: Colors.red, size: 48),
+                              const SizedBox(height: 16),
+                              Text(
+                                'エラーが発生しました',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.red[700],
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                billsSnapshot.error.toString(),
+                                style: const TextStyle(fontSize: 14),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
                         );
                       }
 
-                      final items = itemsSnapshot.data ?? [];
-                      
-                      if (items.isEmpty) {
+                      if (!billsSnapshot.hasData || billsSnapshot.data!.docs.isEmpty) {
                         return const Center(
                           child: Text('当日の注文履歴がありません'),
                         );
                       }
 
-                      // orderedAtでソート（最新が上）
-                      items.sort((a, b) {
-                        final aTime = a['orderedAt'] as Timestamp?;
-                        final bTime = b['orderedAt'] as Timestamp?;
-                        if (aTime == null && bTime == null) return 0;
-                        if (aTime == null) return 1;
-                        if (bTime == null) return -1;
-                        return bTime.compareTo(aTime);
-                      });
+                      // 全てのbillsからitemsを取得
+                      final List<Map<String, dynamic>> allItems = [];
+                      
+                      for (final billDoc in billsSnapshot.data!.docs) {
+                        final billId = billDoc.id;
+                        // itemsサブコレクションを取得（非同期のため、StreamBuilderを使用）
+                      }
 
-                      // businessDateをYYYYMMDD形式に変換
-                      final orderDocId = businessDate.replaceAll('-', '');
-
-                      return ListView.builder(
-                        padding: const EdgeInsets.all(8),
-                        itemCount: items.length,
-                        itemBuilder: (context, index) {
-                          final item = items[index];
-                          final itemId = item['itemId'] as String? ?? '';
-                          final name = item['name'] as String? ?? '';
-                          final quantity = item['quantity'] as num? ?? 0;
-                          final unitPriceIncl = item['unitPriceIncl'] as num? ?? 0;
-                          final totalPriceIncl = item['totalPriceIncl'] as num? ?? 0;
-                          final orderedAt = item['orderedAt'] as Timestamp?;
-                          
-                          String formattedDate = '日時不明';
-                          if (orderedAt != null) {
-                            final date = orderedAt.toDate();
-                            formattedDate = '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+                      // StreamBuilderでitemsを取得
+                      return StreamBuilder<List<Map<String, dynamic>>>(
+                        stream: _getAllItemsStream(billsSnapshot.data!.docs),
+                        builder: (context, itemsSnapshot) {
+                          if (itemsSnapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(child: CircularProgressIndicator());
                           }
 
-                          return Card(
-                            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            child: StreamBuilder<DocumentSnapshot>(
-                              stream: itemId.isNotEmpty
-                                  ? FirebaseFirestore.instance
-                                      .collection('orders')
-                                      .doc(orderDocId)
-                                      .collection('_TodaysOrders')
-                                      .doc(itemId)
-                                      .snapshots()
-                                  : null,
-                              builder: (context, statusSnapshot) {
-                                String statusText = '';
-                                Color statusColor = Colors.grey;
-                                
-                                if (statusSnapshot.hasData && statusSnapshot.data!.exists) {
-                                  final statusData = statusSnapshot.data!.data() as Map<String, dynamic>?;
-                                  final status = statusData?['status'] as String? ?? '';
-                                  switch (status) {
-                                    case 'served':
-                                      statusText = '提供済み';
-                                      statusColor = Colors.green;
-                                      break;
-                                    case 'preparing':
-                                      statusText = '準備中';
-                                      statusColor = Colors.orange;
-                                      break;
-                                    case 'cancel':
-                                      statusText = 'キャンセル';
-                                      statusColor = Colors.red;
-                                      break;
-                                    default:
-                                      statusText = status;
-                                      break;
-                                  }
-                                }
+                          if (itemsSnapshot.hasError) {
+                            return Center(
+                              child: Text('エラー: ${itemsSnapshot.error}'),
+                            );
+                          }
 
-                                return ListTile(
-                                  leading: const Icon(Icons.restaurant, color: Colors.indigo),
-                                  title: Text(
-                                    name,
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                  subtitle: Text('数量: $quantity  単価: ¥${unitPriceIncl.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (statusText.isNotEmpty)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: statusColor.withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(4),
-                                            border: Border.all(color: statusColor),
-                                          ),
-                                          child: Text(
-                                            statusText,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: statusColor,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                      const SizedBox(width: 8),
-                                      Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        crossAxisAlignment: CrossAxisAlignment.end,
+                          final items = itemsSnapshot.data ?? [];
+                          
+                          if (items.isEmpty) {
+                            return const Center(
+                              child: Text('当日の注文履歴がありません'),
+                            );
+                          }
+
+                          // orderedAtでソート（最新が上）
+                          items.sort((a, b) {
+                            final aTime = a['orderedAt'] as Timestamp?;
+                            final bTime = b['orderedAt'] as Timestamp?;
+                            if (aTime == null && bTime == null) return 0;
+                            if (aTime == null) return 1;
+                            if (bTime == null) return -1;
+                            return bTime.compareTo(aTime);
+                          });
+
+                          // businessDateをYYYYMMDD形式に変換
+                          final orderDocId = businessDateKey.replaceAll('-', '');
+
+                          return ListView.builder(
+                            padding: const EdgeInsets.all(8),
+                            itemCount: items.length,
+                            itemBuilder: (context, index) {
+                              final item = items[index];
+                              final itemId = item['itemId'] as String? ?? '';
+                              final name = item['name'] as String? ?? '';
+                              final quantity = item['quantity'] as num? ?? 0;
+                              final unitPriceIncl = item['unitPriceIncl'] as num? ?? 0;
+                              final totalPriceIncl = item['totalPriceIncl'] as num? ?? 0;
+                              final orderedAt = item['orderedAt'] as Timestamp?;
+                              
+                              String formattedDate = '日時不明';
+                              if (orderedAt != null) {
+                                final date = orderedAt.toDate();
+                                formattedDate = '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+                              }
+
+                              return Card(
+                                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                child: StreamBuilder<DocumentSnapshot>(
+                                  stream: itemId.isNotEmpty
+                                      ? FirebaseFirestore.instance
+                                          .collection('orders')
+                                          .doc(orderDocId)
+                                          .collection('_TodaysOrders')
+                                          .doc(itemId)
+                                          .snapshots()
+                                      : null,
+                                  builder: (context, statusSnapshot) {
+                                    String statusText = '';
+                                    Color statusColor = Colors.grey;
+                                    
+                                    if (statusSnapshot.hasData && statusSnapshot.data!.exists) {
+                                      final statusData = statusSnapshot.data!.data() as Map<String, dynamic>?;
+                                      final status = statusData?['status'] as String? ?? '';
+                                      switch (status) {
+                                        case 'served':
+                                          statusText = '提供済み';
+                                          statusColor = Colors.green;
+                                          break;
+                                        case 'preparing':
+                                          statusText = '準備中';
+                                          statusColor = Colors.orange;
+                                          break;
+                                        case 'cancel':
+                                          statusText = 'キャンセル';
+                                          statusColor = Colors.red;
+                                          break;
+                                        default:
+                                          statusText = status;
+                                          break;
+                                      }
+                                    }
+
+                                    return ListTile(
+                                      leading: const Icon(Icons.restaurant, color: Colors.indigo),
+                                      title: Text(
+                                        name,
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      subtitle: Text('数量: $quantity  単価: ¥${unitPriceIncl.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Text(
-                                            '¥${totalPriceIncl.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.indigo,
+                                          if (statusText.isNotEmpty)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: statusColor.withOpacity(0.1),
+                                                borderRadius: BorderRadius.circular(4),
+                                                border: Border.all(color: statusColor),
+                                              ),
+                                              child: Text(
+                                                statusText,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: statusColor,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
                                             ),
-                                          ),
-                                          Text(
-                                            formattedDate,
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey,
-                                            ),
+                                          const SizedBox(width: 8),
+                                          Column(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            crossAxisAlignment: CrossAxisAlignment.end,
+                                            children: [
+                                              Text(
+                                                '¥${totalPriceIncl.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                                                style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.indigo,
+                                                ),
+                                              ),
+                                              Text(
+                                                formattedDate,
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
+                                    );
+                                  },
+                                ),
+                              );
+                            },
                           );
                         },
                       );

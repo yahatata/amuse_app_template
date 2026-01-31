@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:intl/intl.dart';
 
 class AccountingEditDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
@@ -51,47 +51,30 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
     _loadAvailableOptions();
   }
 
-  // 営業日を計算する関数
-  String _getBusinessDate() {
-    final now = DateTime.now();
-    final closeHour = GlobalConstants.normalizeStoreCloseHour(GlobalConstants.STORE_CLOSE_HOUR);
-    
-    // 現在時刻が店舗締め時間より前の場合は前日の営業日
-    if (now.hour < closeHour) {
-      final businessDate = now.subtract(const Duration(days: 1));
-      return businessDate.toIso8601String().split('T')[0];
-    } else {
-      // 店舗締め時間以降は当日の営業日
-      return now.toIso8601String().split('T')[0];
-    }
-  }
-
   // 選択肢データを読み込む
   Future<void> _loadAvailableOptions() async {
-    // 営業時間の開始・終了時刻を計算
-    final now = DateTime.now();
-    final closeHour = GlobalConstants.normalizeStoreCloseHour(GlobalConstants.STORE_CLOSE_HOUR);
-
-    DateTime businessDayStart;
-    DateTime businessDayEnd;
-
-    if (now.hour < closeHour) {
-      // 前日の営業日
-      final yesterday = now.subtract(const Duration(days: 1));
-      businessDayStart = DateTime(yesterday.year, yesterday.month, yesterday.day, closeHour, 0, 0);
-      businessDayEnd = DateTime(now.year, now.month, now.day, closeHour, 0, 0);
+    // storeMeta/currentBusinessDayを取得してcurrentBusinessDateKeyを取得
+    final stateDoc = await FirebaseFirestore.instance
+        .collection('storeMeta')
+        .doc('currentBusinessDay')
+        .get();
+    
+    final stateData = stateDoc.data() as Map<String, dynamic>?;
+    final status = stateData?['status'] as String?;
+    final currentBusinessDateKey = stateData?['currentBusinessDateKey'] as String?;
+    
+    String businessDateKey;
+    if (status == 'running' && currentBusinessDateKey != null) {
+      businessDateKey = currentBusinessDateKey;
     } else {
-      // 当日の営業日
-      businessDayStart = DateTime(now.year, now.month, now.day, closeHour, 0, 0);
-      final tomorrow = now.add(const Duration(days: 1));
-      businessDayEnd = DateTime(tomorrow.year, tomorrow.month, tomorrow.day, closeHour, 0, 0);
+      // 閉店中の場合は、現在の日時が属する日付をbusinessDateとして使用
+      businessDateKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
     }
 
-    // startAtが営業時間内のトーナメントを取得
+    // businessDateでフィルタリング
     final tournamentsSnapshot = await _firestore
         .collection('scheduledTournaments')
-        .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(businessDayStart))
-        .where('startAt', isLessThan: Timestamp.fromDate(businessDayEnd))
+        .where('businessDate', isEqualTo: businessDateKey)
         .get();
 
     setState(() {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
-import '../globalConstant.dart';
+import 'package:intl/intl.dart';
 
 /// トーナメント履歴参照ポップアップ
 Future<void> showTournamentHistoryDialog({
@@ -36,22 +36,8 @@ class _TournamentHistoryDialog extends StatelessWidget {
     required this.pokerName,
   });
 
-  String _getBusinessDate() {
-    final now = DateTime.now();
-    final closeHour = GlobalConstants.normalizeStoreCloseHour(GlobalConstants.STORE_CLOSE_HOUR);
-    
-    if (now.hour < closeHour) {
-      final businessDate = now.subtract(const Duration(days: 1));
-      return businessDate.toIso8601String().split('T')[0];
-    } else {
-      return now.toIso8601String().split('T')[0];
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final businessDate = _getBusinessDate();
-
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
@@ -90,150 +76,171 @@ class _TournamentHistoryDialog extends StatelessWidget {
             ),
             // トーナメント一覧
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
+              child: StreamBuilder<DocumentSnapshot>(
                 stream: FirebaseFirestore.instance
-                    .collection('bills')
-                    .where('party.userId', isEqualTo: userId)
-                    .where('businessDate', isEqualTo: businessDate)
+                    .collection('storeMeta')
+                    .doc('currentBusinessDay')
                     .snapshots(),
-                builder: (context, billsSnapshot) {
-                  if (billsSnapshot.connectionState == ConnectionState.waiting) {
+                builder: (context, stateSnapshot) {
+                  if (!stateSnapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
-
-                  if (billsSnapshot.hasError) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.error, color: Colors.red, size: 48),
-                          const SizedBox(height: 16),
-                          Text(
-                            'エラーが発生しました',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.red[700],
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            billsSnapshot.error.toString(),
-                            style: const TextStyle(fontSize: 14),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  if (!billsSnapshot.hasData || billsSnapshot.data!.docs.isEmpty) {
-                    return const Center(
-                      child: Text('当日のトーナメント履歴がありません'),
-                    );
-                  }
-
-                  // StreamBuilderでtournamentsを取得
-                  return StreamBuilder<List<Map<String, dynamic>>>(
-                    stream: _getAllTournamentsStream(billsSnapshot.data!.docs),
-                    builder: (context, tournamentsSnapshot) {
-                      if (tournamentsSnapshot.connectionState == ConnectionState.waiting) {
+                  
+                  final stateData = stateSnapshot.data?.data() as Map<String, dynamic>?;
+                  final status = stateData?['status'] as String?;
+                  final currentBusinessDateKey = stateData?['currentBusinessDateKey'] as String?;
+                  
+                  // 閉店中の場合は、現在の日時が属する日付をbusinessDateとして使用
+                  final businessDateKey = (status == 'running' && currentBusinessDateKey != null)
+                      ? currentBusinessDateKey
+                      : DateFormat('yyyy-MM-dd').format(DateTime.now());
+                  
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('bills')
+                        .where('party.userId', isEqualTo: userId)
+                        .where('businessDate', isEqualTo: businessDateKey)
+                        .snapshots(),
+                    builder: (context, billsSnapshot) {
+                      if (billsSnapshot.connectionState == ConnectionState.waiting) {
                         return const Center(child: CircularProgressIndicator());
                       }
 
-                      if (tournamentsSnapshot.hasError) {
+                      if (billsSnapshot.hasError) {
                         return Center(
-                          child: Text('エラー: ${tournamentsSnapshot.error}'),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.error, color: Colors.red, size: 48),
+                              const SizedBox(height: 16),
+                              Text(
+                                'エラーが発生しました',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.red[700],
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                billsSnapshot.error.toString(),
+                                style: const TextStyle(fontSize: 14),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
                         );
                       }
 
-                      final tournaments = tournamentsSnapshot.data ?? [];
-                      
-                      if (tournaments.isEmpty) {
+                      if (!billsSnapshot.hasData || billsSnapshot.data!.docs.isEmpty) {
                         return const Center(
                           child: Text('当日のトーナメント履歴がありません'),
                         );
                       }
 
-                      return ListView.builder(
-                        padding: const EdgeInsets.all(8),
-                        itemCount: tournaments.length,
-                        itemBuilder: (context, index) {
-                          final tournament = tournaments[index];
-                          final templateName = tournament['templateName'] as String? ?? '';
-                          final entryFeeIncl = tournament['entryFeeIncl'] as num? ?? 0;
-                          final entryCount = tournament['entryCount'] as num? ?? 0;
-                          final reentryFeeIncl = tournament['reentryFeeIncl'] as num? ?? 0;
-                          final reentryCount = tournament['reentryCount'] as num? ?? 0;
-                          final addonFeeIncl = tournament['addonFeeIncl'] as num? ?? 0;
-                          final addonCount = tournament['addonCount'] as num? ?? 0;
+                      // StreamBuilderでtournamentsを取得
+                      return StreamBuilder<List<Map<String, dynamic>>>(
+                        stream: _getAllTournamentsStream(billsSnapshot.data!.docs),
+                        builder: (context, tournamentsSnapshot) {
+                          if (tournamentsSnapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
 
-                          final totalAmount = (entryFeeIncl * entryCount) +
-                              (reentryFeeIncl * reentryCount) +
-                              (addonFeeIncl * addonCount);
+                          if (tournamentsSnapshot.hasError) {
+                            return Center(
+                              child: Text('エラー: ${tournamentsSnapshot.error}'),
+                            );
+                          }
 
-                          return Card(
-                            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
+                          final tournaments = tournamentsSnapshot.data ?? [];
+                          
+                          if (tournaments.isEmpty) {
+                            return const Center(
+                              child: Text('当日のトーナメント履歴がありません'),
+                            );
+                          }
+
+                          return ListView.builder(
+                            padding: const EdgeInsets.all(8),
+                            itemCount: tournaments.length,
+                            itemBuilder: (context, index) {
+                              final tournament = tournaments[index];
+                              final templateName = tournament['templateName'] as String? ?? '';
+                              final entryFeeIncl = tournament['entryFeeIncl'] as num? ?? 0;
+                              final entryCount = tournament['entryCount'] as num? ?? 0;
+                              final reentryFeeIncl = tournament['reentryFeeIncl'] as num? ?? 0;
+                              final reentryCount = tournament['reentryCount'] as num? ?? 0;
+                              final addonFeeIncl = tournament['addonFeeIncl'] as num? ?? 0;
+                              final addonCount = tournament['addonCount'] as num? ?? 0;
+
+                              final totalAmount = (entryFeeIncl * entryCount) +
+                                  (reentryFeeIncl * reentryCount) +
+                                  (addonFeeIncl * addonCount);
+
+                              return Card(
+                                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Icon(Icons.emoji_events, color: Colors.redAccent),
-                                      const SizedBox(width: 8),
-                                      Expanded(
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.emoji_events, color: Colors.redAccent),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              templateName,
+                                              style: const TextStyle(
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      if (entryCount > 0)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 4),
+                                          child: Text(
+                                            'エントリー: ¥${(entryFeeIncl * entryCount).toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                                            style: const TextStyle(fontSize: 14),
+                                          ),
+                                        ),
+                                      if (reentryCount > 0)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 4),
+                                          child: Text(
+                                            'リエントリー: ¥${(reentryFeeIncl * reentryCount).toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} (${reentryCount.toInt()}回)',
+                                            style: const TextStyle(fontSize: 14),
+                                          ),
+                                        ),
+                                      if (addonCount > 0)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 4),
+                                          child: Text(
+                                            'addon: ¥${(addonFeeIncl * addonCount).toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} (${addonCount.toInt()}回)',
+                                            style: const TextStyle(fontSize: 14),
+                                          ),
+                                        ),
+                                      const Divider(),
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
                                         child: Text(
-                                          templateName,
+                                          '合計金額: ¥${totalAmount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
                                           style: const TextStyle(
-                                            fontSize: 18,
+                                            fontSize: 16,
                                             fontWeight: FontWeight.bold,
+                                            color: Colors.redAccent,
                                           ),
                                         ),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 12),
-                                  if (entryCount > 0)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: Text(
-                                        'エントリー: ¥${(entryFeeIncl * entryCount).toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                                        style: const TextStyle(fontSize: 14),
-                                      ),
-                                    ),
-                                  if (reentryCount > 0)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: Text(
-                                        'リエントリー: ¥${(reentryFeeIncl * reentryCount).toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} (${reentryCount.toInt()}回)',
-                                        style: const TextStyle(fontSize: 14),
-                                      ),
-                                    ),
-                                  if (addonCount > 0)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: Text(
-                                        'addon: ¥${(addonFeeIncl * addonCount).toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} (${addonCount.toInt()}回)',
-                                        style: const TextStyle(fontSize: 14),
-                                      ),
-                                    ),
-                                  const Divider(),
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      '合計金額: ¥${totalAmount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.redAccent,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                                ),
+                              );
+                            },
                           );
                         },
                       );

@@ -157,6 +157,7 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
         templateId: templateId,
         startAt: startAt,
         regEndAt: regEndAt,
+        context: context,
       );
 
       if (result['success'] == true) {

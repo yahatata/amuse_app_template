@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import '../utils/business_date_ambiguous_dialog.dart';
 
 class PostAccountingReopenDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
@@ -26,6 +27,64 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
   void dispose() {
     _reopenReasonController.dispose();
     super.dispose();
+  }
+
+  /// 選択された営業日キーで再試行
+  Future<void> _retryWithSelectedBusinessDate(String selectedBusinessDateKey) async {
+    if (!mounted) return;
+    
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      final billId = widget.bill['id'] ?? '';
+      final idempotencyKey = '$billId:reopen:${DateTime.now().millisecondsSinceEpoch}';
+
+      final result = await _functions.httpsCallable('updateAccounting').call({
+        'billId': billId,
+        'idempotencyKey': idempotencyKey,
+        'eventType': 'reopen',
+        'reason': _reopenReasonController.text.trim(),
+        'selectedBusinessDateKey': selectedBusinessDateKey, // 選択された営業日キーを追加
+      });
+
+      if (result.data['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('伝票再開処理を完了しました')),
+          );
+          widget.onUpdated();
+          Navigator.of(context).pop();
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('再開処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        String errorMessage = '再開処理に失敗しました';
+        if (e.toString().contains('failed-precondition')) {
+          errorMessage = '再開処理に失敗しました: この伝票は再開できません（ステータスが「settled」である必要があります）';
+        } else if (e.toString().contains('invalid-argument')) {
+          errorMessage = '再開処理に失敗しました: 入力値が無効です';
+        } else if (e.toString().contains('not-found')) {
+          errorMessage = '再開処理に失敗しました: 伝票が見つかりません';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$errorMessage: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
   }
 
   Future<void> _processReopen() async {

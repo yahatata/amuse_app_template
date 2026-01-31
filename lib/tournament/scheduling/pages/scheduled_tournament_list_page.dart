@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:intl/intl.dart';
+import 'dart:async';
 import 'package:amuse_app_template/tournament/active/pages/tournament_home_page.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/utils/date_time_utils.dart';
@@ -40,6 +42,15 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
   
   // 処理中の期間を追跡（重複処理を防ぐ）
   final Set<String> _processingPeriods = {};
+  
+  // 各期間で「すべて表示」が有効かどうか
+  final Map<String, bool> _showAllTournaments = {};
+  
+  // 各期間で実際に取得可能なトーナメント数（10件を超える場合に使用）
+  final Map<String, int> _totalTournamentCounts = {};
+  
+  // 複数クエリの結果を一時的に保存（_getMultipleQueriesStream用）
+  final Map<String, List<QueryDocumentSnapshot>> _multipleQueryResults = {};
 
   @override
   void initState() {
@@ -149,9 +160,13 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
                           onPressed: () {
                             debugPrint('期間切り替え: ${period['key']}');
                             final oldPeriod = _selectedPeriod;
-                            setState(() {
-                              _selectedPeriod = period['key'];
-                            });
+                    setState(() {
+                      _selectedPeriod = period['key'];
+                      // 期間が変更されたら、「すべて表示」フラグをリセット
+                      _showAllTournaments[_selectedPeriod] = false;
+                      // ストリームキャッシュをクリアして再取得
+                      _streamCache.remove(_selectedPeriod);
+                    });
                             // 古い期間のストリームキャッシュをクリア（メモリ節約のため）
                             if (oldPeriod != period['key']) {
                               _streamCache.remove(oldPeriod);
@@ -247,6 +262,7 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
                     if (mounted) {
                       setState(() {
                         _tournamentsByPeriod[_selectedPeriod] = streamTournaments;
+                        _totalTournamentCounts[_selectedPeriod] = streamTournaments.length;
                         _processingPeriods.remove(_selectedPeriod);
                       });
                     } else {
@@ -274,12 +290,64 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
                   );
                 }
                 
+                // thisWeekとallの場合は日付バーを表示、todayとyesterdayの場合は表示しない
+                final shouldShowDateHeaders = _selectedPeriod == 'thisWeek' || _selectedPeriod == 'all';
+                final hasMore = _hasMoreTournaments();
+                
+                // 「すべて表示」ボタンも含めたアイテム数
+                final itemCount = tournaments.length + (hasMore ? 1 : 0);
+                
                 return ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: tournaments.length,
+                  itemCount: itemCount,
                   itemBuilder: (context, index) {
+                    // 「すべて表示」ボタンの位置かどうかを判定
+                    if (hasMore && index == tournaments.length) {
+                      // 「すべて表示」ボタンを表示
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 12),
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _showAllTournaments[_selectedPeriod] = true;
+                              // ストリームキャッシュをクリアして再取得
+                              _streamCache.remove(_selectedPeriod);
+                              _processingPeriods.remove(_selectedPeriod);
+                            });
+                          },
+                          icon: const Icon(Icons.expand_more),
+                          label: const Text('すべて表示'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      );
+                    }
+                    
+                    // トーナメントカードを表示
                     final tournament = tournaments[index];
-                    return _buildTournamentCard(context, tournament);
+                    final currentBusinessDate = tournament['businessDate'] as String? ?? '';
+                    
+                    // 前のトーナメントのbusinessDateを取得
+                    final previousBusinessDate = index > 0 
+                        ? (tournaments[index - 1]['businessDate'] as String? ?? '')
+                        : '';
+                    
+                    // businessDateが変わった場合、日付バーを表示（thisWeekとallのみ）
+                    final shouldShowDateHeader = shouldShowDateHeaders && 
+                        currentBusinessDate != previousBusinessDate && 
+                        currentBusinessDate.isNotEmpty;
+                    
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (shouldShowDateHeader) _buildDateHeader(currentBusinessDate),
+                        _buildTournamentCard(context, tournament),
+                      ],
+                    );
                   },
                 );
               },
@@ -489,8 +557,65 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
   }
 
   /// 現在選択されている期間のトーナメントを取得
+  /// 「すべて表示」が無効で、11件以上取得されている場合は先頭10件のみ返す
   List<Map<String, dynamic>> _getCurrentTournaments() {
-    return _tournamentsByPeriod[_selectedPeriod] ?? [];
+    final tournaments = _tournamentsByPeriod[_selectedPeriod] ?? [];
+    final showAll = _showAllTournaments[_selectedPeriod] ?? false;
+    
+    // todayとyesterdayの場合は、すべて表示
+    if (_selectedPeriod == 'today' || _selectedPeriod == 'yesterday') {
+      return tournaments;
+    }
+    
+    // thisWeekとallの場合、「すべて表示」が無効で、11件以上取得されている場合は先頭10件のみ返す
+    if (!showAll && tournaments.length > 10) {
+      return tournaments.take(10).toList();
+    }
+    
+    return tournaments;
+  }
+  
+  /// 11件目が存在するかどうか（「すべて表示」ボタンを表示するかどうか）
+  bool _hasMoreTournaments() {
+    final tournaments = _tournamentsByPeriod[_selectedPeriod] ?? [];
+    final showAll = _showAllTournaments[_selectedPeriod] ?? false;
+    
+    // todayとyesterdayの場合は、ボタンを表示しない
+    if (_selectedPeriod == 'today' || _selectedPeriod == 'yesterday') {
+      return false;
+    }
+    
+    // thisWeekとallの場合、「すべて表示」が無効で、11件以上取得されている場合はボタンを表示
+    return !showAll && tournaments.length > 10;
+  }
+  
+  /// 表示するトーナメントを取得（「すべて表示」が無効で、10件を超える場合は10件まで）
+  List<Map<String, dynamic>> _getDisplayTournaments(List<Map<String, dynamic>> tournaments) {
+    final showAll = _showAllTournaments[_selectedPeriod] ?? false;
+    
+    // todayとyesterdayの場合は、すべて表示
+    if (_selectedPeriod == 'today' || _selectedPeriod == 'yesterday') {
+      return tournaments;
+    }
+    
+    // thisWeekとallの場合は、「すべて表示」が無効で、10件を超える場合は10件まで
+    if (!showAll && tournaments.length > 10) {
+      // thisWeekの場合は、当日に近い日付を優先（businessDateでソート済み）
+      // allの場合は、新しいものを優先（businessDateで降順ソートが必要）
+      if (_selectedPeriod == 'all') {
+        // 新しいものを優先するため、降順でソート
+        final sorted = List<Map<String, dynamic>>.from(tournaments);
+        sorted.sort((a, b) {
+          final aDate = a['businessDate'] as String? ?? '';
+          final bDate = b['businessDate'] as String? ?? '';
+          return bDate.compareTo(aDate);
+        });
+        return sorted.take(10).toList();
+      }
+      return tournaments.take(10).toList();
+    }
+    
+    return tournaments;
   }
   
   /// 現在選択されている期間のトーナメントストリームを取得
@@ -500,70 +625,127 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
       return _streamCache[_selectedPeriod]!;
     }
     
-    // 期間に応じたクエリを構築
-    Query query = _firestore
-        .collection('scheduledTournaments')
-        .where('isArchived', isEqualTo: false);
-    
-    // 期間に応じたフィルタリング（日本時間基準）
-    final jstToday = DateTimeUtils.getTodayStartJST();
-    final jstTodayUTC = DateTimeUtils.jstToUTC(jstToday);
-    final jstTodayTimestamp = Timestamp.fromDate(jstTodayUTC);
-    
-    switch (_selectedPeriod) {
-      case 'yesterday':
-        final jstYesterday = DateTimeUtils.getYesterdayStartJST();
-        final jstYesterdayUTC = DateTimeUtils.jstToUTC(jstYesterday);
-        final jstYesterdayTimestamp = Timestamp.fromDate(jstYesterdayUTC);
-        final jstYesterdayEndTimestamp = Timestamp.fromDate(jstTodayUTC);
+    // storeMeta/currentBusinessDayを取得して今日のbusinessDateを取得
+    final stream = FirebaseFirestore.instance
+        .collection('storeMeta')
+        .doc('currentBusinessDay')
+        .snapshots()
+        .asyncMap((stateSnapshot) async {
+      String todayBusinessDateKey;
+      
+      if (stateSnapshot.exists) {
+        final stateData = stateSnapshot.data() as Map<String, dynamic>?;
+        final status = stateData?['status'] as String?;
+        final currentBusinessDateKey = stateData?['currentBusinessDateKey'] as String?;
         
-        query = query
-            .where('startAt', isGreaterThanOrEqualTo: jstYesterdayTimestamp)
-            .where('startAt', isLessThan: jstYesterdayEndTimestamp);
-        break;
+        if (status == 'running' && currentBusinessDateKey != null) {
+          todayBusinessDateKey = currentBusinessDateKey;
+        } else {
+          // 閉店中の場合は、現在の日時が属する日付を今日として使用
+          todayBusinessDateKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        }
+      } else {
+        // state docが存在しない場合は、現在の日時が属する日付を今日として使用
+        todayBusinessDateKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      }
+      
+      // 期間に応じた営業日キー列を生成
+      List<String> businessDateKeys = [];
+      final showAll = _showAllTournaments[_selectedPeriod] ?? false;
+      
+      switch (_selectedPeriod) {
+        case 'yesterday':
+          // 前日の営業日キーを生成
+          final todayDate = DateTime.parse(todayBusinessDateKey);
+          final yesterdayDate = todayDate.subtract(const Duration(days: 1));
+          businessDateKeys = [DateFormat('yyyy-MM-dd').format(yesterdayDate)];
+          break;
+          
+        case 'today':
+          // 当日の営業日キー
+          businessDateKeys = [todayBusinessDateKey];
+          break;
+          
+        case 'thisWeek':
+          // 明日から7日後までの営業日キー列を生成（当日を含めない）
+          final todayDate = DateTime.parse(todayBusinessDateKey);
+          for (int i = 1; i <= 7; i++) {
+            final date = todayDate.add(Duration(days: i));
+            businessDateKeys.add(DateFormat('yyyy-MM-dd').format(date));
+          }
+          break;
+          
+        case 'all':
+        default:
+          // 昨日以前～7日前の営業日キー列を生成
+          final todayDate = DateTime.parse(todayBusinessDateKey);
+          final sevenDaysAgoDate = todayDate.subtract(const Duration(days: 7));
+          // 7日前から昨日までの営業日キー列を生成
+          for (int i = 0; i < 7; i++) {
+            final date = sevenDaysAgoDate.add(Duration(days: i));
+            businessDateKeys.add(DateFormat('yyyy-MM-dd').format(date));
+          }
+          break;
+      }
+      
+      // businessDateでフィルタリング
+      if (businessDateKeys.isEmpty) {
+        // 営業日キーが無い場合は空のクエリを実行して空のQuerySnapshotを返す
+        return Stream<QuerySnapshot>.fromFuture(
+          _firestore.collection('scheduledTournaments').limit(0).get(),
+        );
+      }
+      
+      // todayとyesterdayの場合は、whereInの制約を考慮せず、すべてのトーナメントを取得
+      if (_selectedPeriod == 'today' || _selectedPeriod == 'yesterday') {
+        Query query = _firestore
+            .collection('scheduledTournaments')
+            .where('isArchived', isEqualTo: false)
+            .where('businessDate', isEqualTo: businessDateKeys[0])
+            .orderBy('startAt', descending: false)
+            .limit(100);
         
-      case 'today':
-        final jstTomorrow = DateTimeUtils.getTomorrowStartJST();
-        final jstTomorrowUTC = DateTimeUtils.jstToUTC(jstTomorrow);
-        final jstTomorrowTimestamp = Timestamp.fromDate(jstTomorrowUTC);
+        return query.snapshots();
+      }
+      
+      // thisWeekとallの場合は、whereInを使用
+      // 「すべて表示」が有効で、10要素を超える場合は複数クエリに分割
+      if (showAll && businessDateKeys.length > 10) {
+        // 複数クエリに分割して結合（非同期で取得して結合）
+        return _getMultipleQueriesStream(businessDateKeys);
+      } else {
+        // 10要素以下の場合、または「すべて表示」が無効な場合は単一クエリ
+        final keysToUse = showAll ? businessDateKeys : businessDateKeys.take(10).toList();
         
-        query = query
-            .where('startAt', isGreaterThanOrEqualTo: jstTodayTimestamp)
-            .where('startAt', isLessThan: jstTomorrowTimestamp);
-        break;
+        Query query = _firestore
+            .collection('scheduledTournaments')
+            .where('isArchived', isEqualTo: false)
+            .where('businessDate', whereIn: keysToUse);
         
-      case 'thisWeek':
-        final jstNext7DaysStart = DateTimeUtils.getNext7DaysStartJST();
-        final jstNext7DaysEnd = DateTimeUtils.getNext7DaysEndJST();
-        final jstNext7DaysStartUTC = DateTimeUtils.jstToUTC(jstNext7DaysStart);
-        final jstNext7DaysEndUTC = DateTimeUtils.jstToUTC(jstNext7DaysEnd);
-        final jstNext7DaysStartTimestamp = Timestamp.fromDate(jstNext7DaysStartUTC);
-        final jstNext7DaysEndTimestamp = Timestamp.fromDate(jstNext7DaysEndUTC);
+        // ソート順を決定
+        if (_selectedPeriod == 'all') {
+          // 7日前以降：businessDate降順 → startAt降順（新しいものから）
+          query = query.orderBy('businessDate', descending: true);
+          query = query.orderBy('startAt', descending: true);
+        } else {
+          // 今後7日：businessDate昇順 → startAt昇順（過去のものから）
+          query = query.orderBy('businessDate', descending: false);
+          query = query.orderBy('startAt', descending: false);
+        }
         
-        query = query
-            .where('startAt', isGreaterThanOrEqualTo: jstNext7DaysStartTimestamp)
-            .where('startAt', isLessThanOrEqualTo: jstNext7DaysEndTimestamp);
-        break;
+        // 「すべて表示」が無効な場合は11件取得（11件目が存在するかチェックするため）
+        // 表示は10件まで、11件目が存在すれば「すべて表示」ボタンを表示
+        if (!showAll) {
+          query = query.limit(11);
+        } else {
+          query = query.limit(1000); // 「すべて表示」の場合は大きな値に設定
+        }
         
-      case 'all':
-      default:
-        // 7日前以降
-        final jst7DaysAgo = jstToday.subtract(const Duration(days: 7));
-        final jst7DaysAgoUTC = DateTimeUtils.jstToUTC(jst7DaysAgo);
-        final jst7DaysAgoTimestamp = Timestamp.fromDate(jst7DaysAgoUTC);
-        
-        query = query.where('startAt', isGreaterThanOrEqualTo: jst7DaysAgoTimestamp);
-        break;
-    }
-    
-    // 開始時刻で昇順ソート
-    query = query.orderBy('startAt', descending: false);
-    
-    // 最大100件まで取得
-    query = query.limit(100);
+        return query.snapshots();
+      }
+    }).asyncExpand((snapshotStream) => snapshotStream);
     
     // ストリームをキャッシュに保存
-    final stream = query.snapshots();
     _streamCache[_selectedPeriod] = stream;
     
     return stream;
@@ -623,10 +805,11 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
         entryFee = (templateData['entryFee'] as num?)?.toInt() ?? 0;
       }
       
-      // TimestampをISO文字列に変換
+      // TimestampをUTCのISO文字列に変換（FirestoreのTimestampはUTCとして保存されているため）
       String convertTimestamp(Timestamp? timestamp) {
         if (timestamp == null) return '';
-        return timestamp.toDate().toIso8601String();
+        // toDate()で取得したDateTimeをUTCとして扱い、ISO文字列に変換
+        return timestamp.toDate().toUtc().toIso8601String();
       }
       
       return {
@@ -635,6 +818,7 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
         'templateId': templateId,
         'startAt': convertTimestamp(data['startAt'] as Timestamp?),
         'regEndAt': convertTimestamp(data['regEndAt'] as Timestamp?),
+        'businessDate': data['businessDate'] as String? ?? '', // businessDateを追加
         'status': data['status'] as String? ?? 'scheduled', // ドキュメント直下のstatusを参照
         'entries': (data['views'] as Map<String, dynamic>?)?['main']?['entries'] as num? ?? 0,
         'maxEntrants': maxEntrants,
@@ -648,17 +832,154 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
       };
     }).toList();
     
-    // 開始時刻で降順ソート（最新が上）
+    // 期間に応じてソート順を決定
+    // 昨日、今日、今後7日：より過去のもの（古いもの）を上に表示（昇順）
+    // 7日前以降：より最新のものを上に表示（降順）
+    // 注意: クエリ時点で既に正しい順序で取得されているが、念のためクライアント側でもソート
     tournaments.sort((a, b) {
       final dateA = DateTime.tryParse(a['startAt'] as String? ?? '');
       final dateB = DateTime.tryParse(b['startAt'] as String? ?? '');
       if (dateA == null && dateB == null) return 0;
       if (dateA == null) return 1;
       if (dateB == null) return -1;
-      return dateB.compareTo(dateA);
+      
+      // 期間に応じてソート順を決定
+      if (_selectedPeriod == 'all') {
+        // 7日前以降：より最新のものを上に表示（降順）
+        return dateB.compareTo(dateA);
+      } else {
+        // 昨日、今日、今後7日：より過去のもの（古いもの）を上に表示（昇順）
+        return dateA.compareTo(dateB);
+      }
     });
     
     return tournaments;
+  }
+  
+  /// 複数のクエリを実行して結合したストリームを返す
+  Stream<QuerySnapshot> _getMultipleQueriesStream(List<String> businessDateKeys) {
+    // 10要素ごとに分割
+    final batches = <List<String>>[];
+    for (var i = 0; i < businessDateKeys.length; i += 10) {
+      batches.add(businessDateKeys.skip(i).take(10).toList());
+    }
+    
+    // 各バッチのストリームを作成
+    final streams = batches.map((batch) {
+      Query query = _firestore
+          .collection('scheduledTournaments')
+          .where('isArchived', isEqualTo: false)
+          .where('businessDate', whereIn: batch);
+      
+      // ソート順を決定
+      if (_selectedPeriod == 'all') {
+        // 7日前以降：businessDate降順 → startAt降順（新しいものから）
+        query = query.orderBy('businessDate', descending: true);
+        query = query.orderBy('startAt', descending: true);
+      } else {
+        // 今後7日：businessDate昇順 → startAt昇順（過去のものから）
+        query = query.orderBy('businessDate', descending: false);
+        query = query.orderBy('startAt', descending: false);
+      }
+      query = query.limit(1000); // 「すべて表示」の場合は大きな値に設定
+      
+      return query.snapshots();
+    }).toList();
+    
+    // 複数のストリームを結合（_combineQuerySnapshotsパターンを使用）
+    return _combineQuerySnapshots(streams);
+  }
+  
+  /// 複数のQuerySnapshotストリームを結合
+  Stream<QuerySnapshot> _combineQuerySnapshots(List<Stream<QuerySnapshot>> streams) {
+    if (streams.isEmpty) {
+      // 空のクエリを実行して空のQuerySnapshotを返す
+      return Stream<QuerySnapshot>.fromFuture(
+        _firestore.collection('scheduledTournaments').limit(0).get(),
+      );
+    }
+    
+    final controller = StreamController<QuerySnapshot>();
+    final List<QuerySnapshot?> latest = List.filled(streams.length, null);
+    final List<StreamSubscription> subscriptions = [];
+    
+    void checkAndEmit() {
+      // すべてのストリームからデータが取得できた場合のみ結合
+      if (latest.every((snapshot) => snapshot != null)) {
+        // すべてのドキュメントを結合
+        final allDocs = <QueryDocumentSnapshot>[];
+        for (final snapshot in latest) {
+          if (snapshot != null) {
+            allDocs.addAll(snapshot.docs);
+          }
+        }
+        
+        // 重複を除去（ドキュメントIDで）
+        final uniqueDocs = <String, QueryDocumentSnapshot>{};
+        for (final doc in allDocs) {
+          uniqueDocs[doc.id] = doc;
+        }
+        
+        // ソート
+        final sortedDocs = uniqueDocs.values.toList();
+        sortedDocs.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          final aBusinessDate = aData['businessDate'] as String? ?? '';
+          final bBusinessDate = bData['businessDate'] as String? ?? '';
+          
+          if (_selectedPeriod == 'all') {
+            // allの場合は、新しいものを優先（businessDateで降順）
+            final dateCompare = bBusinessDate.compareTo(aBusinessDate);
+            if (dateCompare != 0) return dateCompare;
+          } else {
+            // thisWeekの場合は、当日に近い日付を優先（businessDateで昇順）
+            final dateCompare = aBusinessDate.compareTo(bBusinessDate);
+            if (dateCompare != 0) return dateCompare;
+          }
+          
+          // businessDateが同じ場合は、startAtでソート
+          final aStartAt = aData['startAt'] as Timestamp?;
+          final bStartAt = bData['startAt'] as Timestamp?;
+          if (aStartAt == null && bStartAt == null) return 0;
+          if (aStartAt == null) return 1;
+          if (bStartAt == null) return -1;
+          return aStartAt.compareTo(bStartAt);
+        });
+        
+        // 複数クエリの結果を一時的に保存
+        _multipleQueryResults[_selectedPeriod] = sortedDocs;
+        
+        // QuerySnapshotを作成（簡易的な実装）
+        // 注意: 実際のQuerySnapshotは作成できないため、空のクエリを実行して空のQuerySnapshotを返す
+        // 代わりに、_convertMultipleQueryResultsToTournamentsで処理する
+        // 空のクエリを実行して空のQuerySnapshotを取得
+        _firestore.collection('scheduledTournaments').limit(0).get().then((emptySnapshot) {
+          controller.add(emptySnapshot);
+        });
+      }
+    }
+    
+    for (int i = 0; i < streams.length; i++) {
+      final index = i;
+      subscriptions.add(
+        streams[i].listen(
+          (snapshot) {
+            latest[index] = snapshot;
+            checkAndEmit();
+          },
+          onError: controller.addError,
+        ),
+      );
+    }
+    
+    controller.onCancel = () {
+      for (final sub in subscriptions) {
+        sub.cancel();
+      }
+    };
+    
+    return controller.stream;
   }
 
   /// トーナメントを作成
@@ -940,6 +1261,52 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
     } catch (e) {
       // パースに失敗した場合は元の文字列を返す
       return dateTimeString;
+    }
+  }
+  
+  /// 営業日の日付バーを構築
+  Widget _buildDateHeader(String businessDate) {
+    try {
+      final date = DateTime.parse(businessDate);
+      final formatter = DateFormat('yyyy年M月d日(E)', 'ja');
+      final dateString = formatter.format(date);
+      
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: const EdgeInsets.only(top: 16, bottom: 8),
+        decoration: BoxDecoration(
+          color: Colors.grey[200],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          dateString,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey,
+          ),
+        ),
+      );
+    } catch (e) {
+      // パースに失敗した場合はbusinessDateをそのまま表示
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: const EdgeInsets.only(top: 16, bottom: 8),
+        decoration: BoxDecoration(
+          color: Colors.grey[200],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          businessDate,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey,
+          ),
+        ),
+      );
     }
   }
 }

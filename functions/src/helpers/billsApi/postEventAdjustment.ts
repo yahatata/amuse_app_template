@@ -24,6 +24,7 @@ export interface PostEventAdjustmentRequest {
   createdBy: string;           // 実行者UID
   originBusinessDate?: string; // 売上帰属日（指定されない場合は bill.businessDate から取得）
   eventBusinessDate?: string;  // イベント計上日（指定されない場合は calcBusinessDate(now) で算出）
+  selectedBusinessDateKey?: string; // AMBIGUOUS時の選択された営業日（YYYY-MM-DD形式）
 }
 
 export interface PostEventAdjustmentResponse {
@@ -134,7 +135,35 @@ export async function postEventAdjustment(request: PostEventAdjustmentRequest): 
         throw new HttpsError('internal', 'originBusinessDate is required');
       }
 
-      const finalEventBusinessDate = eventBusinessDate || calcBusinessDate();
+      // eventBusinessDateが指定されていない場合はcalcBusinessDateで計算
+      let finalEventBusinessDate: string;
+      if (eventBusinessDate) {
+        finalEventBusinessDate = eventBusinessDate;
+      } else {
+        const businessDateResult = await calcBusinessDate();
+        if (businessDateResult.status === 'NONE') {
+          throw new HttpsError(
+            'failed-precondition',
+            'The event time does not belong to any business day.'
+          );
+        }
+        if (businessDateResult.status === 'AMBIGUOUS') {
+          // AMBIGUOUSの場合は、UIでどちらの営業日に属するデータなのかを選択させる
+          // リクエストにselectedBusinessDateKeyが含まれている場合はそれを使用
+          const selectedBusinessDateKey = request.selectedBusinessDateKey;
+          if (!selectedBusinessDateKey || !businessDateResult.candidates.includes(selectedBusinessDateKey)) {
+            throw new HttpsError(
+              'failed-precondition',
+              `The event time is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
+              { candidates: businessDateResult.candidates }
+            );
+          }
+          finalEventBusinessDate = selectedBusinessDateKey;
+        } else {
+          // OKの場合
+          finalEventBusinessDate = businessDateResult.businessDateKey;
+        }
+      }
 
       const now = admin.firestore.Timestamp.now();
 

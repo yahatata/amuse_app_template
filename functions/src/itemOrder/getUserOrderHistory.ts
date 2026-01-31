@@ -1,6 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
-import { calcBusinessDate } from "../helpers/billsApi/calcBusinessDate";
+import { getCurrentBusinessDateKeyOrThrow } from "../helpers/stateDoc/getCurrentBusinessDateKeyOrThrow";
 
 /**
  * When: LIFF側のユーザーが注文履歴を確認したいとき
@@ -23,9 +23,8 @@ export const getUserOrderHistory = onCall(async (request) => {
 
     const userId = request.auth.uid;
     
-    // 当日の営業日を計算（共通ユーティリティ calcBusinessDate を使用）
-    const now = new Date();
-    const businessDate = calcBusinessDate(now);
+    // 当日の営業日を取得（state docから取得）
+    const businessDate = await getCurrentBusinessDateKeyOrThrow();
 
     // クエリ条件（status フィルタは Firestore クエリ側で絞り込む）
     const billsQuery = db

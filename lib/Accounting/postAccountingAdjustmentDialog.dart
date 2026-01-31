@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import '../utils/business_date_ambiguous_dialog.dart';
 
 class PostAccountingAdjustmentDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
@@ -30,6 +31,70 @@ class _PostAccountingAdjustmentDialogState extends State<PostAccountingAdjustmen
     _adjustmentAmountController.dispose();
     _adjustmentReasonController.dispose();
     super.dispose();
+  }
+
+  /// 選択された営業日キーで再試行
+  Future<void> _retryWithSelectedBusinessDate(String selectedBusinessDateKey) async {
+    if (!mounted) return;
+    
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      final billId = widget.bill['id'] ?? '';
+      final idempotencyKey = '$billId:adjustment:${DateTime.now().millisecondsSinceEpoch}';
+      final adjustmentAmount = int.tryParse(_adjustmentAmountController.text) ?? 0;
+      final operationText = widget.sign > 0 ? '追加徴収' : '減額';
+
+      final result = await _functions.httpsCallable('updateAccounting').call({
+        'billId': billId,
+        'idempotencyKey': idempotencyKey,
+        'eventType': 'adjustment',
+        'eventPayload': {
+          'sign': widget.sign,
+          'amountIncl': adjustmentAmount,
+          'reason': _adjustmentReasonController.text.trim(),
+        },
+        'selectedBusinessDateKey': selectedBusinessDateKey, // 選択された営業日キーを追加
+      });
+
+      if (result.data['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$operationText処理を完了しました\n調整額: ${adjustmentAmount}円')),
+          );
+          widget.onUpdated();
+          Navigator.of(context).pop();
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$operationText処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        String errorMessage = '${widget.sign > 0 ? '追加徴収' : '減額'}処理に失敗しました';
+        if (e.toString().contains('failed-precondition')) {
+          errorMessage = '${widget.sign > 0 ? '追加徴収' : '減額'}処理に失敗しました: この伝票は調整できません（金額矛盾の可能性があります）';
+        } else if (e.toString().contains('invalid-argument')) {
+          errorMessage = '${widget.sign > 0 ? '追加徴収' : '減額'}処理に失敗しました: 入力値が無効です';
+        } else if (e.toString().contains('not-found')) {
+          errorMessage = '${widget.sign > 0 ? '追加徴収' : '減額'}処理に失敗しました: 伝票が見つかりません';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$errorMessage: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
   }
 
   Future<void> _processAdjustment() async {
@@ -111,6 +176,28 @@ class _PostAccountingAdjustmentDialogState extends State<PostAccountingAdjustmen
       }
     } catch (e) {
       if (mounted) {
+        // AMBIGUOUSエラーの場合、ダイアログを表示
+        final candidates = extractAmbiguousCandidates(e);
+        if (candidates != null && candidates.isNotEmpty) {
+          final selectedBusinessDateKey = await showBusinessDateAmbiguousDialog(
+            context: context,
+            candidates: candidates,
+            onSelected: (selectedKey) {
+              // 選択された営業日キーで再試行
+              _retryWithSelectedBusinessDate(selectedKey);
+            },
+          );
+          
+          if (selectedBusinessDateKey != null) {
+            // 選択された営業日キーで再試行
+            await _retryWithSelectedBusinessDate(selectedBusinessDateKey);
+            return;
+          } else {
+            // キャンセルされた場合は処理を終了
+            return;
+          }
+        }
+        
         String errorMessage = '${widget.sign > 0 ? '追加徴収' : '減額'}処理に失敗しました';
         if (e.toString().contains('failed-precondition')) {
           errorMessage = '${widget.sign > 0 ? '追加徴収' : '減額'}処理に失敗しました: この伝票は調整できません（金額矛盾の可能性があります）';

@@ -4,7 +4,7 @@ import 'package:amuse_app_template/Accounting/postAccountingRefundDialog.dart';
 import 'package:amuse_app_template/Accounting/postAccountingAdjustmentDialog.dart';
 import 'package:amuse_app_template/Accounting/postAccountingCancelDialog.dart';
 import 'package:amuse_app_template/Accounting/postAccountingReopenDialog.dart';
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:intl/intl.dart';
 
 class PostAccountingAdjustmentsPage extends StatefulWidget {
   final String? initialBillId; // 初期選択伝票ID（オプション）
@@ -29,21 +29,43 @@ class _PostAccountingAdjustmentsPageState extends State<PostAccountingAdjustment
   @override
   void initState() {
     super.initState();
-    _selectedDate = _getBusinessDate();
-    _loadBills();
+    // 初期化時にstoreMeta/currentBusinessDayを取得（一度だけ）
+    _initializeSelectedDate();
   }
 
-  // 営業日を計算する関数
-  DateTime _getBusinessDate() {
-    final now = DateTime.now();
-    final closeHour = GlobalConstants.normalizeStoreCloseHour(GlobalConstants.STORE_CLOSE_HOUR);
-    
-    // 現在時刻が店舗締め時間より前の場合は前日の営業日
-    if (now.hour < closeHour) {
-      return now.subtract(const Duration(days: 1));
-    } else {
-      // 店舗締め時間以降は当日の営業日
-      return now;
+  Future<void> _initializeSelectedDate() async {
+    try {
+      final stateDoc = await FirebaseFirestore.instance
+          .collection('storeMeta')
+          .doc('currentBusinessDay')
+          .get();
+      
+      final stateData = stateDoc.data() as Map<String, dynamic>?;
+      final status = stateData?['status'] as String?;
+      final currentBusinessDateKey = stateData?['currentBusinessDateKey'] as String?;
+      
+      String businessDateKey;
+      if (status == 'running' && currentBusinessDateKey != null) {
+        businessDateKey = currentBusinessDateKey;
+      } else {
+        // 閉店中の場合は、現在の日時が属する日付をbusinessDateとして使用
+        businessDateKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      }
+      
+      if (mounted) {
+        setState(() {
+          _selectedDate = DateTime.parse(businessDateKey);
+        });
+        _loadBills();
+      }
+    } catch (e) {
+      // エラー時は現在日時を使用
+      if (mounted) {
+        setState(() {
+          _selectedDate = DateTime.now();
+        });
+        _loadBills();
+      }
     }
   }
 

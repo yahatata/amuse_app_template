@@ -48,37 +48,21 @@ class _AccountingPageState extends State<AccountingPage> {
   List<Map<String, dynamic>> _settledBills = [];
   bool _isLoading = false;
   bool _showSettledBills = false;
+  String? _currentBusinessDateKey;
 
   @override
   void initState() {
     super.initState();
-    _loadActiveBills();
-    _loadSettledBills();
+    // initStateでは読み込まない（StreamBuilderで読み込む）
   }
 
-  // 営業日を計算する関数
-  String _getBusinessDate() {
-    final now = DateTime.now();
-    final closeHour = GlobalConstants.normalizeStoreCloseHour(GlobalConstants.STORE_CLOSE_HOUR);
-
-    // 現在時刻が店舗締め時間より前の場合は前日の営業日
-    if (now.hour < closeHour) {
-      final businessDate = now.subtract(const Duration(days: 1));
-      return businessDate.toIso8601String().split('T')[0];
-    } else {
-      // 店舗締め時間以降は当日の営業日
-      return now.toIso8601String().split('T')[0];
-    }
-  }
-
-  Future<void> _loadActiveBills() async {
+  Future<void> _loadActiveBills(String businessDate) async {
     setState(() {
       _isLoading = true;
     });
 
     try {
       // 営業日の未会計・会計中の請求書を取得（open と settling の両方）
-      final businessDate = _getBusinessDate();
       final querySnapshot = await _firestore
           .collection('bills')
           .where('businessDate', isEqualTo: businessDate)
@@ -128,10 +112,9 @@ class _AccountingPageState extends State<AccountingPage> {
     }
   }
 
-  Future<void> _loadSettledBills() async {
+  Future<void> _loadSettledBills(String businessDate) async {
     try {
       // 当日の営業日の会計完了済みの請求書を取得
-      final businessDate = _getBusinessDate();
       debugPrint('[_loadSettledBills] 検索営業日: $businessDate');
       
       final querySnapshot = await _firestore
@@ -1530,7 +1513,9 @@ class _AccountingPageState extends State<AccountingPage> {
         if (shouldComplete == true) {
           await _completeAccounting(billId);
         } else {
-          _loadActiveBills();
+          if (_currentBusinessDateKey != null) {
+            _loadActiveBills(_currentBusinessDateKey!);
+          }
         }
       } else {
         await showDialog(
@@ -1932,8 +1917,10 @@ class _AccountingPageState extends State<AccountingPage> {
           ).showSnackBar(const SnackBar(content: Text('会計を完了しました')));
         }
         // データを再読み込み（非同期で実行）
-        _loadActiveBills(); // データを再読み込み
-        _loadSettledBills(); // 会計完了データも再読み込み
+        if (_currentBusinessDateKey != null) {
+          _loadActiveBills(_currentBusinessDateKey!); // データを再読み込み
+          _loadSettledBills(_currentBusinessDateKey!); // 会計完了データも再読み込み
+        }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2028,36 +2015,76 @@ class _AccountingPageState extends State<AccountingPage> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
-              _loadActiveBills();
-              _loadSettledBills();
+              if (_currentBusinessDateKey != null) {
+                _loadActiveBills(_currentBusinessDateKey!);
+                _loadSettledBills(_currentBusinessDateKey!);
+              }
             },
             tooltip: '更新',
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : DefaultTabController(
-              length: 2,
-              child: Column(
-                children: [
-                  const TabBar(
-                    tabs: [
-                      Tab(text: '未会計'),
-                      Tab(text: '会計完了'),
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('storeMeta')
+            .doc('currentBusinessDay')
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
+          final data = snapshot.data?.data() as Map<String, dynamic>?;
+          final status = data?['status'] as String?;
+          final currentBusinessDateKey = data?['currentBusinessDateKey'] as String?;
+          
+          if (status != 'running' || currentBusinessDateKey == null) {
+            // 閉店中は「閉店中」と表示（body部分を薄いグレーアウト）
+            return Container(
+              color: Colors.grey.withOpacity(0.3),
+              child: const Center(
+                child: Text(
+                  '閉店中',
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
+                ),
+              ),
+            );
+          }
+          
+          // 営業中の場合のみデータを読み込む
+          if (_currentBusinessDateKey != currentBusinessDateKey) {
+            _currentBusinessDateKey = currentBusinessDateKey;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _loadActiveBills(currentBusinessDateKey);
+              _loadSettledBills(currentBusinessDateKey);
+            });
+          }
+          
+          return _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : DefaultTabController(
+                  length: 2,
+                  child: Column(
+                    children: [
+                      const TabBar(
+                        tabs: [
+                          Tab(text: '未会計'),
+                          Tab(text: '会計完了'),
+                        ],
+                      ),
+                      Expanded(
+                        child: TabBarView(
+                          children: [
+                            _buildActiveBillsTab(),
+                            _buildSettledBillsTab(),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _buildActiveBillsTab(),
-                        _buildSettledBillsTab(),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+                );
+        },
+      ),
     );
   }
 
@@ -2304,7 +2331,9 @@ class _AccountingPageState extends State<AccountingPage> {
           .httpsCallable('cancelAccounting')
           .call({'billId': billId});
       if (mounted) {
-        _loadActiveBills();
+        if (_currentBusinessDateKey != null) {
+          _loadActiveBills(_currentBusinessDateKey!);
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result.data['message'] ?? '会計開始を取り消しました')),
         );
@@ -2834,8 +2863,10 @@ class _AccountingPageState extends State<AccountingPage> {
       builder: (context) => AccountingEditDialog(
         bill: bill,
         onUpdated: () {
-          _loadActiveBills();
-          _loadSettledBills();
+          if (_currentBusinessDateKey != null) {
+            _loadActiveBills(_currentBusinessDateKey!);
+            _loadSettledBills(_currentBusinessDateKey!);
+          }
         },
       ),
     );
@@ -2847,8 +2878,10 @@ class _AccountingPageState extends State<AccountingPage> {
       builder: (context) => AccountingCancelDialog(
         bill: bill,
         onUpdated: () {
-          _loadActiveBills();
-          _loadSettledBills();
+          if (_currentBusinessDateKey != null) {
+            _loadActiveBills(_currentBusinessDateKey!);
+            _loadSettledBills(_currentBusinessDateKey!);
+          }
         },
       ),
     );
@@ -2860,8 +2893,10 @@ class _AccountingPageState extends State<AccountingPage> {
       builder: (context) => RefundProcessingDialog(
         bill: bill,
         onUpdated: () {
-          _loadActiveBills();
-          _loadSettledBills();
+          if (_currentBusinessDateKey != null) {
+            _loadActiveBills(_currentBusinessDateKey!);
+            _loadSettledBills(_currentBusinessDateKey!);
+          }
         },
       ),
     );

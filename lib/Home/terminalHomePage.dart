@@ -21,6 +21,9 @@ import 'package:amuse_app_template/tournament/active/pages/blind_timer_page.dart
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
 
 class terminalHomePage extends StatefulWidget {
   const terminalHomePage({super.key});
@@ -115,6 +118,355 @@ class _terminalHomePageState extends State<terminalHomePage> {
     );
   }
 
+  /// 開閉店管理ダイアログを表示
+  void _showStoreManagementDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('開閉店管理'),
+          content: const Text('開店または閉店を実行しますか？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _callCreateInitialStateDoc(context);
+              },
+              child: const Text('初期化', style: TextStyle(color: Colors.blue)),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _callOpenStore(context);
+              },
+              child: const Text('開店', style: TextStyle(color: Colors.green)),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _callCloseStore(context);
+              },
+              child: const Text('閉店', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// createInitialStateDocCallable Cloud Functionを呼び出す
+  Future<void> _callCreateInitialStateDoc(BuildContext context) async {
+    final overlayState = Overlay.maybeOf(context, rootOverlay: true);
+    OverlayEntry? loadingOverlay;
+    bool loadingShown = false;
+
+    void hideLoading() {
+      if (loadingShown) {
+        try {
+          loadingOverlay?.remove();
+        } catch (_) {
+          // noop
+        }
+        loadingOverlay = null;
+        loadingShown = false;
+      }
+    }
+
+    try {
+      // 認証状態を確認（未認証の場合は匿名認証を実行）
+      final auth = FirebaseAuth.instance;
+      if (auth.currentUser == null) {
+        await auth.signInAnonymously();
+      }
+
+      // ローディング表示
+      loadingOverlay = OverlayEntry(
+        builder: (_) => Material(
+          color: Colors.black54,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 16),
+                  Text('初期化処理中...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      if (overlayState != null) {
+        overlayState.insert(loadingOverlay!);
+        loadingShown = true;
+      }
+
+      // Cloud Function呼び出し
+      final functions = FirebaseFunctions.instance;
+      final callable = functions.httpsCallable('createInitialStateDocCallable');
+
+      final result = await callable.call({}).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました'),
+      );
+
+      hideLoading();
+
+      if (!context.mounted) return;
+
+      final data = result.data as Map<String, dynamic>? ?? {};
+      final bool success = data['success'] == true;
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['message'] ?? '初期化が完了しました'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('初期化に失敗しました'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      hideLoading();
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('エラー: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// openStore Cloud Functionを呼び出す
+  Future<void> _callOpenStore(BuildContext context) async {
+    final overlayState = Overlay.maybeOf(context, rootOverlay: true);
+    OverlayEntry? loadingOverlay;
+    bool loadingShown = false;
+
+    void hideLoading() {
+      if (loadingShown) {
+        try {
+          loadingOverlay?.remove();
+        } catch (_) {
+          // noop
+        }
+        loadingOverlay = null;
+        loadingShown = false;
+      }
+    }
+
+    try {
+      // 認証状態を確認（未認証の場合は匿名認証を実行）
+      final auth = FirebaseAuth.instance;
+      if (auth.currentUser == null) {
+        await auth.signInAnonymously();
+      }
+
+      // ローディング表示
+      loadingOverlay = OverlayEntry(
+        builder: (_) => Material(
+          color: Colors.black54,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 16),
+                  Text('開店処理中...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      if (overlayState != null) {
+        overlayState.insert(loadingOverlay!);
+        loadingShown = true;
+      }
+
+      // Cloud Function呼び出し
+      // 注意: リージョン指定が必要な場合は、Firebase Functionsのデフォルト設定で
+      // リージョンが設定されている場合、instanceForを使用する必要がありますが、
+      // 認証トークンが正しく送信されない可能性があるため、まずはinstanceを試します
+      final functions = FirebaseFunctions.instance;
+      final callable = functions.httpsCallable('openStore');
+
+      final result = await callable.call({}).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました'),
+      );
+
+      hideLoading();
+
+      if (!context.mounted) return;
+
+      final data = result.data as Map<String, dynamic>? ?? {};
+      final bool success = data['success'] == true;
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('開店しました。営業日: ${data['businessDateKey'] ?? '不明'}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('開店に失敗しました'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      hideLoading();
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('エラー: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// closeStore Cloud Functionを呼び出す
+  Future<void> _callCloseStore(BuildContext context) async {
+    final overlayState = Overlay.maybeOf(context, rootOverlay: true);
+    OverlayEntry? loadingOverlay;
+    bool loadingShown = false;
+
+    void hideLoading() {
+      if (loadingShown) {
+        try {
+          loadingOverlay?.remove();
+        } catch (_) {
+          // noop
+        }
+        loadingOverlay = null;
+        loadingShown = false;
+      }
+    }
+
+    try {
+      // 認証状態を確認（未認証の場合は匿名認証を実行）
+      final auth = FirebaseAuth.instance;
+      if (auth.currentUser == null) {
+        await auth.signInAnonymously();
+      }
+
+      // ローディング表示
+      loadingOverlay = OverlayEntry(
+        builder: (_) => Material(
+          color: Colors.black54,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 16),
+                  Text('閉店処理中...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      if (overlayState != null) {
+        overlayState.insert(loadingOverlay!);
+        loadingShown = true;
+      }
+
+      // Cloud Function呼び出し
+      // 注意: リージョン指定が必要な場合は、Firebase Functionsのデフォルト設定で
+      // リージョンが設定されている場合、instanceForを使用する必要がありますが、
+      // 認証トークンが正しく送信されない可能性があるため、まずはinstanceを試します
+      final functions = FirebaseFunctions.instance;
+      final callable = functions.httpsCallable('closeStore');
+
+      final result = await callable.call({}).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました'),
+      );
+
+      hideLoading();
+
+      if (!context.mounted) return;
+
+      final data = result.data as Map<String, dynamic>? ?? {};
+      final bool success = data['success'] == true;
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('閉店しました。最終営業日: ${data['lastClosedBusinessDateKey'] ?? '不明'}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('閉店に失敗しました'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      hideLoading();
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('エラー: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -166,6 +518,13 @@ class _terminalHomePageState extends State<terminalHomePage> {
         title: const Text('Terminal ホーム'),
         centerTitle: true,
         actions: [
+          // 一時的な開閉店管理ボタン（Phase1用）
+          if (_isAdminDevice)
+            IconButton(
+              icon: const Icon(Icons.store),
+              onPressed: () => _showStoreManagementDialog(context),
+              tooltip: '開閉店管理',
+            ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
