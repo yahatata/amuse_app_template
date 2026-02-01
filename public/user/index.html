@@ -611,8 +611,8 @@
             const pointB = userData?.pointB || 0;
             const sideGameChip = userData?.sideGameChip || 0;
             
-            // 入店状態を取得（初期表示時は未入店として表示）
-            const isStaying = userData?.isStaying || false;
+            // 入店状態は getUserStatus（activeStays 参照）で取得するため、初期表示は未入店として表示し updateCheckinStatusUI で更新
+            const isStaying = false;
             
             // 入店状態スイッチのスタイル
             // 入店中の場合：深緑バッジ、未入店の場合：灰色テキスト
@@ -764,7 +764,7 @@
       async function updateUserLoginStatus(userId) {
         try {
           // ログイン時には特に何も更新しない
-          // isStayingとlastLoginはhandleAttendance関数で管理される
+          // isStaying は getUserStatus（activeStays 参照）で取得
           
           // 入店状態を確認してUIを更新
           await updateCheckinStatusUI(userId);

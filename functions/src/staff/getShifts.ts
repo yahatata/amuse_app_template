@@ -113,10 +113,13 @@ export const getShifts = onCall(
             continue; // 店休日の場合はその日のシフトをすべてスキップ
           }
           
-          // このスタッフの割当を検索
+          // このスタッフの割当を検索（型の違いを吸収するため文字列で比較）
           for (const assignment of assignments) {
-            console.log(`[getShifts] ${dateKey}: assignment.staffId="${assignment.staffId}", uid="${uid}", 一致=${assignment.staffId === uid}`);
-            if (assignment.staffId === uid) {
+            const staffIdStr = assignment.staffId != null ? String(assignment.staffId) : "";
+            const uidStr = String(uid);
+            const matches = staffIdStr === uidStr;
+            console.log(`[getShifts] ${dateKey}: assignment.staffId="${staffIdStr}", uid="${uidStr}", 一致=${matches}`);
+            if (matches) {
               // 分を時刻文字列に変換（例: 540 -> "09:00"）
               const startHour = Math.floor(assignment.startMinute / 60);
               const startMin = assignment.startMinute % 60;

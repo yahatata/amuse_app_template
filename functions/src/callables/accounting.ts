@@ -437,16 +437,23 @@ export const completeAccounting = onCall(async (request) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 退店処理
+    // 退店処理（users.isStaying は廃止、activeStays のみ更新）
     const userId = billData.userId;
     if (userId) {
-      const userRef = db.collection('users').doc(userId);
-      await userRef.update({
-        isStaying: false,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      // activeStays の isActive を false に更新
+      const activeStayRef = db.collection('activeStays').doc(userId);
+      const activeStayDoc = await activeStayRef.get();
+      if (activeStayDoc.exists) {
+        const activeStayData = activeStayDoc.data()!;
+        if (activeStayData.billId === billId) {
+          await activeStayRef.update({
+            isActive: false,
+          });
+        }
+      }
 
       // visitLogsの最新の未完了ログを更新
+      const userRef = db.collection('users').doc(userId);
       const visitLogsSnapshot = await userRef.collection('visitLogs')
         .where('checkOutAt', '==', null)
         .orderBy('checkInAt', 'desc')

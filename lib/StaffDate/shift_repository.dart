@@ -125,23 +125,6 @@ class ShiftRepository {
     return result;
   }
 
-  /// 月のシフト日データをリアルタイム購読
-  Stream<Map<String, ShiftDayData>> watchShiftDaysForMonth(String yearMonth) {
-    return _firestore
-        .collection('shifts')
-        .doc(yearMonth)
-        .collection('days')
-        .snapshots()
-        .map((snapshot) {
-      final result = <String, ShiftDayData>{};
-      for (final doc in snapshot.docs) {
-        final dateKey = doc.data()['dateKey'] as String;
-        result[dateKey] = _parseShiftDayData(dateKey, doc.data());
-      }
-      return result;
-    });
-  }
-
   /// 次月のpending申請を取得（dateKeyでグルーピング）
   Future<Map<String, List<ShiftRequest>>> getPendingRequestsForMonth(
     String yearMonth,
@@ -165,32 +148,6 @@ class ShiftRepository {
     }
 
     return result;
-  }
-
-  /// 次月のpending申請をリアルタイム購読
-  Stream<Map<String, List<ShiftRequest>>> watchPendingRequestsForMonth(
-    String yearMonth,
-  ) {
-    return _firestore
-        .collection('shiftRequests')
-        .where('yearMonth', isEqualTo: yearMonth)
-        .where('status', isEqualTo: 'pending')
-        .snapshots()
-        .map((snapshot) {
-      final result = <String, List<ShiftRequest>>{};
-
-      for (final doc in snapshot.docs) {
-        final request = _parseShiftRequest(doc.id, doc.data());
-        final dateKey = request.date;
-
-        if (!result.containsKey(dateKey)) {
-          result[dateKey] = [];
-        }
-        result[dateKey]!.add(request);
-      }
-
-      return result;
-    });
   }
 
   /// 営業時間を取得（businessHoursMonthlyMapから）
@@ -271,22 +228,6 @@ class ShiftRepository {
       'yearMonth': yearMonth,
       'installationId': installationId,
     });
-  }
-
-  /// シフト申請を作成（スタッフ用）
-  Future<String> createShiftRequest({
-    required String dateKey,
-    required int startMinute,
-    required int endMinute,
-  }) async {
-    final callable = _functions.httpsCallable('createStaffShiftRequest');
-    final result = await callable.call({
-      'dateKey': dateKey,
-      'startMinute': startMinute,
-      'endMinute': endMinute,
-    });
-
-    return result.data['requestId'] as String;
   }
 
   /// 申請を中間確定
@@ -457,26 +398,6 @@ class ShiftRepository {
     final callable = _functions.httpsCallable('generateBusinessHoursForMonthFromStyles');
     await callable.call({
       'yearMonth': yearMonth,
-      'installationId': installationId,
-      'options': {
-        'forceManualOverwrite': forceManualOverwrite,
-      },
-    });
-  }
-
-  /// スタイルから営業時間を年単位で自動生成
-  Future<void> generateBusinessHoursForYearFromStyles({
-    required int year,
-    bool forceManualOverwrite = false,
-  }) async {
-    final installationId = await _getInstallationId();
-    if (installationId == null) {
-      throw Exception('Device not registered. InstallationId not found.');
-    }
-
-    final callable = _functions.httpsCallable('generateBusinessHoursForYearFromStyles');
-    await callable.call({
-      'year': year,
       'installationId': installationId,
       'options': {
         'forceManualOverwrite': forceManualOverwrite,

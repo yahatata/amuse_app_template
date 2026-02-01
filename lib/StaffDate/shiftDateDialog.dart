@@ -11,14 +11,19 @@ import '../services/device_service.dart';
 class ShiftDateDialog extends StatefulWidget {
   final DateTime date;
   final ShiftDayData? dayData;
+  /// 未処理申請の表示用（staffName, startMinute, endMinute）
+  final List<Map<String, dynamic>> pendingRequestDisplays;
   final Function(ShiftDayData) onUpdate;
+  final VoidCallback? onNavigateToDraft;
   final VoidCallback? onFinalize;
 
   const ShiftDateDialog({
     super.key,
     required this.date,
     this.dayData,
+    this.pendingRequestDisplays = const [],
     required this.onUpdate,
+    this.onNavigateToDraft,
     this.onFinalize,
   });
 
@@ -218,17 +223,56 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
                                     '営業時間: ${formatMinutes(dayData.businessHours.openMinute)} - ${formatMinutes(dayData.businessHours.closeMinute)}',
                                     style: const TextStyle(fontSize: 14),
                                   ),
-                                  // 未処理申請数の表示
-                                  if (dayData.pendingRequestCount > 0) ...[
+                                  // 未処理申請の表示（タップでドラフトページへ遷移）
+                                  if (widget.pendingRequestDisplays.isNotEmpty) ...[
                                     const SizedBox(height: 8),
                                     Text(
-                                      '未処理申請: ${dayData.pendingRequestCount}件',
+                                      '未処理申請（タップでドラフトへ）',
                                       style: const TextStyle(
-                                        fontSize: 14,
+                                        fontSize: 12,
                                         color: Colors.orange,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
+                                    const SizedBox(height: 4),
+                                    ...widget.pendingRequestDisplays.map((r) {
+                                      final staffName = r['staffName'] as String? ?? '不明';
+                                      final startMinute = r['startMinute'] as int? ?? 0;
+                                      final endMinute = r['endMinute'] as int? ?? 0;
+                                      return InkWell(
+                                        onTap: widget.onNavigateToDraft != null
+                                            ? () => widget.onNavigateToDraft!()
+                                            : null,
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(vertical: 4),
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.person_outline,
+                                                size: 16,
+                                                color: widget.onNavigateToDraft != null
+                                                    ? Colors.blue
+                                                    : Colors.grey,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  '$staffName ${formatMinutes(startMinute)} - ${formatMinutes(endMinute)}',
+                                                  style: TextStyle(
+                                                    fontSize: 13,
+                                                    color: widget.onNavigateToDraft != null
+                                                        ? Colors.blue
+                                                        : null,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (widget.onNavigateToDraft != null)
+                                                Icon(Icons.arrow_forward_ios, size: 12, color: Colors.blue),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    }),
                                   ],
                                   const SizedBox(height: 8),
                                   Row(

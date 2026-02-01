@@ -1,9 +1,6 @@
 // Shift management Cloud Functions
 export { initBusinessHoursForMonth } from "./initBusinessHoursForMonth";
 export { initShiftDaysForMonth } from "./initShiftDaysForMonth";
-// createShiftRequest は staff/createShiftRequest と重複するため、shift側は別名でエクスポート
-// Flutter側では createStaffShiftRequest として使用
-export { createShiftRequest as createStaffShiftRequest } from "./createShiftRequest";
 export { interimConfirmRequests } from "./interimConfirmRequests";
 export { updateDayAssignments } from "./updateDayAssignments";
 export { finalizeDay } from "./finalizeDay";
