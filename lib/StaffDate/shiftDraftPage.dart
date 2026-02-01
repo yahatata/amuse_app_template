@@ -7,7 +7,10 @@ import '../Utils/time_converter.dart';
 
 /// ドラフト画面（中間確定用）
 class ShiftDraftPage extends StatefulWidget {
-  const ShiftDraftPage({super.key});
+  /// 初期選択日付（ダイアログから遷移した場合に指定）
+  final DateTime? initialDate;
+
+  const ShiftDraftPage({super.key, this.initialDate});
 
   @override
   State<ShiftDraftPage> createState() => _ShiftDraftPageState();
@@ -36,7 +39,13 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
   @override
   void initState() {
     super.initState();
-    _currentMonth = DateTime(DateTime.now().year, DateTime.now().month + 1, 1);
+    final nextMonth = DateTime(DateTime.now().year, DateTime.now().month + 1, 1);
+    if (widget.initialDate != null) {
+      _currentMonth = DateTime(widget.initialDate!.year, widget.initialDate!.month, 1);
+      _selectedDate = widget.initialDate;
+    } else {
+      _currentMonth = nextMonth;
+    }
     _loadData();
   }
 

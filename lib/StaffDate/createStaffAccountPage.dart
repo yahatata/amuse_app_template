@@ -81,7 +81,6 @@ class _CreateStaffAccountState extends State<CreateStaffAccount> {
             'staffRole': 'staff',
             'createdAt': FieldValue.serverTimestamp(),
             'lastLogin': FieldValue.serverTimestamp(),
-            'isStaying': false,
           });
 
           await _generateQRCodeAndSendEmail(staff.uid, loginId, email);

@@ -89,7 +89,6 @@ export const createUserAccount = onCall(
           pointA: 0, // globalConstant.dart の pointTypes[0] フィールド
           pointB: 0, // globalConstant.dart の pointTypes[1] フィールド
           sideGameChip: 0, // globalConstant.dart の pointTypes[2] フィールド
-          isStaying: false,
           lastLogin: null,
           role: "user",
           createdAt: admin.firestore.FieldValue.serverTimestamp(),

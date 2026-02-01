@@ -2506,7 +2506,10 @@
         if (!result?.data?.success) {
           throw new Error(result?.data?.error || "getShifts failed");
         }
-        return result.data.shifts || [];
+        const shifts = result.data.shifts || [];
+        console.log('[getShifts] 受信: success=' + result.data.success + ', shifts件数=' + (Array.isArray(shifts) ? shifts.length : '非配列') + ', uid=' + uid);
+        if (shifts.length > 0) console.log('[getShifts] 先頭1件:', shifts[0]);
+        return shifts;
       }
 
       function startPrefetchGetShifts(reason = "") {
@@ -3105,10 +3108,10 @@
             const pendingCount = allShifts.filter(s => s.confirmed === null).length;
             const rejectedCount = allShifts.filter(s => s.confirmed === false).length;
             
-            // 当日以降のシフトのみフィルタリング
+            // 当日以降のシフトのみフィルタリング（確定シフトタブは「今日以降」のみ表示）
+            // ローカル日付で比較（toISOStringはUTCのため日本時間でずれるのを防ぐ）
             const today = new Date();
-            today.setHours(0, 0, 0, 0); // 今日の0時0分0秒
-            const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD形式
+            const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
             
             const confirmedShifts = allShifts.filter(shift => {
               // 却下済みを除外
@@ -3117,6 +3120,9 @@
               // 当日以降のシフトのみ
               return shift.date >= todayStr;
             });
+            
+            // デバッグ: 取得件数（確定シフトが空の原因切り分け用）
+            console.log('[確定シフト] getShiftsで取得: ' + allShifts.length + '件, 当日以降に絞り込み後: ' + confirmedShifts.length + '件 (今日=' + todayStr + ')');
             
             // カレンダーを表示
             renderConfirmedShiftsCalendar(confirmedShifts);
@@ -3158,6 +3164,20 @@
           const now = new Date();
           const currentMonth = window.currentDisplayMonth !== undefined ? window.currentDisplayMonth : now.getMonth();
           const currentYear = window.currentDisplayYear !== undefined ? window.currentDisplayYear : now.getFullYear();
+          
+          // 申請中シフトを表示するかどうかを判定
+          // - 今月のカレンダー → 確定のみ（申請中は非表示）
+          // - 来月のカレンダー → 期間①（今日が1日〜15日）のみ申請中も表示、それ以外は確定のみ
+          const isDisplayingCurrentMonth = currentMonth === now.getMonth() && currentYear === now.getFullYear();
+          const isPhase1 = now.getDate() >= 1 && now.getDate() <= 15; // 期間①: 1日〜15日
+          const showPendingShifts = !isDisplayingCurrentMonth && isPhase1; // 来月かつ期間①のみ申請中を表示
+          
+          // フィルタリング: 今月または期間①以外の来月では申請中を除外
+          const filteredShifts = showPendingShifts 
+            ? shifts 
+            : shifts.filter(shift => shift.confirmed === true);
+          
+          // フィルタリング後のシフトを使用（以降 shifts → filteredShifts）
           
           // 営業時間データを取得（店休日判定用）
           const yearMonth = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
@@ -3278,8 +3298,8 @@
               dayColor = '#ff0000'; // 赤
             }
             
-            // その日のシフトがあるかチェック
-            const dayShifts = shifts.filter(shift => shift.date === dateStr);
+            // その日のシフトがあるかチェック（フィルタリング済みのシフトを使用）
+            const dayShifts = filteredShifts.filter(shift => shift.date === dateStr);
             let dayClass = 'calendar-day';
             let shiftInfo = '';
             
@@ -3324,8 +3344,12 @@
           
           calendarGrid.innerHTML = calendarHTML;
           
-          // 初期状態ではシフト詳細を非表示（日付を選択するよう促すメッセージを表示）
-          detailsContent.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">カレンダーから日付を選択すると、その日のシフト詳細が表示されます。</p>';
+          // 初期状態ではシフト詳細を非表示（日付を選択するよう促すメッセージ、または「なし」メッセージを表示）
+          if (filteredShifts.length === 0) {
+            detailsContent.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">当日以降の確定シフトはありません。<br>シフト申請タブで希望を出した後、管理者が確定するとここに表示されます。</p>';
+          } else {
+            detailsContent.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">カレンダーから日付を選択すると、その日のシフト詳細が表示されます。</p>';
+          }
           
           // シフトデータをグローバル変数に保存（月切り替え時に使用）
           window.confirmedShiftsData = shifts;
@@ -3442,6 +3466,21 @@
         // グローバル変数からシフトデータを取得
         const shifts = window.confirmedShiftsData || [];
         
+        // 申請中シフトを表示するかどうかを判定（renderConfirmedShiftsCalendarと同じロジック）
+        // - 今月のカレンダー → 確定のみ（申請中は非表示）
+        // - 来月のカレンダー → 期間①（今日が1日〜15日）のみ申請中も表示、それ以外は確定のみ
+        const now = new Date();
+        const displayMonth = window.currentDisplayMonth !== undefined ? window.currentDisplayMonth : now.getMonth();
+        const displayYear = window.currentDisplayYear !== undefined ? window.currentDisplayYear : now.getFullYear();
+        const isDisplayingCurrentMonth = displayMonth === now.getMonth() && displayYear === now.getFullYear();
+        const isPhase1 = now.getDate() >= 1 && now.getDate() <= 15; // 期間①: 1日〜15日
+        const showPendingShifts = !isDisplayingCurrentMonth && isPhase1; // 来月かつ期間①のみ申請中を表示
+        
+        // フィルタリング: 今月または期間①以外の来月では申請中を除外
+        const filteredShifts = showPendingShifts 
+          ? shifts 
+          : shifts.filter(shift => shift.confirmed === true);
+        
         // 店休日判定
         const dateObj = new Date(date + 'T00:00:00');
         const day = dateObj.getDate();
@@ -3450,8 +3489,8 @@
         const dayData = businessHoursMap[dayStr];
         const isClosed = dayData && dayData.isClosed === true;
         
-        // 選択された日付のシフトをフィルタリング
-        const dayShifts = shifts.filter(shift => shift.date === date);
+        // 選択された日付のシフトをフィルタリング（フィルタリング済みから取得）
+        const dayShifts = filteredShifts.filter(shift => shift.date === date);
         
         // 選択された日付の背景色を変更（視覚的フィードバック）
         const calendarDays = document.querySelectorAll('.calendar-day:not(.empty)');

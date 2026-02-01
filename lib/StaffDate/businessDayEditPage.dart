@@ -331,7 +331,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
       }
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     final daysInMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0).day;

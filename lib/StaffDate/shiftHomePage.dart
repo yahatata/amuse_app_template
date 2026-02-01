@@ -32,6 +32,8 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
   Map<String, ShiftDayData> _shiftData = {};
   /// 日付ごとの未処理申請数（shiftRequests の pending 件数。dayDoc の pendingRequestCount と不整合時に表示を補正する）
   Map<String, int> _pendingRequestCountByDate = {};
+  /// 日付ごとの未処理申請一覧（ダイアログ表示・ドラフト遷移用）
+  Map<String, List<ShiftRequest>> _pendingRequestsByDate = {};
   bool _isLoading = false;
   
   // 不足日集計・募集作成用の状態
@@ -83,16 +85,20 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
       final pendingCurrent = await _repository.getPendingRequestsForMonth(currentYearMonth);
       final pendingNext = await _repository.getPendingRequestsForMonth(nextYearMonth);
       final pendingCountByDate = <String, int>{};
+      final pendingRequestsByDate = <String, List<ShiftRequest>>{};
       for (final e in pendingCurrent.entries) {
         pendingCountByDate[e.key] = (pendingCountByDate[e.key] ?? 0) + e.value.length;
+        pendingRequestsByDate[e.key] = e.value;
       }
       for (final e in pendingNext.entries) {
         pendingCountByDate[e.key] = (pendingCountByDate[e.key] ?? 0) + e.value.length;
+        pendingRequestsByDate[e.key] = e.value; // 重複日は上書き（月が違うので通常はなし）
       }
 
       setState(() {
         _shiftData = data;
         _pendingRequestCountByDate = pendingCountByDate;
+        _pendingRequestsByDate = pendingRequestsByDate;
         _isLoading = false;
       });
     } catch (e) {
@@ -232,15 +238,31 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
   void _showDateDialog(DateTime date) {
     final dateKey = _getDateKey(date);
     final dayData = _shiftData[dateKey];
+    final pendingList = _pendingRequestsByDate[dateKey] ?? [];
+    final pendingRequestDisplays = pendingList
+        .map((r) => {'staffName': r.staffName, 'startMinute': r.startMinute, 'endMinute': r.endMinute})
+        .toList();
     
     showDialog(
       context: context,
-      builder: (context) => ShiftDateDialog(
+      builder: (dialogContext) => ShiftDateDialog(
         date: date,
         dayData: dayData,
+        pendingRequestDisplays: pendingRequestDisplays,
         onUpdate: (updatedData) {
           setState(() {
             _shiftData[dateKey] = updatedData;
+          });
+        },
+        onNavigateToDraft: () {
+          Navigator.pop(dialogContext);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ShiftDraftPage(initialDate: date),
+            ),
+          ).then((_) {
+            if (mounted) _loadShiftData();
           });
         },
         onFinalize: () async {
@@ -696,6 +718,12 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
       );
     }
 
+    // 曜日色（カレンダーと同様：日曜・祝日=赤、土曜=青、平日=黒）
+    final isHoliday = holiday_jp.isHoliday(today);
+    final weekdayColor = today.weekday == DateTime.saturday
+        ? (isHoliday ? Colors.red : Colors.blue)
+        : (today.weekday == DateTime.sunday || isHoliday ? Colors.red : Colors.black);
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -703,64 +731,49 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
         children: [
           Row(
             children: [
-              Text(
-                DateFormat('M月d日(E)', 'ja').format(today),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              RichText(
+                text: TextSpan(
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                  children: [
+                    TextSpan(text: DateFormat('M月d日', 'ja').format(today)),
+                    TextSpan(
+                      text: '(${DateFormat('E', 'ja').format(today)})',
+                      style: TextStyle(color: weekdayColor),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: todayData.isFinalized
-                      ? Colors.green
-                      : todayData.isInterimConfirmed
-                          ? Colors.blue
-                          : Colors.orange,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  todayData.isFinalized
-                      ? '最終'
-                      : todayData.isInterimConfirmed
-                          ? '中間'
-                          : '未処理',
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+              const SizedBox(width: 12),
+              Text(
+                '営業時間: ${formatMinutes(todayData.businessHours.openMinute)} - ${formatMinutes(todayData.businessHours.closeMinute)}',
+                style: const TextStyle(fontSize: 18),
               ),
             ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '営業時間: ${formatMinutes(todayData.businessHours.openMinute)} - ${formatMinutes(todayData.businessHours.closeMinute)}',
-            style: const TextStyle(fontSize: 14),
           ),
           const SizedBox(height: 8),
           if (todayData.assignments.isEmpty)
             const Text(
               'シフトがありません',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
+              style: TextStyle(fontSize: 16, color: Colors.grey),
             )
           else
             ...todayData.assignments.map((assignment) {
               return Padding(
-                padding: const EdgeInsets.only(bottom: 4),
+                padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [
                     Text(
                       assignment.staffName,
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(width: 8),
                     Text(
                       '${formatMinutes(assignment.startMinute)} - ${formatMinutes(assignment.endMinute)}',
-                      style: const TextStyle(fontSize: 14, color: Colors.grey),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
@@ -795,11 +808,6 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
   Widget _buildBottomTabs(double monthSelectorHeight, double weekdayHeaderHeight, double totalRowsHeight) {
     final now = DateTime.now();
     final isNextMonth = _currentMonth.year == now.year && _currentMonth.month == now.month + 1;
-    
-    if (!isNextMonth) {
-      // 当月は表示しない
-      return const SizedBox.shrink();
-    }
     
     final calendarBottom = monthSelectorHeight + weekdayHeaderHeight + totalRowsHeight;
     const initialMargin = 8.0;
@@ -869,26 +877,34 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            // タブ
-            TabBar(
-              controller: _tabController,
-              tabs: const [
-                Tab(text: '情報'),
-                Tab(text: '不足日集計'),
-                Tab(text: '募集作成'),
-              ],
-            ),
-            // タブコンテンツ
-            Expanded(
-              child: TabBarView(
+            // 来月: 3タブ / 今月: 当日シフト情報のみ
+            if (isNextMonth) ...[
+              TabBar(
                 controller: _tabController,
-                children: [
-                  _buildInfoTab(),
-                  _buildInsufficientDaysTab(),
-                  _buildRecruitmentTab(),
+                tabs: const [
+                  Tab(text: '情報'),
+                  Tab(text: '不足日集計'),
+                  Tab(text: '募集作成'),
                 ],
               ),
-            ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildInfoTab(),
+                    _buildInsufficientDaysTab(),
+                    _buildRecruitmentTab(),
+                  ],
+                ),
+              ),
+            ] else ...[
+              // 今月: 当日のシフト情報のみ表示
+              Expanded(
+                child: SingleChildScrollView(
+                  child: _buildTodayShiftInfo(),
+                ),
+              ),
+            ],
           ],
         ),
       ),
