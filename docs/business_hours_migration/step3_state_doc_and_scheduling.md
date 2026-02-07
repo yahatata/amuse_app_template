@@ -4,6 +4,8 @@
 
 本ドキュメントでは、単一状態ドキュメント（`storeMeta/currentBusinessDay`）の設計と、週次Planner + Cloud Tasksによる自動開閉店機能の設計を説明します。
 
+**注意**: 自動開閉店機能の詳細仕様は、[自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md)を参照してください。本ドキュメントは、state docの設計と基本的な自動化の概念を説明するものです。
+
 ## 用語統一
 
 - 本ドキュメントでは`businessDateKey`（`YYYY-MM-DD`形式）を正として使用
@@ -175,63 +177,49 @@ error → closed | running (手動復旧時)
 
 ---
 
-## 5. 週次Plannerの入力（businessHoursMonthlyMap）と出力（Tasks一覧）
+## 5. 自動開閉店機能の概要
 
-### 入力: businessHoursMonthlyMap
+自動開閉店機能は、「補助機能」として実装されます。詳細仕様は[自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md)を参照してください。
 
-- `businessHoursMonthlyMap`から該当週（月〜日）の営業時間を取得
-- **データ構造**:
-  ```typescript
-  {
-    days: {
-      "10": {
-        closeMinute: 1440,  // 閉店時刻（分単位、1440=24:00）
-        isClosed: false,    // 休業日かどうか
-        openMinute: 720,    // 開店時刻（分単位、720=12:00）
-        source: "auto",     // データソース
-        styleId: "weekendHoliday" | "weekday"  // スタイルID
-      },
-      "11": { ... },
-      // ... 1ヶ月分（1-31日）
-    }
-  }
-  ```
-- **注意**: `days`キーは日付の文字列（例: `"10"`, `"11"`）で、`"1"`/`"01"`の揺れがあり得るため、実装ではnormalizeして両対応する必要がある
-- 各日の`days`マップから該当日のデータを取得
-- `isClosed: true`の場合は営業日ではないため、タスクを投入しない
-- `openMinute`/`closeMinute`を分単位から時刻に変換
-  - `openMinute`: 0-1440（例: `720` → `12:00`, `1440` → `24:00`）
-  - `closeMinute`: 0-2880（例: `1440` → `24:00`, `1680` → `28:00` = 翌日04:00）
-  - `closeMinute > 1440`の場合は「翌日に伸びる」ことを考慮
+### 基本方針
 
-### 出力: Cloud Tasks一覧
+- **自動処理は破壊的操作を行わない**: 認定のみを実行し、結果をstate docに記録
+- **UI強警告（画面操作の実質ブロック）**: 閉店時間超過時は画面全体をグレーアウトし、モーダルダイアログで手動操作を強制（意思決定強制）
+- **週次Planner**: Cloud Schedulerは週1回（例：日曜20:00 JST）だけ起動し、翌週（月〜日）分の「閉店認定」「開店認定」タスクをCloud Tasksに投入
+- **認定処理**: 閉店認定・開店認定のHTTP Functionsが、破壊的操作を行わず、認定結果のみをstate docに記録
 
-- 各日の開店/閉店をCloud Tasksに投入
-- Task名: `open_YYYY-MM-DD`, `close_YYYY-MM-DD`
-- `scheduleTime`: 各日の開店時刻/閉店時刻にオフセットを加えた時刻（JST）
-  - **デフォルト**: `openMinute` / `closeMinute`ちょうどに実行
-  - **安全のための前後オフセット**（オプション）:
-    - 開店タスク: `TASK_OPEN_OFFSET_MINUTES`（デフォルト: 0、`globalConstant`で設定可能）
-    - 閉店タスク: `TASK_CLOSE_OFFSET_MINUTES`（デフォルト: 0、`globalConstant`で設定可能）
-    - 例: 閉店直後に集計を走らせたい場合は`TASK_CLOSE_OFFSET_MINUTES = 60`（1時間後）に設定
-  - **注意**: このオフセットは「営業日判定用の±30分バッファ」とは別物（タスク実行時刻の調整用）
-- 例:
-  ```typescript
-  [
-    { name: 'open_2024-01-15', scheduleTime: '2024-01-15T12:00:00+09:00' },  // openMinute: 720 (12:00) ちょうど（オフセット0の場合）
-    { name: 'close_2024-01-15', scheduleTime: '2024-01-16T01:00:00+09:00' },  // closeMinute: 1440 (24:00) + オフセット60分の場合
-    // ...
-  ]
-  ```
+### 主要な機能
 
-### Plannerの実行タイミング
+1. **閉店認定（Close Assessment）**
+   - 実行時刻: 閉店時間 + バッファ（デフォルト: 120分（2時間））
+   - 判定ロジック: 閉店時間超過の確認、ブロッカーの検出
+   - 結果: `needs_manual_close` / `needs_manual_close_suppressed` / `already_closed` / `next_day_started` / `skipped`
 
-- Cloud Schedulerは週1回（例：日曜20:00 JST）だけ起動
-- 起動されたPlannerが、翌週（月〜日）分のopen/closeをCloud Tasksに投入
-- **自動開閉店OFF時の挙動**: Plannerは起動してもno-op（Tasks作成しない）を原則とする
-  - 実装方法: Schedulerは起動するが、Plannerの中で`ENABLE_AUTO_OPEN/CLOSE`を見てTasks作成をスキップ
-  - 補足: 可能ならScheduler自体を作らない（デプロイ構成分岐）も選択肢だが、Firebase Functions的にはやや面倒
-- 30日制限の注意: Cloud Tasksの`scheduleTime`は最大30日先まで設定可能。週次Plannerは翌週分のみ投入するため、30日制限には抵触しない
+2. **開店認定（Open Assessment）**
+   - 実行時刻: 開店時間の30分前
+   - 判定ロジック: 前回の閉店処理が正常に完了しているか確認（storeMetaのみで判定、ドキュメント走査なし）
+   - 結果: `ready_to_open` / `needs_manual_open` / `already_running` / `skipped`
+
+3. **UI強警告**
+   - 対象画面: `terminalHomePage`, `tournament_home_page`, `table_detail_page`, `order_management_page`, `side_game_table_list`
+   - トリガー: `closeAssessment.result === 'needs_manual_close'`（`needs_manual_close_suppressed`は除外）
+   - 実装: 画面全体をグレーアウト + モーダルダイアログ（意思決定強制）
+
+4. **営業継続操作（manualOverride）**
+   - 手動で営業継続を選択可能
+   - `overrideUntil`で期限を設定
+   - オプションで`reminderAt`を設定（再認定タスクを投入）
+
+### 冪等性保証
+
+- **idempotencyKey**: `${action}_${intendedBusinessDateKey}_${scheduledAt}`
+- トランザクション内で`storeMeta/currentBusinessDay`を読み取り、既に同じ`idempotencyKey`で更新済みの場合はスキップ（no-op）
+
+### 認証/IAM
+
+- Cloud TasksからHTTP Functionsを呼び出す際、OIDCトークンを必須とする
+- サービスアカウント（`TASKS_INVOKER_SA`）に`roles/run.invoker`を付与
+- `allUsers`公開はしない方針
 
 ---
 
@@ -247,10 +235,10 @@ error → closed | running (手動復旧時)
 
 ```typescript
 {
-  type: 'open' | 'close',              // 開店/閉店の種別
+  type: 'open' | 'close' | 'close_assessment' | 'open_assessment',  // 処理種別
   businessDateKey: 'YYYY-MM-DD',       // 対象の営業日
   trigger: 'manual' | 'auto',          // 手動/自動
-  failedStep: string,                  // 失敗したステップ名（例: 'open:setStateDoc', 'close:cleanupActiveStays'）
+  failedStep: string,                  // 失敗したステップ名
   errorCode: string,                   // エラーコード
   errorMessage: string,                 // エラーメッセージ
   causeHint: string | null,            // 推定原因のヒント
@@ -282,14 +270,15 @@ error → closed | running (手動復旧時)
 
 ### セキュリティ
 
-- Cloud TasksからHTTP Functionsを呼び出す場合、認証は必須
+- Cloud TasksからHTTP Functionsを呼び出す場合、認証は必須（OIDCトークン）
 - 公開URL（認証なし）での呼び出しは禁止
-- 認証方法: Cloud Tasksの認証ヘッダーを使用（OIDCトークンなど）
+- サービスアカウント（`TASKS_INVOKER_SA`）に`roles/run.invoker`を付与
 
 ### パフォーマンス
 
 - `storeMeta/currentBusinessDay`は単一ドキュメントのため、snapshot購読のコストは低い
 - ただし、更新頻度が高い場合は、更新コストに注意する
+- openAssessmentの前回閉店完了チェックは`storeMeta/currentBusinessDay`のフィールドのみで判定（ドキュメント走査をしない）
 
 ### テスト観点
 
@@ -297,6 +286,8 @@ error → closed | running (手動復旧時)
 - `closed`時の動作確認
 - 重複Tasks、再実行、手動/自動競合の確認
 - エラー時の挙動確認
+- 認定処理の冪等性確認
+- UI強警告の動作確認
 
 ---
 
@@ -306,3 +297,4 @@ error → closed | running (手動復旧時)
 - [Step1: コレクション分析](./step1_collection_analysis.md)
 - [Step2: 取得・表示ファイルの洗い出し](./step2_query_display_files.md)
 - [Step4: 改修実装チェックリスト](./step4_migration_plan_checklist.md)
+- [自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md)

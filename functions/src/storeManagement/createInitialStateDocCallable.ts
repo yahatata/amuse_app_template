@@ -32,6 +32,10 @@ export const createInitialStateDocCallable = onCall(
         updatedAt: FieldValue.serverTimestamp(),
         source: 'initial',
         lastError: null,
+        // 新規追加フィールド（Phase5）
+        closeAssessment: null,
+        openAssessment: null,
+        manualOverride: null,
       };
 
       await docRef.set(initialState);

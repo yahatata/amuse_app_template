@@ -68,6 +68,20 @@ class GlobalConstants {
   // 両方の値を同期させてください（デプロイ時も両方をデプロイが必要です）
   static const String CALC_BUSINESS_DATE_BUFFER_DESCRIPTION = "営業日計算時のバッファ時間: ${CALC_BUSINESS_DATE_BUFFER_MINUTES}分";
   
+  // 自動開閉店（補助機能）の有効/無効
+  static const bool ENABLE_AUTO_OPEN_CLOSE = true;  // デフォルト: true
+  
+  // 閉店認定タスクの実行時刻オフセット（閉店時間からのバッファ、分単位）
+  static const int TASK_CLOSE_OFFSET_MINUTES = 120;  // デフォルト: 120分（2時間）
+  
+  // 開店認定タスクの実行時刻オフセット（開店時間からのバッファ、分単位）
+  static const int TASK_OPEN_OFFSET_MINUTES = -30;  // デフォルト: -30分（開店時間の30分前）
+  
+  // 週次Plannerのcron式（Cloud Scheduler用）
+  // 注意: この値はJST基準で記載（実装時はUTCに変換する必要がある）
+  // 日曜20:00 JST = UTC 11:00（UTC+9のため）
+  static const String WEEKLY_PLANNER_CRON = '0 20 * * 0';  // 日曜20:00 JST（UTC+9のため、UTCでは11:00）
+  
   /// STORE_CLOSE_HOUR を正規化（24以上は翌日繰り上がりとして扱う）
   /// @param hour 0-48 の整数
   ///   - 0-23: 当日の時刻としてそのまま使用

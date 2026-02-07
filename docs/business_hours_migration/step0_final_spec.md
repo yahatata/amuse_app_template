@@ -319,12 +319,20 @@
 - 日付選択UIで`calcBusinessDate`を使用
 - `AMBIGUOUS`/`NONE`時のダイアログ実装
 
-### Phase5: 自動開閉店
-- 週次Plannerの実装
-- Cloud Tasksの投入・実行
+### Phase5: 自動開閉店（補助機能） - 認定処理
+- 週次Plannerの実装（閉店認定・開店認定タスクの投入）
+- 閉店認定・開店認定のHTTP Functions実装
+- 認定結果のstate docへの記録
 - エラーハンドリング・ログ記録
+- 詳細仕様は[自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md)を参照
 
-### Phase6: テスト・検証
+### Phase6: 手動開閉店処理の実装
+- 手動開店処理の実装（reset/cleanup/migrate/state更新）
+- 手動閉店処理の実装（reset/cleanup/migrate/state更新）
+- UI強警告の実装（画面操作の実質ブロック、意思決定強制）
+- 営業継続操作（manualOverride）の実装
+
+### Phase7: テスト・検証
 - 25:00問題の再発防止確認
 - `closed`時の動作確認
 - `AMBIGUOUS`/`NONE`時の動作確認
@@ -338,3 +346,4 @@
 - [Step2: 取得・表示ファイルの洗い出し](./step2_query_display_files.md)
 - [Step3: state docと自動開閉店の設計](./step3_state_doc_and_scheduling.md)
 - [Step4: 改修実装チェックリスト](./step4_migration_plan_checklist.md)
+- [自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md)
