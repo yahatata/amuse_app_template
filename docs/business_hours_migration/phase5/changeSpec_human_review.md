@@ -92,12 +92,18 @@ Phase5では、自動開閉店の補助機能として、週次Plannerによる�
 
 ## Phase6での実装予定
 
-Phase6では、以下の機能を実装予定です：
+Phase6では、以下の機能を4ステップに分けて実装予定です：
 
-- **UI強警告**（画面操作の実質ブロック、意思決定強制）
-- **手動開店処理**（reset/cleanup/migrate/state更新）
-- **手動閉店処理**（reset/cleanup/migrate/state更新）
-- **営業継続操作**（manualOverrideの保存）
+- **Phase6 Step1**: **UIでstoreMetaをsnapshot購読する仕様の実装**（複数ページ、共通実装、AppBar内に日付表示）
+- **Phase6 Step2 (Phase7)**: **閉店処理の具体処理の作成**（未会計billsの処理、ユーザー判断を挟む場所の検討、UI表示）
+- **Phase6 Step3 (Phase8)**: **閉店処理の一括操作の実装**（日付ボタンからの開閉店操作、ターミナル関数経由、エラーハンドリング）
+- **Phase6 Step4 (Phase9)**: **storeMeta監視ページでの自動開閉店時の挙動・表示の実装**（UI強警告、各状態に応じた挙動・表示）
+
+詳細は各ステップの実装計画を参照してください：
+- [Phase6 Step1 実装計画](../phase6/step1/implementation_plan.md)
+- [Phase6 Step2 実装計画](../phase6/step2/implementation_plan.md)
+- [Phase6 Step3 実装計画](../phase6/step3/implementation_plan.md)
+- [Phase6 Step4 実装計画](../phase6/step4/implementation_plan.md)
 
 ## 参照資料
 

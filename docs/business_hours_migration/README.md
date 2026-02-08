@@ -91,6 +91,31 @@
   - Schedulingチェックリスト
   - テスト観点
 
+## Phase6: 手動開閉店処理の実装（4ステップに分割）
+
+Phase6は以下の4ステップに分けて実装します：
+
+- [Phase6 Step1: UIでstoreMetaをsnapshot購読する仕様の実装](./phase6/step1/implementation_plan.md) - ⏳ 未着手
+  - 複数ページで`storeMeta/currentBusinessDay`をsnapshot購読
+  - `lib/utils`に共通実装を作成
+  - AppBar内にボタン兼日付表示要素を追加
+
+- [Phase6 Step2 (Phase7): 閉店処理の具体処理の作成](./phase6/step2/implementation_plan.md) - ⏳ 未着手
+  - 未会計billsの抽出と保存
+  - ユーザー判断を挟む場所の検討
+  - 未会計billsのUI表示作成
+
+- [Phase6 Step3 (Phase8): 閉店処理の一括操作の実装](./phase6/step3/implementation_plan.md) - ⏳ 未着手
+  - 日付ボタンからの開閉店操作
+  - ターミナル関数経由での閉店処理実行
+  - エラーハンドリングと処理順序の考慮
+
+- [Phase6 Step4 (Phase9): storeMeta監視ページでの自動開閉店時の挙動・表示の実装](./phase6/step4/implementation_plan.md) - ⏳ 未着手
+  - 自動開閉店処理時の挙動・表示の実装
+  - `lib/utils`に共通実装を作成
+
+**重要**: 各ステップを始める際に、検討事項が残っているステップについては、changeSpecの作成や実装の前に必ず検討事項の方針を固めてからスタートしてください。
+
 ## 保留中の作業
 
 - [保留中の後回しにしている作業](./deferred_tasks.md) - 検討中または保留中の作業一覧

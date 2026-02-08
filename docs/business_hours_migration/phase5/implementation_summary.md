@@ -1,7 +1,8 @@
 # Phase5: 自動開閉店（補助機能） - 認定処理 実装サマリー
 
 ## 実装日
-2025-01-XX
+2025-01-XX（初回実装）
+2026-02-08（環境変数の分離と時間計算の修正）
 
 ## 実装内容
 
@@ -34,7 +35,12 @@
 - `PROJECT_ID`の取得時にfail-fast（未設定の場合は`throw new Error`）
 - `days`キーの揺れ対応（`"1"`/`"01"`の両方を確認）
 - `closeMinute > 1440`の場合は翌日へ繰り越す処理
-- JST基準で計算してからUTC epoch秒へ変換
+- JST基準で計算してからUTC epoch秒へ変換（`setUTCHours`を使用してUTC時刻を設定）
+
+**環境変数の分離（2026-02-08修正）**:
+- `TASKS_QUEUE`と`TASKS_LOCATION`は`tasks.ts`の`enqueueStartTask`/`enqueueRegistTask`で使用（`asia-northeast1`の`tournament-queue`）
+- `weeklyPlanner`は専用の環境変数`WEEKLYPLANNER_TASKS_QUEUE`と`WEEKLYPLANNER_TASKS_LOCATION`を使用（`us-central1`の`business-date-assessment-queue`）
+- これにより、環境変数の重複問題を解決し、各機能が適切なキューとロケーションを使用できるようになった
 
 ### 3. 閉店認定処理の実装
 
@@ -179,11 +185,13 @@ manualOverrideの確認
 - `ENABLE_AUTO_OPEN_CLOSE`: 自動開閉店の有効/無効（`true`/`false`）
 - `TASK_CLOSE_OFFSET_MINUTES`: 閉店認定タスクの実行時刻オフセット（分単位、デフォルト: 120）
 - `TASK_OPEN_OFFSET_MINUTES`: 開店認定タスクの実行時刻オフセット（分単位、デフォルト: -30）
-- `CLOSE_ASSESSMENT_URL`: 閉店認定HTTP FunctionsのURL
-- `OPEN_ASSESSMENT_URL`: 開店認定HTTP FunctionsのURL
-- `TASKS_QUEUE`: Cloud Tasksのキュー名（既存の`TASKS_QUEUE`を使用）
-- `TASKS_LOCATION`: Cloud Tasksのロケーション（既存の`TASKS_LOCATION`を使用、例: `us-central1`）
+- `CLOSE_ASSESSMENT_URL`: 閉店認定HTTP FunctionsのURL（Cloud Run URL形式、例: `https://closeassessmenttask-iigzogr4ca-uc.a.run.app`）
+- `OPEN_ASSESSMENT_URL`: 開店認定HTTP FunctionsのURL（Cloud Run URL形式、例: `https://openassessmenttask-iigzogr4ca-uc.a.run.app`）
+- `WEEKLYPLANNER_TASKS_QUEUE`: Cloud Tasksのキュー名（`weeklyPlanner`専用、例: `business-date-assessment-queue`）
+- `WEEKLYPLANNER_TASKS_LOCATION`: Cloud Tasksのロケーション（`weeklyPlanner`専用、例: `us-central1`）
 - `TASKS_INVOKER_SA`: サービスアカウントのメールアドレス（既存の`TASKS_INVOKER_SA`を使用）
+
+**注意**: `TASKS_QUEUE`と`TASKS_LOCATION`は`tasks.ts`のトーナメント関連機能で使用されるため、`weeklyPlanner`では使用しません。
 
 ### IAM権限の設定
 - Cloud Run（HTTP Functions）側で、`roles/run.invoker`を`TASKS_INVOKER_SA`に付与する必要があります
@@ -191,3 +199,38 @@ manualOverrideの確認
 ### 破壊的操作を行わない
 - Phase5では破壊的操作（reset/cleanup/migrate/state更新）を行わず、認定結果のみを`storeMeta/currentBusinessDay`に記録します
 - 実際の開店/閉店処理はPhase6で実装予定です
+
+## 実装時の問題と解決
+
+### 1. 環境変数の重複問題（2026-02-08解決）
+
+**問題**:
+- `.env.amuse-app-template`に`TASKS_QUEUE`と`TASKS_LOCATION`が重複して定義されていた
+- `weeklyPlanner`と`tasks.ts`の`enqueueStartTask`/`enqueueRegistTask`が同じ環境変数名を使用していた
+- これにより、異なるキューとロケーションを使用する必要があるにもかかわらず、環境変数の値が競合していた
+
+**解決**:
+- `weeklyPlanner`専用の環境変数`WEEKLYPLANNER_TASKS_QUEUE`と`WEEKLYPLANNER_TASKS_LOCATION`を導入
+- `weeklyPlanner.ts`でこれらの環境変数を使用するように修正
+- `tasks.ts`の既存機能は引き続き`TASKS_QUEUE`と`TASKS_LOCATION`を使用（影響なし）
+
+### 2. 時間計算の修正（2026-02-08修正）
+
+**問題**:
+- `weeklyPlanner.ts`の時間計算で、JST時刻を意図していたが`setHours`がUTCで動作するため、時刻がずれていた
+
+**解決**:
+- JST時刻を計算してから、UTCに変換する処理に修正
+- `setUTCHours`を使用してUTC時刻を正しく設定
+- 開店時刻と閉店時刻の計算を修正
+
+### 3. デプロイ時の環境変数の扱い
+
+**確認事項**:
+- Firebase Functions v2の本番環境では、Firebase Consoleで設定した環境変数が使用される
+- `.env.amuse-app-template`は主にローカル開発用
+- デプロイ時に`.env.amuse-app-template`が読み込まれても、本番実行時はFirebase Consoleの環境変数が優先される
+
+**対応**:
+- Firebase Consoleで`WEEKLYPLANNER_TASKS_QUEUE`と`WEEKLYPLANNER_TASKS_LOCATION`を設定する必要がある
+- `.env.amuse-app-template`にも設定を追加（ローカル開発用）
