@@ -287,7 +287,9 @@
 
 ---
 
-## Schedulingチェックリスト
+## Schedulingチェックリスト（Phase5: 自動開閉店（補助機能） - 認定処理）
+
+**注意**: 詳細仕様は[自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md)を参照してください。
 
 ### 1. 週次Planner（cron固定、JST、ON/OFF）
 
@@ -297,51 +299,48 @@
   - **対応方針**: Cloud Schedulerは週1回（例：日曜20:00 JST）だけ起動
   - **ON/OFF**: `globalConstant`のON/OFFで切替
   - **businessHoursMonthlyMapの参照**: `days`マップから該当日のデータを取得（キーは日付の文字列）
-  - **scheduleTime**: 各日の開店時刻/閉店時刻にオフセットを加えた時刻（JST）
-    - デフォルト: `openMinute` / `closeMinute`ちょうど
-    - 安全のための前後オフセット: `TASK_OPEN_OFFSET_MINUTES` / `TASK_CLOSE_OFFSET_MINUTES`（デフォルト: 0、`globalConstant`で設定可能）
+  - **scheduleTime**: 各日の「閉店認定」「開店認定」タスクの実行時刻（JST）
+    - 閉店認定: 閉店時間 + バッファ（`TASK_CLOSE_OFFSET_MINUTES`、デフォルト: 120分（2時間））
+    - 開店認定: 開店時間の30分前（`TASK_OPEN_OFFSET_MINUTES`、デフォルト: -30分）
     - 注意: このオフセットは「営業日判定用の±30分バッファ」とは別物
 
 #### チェック項目
 
 - [ ] Cloud Schedulerは週1回（例：日曜20:00 JST）だけ起動している
 - [ ] `globalConstant`のON/OFFで切替可能
-- [ ] 翌週（月〜日）分のopen/closeをCloud Tasksに投入している
+- [ ] 翌週（月〜日）分の「閉店認定」「開店認定」タスクをCloud Tasksに投入している
 - [ ] `businessHoursMonthlyMap`の`days`マップから該当日のデータを正しく取得している
 - [ ] `isClosed: true`の場合はタスクを投入していない
-- [ ] 開店タスクの`scheduleTime`は`openMinute` + `TASK_OPEN_OFFSET_MINUTES`で設定されている（デフォルト: 0）
-- [ ] 閉店タスクの`scheduleTime`は`closeMinute` + `TASK_CLOSE_OFFSET_MINUTES`で設定されている（デフォルト: 0）
+- [ ] 閉店認定タスクの`scheduleTime`は`closeMinute` + `TASK_CLOSE_OFFSET_MINUTES`で設定されている（デフォルト: 120分）
+- [ ] 開店認定タスクの`scheduleTime`は`openMinute` - 30分で設定されている
 
 ---
 
-### 2. Tasks名固定、scheduleTime、再実行耐性、認証
+### 2. 認定処理（HTTP Functions）
 
 #### 対象ファイル
 
-- ✅ `functions/src/scheduler/weeklyPlanner.ts`（予定）
-  - **対応方針**: Task名は固定化（`open_YYYY-MM-DD`, `close_YYYY-MM-DD`）
-  - **scheduleTime**: 各日の開店時刻/閉店時刻にオフセットを加えた時刻（JST）
-    - デフォルト: `openMinute` / `closeMinute`ちょうど
-    - 安全のための前後オフセット: `TASK_OPEN_OFFSET_MINUTES` / `TASK_CLOSE_OFFSET_MINUTES`（デフォルト: 0、`globalConstant`で設定可能）
-    - 注意: このオフセットは「営業日判定用の±30分バッファ」とは別物
-  - **再実行耐性**: 冪等は二段構え
-    - 作成時冪等: Task名固定で二重作成を防ぐ（`AlreadyExists`は成功扱い）
-    - 実行時冪等: state docをトランザクションで見て既に目的状態ならno-op
+- ✅ `functions/src/tasks/closeAssessmentTask.ts`（予定）
+  - **対応方針**: Cloud TasksからHTTP Functionsを呼び出す際、OIDCトークン認証は必須
+  - **処理内容**: 閉店時間超過の確認、ブロッカーの検出、認定結果のstate docへの記録
+  - **冪等性**: `idempotencyKey`を使用（`close_assessment_${intendedBusinessDateKey}_${scheduledAt}`）
 
-- ✅ `functions/src/tasks/openStoreTask.ts`（予定）
-  - **対応方針**: Cloud TasksからHTTP Functionsを呼び出す際、認証は必須
-
-- ✅ `functions/src/tasks/closeStoreTask.ts`（予定）
-  - **対応方針**: Cloud TasksからHTTP Functionsを呼び出す際、認証は必須
+- ✅ `functions/src/tasks/openAssessmentTask.ts`（予定）
+  - **対応方針**: Cloud TasksからHTTP Functionsを呼び出す際、OIDCトークン認証は必須
+  - **処理内容**: 前回の閉店処理が正常に完了しているか確認（storeMetaのみで判定）、認定結果のstate docへの記録
+  - **冪等性**: `idempotencyKey`を使用（`open_assessment_${intendedBusinessDateKey}_${scheduledAt}`）
 
 #### チェック項目
 
-- [ ] Task名は固定化されている（`open_YYYY-MM-DD`, `close_YYYY-MM-DD`）
-- [ ] 開店タスクの`scheduleTime`は`openMinute` + `TASK_OPEN_OFFSET_MINUTES`で設定されている（デフォルト: 0）
-- [ ] 閉店タスクの`scheduleTime`は`closeMinute` + `TASK_CLOSE_OFFSET_MINUTES`で設定されている（デフォルト: 0）
+- [ ] Task名は固定化されている（`close_assessment_YYYY-MM-DD`, `open_assessment_YYYY-MM-DD`）
+- [ ] 閉店認定タスクの`scheduleTime`は`closeMinute` + `TASK_CLOSE_OFFSET_MINUTES`で設定されている（デフォルト: 120分）
+- [ ] 開店認定タスクの`scheduleTime`は`openMinute` - 30分で設定されている
 - [ ] 作成時冪等を実装している（Task名固定で二重作成を防ぐ、`AlreadyExists`は成功扱い）
-- [ ] 実行時冪等を実装している（state docをトランザクションで見て既に目的状態ならno-op）
-- [ ] Cloud TasksからHTTP Functionsを呼び出す際、認証は必須（公開URL禁止）
+- [ ] 実行時冪等を実装している（トランザクション内で`idempotencyKey`をチェックし、既に同じキーで更新済みの場合はno-op）
+- [ ] Cloud TasksからHTTP Functionsを呼び出す際、OIDCトークン認証は必須（サービスアカウント`TASKS_INVOKER_SA`に`roles/run.invoker`を付与）
+- [ ] `allUsers`公開はしていない
+- [ ] 認定結果は`storeMeta/currentBusinessDay`の`closeAssessment`/`openAssessment`フィールドに記録されている
+- [ ] 破壊的操作（reset/cleanup/migrate/state更新）は行っていない（認定のみ）
 
 ---
 
@@ -400,3 +399,4 @@
 - [Step1: コレクション分析](./step1_collection_analysis.md)
 - [Step2: 取得・表示ファイルの洗い出し](./step2_query_display_files.md)
 - [Step3: state docと自動開閉店の設計](./step3_state_doc_and_scheduling.md)
+- [自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md)

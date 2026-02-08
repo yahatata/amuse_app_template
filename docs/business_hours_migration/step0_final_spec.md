@@ -319,12 +319,39 @@
 - 日付選択UIで`calcBusinessDate`を使用
 - `AMBIGUOUS`/`NONE`時のダイアログ実装
 
-### Phase5: 自動開閉店
-- 週次Plannerの実装
-- Cloud Tasksの投入・実行
+### Phase5: 自動開閉店（補助機能） - 認定処理
+- 週次Plannerの実装（閉店認定・開店認定タスクの投入）
+- 閉店認定・開店認定のHTTP Functions実装
+- 認定結果のstate docへの記録
 - エラーハンドリング・ログ記録
+- 詳細仕様は[自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md)を参照
 
-### Phase6: テスト・検証
+### Phase6: 手動開閉店処理の実装（4ステップに分割）
+
+**Phase6 Step1**: UIでstoreMetaをsnapshot購読する仕様の実装
+- 複数ページで`storeMeta/currentBusinessDay`をsnapshot購読
+- `lib/utils`に共通実装を作成（メンテナンス性向上）
+- AppBar内にボタン兼日付表示要素を追加（M/D(曜日)形式）
+- 営業中は日付表示、閉店中は「閉店中」と表示
+
+**Phase6 Step2 (Phase7)**: 閉店処理の具体処理の作成
+- 未会計billsを抽出し、未精算の請求書として適切に保存（フラグ立て）
+- 閉店処理の間にユーザーの判断を挟む場所や確認工程を検討
+- 未会計billsを未請求の請求書として残すときのUI表示を作成
+- 注意: 全体の実装はステップ3で一括処理と合わせて実装
+
+**Phase6 Step3 (Phase8)**: 閉店処理の一括操作の実装
+- ステップ1で作成した日付ボタンから開閉店操作を実行
+- ターミナル関数経由で閉店処理の具体関数を実行
+- エラー発生時の処理戻しや各具体処理の順番に注意
+- 開店処理もターミナル関数経由で実装（今後の実装を踏まえて）
+
+**Phase6 Step4 (Phase9)**: storeMeta監視ページでの自動開閉店時の挙動・表示の実装
+- `storeMeta/currentBusinessDay`を監視するページで、自動開閉店処理時の挙動・表示を実装
+- `lib/utils`に共通実装を作成
+- 各フィールドの値に応じた挙動・表示を定義
+
+### Phase7: テスト・検証
 - 25:00問題の再発防止確認
 - `closed`時の動作確認
 - `AMBIGUOUS`/`NONE`時の動作確認
@@ -338,3 +365,4 @@
 - [Step2: 取得・表示ファイルの洗い出し](./step2_query_display_files.md)
 - [Step3: state docと自動開閉店の設計](./step3_state_doc_and_scheduling.md)
 - [Step4: 改修実装チェックリスト](./step4_migration_plan_checklist.md)
+- [自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md)

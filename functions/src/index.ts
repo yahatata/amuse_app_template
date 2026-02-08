@@ -28,8 +28,6 @@ export * from "./tournamentBlind";
 export * from "./tournamentTemplate";
 // スタッフ関連関数
 export * from "./staff";
-// シフト管理関連関数
-export * from "./shift";
 // 勤怠管理関連関数
 export * from "./attendance";
 // スケジュール済みトーナメント関連関数
@@ -46,6 +44,11 @@ export * from "./webhook";
 export * from "./scripts/nightlyRecalculateBalanceDue";
 export * from "./scripts/nightlyReconciliationCheck";
 export * from "./scripts/nightlyIntegrityCheck";
+// 週次Planner（Phase5）
+export * from "./scheduler/weeklyPlanner";
+// 認定処理（Phase5）
+export * from "./tasks/closeAssessmentTask";
+export * from "./tasks/openAssessmentTask";
 // トリガ関連関数
 export * from "./triggers/bills.events.onCreate";
 export * from "./triggers/bills.onSettle";
@@ -76,10 +79,3 @@ export const updateAdministrativeMenuWithDescription = onCall(async (request) =>
   return { message: "This function is maintained remotely" };
 });
 
-export const cancelOrder = onCall(async (request) => {
-  return { message: "This function is maintained remotely" };
-});
-
-export const removeTableFromTournament = onCall(async (request) => {
-  return { message: "This function is maintained remotely" };
-});
