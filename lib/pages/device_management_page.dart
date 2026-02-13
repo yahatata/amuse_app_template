@@ -12,6 +12,10 @@ class _TableItem {
 }
 
 /// デバイス管理画面（管理者用）
+///
+/// 【テスト用機能の有効化】
+/// 画面上で role を変更するテスト用UIを有効にするには、本ファイル内で
+/// 「テスト期間限定: role変更」で始まるブロックコメントの 先頭の /* と 末尾の */ を削除してください。
 class DeviceManagementPage extends StatefulWidget {
   const DeviceManagementPage({super.key});
 
@@ -25,11 +29,21 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   List<Device> _devices = [];
   bool _isLoading = true;
   String? _error;
+  /// 現在操作しているデバイスID（この画面を開いている端末）
+  String? _currentDeviceId;
 
   @override
   void initState() {
     super.initState();
+    _loadCurrentDeviceId();
     _loadDevices();
+  }
+
+  Future<void> _loadCurrentDeviceId() async {
+    final device = await _deviceService.getCurrentDevice();
+    if (mounted) {
+      setState(() => _currentDeviceId = device?.id);
+    }
   }
 
   Future<void> _loadDevices() async {
@@ -40,6 +54,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
 
     try {
       final devices = await _deviceService.getDevices();
+      if (_currentDeviceId == null) {
+        await _loadCurrentDeviceId();
+      }
       setState(() {
         _devices = devices;
         _isLoading = false;
@@ -505,6 +522,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       itemCount: _devices.length,
       itemBuilder: (context, index) {
         final device = _devices[index];
+        final isCurrentDevice = _currentDeviceId != null && device.id == _currentDeviceId;
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           elevation: 2,
@@ -513,6 +531,25 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 現在操作中のデバイス表示
+                if (isCurrentDevice)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green[700], size: 20),
+                        const SizedBox(width: 6),
+                        Text(
+                          '現在操作中のデバイス',
+                          style: TextStyle(
+                            color: Colors.green[700],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 // デバイス名とステータス
                 Row(
                   children: [
@@ -568,6 +605,41 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                     ),
                   ],
                 ),
+                // /* テスト期間限定: role変更（有効化するにはこのブロックの先頭 /* と末尾 */ を削除）
+                Row(
+                  children: [
+                    const Text('role変更: ', style: TextStyle(fontSize: 12)),
+                    DropdownButton<String>(
+                      value: device.role,
+                      items: const [
+                        DropdownMenuItem(value: 'admin', child: Text('admin')),
+                        DropdownMenuItem(value: 'terminal', child: Text('terminal')),
+                      ],
+                      onChanged: (String? newRole) async {
+                        if (newRole == null || newRole == device.role) return;
+                        try {
+                          await _deviceService.updateDeviceRoleByAdmin(
+                            targetDeviceId: device.id,
+                            role: newRole,
+                          );
+                          await _loadDevices();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('roleを$newRoleに変更しました'), backgroundColor: Colors.green),
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('エラー: $e'), backgroundColor: Colors.red),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                // */
                 const SizedBox(height: 4),
 
                 // プラットフォーム

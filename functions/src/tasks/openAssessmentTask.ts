@@ -71,16 +71,29 @@ export const openAssessmentTask = onRequest(
 
         if (payload.intendedBusinessDateKey !== todayKey && payload.intendedBusinessDateKey !== tomorrowKeyStr) {
           // 許容範囲外
+          const decidedAt = Timestamp.now();
           transaction.update(stateDocRef, {
             openAssessment: {
               idempotencyKey,
               intendedBusinessDateKey: payload.intendedBusinessDateKey,
-              decidedAt: Timestamp.now(),
+              decidedAt,
               result: 'skipped',
               blockers: ['date_out_of_range'],
               source: 'task',
               scheduledAt: payload.scheduledAt,
             },
+          });
+          const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
+          transaction.set(logRef, {
+            type: 'open',
+            intendedBusinessDateKey: payload.intendedBusinessDateKey,
+            scheduledAt: payload.scheduledAt,
+            result: 'skipped',
+            blockers: ['date_out_of_range'],
+            decidedAt,
+            source: 'task',
+            idempotencyKey,
+            createdAt: decidedAt,
           });
           return;
         }
@@ -93,32 +106,58 @@ export const openAssessmentTask = onRequest(
 
         // 既に営業中か確認
         if (status === 'running' && currentBusinessDateKey === payload.intendedBusinessDateKey) {
+          const decidedAt = Timestamp.now();
           transaction.update(stateDocRef, {
             openAssessment: {
               idempotencyKey,
               intendedBusinessDateKey: payload.intendedBusinessDateKey,
-              decidedAt: Timestamp.now(),
+              decidedAt,
               result: 'already_running',
               blockers: [],
               source: 'task',
               scheduledAt: payload.scheduledAt,
             },
           });
+          const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
+          transaction.set(logRef, {
+            type: 'open',
+            intendedBusinessDateKey: payload.intendedBusinessDateKey,
+            scheduledAt: payload.scheduledAt,
+            result: 'already_running',
+            blockers: [],
+            decidedAt,
+            source: 'task',
+            idempotencyKey,
+            createdAt: decidedAt,
+          });
           return;
         }
 
         // 営業中に別日付の開店が走ることを防止
         if (status === 'running' && currentBusinessDateKey !== payload.intendedBusinessDateKey) {
+          const decidedAt = Timestamp.now();
           transaction.update(stateDocRef, {
             openAssessment: {
               idempotencyKey,
               intendedBusinessDateKey: payload.intendedBusinessDateKey,
-              decidedAt: Timestamp.now(),
+              decidedAt,
               result: 'skipped',
               blockers: ['already_running_different_date'],
               source: 'task',
               scheduledAt: payload.scheduledAt,
             },
+          });
+          const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
+          transaction.set(logRef, {
+            type: 'open',
+            intendedBusinessDateKey: payload.intendedBusinessDateKey,
+            scheduledAt: payload.scheduledAt,
+            result: 'skipped',
+            blockers: ['already_running_different_date'],
+            decidedAt,
+            source: 'task',
+            idempotencyKey,
+            createdAt: decidedAt,
           });
           return;
         }
@@ -164,12 +203,13 @@ export const openAssessmentTask = onRequest(
           // resultは維持（needs_manual_openのまま）
         }
 
-        // 認定結果の更新
+        // 認定結果の更新とログ記録
+        const decidedAt = Timestamp.now();
         transaction.update(stateDocRef, {
           openAssessment: {
             idempotencyKey,
             intendedBusinessDateKey: payload.intendedBusinessDateKey,
-            decidedAt: Timestamp.now(),
+            decidedAt,
             result,
             blockers,
             source: 'task',
@@ -178,6 +218,22 @@ export const openAssessmentTask = onRequest(
             ...(suppressedByOverride !== undefined && { suppressedByOverride }),
           },
         });
+        const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
+        const logData: Record<string, unknown> = {
+          type: 'open',
+          intendedBusinessDateKey: payload.intendedBusinessDateKey,
+          scheduledAt: payload.scheduledAt,
+          result,
+          blockers,
+          decidedAt,
+          source: 'task',
+          idempotencyKey,
+          createdAt: decidedAt,
+        };
+        if (suppressedByOverride !== undefined) {
+          logData.suppressedByOverride = suppressedByOverride;
+        }
+        transaction.set(logRef, logData);
       });
 
       res.status(200).json({ success: true });

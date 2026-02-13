@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/device.dart';
+import 'device_options.dart';
 
 /// デバイス管理サービス
 class DeviceService {
@@ -191,6 +192,33 @@ class DeviceService {
     }
   }
 
+  /// 管理者用：指定デバイスの role を変更する（Cloud Function 経由）。
+  /// terminal にする場合は options / optionParams を生成、admin の場合は削除する。
+  Future<void> updateDeviceRoleByAdmin({
+    required String targetDeviceId,
+    required String role,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable('updateDeviceRole');
+      await callable.call(<String, dynamic>{
+        'deviceId': targetDeviceId,
+        'role': role,
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final myId = prefs.getString(_deviceIdKey);
+      if (myId == targetDeviceId) {
+        await prefs.setString(_deviceRoleKey, role);
+        final refreshed = await _firestore.collection('devices').doc(targetDeviceId).get();
+        if (refreshed.exists) {
+          _cachedDevice = Device.fromFirestore(refreshed);
+        }
+      }
+    } catch (e) {
+      print('デバイスrole更新エラー: $e');
+      rethrow;
+    }
+  }
+
   /// デバイスを削除（管理者用）
   Future<void> deleteDevice(String deviceId) async {
     try {
@@ -263,6 +291,7 @@ class DeviceService {
   }
 
   /// デバイスが指定オプションを保持しているかチェック（adminは常に許可する運用）
+  /// optionKey は [DeviceOptionKeys] で定義（order, accounting, storeManagement（営業管理）など）。
   Future<bool> hasOption(String optionKey, {bool adminBypass = true}) async {
     try {
       final device = _cachedDevice ?? await getCurrentDevice();
@@ -357,6 +386,24 @@ class DeviceService {
       return device?.status == 'active';
     } catch (e) {
       print('アクティブチェックエラー: $e');
+      return false;
+    }
+  }
+
+  /// Phase6 Step4: store management 端末か（強警告で閉店処理・営業継続を出せる端末）
+  /// spec §5.1: role === 'admin' または (role === 'terminal' && options.store_management === true)
+  Future<bool> isStoreManagement() async {
+    try {
+      final device = await getCurrentDevice();
+      if (device == null) return false;
+      if (device.role == 'admin') return true;
+      if (device.role == 'terminal' &&
+          device.options[DeviceOptionKeys.storeManagement] == true) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print('store management チェックエラー: $e');
       return false;
     }
   }

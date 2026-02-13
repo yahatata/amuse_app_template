@@ -1,68 +1,58 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 
+/** Phase6 Step3: ターミナルから呼ぶ core。共通化用。 */
+export async function runResetAllSideGames(
+  db: ReturnType<typeof getFirestore>
+): Promise<{ count: number }> {
+  const sideGamesSnapshot = await db.collection('sideGame').get();
+
+  if (sideGamesSnapshot.empty) {
+    return { count: 0 };
+  }
+
+  const batch = db.batch();
+  let count = 0;
+
+  sideGamesSnapshot.forEach((doc) => {
+    const sideGameRef = db.collection('sideGame').doc(doc.id);
+    const data = doc.data();
+
+    const updateData: { [key: string]: any } = {
+      active: false,
+      updatedAt: new Date(),
+    };
+
+    if (data.seats && typeof data.seats === 'object') {
+      const seats = data.seats as { [key: string]: any };
+      for (const key in seats) {
+        if (key.includes('PokerName') || key.includes('UserId')) {
+          updateData[`seats.${key}`] = null;
+        }
+      }
+    }
+
+    if (data.gameName !== undefined) {
+      updateData.gameName = null;
+    }
+
+    batch.update(sideGameRef, updateData);
+    count++;
+  });
+
+  await batch.commit();
+  return { count };
+}
+
 export const resetAllSideGames = onCall(async (request) => {
   try {
     const db = getFirestore();
-    
-    console.log('=== 全サイドゲームリセット開始 ===');
-    
-    // 1. sideGameコレクションの全ドキュメントを取得
-    const sideGamesSnapshot = await db.collection('sideGame').get();
-    
-    if (sideGamesSnapshot.empty) {
-      return {
-        success: true,
-        message: 'サイドゲームが存在しません',
-        count: 0,
-      };
-    }
-    
-    // 2. 各ドキュメントを更新
-    const batch = db.batch();
-    let count = 0;
-    
-    sideGamesSnapshot.forEach((doc) => {
-      const sideGameRef = db.collection('sideGame').doc(doc.id);
-      const data = doc.data();
-      
-      // 更新データを準備
-      const updateData: { [key: string]: any } = {
-        active: false,
-        updatedAt: new Date(),
-      };
-      
-      // seatsフィールドの存在確認
-      if (data.seats && typeof data.seats === 'object') {
-        const seats = data.seats as { [key: string]: any };
-        
-        // seatXXPokerNameとseatXXUserIdを検索してnullにする
-        for (const key in seats) {
-          if (key.includes('PokerName') || key.includes('UserId')) {
-            updateData[`seats.${key}`] = null;
-          }
-        }
-      }
-      
-      // gameNameフィールドをnullにする（存在する場合）
-      if (data.gameName !== undefined) {
-        updateData.gameName = null;
-      }
-      
-      batch.update(sideGameRef, updateData);
-      count++;
-    });
-    
-    await batch.commit();
-    
-    console.log(`全サイドゲームリセット完了: ${count}件`);
-    
+    const { count } = await runResetAllSideGames(db);
     return {
       success: true,
-      message: `${count}件のサイドゲームをリセットしました`,
+      message: count === 0 ? 'サイドゲームが存在しません' : `${count}件のサイドゲームをリセットしました`,
       count,
     };
-    
   } catch (error) {
     console.error('resetAllSideGamesエラー:', error);
     throw new HttpsError(

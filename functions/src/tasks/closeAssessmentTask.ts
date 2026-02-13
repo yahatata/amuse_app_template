@@ -71,16 +71,29 @@ export const closeAssessmentTask = onRequest(
 
         if (payload.intendedBusinessDateKey !== todayKey && payload.intendedBusinessDateKey !== yesterdayKeyStr) {
           // 許容範囲外
+          const decidedAt = Timestamp.now();
           transaction.update(stateDocRef, {
             closeAssessment: {
               idempotencyKey,
               intendedBusinessDateKey: payload.intendedBusinessDateKey,
-              decidedAt: Timestamp.now(),
+              decidedAt,
               result: 'skipped',
               blockers: ['date_out_of_range'],
               source: 'task',
               scheduledAt: payload.scheduledAt,
             },
+          });
+          const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
+          transaction.set(logRef, {
+            type: 'close',
+            intendedBusinessDateKey: payload.intendedBusinessDateKey,
+            scheduledAt: payload.scheduledAt,
+            result: 'skipped',
+            blockers: ['date_out_of_range'],
+            decidedAt,
+            source: 'task',
+            idempotencyKey,
+            createdAt: decidedAt,
           });
           return;
         }
@@ -92,32 +105,58 @@ export const closeAssessmentTask = onRequest(
 
         // 既に閉店済みか確認
         if (status === 'closed' && lastClosedBusinessDateKey === payload.intendedBusinessDateKey) {
+          const decidedAt = Timestamp.now();
           transaction.update(stateDocRef, {
             closeAssessment: {
               idempotencyKey,
               intendedBusinessDateKey: payload.intendedBusinessDateKey,
-              decidedAt: Timestamp.now(),
+              decidedAt,
               result: 'already_closed',
               blockers: [],
               source: 'task',
               scheduledAt: payload.scheduledAt,
             },
           });
+          const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
+          transaction.set(logRef, {
+            type: 'close',
+            intendedBusinessDateKey: payload.intendedBusinessDateKey,
+            scheduledAt: payload.scheduledAt,
+            result: 'already_closed',
+            blockers: [],
+            decidedAt,
+            source: 'task',
+            idempotencyKey,
+            createdAt: decidedAt,
+          });
           return;
         }
 
         // 次営業日が開始しているか確認
         if (status === 'running' && currentBusinessDateKey !== payload.intendedBusinessDateKey) {
+          const decidedAt = Timestamp.now();
           transaction.update(stateDocRef, {
             closeAssessment: {
               idempotencyKey,
               intendedBusinessDateKey: payload.intendedBusinessDateKey,
-              decidedAt: Timestamp.now(),
+              decidedAt,
               result: 'next_day_started',
               blockers: [],
               source: 'task',
               scheduledAt: payload.scheduledAt,
             },
+          });
+          const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
+          transaction.set(logRef, {
+            type: 'close',
+            intendedBusinessDateKey: payload.intendedBusinessDateKey,
+            scheduledAt: payload.scheduledAt,
+            result: 'next_day_started',
+            blockers: [],
+            decidedAt,
+            source: 'task',
+            idempotencyKey,
+            createdAt: decidedAt,
           });
           return;
         }
@@ -156,12 +195,13 @@ export const closeAssessmentTask = onRequest(
           }
         }
 
-        // 認定結果の更新
+        // 認定結果の更新とログ記録
+        const decidedAt = Timestamp.now();
         transaction.update(stateDocRef, {
           closeAssessment: {
             idempotencyKey,
             intendedBusinessDateKey: payload.intendedBusinessDateKey,
-            decidedAt: Timestamp.now(),
+            decidedAt,
             result,
             blockers,
             source: 'task',
@@ -170,6 +210,22 @@ export const closeAssessmentTask = onRequest(
             ...(suppressedByOverride !== undefined && { suppressedByOverride }),
           },
         });
+        const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
+        const logData: Record<string, unknown> = {
+          type: 'close',
+          intendedBusinessDateKey: payload.intendedBusinessDateKey,
+          scheduledAt: payload.scheduledAt,
+          result,
+          blockers,
+          decidedAt,
+          source: 'task',
+          idempotencyKey,
+          createdAt: decidedAt,
+        };
+        if (suppressedByOverride !== undefined) {
+          logData.suppressedByOverride = suppressedByOverride;
+        }
+        transaction.set(logRef, logData);
       });
 
       res.status(200).json({ success: true });

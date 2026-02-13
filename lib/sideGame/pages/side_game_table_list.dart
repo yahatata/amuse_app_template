@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_home.dart';
+import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
+import 'package:amuse_app_template/utils/store_strong_warning_ui.dart';
 
 class SideGameTableListPage extends StatefulWidget {
   const SideGameTableListPage({super.key});
@@ -67,7 +69,20 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
         title: const Text('サイドゲーム テーブル選択'),
         centerTitle: true,
       ),
-      body: _isLoadingPermissions
+      body: StoreStrongWarningWrapper(
+        onCloseStore: () {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const terminalHomePage()),
+            (route) => false,
+          );
+        },
+        onBusinessContinue: () {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const terminalHomePage()),
+            (route) => false,
+          );
+        },
+        child: _isLoadingPermissions
           ? const Center(child: CircularProgressIndicator())
           : StreamBuilder<QuerySnapshot>(
               stream: _firestore.collection('tables').snapshots(),
@@ -111,6 +126,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
                 return _buildTableGrid(tables);
               },
             ),
+      ),
     );
   }
 

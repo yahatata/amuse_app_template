@@ -34,7 +34,15 @@ class _AutoSplitResult {
 }
 
 class AccountingPage extends StatefulWidget {
-  const AccountingPage({super.key});
+  const AccountingPage({
+    super.key,
+    this.forUnsettledBillId,
+    this.forUnsettledUserId,
+  });
+
+  /// 未会計会計フローから遷移した場合の対象 billId（指定時はこの 1 件のみ表示し、完了時に finalize を呼ぶ）
+  final String? forUnsettledBillId;
+  final String? forUnsettledUserId;
 
   @override
   State<AccountingPage> createState() => _AccountingPageState();
@@ -53,7 +61,49 @@ class _AccountingPageState extends State<AccountingPage> {
   @override
   void initState() {
     super.initState();
-    // initStateでは読み込まない（StreamBuilderで読み込む）
+    if (widget.forUnsettledBillId != null && widget.forUnsettledBillId!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadSingleUnsettledBill(widget.forUnsettledBillId!));
+    }
+  }
+
+  /// 未会計会計用: 指定 bill 1 件のみ取得して表示
+  Future<void> _loadSingleUnsettledBill(String billId) async {
+    setState(() => _isLoading = true);
+    try {
+      final doc = await _firestore.collection('bills').doc(billId).get();
+      if (!doc.exists || !mounted) {
+        setState(() {
+          _activeBills = [];
+          _isLoading = false;
+        });
+        return;
+      }
+      final data = doc.data()!;
+      final ops = data['ops'] as Map<String, dynamic>?;
+      final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>?;
+      final mappedData = <String, dynamic>{
+        'id': doc.id,
+        'userId': (data['party'] as Map<String, dynamic>?)?['userId'],
+        'pokerName': (data['party'] as Map<String, dynamic>?)?['pokerName'],
+        'currentTable': (data['place'] as Map<String, dynamic>?)?['table'],
+        'currentSeat': (data['place'] as Map<String, dynamic>?)?['seat'],
+        'status': data['status'],
+        'createdAt': data['createdAt'],
+        'updatedAt': data['updatedAt'],
+        'accountingStartedAt': ops?['accountingStartedAt'],
+        'paymentMethodsByAmount': paymentsSummary?['byMethod'],
+        'totalPrice': null,
+      };
+      setState(() {
+        _activeBills = [mappedData];
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('請求書の取得に失敗しました: $e')));
+      }
+    }
   }
 
   Future<void> _loadActiveBills(String businessDate) async {
@@ -63,14 +113,23 @@ class _AccountingPageState extends State<AccountingPage> {
 
     try {
       // 営業日の未会計・会計中の請求書を取得（open と settling の両方）
+      // closeSnapshot.unresolved が true のものは「未会計ラベル付き」のため別画面で扱い、ここでは表示しない
       final querySnapshot = await _firestore
           .collection('bills')
           .where('businessDate', isEqualTo: businessDate)
           .where('status', whereIn: ['open', 'settling'])
           .get();
 
+      final filteredDocs = querySnapshot.docs.where((doc) {
+        final data = doc.data();
+        final closeSnapshot = data['closeSnapshot'];
+        if (closeSnapshot == null || closeSnapshot is! Map) return true;
+        final unresolved = closeSnapshot['unresolved'];
+        return unresolved != true; // フィールドが無い or false の場合は表示対象
+      }).toList();
+
       setState(() {
-        _activeBills = querySnapshot.docs.map((doc) {
+        _activeBills = filteredDocs.map((doc) {
           final data = doc.data();
           // レスポンス形式のマッピング
           final ops = data['ops'] as Map<String, dynamic>?;
@@ -1916,6 +1975,22 @@ class _AccountingPageState extends State<AccountingPage> {
             context,
           ).showSnackBar(const SnackBar(content: Text('会計を完了しました')));
         }
+        // 未会計会計フローの場合は users と closeSnapshot.unresolved の更新を呼んでから戻る
+        if (mounted && widget.forUnsettledBillId != null && widget.forUnsettledBillId!.isNotEmpty) {
+          try {
+            await _functions.httpsCallable('finalizeUnsettledBillAfterAccounting').call({
+              'billId': billId,
+            });
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('未会計後処理に失敗しました: $e'), backgroundColor: Colors.orange),
+              );
+            }
+          }
+          if (mounted) Navigator.of(context).pop();
+          return;
+        }
         // データを再読み込み（非同期で実行）
         if (_currentBusinessDateKey != null) {
           _loadActiveBills(_currentBusinessDateKey!); // データを再読み込み
@@ -1994,6 +2069,25 @@ class _AccountingPageState extends State<AccountingPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 未会計会計フロー: 1 件のみ表示し、完了時に finalize して pop
+    if (widget.forUnsettledBillId != null && widget.forUnsettledBillId!.isNotEmpty) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('未会計の会計'),
+          backgroundColor: Colors.blue[600],
+          foregroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).pop(),
+            tooltip: '戻る',
+          ),
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _buildActiveBillsTab(),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('会計管理'),

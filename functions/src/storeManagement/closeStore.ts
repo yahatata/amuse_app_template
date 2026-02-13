@@ -7,7 +7,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { getCallerDeviceByUid, isActive } from '../lib/devicePermissions';
+import { getCallerDeviceByUid, hasStoreManagementPermission, isActive } from '../lib/devicePermissions';
 import { Timestamp } from 'firebase-admin/firestore';
 
 const db = getFirestore();
@@ -30,8 +30,8 @@ export const closeStore = onCall(
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
 
-    if (device.role !== 'admin') {
-      throw new HttpsError('permission-denied', '管理者権限が必要です');
+    if (!hasStoreManagementPermission(device)) {
+      throw new HttpsError('permission-denied', '営業管理の権限がありません');
     }
 
     // state docの更新（トランザクション）

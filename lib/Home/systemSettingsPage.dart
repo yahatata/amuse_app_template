@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 import '../globalConstant.dart';
 import 'createTemporaryTablePage.dart';
 
@@ -147,6 +148,23 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
               ),
             ),
             const SizedBox(height: 16),
+            // 未会計billsの移管（Phase6 Step2）
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.receipt_long, color: Colors.brown),
+                title: const Text('未会計billsの移管'),
+                subtitle: const Text('当日営業日の未会計伝票に閉店時ラベル（closeSnapshot）を付与します'),
+                trailing: _isProcessing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.arrow_forward_ios),
+                onTap: _isProcessing ? null : _openUnsettledBillsFlow,
+              ),
+            ),
+            const SizedBox(height: 16),
             const Text(
               '注意事項',
               style: TextStyle(
@@ -163,6 +181,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
               '• 全テーブルリセット: 全テーブルのステータスをopenにリセット\n'
               '• 全サイドゲームリセット: 全サイドゲームをクリア\n'
               '• 閉店クリーンアップ: activeStays を全削除（isActiveの値に関係なく、開店時に空にする）\n'
+              '• 未会計billsの移管: 当日営業日の未会計伝票に閉店時ラベル（closeSnapshot）を付与\n'
               '• 本番環境では自動バッチ処理で実行されます\n'
               '• 処理中は他の操作を行わないでください',
               style: TextStyle(color: Colors.red),
@@ -236,15 +255,11 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
     );
 
     try {
-      debugPrint('移管処理開始: storeCloseHour=${GlobalConstants.STORE_CLOSE_HOUR}');
-      
-      // 注意: GlobalConstants.STORE_CLOSE_HOUR をそのまま渡す。
-      // migrateSettledBillsForBusinessDay 内の resolveBusinessDate で
-      // normalizeStoreCloseHour() により正規化される（24以上は翌日繰り上がり）。
+      debugPrint('移管処理開始: storeMeta から営業日を取得して移管します');
+      // 営業日は Cloud Functions 側で storeMeta/currentBusinessDay の
+      // currentBusinessDateKey（優先）または lastClosedBusinessDateKey から決定されます。
       final callable = _functions.httpsCallable('migrateSettledBillsForBusinessDay');
-      final result = await callable.call({
-        'storeCloseHour': GlobalConstants.STORE_CLOSE_HOUR,
-      });
+      final result = await callable.call(<String, dynamic>{});
 
       debugPrint('移管処理結果: $result');
 
@@ -698,6 +713,283 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
         _isProcessing = false;
       });
     }
+  }
+
+  /// 未会計billsの移管: 取得 → 一覧ダイアログ → 確定 or 0件表示（Phase6 Step2）
+  Future<void> _openUnsettledBillsFlow() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      _showErrorDialog('認証が必要です。ログインしてから再度お試しください。');
+      return;
+    }
+    setState(() => _isProcessing = true);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('未会計伝票を取得中...'),
+          ],
+        ),
+      ),
+    );
+    try {
+      final callable = _functions.httpsCallable('getUnsettledBillsForClose');
+      final result = await callable.call();
+      if (!mounted) return;
+      if (Navigator.of(context).canPop()) Navigator.of(context).pop(); // ローディングを閉じる
+      if (result.data['success'] != true) {
+        _showErrorDialog(result.data['error'] ?? '未会計伝票の取得に失敗しました');
+        return;
+      }
+      final data = result.data['data'] as List<dynamic>? ?? [];
+      if (data.isEmpty) {
+        showDialog(
+          context: context,
+          builder: (BuildContext ctx) => AlertDialog(
+            title: const Text('未会計billsの移管'),
+            content: const Text('未会計の伝票はありません。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+      final list = data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      _showUnsettledBillsListDialog(list);
+    } catch (e) {
+      debugPrint('getUnsettledBillsForClose error: $e');
+      if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
+      if (e is FirebaseFunctionsException) {
+        if (e.code == 'unauthenticated' || e.code == 'permission-denied') {
+          _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
+          return;
+        }
+      }
+      _showErrorDialog('未会計伝票の取得に失敗しました: $e');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  void _showUnsettledBillsListDialog(List<Map<String, dynamic>> list) {
+    showDialog(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          title: const Text('未会計billsの移管'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${list.length}件の未会計伝票があります。全件に閉店時ラベルを付与します。', style: const TextStyle(fontSize: 12)),
+                  const SizedBox(height: 12),
+                  ...list.map((e) {
+                    final createdAt = e['createdAt'] as String?;
+                    final dispDate = createdAt != null && createdAt.isNotEmpty
+                        ? _formatIsoToDisplay(createdAt)
+                        : '—';
+                    final amount = e['displayAmount'];
+                    final amountStr = amount is int ? '¥$amount' : (amount is double ? '¥${amount.toStringAsFixed(0)}' : (amount?.toString() ?? '—'));
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        '${e['pokerName'] ?? '—'}  $amountStr  入店: $dispDate',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final billIds = list.map((e) => e['billId'] as String?).whereType<String>().toList();
+                final amountsByBillId = <String, double>{};
+                for (final e in list) {
+                  final id = e['billId'] as String?;
+                  if (id == null || id.isEmpty) continue;
+                  final amount = e['displayAmount'];
+                  if (amount is num) {
+                    amountsByBillId[id] = amount.toDouble();
+                  }
+                }
+                Navigator.of(ctx).pop();
+                _executeApplyCloseSnapshot(billIds, amountsByBillId);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.brown, foregroundColor: Colors.white),
+              child: const Text('全件確定'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  static String _skippedReasonDisplayText(String reason) {
+    switch (reason) {
+      case 'invalid_closeSnapshot_shape':
+        return 'closeSnapshotが壊れているため手動修正が必要';
+      case 'missing_amount':
+        return '金額が取得できません（データ不備）';
+      case 'missing_user_id':
+        return 'ユーザーIDが無いためスキップ';
+      default:
+        return reason;
+    }
+  }
+
+  /// Firestore の Timestamp は UTC で保持されているため、ISO 文字列をパース後はローカル（JST）に変換して表示する。
+  static String _formatIsoToDisplay(String iso) {
+    try {
+      final dt = DateTime.parse(iso);
+      return DateFormat('yyyy/MM/dd HH:mm').format(dt.toLocal());
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  Future<void> _executeApplyCloseSnapshot(List<String> billIds, Map<String, double> amountsByBillId) async {
+    if (billIds.isEmpty) return;
+    final user = _auth.currentUser;
+    if (user == null) {
+      _showErrorDialog('認証が必要です。ログインしてから再度お試しください。');
+      return;
+    }
+    setState(() => _isProcessing = true);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('閉店時ラベルを付与中...'),
+          ],
+        ),
+      ),
+    );
+    try {
+      final callable = _functions.httpsCallable('applyCloseSnapshot');
+      final result = await callable.call({
+        'billIds': billIds,
+        'amountsByBillId': amountsByBillId,
+      });
+      if (!mounted) return;
+      if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+      if (result.data['success'] != true) {
+        _showErrorDialog(result.data['error'] ?? '閉店時ラベルの付与に失敗しました');
+        return;
+      }
+      final updatedBillIds = List<String>.from(result.data['updatedBillIds'] ?? []);
+      final skippedRaw = result.data['skipped'] as List<dynamic>? ?? [];
+      final skipped = skippedRaw.map((e) => Map<String, String>.from(e as Map)).toList();
+      final usersUpdateFailed = List<String>.from(result.data['usersUpdateFailed'] as List<dynamic>? ?? []);
+      _showApplyCloseSnapshotResultDialog(updatedBillIds, skipped, usersUpdateFailed, amountsByBillId);
+    } catch (e) {
+      debugPrint('applyCloseSnapshot error: $e');
+      if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
+      if (e is FirebaseFunctionsException) {
+        if (e.code == 'unauthenticated' || e.code == 'permission-denied') {
+          _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
+          return;
+        }
+      }
+      _showErrorDialog('閉店時ラベルの付与に失敗しました: $e');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  void _showApplyCloseSnapshotResultDialog(
+    List<String> updatedBillIds,
+    List<Map<String, String>> skipped,
+    List<String> usersUpdateFailed,
+    Map<String, double> amountsByBillId,
+  ) {
+    // データ不備・上書き不可は再試行しても成功しづらいため除外。txn_failed のみ再試行対象。
+    final retryable = skipped
+        .where((e) =>
+            e['reason'] != 'already_marked' &&
+            e['reason'] != 'invalid_closeSnapshot_shape' &&
+            e['reason'] != 'missing_user_id' &&
+            e['reason'] != 'missing_amount')
+        .toList();
+    showDialog(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          title: const Text('移管結果'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('完了: ${updatedBillIds.length}件', style: const TextStyle(fontWeight: FontWeight.bold)),
+                if (usersUpdateFailed.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Text('ユーザー集計更新に失敗したuserId:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8, top: 4),
+                    child: Text(usersUpdateFailed.join(', '), style: const TextStyle(fontSize: 12)),
+                  ),
+                ],
+                if (skipped.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Text('スキップ:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ...skipped.map((e) {
+                    final reason = e['reason'] ?? '—';
+                    final displayReason = _skippedReasonDisplayText(reason);
+                    return Padding(
+                      padding: const EdgeInsets.only(left: 8, top: 4),
+                      child: Text('${e['billId'] ?? '—'} … $displayReason', style: const TextStyle(fontSize: 12)),
+                    );
+                  }),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('閉じる'),
+            ),
+            if (retryable.isNotEmpty)
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  final ids = retryable.map((e) => e['billId'] ?? '').where((s) => s.isNotEmpty).toList();
+                  final retryAmounts = <String, double>{};
+                  for (final id in ids) {
+                    final v = amountsByBillId[id];
+                    if (v != null) retryAmounts[id] = v;
+                  }
+                  _executeApplyCloseSnapshot(ids, retryAmounts);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                child: const Text('再試行'),
+              ),
+          ],
+        );
+      },
+    );
   }
 
   void _showErrorDialog(String errorMessage) {

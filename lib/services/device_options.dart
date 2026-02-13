@@ -7,6 +7,7 @@ class DeviceOptionKeys {
   static const String tournamentTable = 'tournament_table';
   static const String kitchen = 'kitchen';
   static const String sideGame = 'side_game';
+  static const String storeManagement = 'store_management';
 
   static const List<String> all = <String>[
     order,
@@ -17,6 +18,7 @@ class DeviceOptionKeys {
     tournamentTable,
     kitchen,
     sideGame,
+    storeManagement,
   ];
 
   /// 排他グループ: 同時に1つしか選択できないオプションのグループ
@@ -39,6 +41,7 @@ class DeviceOptionKeys {
     tournamentTable: 'トーナメント卓専用',
     kitchen: 'キッチン画面操作',
     sideGame: 'サイドゲーム操作',
+    storeManagement: '営業管理',
   };
 
   static String label(String key) {
@@ -54,6 +57,7 @@ class DeviceOptionKeys {
     tournamentTable: '指定された卓の詳細ページのみ表示・操作できます。卓番を指定するとその卓専用になります。',
     kitchen: 'キッチン向けの調理・提供状況管理画面にアクセスし、注文ステータスの更新（調理中/提供済み等）ができます。',
     sideGame: 'サイドゲームの参加/離席、チップの入出金、ステータス更新などの操作が可能になります。卓番を指定するとその卓専用になります。',
+    storeManagement: '営業時間・開店・閉店など店舗の営業状態の管理操作が可能になります。',
   };
 
   static String description(String key) {
