@@ -298,6 +298,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // storeMeta/currentBusinessDay/assessmentLogs サブコレクション（自動閉店・開店認定のログ）
+    match /storeMeta/currentBusinessDay/assessmentLogs/{logId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // その他のコレクションは読み書き禁止
     match /{document=**} {
       allow read, write: if false;

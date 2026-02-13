@@ -1,5 +1,9 @@
 # Phase6 Step2 (Phase7): 閉店処理の具体処理の作成
 
+**ステータス: 実装完了**（完了日: 2025年2月）
+
+---
+
 ## 重要: 実装開始前の確認
 
 **本ステップを開始する前に、必ず以下の検討事項の方針を固めてください**:
@@ -106,6 +110,11 @@
 - ステップ2では構想のみを作成し、実際の全体実装はステップ3で行う
 - 未会計billsのUI表示は作成するが、他の必要な要素はステップ3で肉付け
 - 検討事項については、実装前に必ず方針を固めること
+
+## 実装完了に含まれる範囲（Step2）
+
+- **未会計billsの移管**: システム設定画面の「未会計billsの移管」ボタンから、未会計bills取得・一覧表示・closeSnapshot 付与（applyCloseSnapshot）まで。詳細は `change_spec.md` および `implementation_summary.md` を参照。
+- **未会計の会計**: ターミナルホームの「未会計の会計」から、ユーザー別一覧 → 未会計bills一覧（営業日表示）→ 会計ページ（AccountingPage）→ 会計完了後の finalizeUnsettledBillAfterAccounting まで。会計管理ページ（accountingPage）では closeSnapshot.unresolved が true の bill は対象外とするフィルタを適用済み。
 
 ## 次のステップ
 

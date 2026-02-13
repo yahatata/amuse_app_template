@@ -58,11 +58,10 @@
 **方法1: curlコマンド（推奨）**
 
 ```bash
-# 現在の日時を取得（JST）
+
 CURRENT_DATE=$(date -u +"%Y-%m-%d" -v+9H 2>/dev/null || date -u -d "+9 hours" +"%Y-%m-%d" 2>/dev/null || date +"%Y-%m-%d")
 SCHEDULED_AT=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" -v+9H 2>/dev/null || date -u -d "+9 hours" +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
 
-# リクエストボディを作成
 PAYLOAD=$(cat <<EOF
 {
   "action": "close_assessment",
@@ -72,7 +71,7 @@ PAYLOAD=$(cat <<EOF
 EOF
 )
 
-# HTTPリクエストを送信
+
 curl -X POST \
   https://us-central1-amuse-app-template.cloudfunctions.net/closeAssessmentTask \
   -H "Content-Type: application/json" \
@@ -285,11 +284,9 @@ curl -X POST \
 
 **curlコマンド**:
 ```bash
-# 現在の日時を取得（JST）
 CURRENT_DATE=$(date -u +"%Y-%m-%d" -v+9H 2>/dev/null || date -u -d "+9 hours" +"%Y-%m-%d" 2>/dev/null || date +"%Y-%m-%d")
 SCHEDULED_AT=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" -v+9H 2>/dev/null || date -u -d "+9 hours" +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
 
-# リクエストボディを作成
 PAYLOAD=$(cat <<EOF
 {
   "action": "open_assessment",
@@ -299,7 +296,6 @@ PAYLOAD=$(cat <<EOF
 EOF
 )
 
-# HTTPリクエストを送信
 curl -X POST \
   https://us-central1-amuse-app-template.cloudfunctions.net/openAssessmentTask \
   -H "Content-Type: application/json" \
