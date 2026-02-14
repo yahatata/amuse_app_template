@@ -1399,7 +1399,7 @@
         }
       };
       
-      // 注文履歴を読み込む（Firestoreの自動キャッシュを使用）
+      // 注文履歴を読み込む（orders/_TodaysOrders から取得。同一営業日・userId一致。キャンセル以外は通常表示、キャンセルは「キャンセル」表示・合計に含めない）
       async function loadOrderHistory() {
         const historyListEl = document.getElementById('order-history-list');
         const statsEl = document.getElementById('history-stats');
@@ -1407,130 +1407,85 @@
         statsEl.style.display = 'none';
         
         try {
-          // スピナーを表示
           historyListEl.innerHTML = '<div class="spinner"></div>';
           
-          // ユーザーIDを取得（LIFF認証済みの場合）
-          const { auth, db } = window.Firebase;
+          const { auth } = window.Firebase;
           if (!auth.currentUser) {
             throw new Error('認証が必要です。ページを再読み込みしてください。');
           }
 
-          const userId = auth.currentUser.uid;
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app);
+          const getUserOrderHistory = httpsCallable(functions, 'getUserOrderHistory');
+          const result = await getUserOrderHistory({});
+          const payload = result.data;
+          if (!payload || payload.success === false) {
+            const errMsg = (payload && payload.error) ? payload.error : '注文履歴の取得に失敗しました。';
+            historyListEl.innerHTML = `<p class="error-message">${errMsg}</p>`;
+            return;
+          }
+          const data = payload.data || {};
+          const orders = data.orders || [];
+          const totalAmount = data.totalAmount ?? 0;
           
-          // 日本時間の当日の開始時刻と終了時刻を計算
-          const now = new Date();
-          const jstOffset = 9 * 60; // JSTはUTC+9
-          const jstNow = new Date(now.getTime() + (jstOffset * 60 * 1000));
-          
-          // 当日の開始時刻（00:00:00 JST）
-          const todayStart = new Date(jstNow.getFullYear(), jstNow.getMonth(), jstNow.getDate());
-          const todayStartUTC = new Date(todayStart.getTime() - (jstOffset * 60 * 1000));
-          
-          // 当日の終了時刻（23:59:59 JST）
-          const todayEnd = new Date(jstNow.getFullYear(), jstNow.getMonth(), jstNow.getDate(), 23, 59, 59, 999);
-          const todayEndUTC = new Date(todayEnd.getTime() - (jstOffset * 60 * 1000));
-          
-          // Firestoreから直接取得（自動キャッシュ機能を使用）
-          const { collection, query, where, orderBy, getDocs, Timestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          
-          const billsQuery = query(
-            collection(db, 'todaysBills'),
-            where('userId', '==', userId),
-            where('createdAt', '>=', Timestamp.fromDate(todayStartUTC)),
-            where('createdAt', '<=', Timestamp.fromDate(todayEndUTC)),
-            orderBy('createdAt', 'desc')
-          );
-          
-          const billsSnap = await getDocs(billsQuery);
-          
-          if (billsSnap.empty) {
-            historyListEl.innerHTML = '<p class="empty-history">本日の注文履歴がありません</p>';
+          if (orders.length === 0) {
+            historyListEl.innerHTML = '<p class="empty-history">本日の注文履歴はありません</p>';
             statsEl.style.display = 'flex';
             document.getElementById('total-orders').textContent = '0';
             document.getElementById('total-amount').textContent = '¥0';
             return;
           }
           
-          // 注文履歴を整形
-          const orders = billsSnap.docs.map(doc => {
-            const data = doc.data();
-            
-            // タイムスタンプの処理
-            let createdAt = null;
-            let updatedAt = null;
-            let orderDate = null;
-            
-            if (data.createdAt && data.createdAt.toDate) {
-              createdAt = data.createdAt.toDate();
-              orderDate = createdAt;
-            } else if (data.createdAt) {
-              createdAt = new Date(data.createdAt);
-              orderDate = createdAt;
-            }
-            
-            if (data.updatedAt && data.updatedAt.toDate) {
-              updatedAt = data.updatedAt.toDate();
-            } else if (data.updatedAt) {
-              updatedAt = new Date(data.updatedAt);
-            }
-            
-            return {
-              id: doc.id,
-              createdAt: createdAt ? createdAt.toISOString() : null,
-              updatedAt: updatedAt ? updatedAt.toISOString() : null,
-              status: data.status,
-              totalPrice: data.totalPrice || 0,
-              items: data.items || [],
-              currentTable: data.currentTable,
-              currentSeat: data.currentSeat,
-              orderDate: orderDate ? orderDate.toISOString() : null,
-              itemCount: Array.isArray(data.items) ? data.items.length : 0
-            };
-          });
-          
-          // 合計金額を計算
-          const totalAmount = orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0);
-          
-          // 統計情報を表示
-          document.getElementById('total-orders').textContent = orders.length;
-          document.getElementById('total-amount').textContent = `¥${totalAmount.toLocaleString()}`;
+          document.getElementById('total-orders').textContent = String(orders.length);
+          document.getElementById('total-amount').textContent = `¥${Number(totalAmount).toLocaleString()}`;
           statsEl.style.display = 'flex';
           
-          // 注文履歴を表示
           historyListEl.innerHTML = orders.map(order => {
-            // 同じ商品を集約
+            const items = order.items || [];
             const aggregatedItems = {};
-            order.items.forEach(item => {
-              const key = `${item.name}_${item.price}`;
-              if (aggregatedItems[key]) {
-                aggregatedItems[key].quantity += item.quantity;
+            const cancelItems = [];
+            items.forEach(item => {
+              const status = item.status || 'preparing';
+              if (status === 'cancel') {
+                cancelItems.push(item);
               } else {
-                aggregatedItems[key] = { ...item };
+                const key = `${item.name}_${item.price}`;
+                if (aggregatedItems[key]) {
+                  aggregatedItems[key].quantity += item.quantity;
+                } else {
+                  aggregatedItems[key] = { name: item.name, quantity: item.quantity, price: item.price ?? 0, status };
+                }
               }
             });
-            
             const uniqueItems = Object.values(aggregatedItems);
+            const totalCancelQty = cancelItems.reduce((s, i) => s + (i.quantity || 0), 0);
+            const totalPrice = order.totalPrice ?? 0;
             
             return `
               <div class="order-history-item">
                 <div class="order-header">
                   <div class="order-info">
-                    <span class="order-status status-${order.status}">${getStatusDisplayName(order.status)}</span>
+                    <span class="order-status status-${order.status || 'served'}">${getStatusDisplayName(order.status || 'served')}</span>
                   </div>
                   <div class="order-amount">
-                    ¥${order.totalPrice.toLocaleString()}
+                    ¥${totalPrice.toLocaleString()}
                   </div>
                 </div>
                 <div class="order-items">
                   ${uniqueItems.map(item => `
                     <div class="order-item">
                       <span class="item-name">${item.name}</span>
-                      <span class="item-details">${item.quantity}個 × ¥${item.price}</span>
+                      <span class="item-details">${item.quantity}個 × ¥${(item.price || 0).toLocaleString()}</span>
                     </div>
                   `).join('')}
+                  ${totalCancelQty > 0 ? `
+                    <div class="order-item order-item-cancel">
+                      <span class="item-name">キャンセル</span>
+                      <span class="item-details">${totalCancelQty > 1 ? totalCancelQty + '件 ' : ''}キャンセル</span>
+                    </div>
+                  ` : ''}
                 </div>
-                ${order.currentTable ? `<div class="order-location">テーブル: ${order.currentTable}${order.currentSeat ? ` (${order.currentSeat})` : ''}</div>` : ''}
+                ${order.currentTable ? `<div class="order-location">テーブル: ${order.currentTable}${order.currentSeat != null ? ` (${order.currentSeat})` : ''}</div>` : ''}
               </div>
             `;
           }).join('');
@@ -1552,7 +1507,9 @@
         const statusNames = {
           'open': '注文中',
           'closed': '完了',
-          'cancelled': 'キャンセル'
+          'cancelled': 'キャンセル',
+          'preparing': '調理中',
+          'served': '提供済み'
         };
         return statusNames[status] || status;
       }

@@ -73,7 +73,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     try {
       await _deviceService.updateDeviceStatus(device.id, status);
       await _loadDevices(); // リストを再読み込み
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -118,7 +118,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       try {
         await _deviceService.deleteDevice(device.id);
         await _loadDevices(); // リストを再読み込み
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -142,9 +142,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
 
   /// 卓一覧を取得（逆用途に指定された卓を除外）
   Future<List<_TableItem>> _getAvailableTablesForOption(
-    String optionKey,
-    String currentDeviceId,
-  ) async {
+      String optionKey,
+      String currentDeviceId,
+      ) async {
     try {
       // 1. tables コレクションから有効な卓を取得
       final tablesSnap = await _firestore
@@ -175,12 +175,12 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       return tablesSnap.docs
           .where((doc) => !excludedTableIds.contains(doc.id))
           .map((doc) {
-            final data = doc.data();
-            return _TableItem(
-              id: doc.id,
-              name: data['name'] as String? ?? doc.id,
-            );
-          })
+        final data = doc.data();
+        return _TableItem(
+          id: doc.id,
+          name: data['name'] as String? ?? doc.id,
+        );
+      })
           .toList();
     } catch (e) {
       print('卓一覧取得エラー: $e');
@@ -285,9 +285,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                               future: tableCache.containsKey(key)
                                   ? Future.value(tableCache[key])
                                   : _getAvailableTablesForOption(key, device.id).then((tables) {
-                                      tableCache[key] = tables;
-                                      return tables;
-                                    }),
+                                tableCache[key] = tables;
+                                return tables;
+                              }),
                               builder: (context, snapshot) {
                                 if (snapshot.connectionState == ConnectionState.waiting) {
                                   return const SizedBox(
@@ -723,13 +723,13 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                     children: device.options.entries
                         .where((e) => e.value == true && DeviceOptionKeys.all.contains(e.key))
                         .map((e) {
-                          // 卓紐づけがある場合は表示
-                          final tableId = device.getTableIdForOption(e.key);
-                          final label = tableId != null
-                              ? '${DeviceOptionKeys.label(e.key)} ($tableId)'
-                              : DeviceOptionKeys.label(e.key);
-                          return Chip(label: Text(label));
-                        })
+                      // 卓紐づけがある場合は表示
+                      final tableId = device.getTableIdForOption(e.key);
+                      final label = tableId != null
+                          ? '${DeviceOptionKeys.label(e.key)} ($tableId)'
+                          : DeviceOptionKeys.label(e.key);
+                      return Chip(label: Text(label));
+                    })
                         .toList(),
                   ),
                 ],

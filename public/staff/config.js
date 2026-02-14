@@ -2,6 +2,8 @@
 window.__CONFIG__ = {
   // LIFF ID（スタッフ用ミニアプリ）
   liffId: "2008640140-kWpQ25Jp",
+  // ユーザー用LIFF ID（「ユーザーに切り替え」で開く先。LINE Developersのユーザー用LIFFのIDと一致させる）
+  userLiffId: "2007950789-ZJ7b0JgO",
   
   // Firebase設定
   firebaseConfig: {

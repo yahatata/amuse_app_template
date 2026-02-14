@@ -519,7 +519,7 @@ export async function appendItemWithOrderProjection(
         });
       }
 
-      // _TodaysOrders を作成
+      // _TodaysOrders を作成（注文履歴で金額表示するため unitPriceIncl を保存）
       tx.set(todaysOrderRef, {
         orderDocId,
         billId,
@@ -529,6 +529,7 @@ export async function appendItemWithOrderProjection(
         name: resolved.name,
         category: resolved.category,
         quantity,
+        unitPriceIncl: resolved.unitPriceIncl,
         status: 'preparing',
         orderedAt: FieldValue.serverTimestamp(),
         currentTable: currentTable || null,
