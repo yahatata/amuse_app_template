@@ -5,6 +5,9 @@ import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/user_actions/user_action_home.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
+import 'package:amuse_app_template/services/store_meta_service.dart';
+import 'package:amuse_app_template/utils/store_assessment_utils.dart';
+import 'package:intl/intl.dart';
 
 class SideGameTableHomePage extends StatefulWidget {
   final String tableId;
@@ -30,6 +33,90 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
     _currentGameName = widget.gameName;
   }
 
+  /// AppBar用: storeMeta の営業状態を表示（Phase6 Step1、グレーAppBar用に白表示）
+  Widget _buildStoreStatusAction(BuildContext context) {
+    const textColor = Colors.white;
+    return StreamBuilder<StoreMetaData>(
+      stream: StoreMetaService.instance.stream,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: textColor),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Icon(Icons.error, color: Colors.red, size: 20),
+          );
+        }
+        final data = snapshot.data!;
+        if (data.isUnknownStatus) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Icon(Icons.help_outline, color: Colors.grey, size: 20),
+          );
+        }
+        if (data.isRunning && data.currentBusinessDateKey != null) {
+          final parts = data.currentBusinessDateKey!.split('-');
+          if (parts.length == 3) {
+            try {
+              final year = int.parse(parts[0]);
+              final month = int.parse(parts[1]);
+              final day = int.parse(parts[2]);
+              final date = DateTime(year, month, day);
+              final formatted = DateFormat('M/d(E)', 'ja_JP').format(date);
+              final warningLabel = getDateWarningLabel(data);
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Center(
+                  child: warningLabel != null
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.warning_amber_rounded, size: 18, color: Colors.orange),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                warningLabel,
+                                style: const TextStyle(fontSize: 11, color: Colors.orange),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(formatted, style: const TextStyle(fontSize: 14, color: textColor)),
+                          ],
+                        )
+                      : Text(formatted, style: const TextStyle(fontSize: 14, color: textColor)),
+                ),
+              );
+            } catch (_) {}
+          }
+        }
+        if (data.isClosed) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Center(
+              child: Text('閉店中', style: TextStyle(fontSize: 14, color: textColor)),
+            ),
+          );
+        }
+        if (data.isError) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Icon(Icons.error_outline, color: Colors.orange, size: 20),
+          );
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -39,6 +126,7 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
         backgroundColor: Colors.grey,
         foregroundColor: Colors.white,
         actions: [
+          _buildStoreStatusAction(context),
           // ゲーム名表示と変更ボタン
           PopupMenuButton<String>(
             child: Container(

@@ -5,6 +5,17 @@
 import * as admin from 'firebase-admin';
 
 /**
+ * Phase6 Step3: processing(lease) フィールドの型。
+ * storeMeta/currentBusinessDay に追加する。runId と closeRuns/openRuns の docId を一致させる。
+ */
+export interface ProcessingLeaseDoc {
+  runId: string;
+  startedAt: admin.firestore.Timestamp;
+  leaseExpiresAt: admin.firestore.Timestamp;
+  kind: 'close' | 'open';
+}
+
+/**
  * storeMeta/currentBusinessDay ドキュメントの型定義
  */
 export interface CurrentBusinessDayDoc {
@@ -20,6 +31,8 @@ export interface CurrentBusinessDayDoc {
     at: admin.firestore.Timestamp;
     context?: any;
   } | null;
+  /** Phase6 Step3 で追加。閉店/開店ターミナル実行中の lease。 */
+  processing?: ProcessingLeaseDoc | null;
 }
 
 /**

@@ -1,98 +1,121 @@
 import { onCall } from "firebase-functions/v2/https";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, Firestore } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
-import { resolveBusinessDate } from "./helpers";
 import { processBillAnalyticsAtomically } from "./updateAnalyticsForBill";
+
+/** storeMeta/currentBusinessDay のドキュメントパス */
+const STORE_META_CURRENT_BUSINESS_DAY = "currentBusinessDay";
+
+/**
+ * 移管対象の営業日を storeMeta から取得する。
+ * - currentBusinessDateKey が設定されていればそれを使用（営業中＝その日を移管対象とする）。
+ * - null の場合は lastClosedBusinessDateKey を使用（閉店後＝直近に閉店した営業日を移管対象とする）。
+ */
+async function getBusinessDateFromStoreMeta(db: Firestore): Promise<string> {
+  const docRef = db.collection("storeMeta").doc(STORE_META_CURRENT_BUSINESS_DAY);
+  const doc = await docRef.get();
+
+  if (!doc.exists) {
+    throw new Error(
+      "storeMeta/currentBusinessDay が存在しません。初期化スクリプトを実行してください。"
+    );
+  }
+
+  const data = doc.data();
+  if (!data) {
+    throw new Error("storeMeta/currentBusinessDay のデータが取得できません。");
+  }
+
+  const currentBusinessDateKey = data.currentBusinessDateKey as string | null | undefined;
+  const lastClosedBusinessDateKey = data.lastClosedBusinessDateKey as string | null | undefined;
+
+  const businessDate =
+    currentBusinessDateKey != null && typeof currentBusinessDateKey === "string" && currentBusinessDateKey.trim() !== ""
+      ? currentBusinessDateKey.trim()
+      : lastClosedBusinessDateKey != null && typeof lastClosedBusinessDateKey === "string" && lastClosedBusinessDateKey.trim() !== ""
+        ? lastClosedBusinessDateKey.trim()
+        : null;
+
+  if (businessDate == null) {
+    throw new Error(
+      "storeMeta/currentBusinessDay に currentBusinessDateKey も lastClosedBusinessDateKey も設定されていません。営業日を特定できません。"
+    );
+  }
+
+  return businessDate;
+}
+
+/** Phase6 Step3: ターミナルから呼ぶ core。営業日を指定して移管を実行する。閉店完了ダイアログ表示用に processedPokerNames を返す。 */
+export async function runMigrateSettledBillsForBusinessDay(
+  db: Firestore,
+  businessDate: string
+): Promise<{
+  processedCount: number;
+  skippedCount: number;
+  month: string;
+  processedPokerNames: string[];
+}> {
+  const month = businessDate.slice(0, 7);
+  const processedPokerNames: string[] = [];
+
+  const billsQuery = await db
+    .collection('bills')
+    .where('status', '==', 'settled')
+    .where('businessDate', '==', businessDate)
+    .get();
+
+  if (billsQuery.empty) {
+    return { processedCount: 0, skippedCount: 0, month, processedPokerNames };
+  }
+
+  let processedCount = 0;
+  let skippedCount = 0;
+
+  for (const billDoc of billsQuery.docs) {
+    const billId = billDoc.id;
+    const billData = billDoc.data();
+
+    try {
+      const markerRef = db
+        .collection('analyticsMonthly')
+        .doc(month)
+        .collection('aggregationMarkers')
+        .doc(billId);
+
+      const markerDoc = await markerRef.get();
+      if (markerDoc.exists) {
+        skippedCount++;
+        continue;
+      }
+
+      await processBillAnalyticsAtomically(db, {
+        month,
+        businessDate,
+        billId,
+        billData,
+      });
+
+      processedCount++;
+      const pokerName = (billData.party?.pokerName as string) ?? '';
+      if (pokerName.trim()) processedPokerNames.push(pokerName.trim());
+    } catch (error) {
+      logger.error(`処理失敗: ${billId}`, error);
+      throw error;
+    }
+  }
+
+  return { processedCount, skippedCount, month, processedPokerNames };
+}
 
 export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
   const db = getFirestore();
-  const { storeCloseHour } = request.data;
 
   try {
-    logger.info(`移管処理開始: storeCloseHour=${storeCloseHour}`);
+    logger.info("移管処理開始: storeMeta から営業日を取得します");
 
-    // 営業日を計算（現在時刻ベース）
-    const now = new Date();
-    const businessDate = resolveBusinessDate(now, storeCloseHour);
-    const month = businessDate.slice(0, 7); // YYYY-MM
-
-    logger.info(`営業日: ${businessDate}, 月: ${month}`);
-
-    // 対象ドキュメントを取得（bills コレクションから親docのみ参照）
-    const billsQuery = await db.collection('bills')
-      .where('status', '==', 'settled')
-      .where('businessDate', '==', businessDate)
-      .get();
-
-    if (billsQuery.empty) {
-      logger.info('移管対象のドキュメントがありません');
-      return {
-        success: true,
-        processedCount: 0,
-        skippedCount: 0,
-        month,
-        businessDate,
-        message: '移管対象のドキュメントがありません',
-      };
-    }
-
-    logger.info(`移管対象: ${billsQuery.docs.length}件`);
-
-    let processedCount = 0;
-    let skippedCount = 0;
-
-    // 各ドキュメントを処理
-    for (const billDoc of billsQuery.docs) {
-      const billId = billDoc.id;  // ✅ billDoc.id は docId（bills コレクションのドキュメントID）
-      const billData = billDoc.data();
-
-      try {
-        // オプション: トランザクション外で marker チェック（早期スキップ用、パフォーマンス向上）
-        const markerRef = db
-          .collection('analyticsMonthly')
-          .doc(month)
-          .collection('aggregationMarkers')
-          .doc(billId);
-
-        const markerDoc = await markerRef.get();
-        if (markerDoc.exists) {
-          logger.info(`スキップ: ${billId} (既に処理済み)`);
-          skippedCount++;
-          continue;  // 早期スキップ（最終的な正しさは processBillAnalyticsAtomically 内で担保）
-        }
-
-        logger.info('migrateSettledBillsForBusinessDay: starting analytics update', {
-          billId,
-          month,
-          businessDate,
-        });
-
-        // 共通関数で analytics 更新（トランザクション内で marker チェック・作成）
-        // runTransaction は共通関数内で実施されるため、ネストトランザクションにならない
-        await processBillAnalyticsAtomically(db, {
-          month,
-          businessDate,
-          billId,  // ✅ billId = docId として統一
-          billData,
-        });
-
-        // ⚠️ settledBills への転記は廃止（両者で転記しない仕様に統一）
-        // 転記が不要な理由:
-        // - settledBills コレクションは既に利用されていない／必要がない
-        // - enqueueSettlement は転記を行わないため、両者の動作を揃える
-
-        processedCount++;
-        logger.info('migrateSettledBillsForBusinessDay: analytics update completed', {
-          billId,
-          month,
-          businessDate,
-        });
-
-      } catch (error) {
-        logger.error(`処理失敗: ${billId}`, error);
-        throw error;
-      }
-    }
+    const businessDate = await getBusinessDateFromStoreMeta(db);
+    const result = await runMigrateSettledBillsForBusinessDay(db, businessDate);
+    const { processedCount, skippedCount, month } = result;
 
     logger.info(`移管処理完了: 処理=${processedCount}件, スキップ=${skippedCount}件`);
 
@@ -102,9 +125,11 @@ export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
       skippedCount,
       month,
       businessDate,
-      message: `移管処理完了: 処理=${processedCount}件, スキップ=${skippedCount}件`,
+      message:
+        result.processedCount === 0 && result.skippedCount === 0
+          ? '移管対象のドキュメントがありません'
+          : `移管処理完了: 処理=${processedCount}件, スキップ=${skippedCount}件`,
     };
-
   } catch (error) {
     logger.error('移管処理エラー:', error);
     return {

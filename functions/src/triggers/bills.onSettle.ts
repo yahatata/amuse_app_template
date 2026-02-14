@@ -27,7 +27,7 @@ import { enqueueSettlement } from '../analytics/aggregator';
 
 // 環境変数定義（Firebase Functions v2の推奨方法）
 const enableSettlementAggregator = defineString('ENABLE_SETTLEMENT_AGGREGATOR', {
-  default: 'false',
+  default: 'true',
 });
 
 /**

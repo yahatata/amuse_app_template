@@ -8,6 +8,7 @@ import 'package:amuse_app_template/tournament/scheduling/pages/scheduled_tournam
 import 'package:amuse_app_template/Home/systemSettingsPage.dart';
 import 'package:amuse_app_template/tournament/scheduling/pages/tournament_creation_menu_page.dart';
 import 'package:amuse_app_template/Accounting/accountingPage.dart';
+import 'package:amuse_app_template/Accounting/unsettledAccountingPage.dart';
 import 'package:amuse_app_template/Accounting/payment_split_test_page.dart';
 import 'package:amuse_app_template/Accounting/postAccountingAdjustmentsPage.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_list.dart';
@@ -21,7 +22,11 @@ import 'package:amuse_app_template/tournament/active/pages/blind_timer_page.dart
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
+import 'package:amuse_app_template/services/store_meta_service.dart';
+import 'package:amuse_app_template/utils/store_assessment_utils.dart';
+import 'package:amuse_app_template/utils/store_strong_warning_ui.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 
@@ -52,6 +57,151 @@ class _terminalHomePageState extends State<terminalHomePage> {
       _isAdminDevice = (device?.role == 'admin');
       _deviceOptions = device?.options ?? const {};
     });
+  }
+
+  /// 日付／営業状態を横長楕円の枠で囲み、開閉店可能時はタップでダイアログを開くボタンにする
+  /// [allowTapForNonStore] true のときは開閉店権限がなくてもタップ可能（例: 閉店中「開店処理が必要です」のアナウンス用）
+  Widget _wrapDateChip(BuildContext context, Widget child, {VoidCallback? onPressed, bool allowTapForNonStore = false}) {
+    final canManageStore = _isAdminDevice || _deviceOptions[DeviceOptionKeys.storeManagement] == true;
+    final wrapper = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: child,
+    );
+    final useInkWell = onPressed != null && (canManageStore || allowTapForNonStore);
+    if (useInkWell) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(999),
+            child: wrapper,
+          ),
+        ),
+      );
+    }
+    return Padding(padding: const EdgeInsets.only(right: 4), child: wrapper);
+  }
+
+  /// AppBar用: storeMeta の営業状態を表示するウィジェット（Phase6 Step1）
+  /// 日付は横長楕円の枠で囲み、開閉店管理可能時はタップで開閉店管理ダイアログを開く
+  Widget _buildStoreStatusAction(BuildContext context) {
+    return StreamBuilder<StoreMetaData>(
+      stream: StoreMetaService.instance.stream,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return _wrapDateChip(
+            context,
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return _wrapDateChip(
+            context,
+            const Icon(Icons.error, color: Colors.red, size: 20),
+            onPressed: () => _showStoreManagementDialog(context),
+          );
+        }
+        final data = snapshot.data!;
+        if (data.isUnknownStatus) {
+          return _wrapDateChip(
+            context,
+            const Icon(Icons.help_outline, color: Colors.grey, size: 20),
+            onPressed: () => _showStoreManagementDialog(context),
+          );
+        }
+        if (data.isRunning && data.currentBusinessDateKey != null) {
+          final parts = data.currentBusinessDateKey!.split('-');
+          if (parts.length == 3) {
+            try {
+              final year = int.parse(parts[0]);
+              final month = int.parse(parts[1]);
+              final day = int.parse(parts[2]);
+              final date = DateTime(year, month, day);
+              final formatted = DateFormat('M/d(E)', 'ja_JP').format(date);
+              final warningLabel = getDateWarningLabel(data);
+              return _wrapDateChip(
+                context,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (warningLabel != null) ...[
+                      const Icon(Icons.warning_amber_rounded,
+                          size: 18, color: Colors.orange),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          warningLabel,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.orange,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Center(
+                      child: Text(
+                        formatted,
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+                onPressed: () => _showStoreManagementDialog(context),
+              );
+            } catch (_) {}
+          }
+        }
+        if (data.isClosed) {
+          final showOpenNeeded = shouldShowOpenNeeded(data);
+          final canManageStore = _isAdminDevice || _deviceOptions[DeviceOptionKeys.storeManagement] == true;
+          return _wrapDateChip(
+            context,
+            Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showOpenNeeded) ...[
+                    const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                    const SizedBox(width: 4),
+                    const Text('開店処理が必要です', style: TextStyle(fontSize: 14, color: Colors.red)),
+                    const SizedBox(width: 6),
+                  ],
+                  const Text('閉店中', style: TextStyle(fontSize: 14)),
+                ],
+              ),
+            ),
+            onPressed: () {
+              if (canManageStore) {
+                _showStoreManagementDialog(context);
+              } else {
+                _showOpenNeededAnnouncementDialog(context);
+              }
+            },
+            allowTapForNonStore: showOpenNeeded,
+          );
+        }
+        if (data.isError) {
+          return _wrapDateChip(
+            context,
+            const Icon(Icons.error_outline, color: Colors.orange, size: 20),
+            onPressed: () => _showLastErrorDialog(context, data.lastError),
+          );
+        }
+        return const SizedBox.shrink();
+      },
+    );
   }
 
   /// 卓ページへの遷移（トーナメント選択→卓選択→卓詳細ページ）
@@ -118,44 +268,645 @@ class _terminalHomePageState extends State<terminalHomePage> {
     );
   }
 
-  /// 開閉店管理ダイアログを表示
-  void _showStoreManagementDialog(BuildContext context) {
-    showDialog(
+  /// status === 'error' 時: lastError の内容をそのまま表示するダイアログ
+  void _showLastErrorDialog(BuildContext context, LastErrorDoc? lastError) {
+    final lines = <String>[];
+    if (lastError == null) {
+      lines.add('エラー状態です。詳細は取得できませんでした。');
+    } else {
+      if (lastError.code != null && lastError.code!.isNotEmpty) lines.add('code: ${lastError.code}');
+      if (lastError.message != null && lastError.message!.isNotEmpty) lines.add('message: ${lastError.message}');
+      if (lastError.failedStep != null && lastError.failedStep!.isNotEmpty) lines.add('failedStep: ${lastError.failedStep}');
+      if (lastError.at != null) lines.add('at: ${lastError.at}');
+      if (lastError.context != null && lastError.context!.isNotEmpty) {
+        lines.add('context: ${lastError.context}');
+      }
+      if (lines.isEmpty) lines.add('エラー状態です。詳細は取得できませんでした。');
+    }
+    showDialog<void>(
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          title: const Text('開閉店管理'),
-          content: const Text('開店または閉店を実行しますか？'),
+          title: const Text('エラー詳細'),
+          content: SingleChildScrollView(
+            child: SelectableText(lines.join('\n')),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('キャンセル'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _callCreateInitialStateDoc(context);
-              },
-              child: const Text('初期化', style: TextStyle(color: Colors.blue)),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _callOpenStore(context);
-              },
-              child: const Text('開店', style: TextStyle(color: Colors.green)),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _callCloseStore(context);
-              },
-              child: const Text('閉店', style: TextStyle(color: Colors.red)),
+              child: const Text('閉じる'),
             ),
           ],
         );
       },
     );
+  }
+
+  /// 開店処理が必要な旨のみ伝えるアナウンスダイアログ（開閉店権限がない端末向け）
+  void _showOpenNeededAnnouncementDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('開閉店管理'),
+          content: const Text(
+            '開店時間を過ぎているため開店処理を行って下さい。開閉店操作ができる端末で開閉店管理を開いて開店処理を実行してください。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('閉じる'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// 開閉店管理ダイアログを表示（Phase6 Step3: 開店中は閉店、閉店中は開店）
+  /// ダイアログを閉じたあとでもフローを続行するため、ページの context を保持して渡す。
+  void _showStoreManagementDialog(BuildContext context) {
+    final pageContext = context;
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('開閉店管理'),
+          content: StreamBuilder<StoreMetaData>(
+            stream: StoreMetaService.instance.stream,
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const SizedBox(
+                  height: 80,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final meta = snapshot.data!;
+
+              // 1. status === 'error' → エラー状態と lastError 要約
+              if (meta.isError) {
+                final le = meta.lastError;
+                final lines = <String>['エラー状態です。'];
+                if (le != null) {
+                  if (le.code != null && le.code!.isNotEmpty) lines.add('code: ${le.code}');
+                  if (le.message != null && le.message!.isNotEmpty) lines.add('message: ${le.message}');
+                  if (le.failedStep != null && le.failedStep!.isNotEmpty) lines.add('failedStep: ${le.failedStep}');
+                  if (le.at != null) lines.add('at: ${le.at}');
+                  if (le.context != null && le.context!.isNotEmpty) lines.add('context: ${le.context}');
+                } else {
+                  lines.add('詳細は取得できませんでした。');
+                }
+                return SingleChildScrollView(
+                  child: SelectableText(lines.join('\n')),
+                );
+              }
+
+              // 2. 強警告が成立 → その message を本文に表示
+              final strong = getTopStrongWarning(meta);
+              if (strong != null) {
+                return SingleChildScrollView(
+                  child: Text(strong.message, style: const TextStyle(fontSize: 13)),
+                );
+              }
+
+              // 3. 弱警告（next_day_started 弱）→ その message を表示
+              final weak = getNextDayStartedWeakWarning(meta);
+              if (weak != null) {
+                return SingleChildScrollView(
+                  child: Text(weak.message, style: const TextStyle(fontSize: 13)),
+                );
+              }
+
+              // 4. 通常の running → 現在の営業日＋閉店の説明
+              if (meta.isRunning && meta.currentBusinessDateKey != null) {
+                return SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('現在の営業日: ${meta.currentBusinessDateKey}'),
+                      const SizedBox(height: 16),
+                      const Text(
+                        '閉店処理を開始する場合は、未会計一覧を取得して確認後に実行します。',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              // 5. closed で ready_to_open / needs_manual_open（強・弱警告が無いときのみ ready_to_open 表示）
+              if (meta.isClosed) {
+                final open = meta.openAssessment;
+                if (open != null && !open.suppressedByOverride) {
+                  final result = open.result;
+                  final intended = open.intendedBusinessDateKey ?? '';
+                  if (result == 'ready_to_open') {
+                    return SingleChildScrollView(
+                      child: Text(
+                        '$intended の開店準備が整っています。',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    );
+                  }
+                  if (result == 'needs_manual_open') {
+                    return const SingleChildScrollView(
+                      child: Text(
+                        '開店処理を手動で実行してください。',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    );
+                  }
+                }
+                // 6. その他 closed
+                return const Text('閉店中です。開店処理を開始するには下のボタンを押してください。');
+              }
+
+              // 7. フォールバック
+              return const Text('営業状態を取得できませんでした。');
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('キャンセル'),
+            ),
+            StreamBuilder<StoreMetaData>(
+              stream: StoreMetaService.instance.stream,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const SizedBox.shrink();
+                final meta = snapshot.data!;
+                if (meta.isRunning && meta.currentBusinessDateKey != null) {
+                  return TextButton(
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                      _startCloseFlow(pageContext);
+                    },
+                    child: const Text('閉店処理を開始する', style: TextStyle(color: Colors.red)),
+                  );
+                }
+                if (meta.isClosed || meta.isError) {
+                  return TextButton(
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                      _callOpenStoreTerminal(pageContext);
+                    },
+                    child: const Text('開店処理を開始する', style: TextStyle(color: Colors.green)),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+            StreamBuilder<StoreMetaData>(
+              stream: StoreMetaService.instance.stream,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const SizedBox.shrink();
+                return TextButton(
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop();
+                    _callCreateInitialStateDoc(pageContext);
+                  },
+                  child: const Text('初期化', style: TextStyle(color: Colors.blue)),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// 閉店フロー: getUnsettledBillsForClose → 一覧表示 → 確認 → closeStoreTerminal
+  Future<void> _startCloseFlow(BuildContext context) async {
+    final overlayState = Overlay.maybeOf(context, rootOverlay: true);
+    OverlayEntry? loadingOverlay;
+    bool loadingShown = false;
+    void hideLoading() {
+      if (loadingShown) {
+        try { loadingOverlay?.remove(); } catch (_) {}
+        loadingOverlay = null;
+        loadingShown = false;
+      }
+    }
+
+    try {
+      final auth = FirebaseAuth.instance;
+      if (auth.currentUser == null) await auth.signInAnonymously();
+
+      loadingOverlay = OverlayEntry(
+        builder: (_) => Material(
+          color: Colors.black54,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                  SizedBox(width: 16),
+                  Text('未会計一覧を取得中...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      if (overlayState != null) {
+        overlayState.insert(loadingOverlay!);
+        loadingShown = true;
+      }
+
+      final functions = FirebaseFunctions.instance;
+      final getUnsettled = functions.httpsCallable('getUnsettledBillsForClose');
+      final result = await getUnsettled.call<Map<String, dynamic>>({}).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException('呼び出しがタイムアウトしました'),
+      );
+      hideLoading();
+      if (!context.mounted) return;
+
+      final data = result.data;
+      if (data['success'] != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('未会計の取得に失敗しました: ${data['error'] ?? '不明'}'), backgroundColor: Colors.red),
+        );
+        return;
+      }
+      final list = data['data'] as List<dynamic>? ?? [];
+      final listMap = list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+
+      if (listMap.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('未会計の伝票はありません。閉店処理を続行します。'), backgroundColor: Colors.orange),
+        );
+      }
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('閉店の確認'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(listMap.isEmpty ? '未会計 0 件で閉店します。' : '未会計 ${listMap.length} 件を未会計として登録したうえで閉店します。'),
+                  if (listMap.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    ...listMap.take(20).map((e) {
+                      final amount = e['displayAmount'];
+                      final amountStr = amount is num ? '¥${amount.toStringAsFixed(0)}' : '—';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text('${e['pokerName'] ?? '—'}  $amountStr', style: const TextStyle(fontSize: 12)),
+                      );
+                    }),
+                    if (listMap.length > 20) Text('他 ${listMap.length - 20} 件...', style: const TextStyle(fontSize: 12)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('キャンセル')),
+            ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('確認して閉店する')),
+          ],
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+
+      await _callCloseStoreTerminal(context, runId: null);
+    } catch (e) {
+      hideLoading();
+      if (!context.mounted) return;
+      if (e is FirebaseFunctionsException) {
+        if (e.code == 'failed-precondition') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('閉店処理が他の操作で実行中です。完了するまでお待ちください。'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          return;
+        }
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('エラー: ${e.toString()}'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  /// 閉店処理完了後のダイアログ（§4.8: 関数ごとの作業表示）
+  Future<void> _showCloseCompletedDialog(BuildContext context, Map<String, dynamic> data) async {
+    final displaySummary = data['displaySummary'] as Map<String, dynamic>?;
+    final message = data['message'] as String? ?? '閉店しました。';
+
+    if (displaySummary == null) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('閉店完了'),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final unsettledMark = displaySummary['unsettledMark'] as Map<String, dynamic>?;
+    final cleanupActiveStays = displaySummary['cleanupActiveStays'] as Map<String, dynamic>?;
+    final migrateMissedSettlements = displaySummary['migrateMissedSettlements'] as Map<String, dynamic>?;
+    final storeMeta = displaySummary['storeMeta'] as String? ?? '';
+
+    String unsettledText;
+    if (unsettledMark == null) {
+      unsettledText = '未会計付与: —';
+    } else {
+      final count = (unsettledMark['count'] as num?)?.toInt() ?? 0;
+      final pokerNames = (unsettledMark['pokerNames'] as List<dynamic>?)?.cast<String>() ?? [];
+      if (count == 0) {
+        unsettledText = '未会計付与（applyCloseSnapshot 相当）: 対象 0 件';
+      } else if (pokerNames.isEmpty) {
+        unsettledText = '未会計付与: $count 件を未会計として登録しました。';
+      } else {
+        final names = pokerNames.take(10).join(', ');
+        final more = pokerNames.length > 10 ? ' 他${pokerNames.length - 10}件' : '';
+        unsettledText = '未会計付与: $count 件（${names}$more）';
+      }
+    }
+
+    String cleanupText;
+    if (cleanupActiveStays == null) {
+      cleanupText = 'cleanupActiveStays: —';
+    } else {
+      final deleted = (cleanupActiveStays['deleted'] as num?)?.toInt() ?? 0;
+      final failed = (cleanupActiveStays['failed'] as num?)?.toInt() ?? 0;
+      if (deleted == 0 && failed == 0) {
+        cleanupText = 'cleanupActiveStays: 対象なし';
+      } else {
+        cleanupText = 'cleanupActiveStays: 削除 $deleted 件${failed > 0 ? '、失敗 $failed 件' : ''}';
+      }
+    }
+
+    String migrateText;
+    if (migrateMissedSettlements == null) {
+      migrateText = '移管（migrateMissedSettlements）: —';
+    } else {
+      final processedCount = (migrateMissedSettlements['processedCount'] as num?)?.toInt() ?? 0;
+      final pokerNames = (migrateMissedSettlements['pokerNames'] as List<dynamic>?)?.cast<String>() ?? [];
+      if (processedCount == 0) {
+        migrateText = '移管: 対象なし';
+      } else if (pokerNames.isEmpty) {
+        migrateText = '移管: $processedCount 件';
+      } else {
+        final names = pokerNames.take(10).join(', ');
+        final more = pokerNames.length > 10 ? ' 他${pokerNames.length - 10}件' : '';
+        migrateText = '移管: $processedCount 件（${names}$more）';
+      }
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('閉店完了'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Text(unsettledText, style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 6),
+              Text(cleanupText, style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 6),
+              Text(migrateText, style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 6),
+              Text('storeMeta: $storeMeta', style: const TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// closeStoreTerminal を呼ぶ（runId は resume 時のみ）
+  Future<void> _callCloseStoreTerminal(BuildContext context, {String? runId}) async {
+    final overlayState = Overlay.maybeOf(context, rootOverlay: true);
+    OverlayEntry? loadingOverlay;
+    bool loadingShown = false;
+    void hideLoading() {
+      if (loadingShown) {
+        try { loadingOverlay?.remove(); } catch (_) {}
+        loadingOverlay = null;
+        loadingShown = false;
+      }
+    }
+
+    try {
+      if (FirebaseAuth.instance.currentUser == null) await FirebaseAuth.instance.signInAnonymously();
+
+      loadingOverlay = OverlayEntry(
+        builder: (_) => Material(
+          color: Colors.black54,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                  SizedBox(width: 16),
+                  Text('閉店処理中...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      if (overlayState != null) {
+        overlayState.insert(loadingOverlay!);
+        loadingShown = true;
+      }
+
+      final callable = FirebaseFunctions.instance.httpsCallable('closeStoreTerminal');
+      final payload = runId != null ? <String, dynamic>{'runId': runId} : <String, dynamic>{};
+      final result = await callable.call<Map<String, dynamic>>(payload).timeout(
+        const Duration(seconds: 150),
+        onTimeout: () => throw TimeoutException('閉店処理がタイムアウトしました'),
+      );
+      hideLoading();
+      if (!context.mounted) return;
+
+      final data = result.data;
+      if (data['success'] == true) {
+        // 仕様: 閉店処理完了時はダイアログで表示する（§4.8）
+        await _showCloseCompletedDialog(context, data);
+      }
+    } catch (e) {
+      hideLoading();
+      if (!context.mounted) return;
+      String? resumeRunId;
+      if (e is FirebaseFunctionsException) {
+        if (e.code == 'failed-precondition') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('閉店処理が他の操作で実行中です。完了するまでお待ちください。'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          return;
+        }
+        final details = e.details;
+        if (details is Map && details['runId'] != null) {
+          resumeRunId = details['runId'] as String?;
+        }
+      }
+      final message = e is FirebaseFunctionsException ? (e.message ?? e.code) : e.toString();
+      if (resumeRunId != null) {
+        showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('閉店処理が失敗しました'),
+            content: Text('$message\n\n再開できます。'),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('閉じる')),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  _callCloseStoreTerminal(context, runId: resumeRunId);
+                },
+                child: const Text('再開'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('エラー: $message'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  /// openStoreTerminal を呼ぶ（runId は resume 時のみ）
+  Future<void> _callOpenStoreTerminal(BuildContext context, {String? runId}) async {
+    final overlayState = Overlay.maybeOf(context, rootOverlay: true);
+    OverlayEntry? loadingOverlay;
+    bool loadingShown = false;
+    void hideLoading() {
+      if (loadingShown) {
+        try { loadingOverlay?.remove(); } catch (_) {}
+        loadingOverlay = null;
+        loadingShown = false;
+      }
+    }
+
+    try {
+      if (FirebaseAuth.instance.currentUser == null) await FirebaseAuth.instance.signInAnonymously();
+
+      loadingOverlay = OverlayEntry(
+        builder: (_) => Material(
+          color: Colors.black54,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                  SizedBox(width: 16),
+                  Text('開店処理中...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      if (overlayState != null) {
+        overlayState.insert(loadingOverlay!);
+        loadingShown = true;
+      }
+
+      final callable = FirebaseFunctions.instance.httpsCallable('openStoreTerminal');
+      final payload = runId != null ? <String, dynamic>{'runId': runId} : <String, dynamic>{};
+      final result = await callable.call<Map<String, dynamic>>(payload).timeout(
+        const Duration(seconds: 60),
+        onTimeout: () => throw TimeoutException('開店処理がタイムアウトしました'),
+      );
+      hideLoading();
+      if (!context.mounted) return;
+
+      final data = result.data;
+      if (data['success'] == true) {
+        final date = data['businessDateKey'] ?? data['closedBusinessDate'];
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['message'] ?? '$date の営業を開始しました。'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      hideLoading();
+      if (!context.mounted) return;
+      String? resumeRunId;
+      if (e is FirebaseFunctionsException) {
+        if (e.code == 'failed-precondition') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('開店処理が他の操作で実行中です。完了するまでお待ちください。'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          return;
+        }
+        final details = e.details;
+        if (details is Map && details['runId'] != null) {
+          resumeRunId = details['runId'] as String?;
+        }
+      }
+      final message = e is FirebaseFunctionsException ? (e.message ?? e.code) : e.toString();
+      if (resumeRunId != null) {
+        showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('開店処理が失敗しました'),
+            content: Text('$message\n\n再開できます。'),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('閉じる')),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  _callOpenStoreTerminal(context, runId: resumeRunId);
+                },
+                child: const Text('再開'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('エラー: $message'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   /// createInitialStateDocCallable Cloud Functionを呼び出す
@@ -485,6 +1236,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (label: '注文管理', destination: const OrderManagementPage(), optionKey: DeviceOptionKeys.kitchen),
       (label: 'スタッフ打刻', destination: const StaffAttendancePage(), optionKey: DeviceOptionKeys.staffEntryExit),
       (label: '会計管理', destination: const AccountingPage(), optionKey: DeviceOptionKeys.accounting),
+      (label: '未会計の会計', destination: const UnsettledAccountingPage(), optionKey: DeviceOptionKeys.accounting),
       (label: '売上ダッシュボード', destination: const DashboardHomePage(), optionKey: null),
       (label: '支払い分割テスト', destination: const PaymentSplitTestPage(), optionKey: null),
       (label: 'Firestoreサイズ計算', destination: const FirestoreSizePage(), optionKey: null),
@@ -513,18 +1265,18 @@ class _terminalHomePageState extends State<terminalHomePage> {
         _deviceOptions.isEmpty ||
         _deviceOptions[DeviceOptionKeys.tournament] == true;
 
+    final showStoreManagementButton = _isAdminDevice ||
+        _deviceOptions[DeviceOptionKeys.storeManagement] == true;
+    final isStoreManagement = _isAdminDevice ||
+        _deviceOptions[DeviceOptionKeys.storeManagement] == true;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Terminal ホーム'),
         centerTitle: true,
         actions: [
-          // 一時的な開閉店管理ボタン（Phase1用）
-          if (_isAdminDevice)
-            IconButton(
-              icon: const Icon(Icons.store),
-              onPressed: () => _showStoreManagementDialog(context),
-              tooltip: '開閉店管理',
-            ),
+          // 営業状態表示（日付は横長楕円枠で囲み、タップで開閉店管理ダイアログを開く）
+          _buildStoreStatusAction(context),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
@@ -541,7 +1293,11 @@ class _terminalHomePageState extends State<terminalHomePage> {
       ),
       body: _loadingDevice
           ? const Center(child: CircularProgressIndicator())
-          : GridView.custom(
+          : StoreStrongWarningOverlay(
+              isStoreManagement: isStoreManagement,
+              onCloseStore: isStoreManagement ? () => _startCloseFlow(context) : null,
+              onBusinessContinue: isStoreManagement ? () => _onBusinessContinue(context) : null,
+              child: GridView.custom(
         padding: const EdgeInsets.all(16),
         physics: const AlwaysScrollableScrollPhysics(), // スクロール可能に変更
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -600,8 +1356,124 @@ class _terminalHomePageState extends State<terminalHomePage> {
               onPressed: () => _navigateToBlindTimer(context),
               child: const Text('ブラインドタイマー', textAlign: TextAlign.center),
             ),
+          // 営業管理ボタン（開閉店管理ダイアログ）
+          if (showStoreManagementButton)
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.brown,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => _showStoreManagementDialog(context),
+              child: const Text('営業管理', textAlign: TextAlign.center),
+            ),
         ]),
       ),
+            ),
+    );
+  }
+
+  /// 営業継続: 同一ダイアログ内で閉店時間の目安（1〜8時間）を選択し、Callable で override＋closeAssessment 更新＋enqueue を実行。
+  void _onBusinessContinue(BuildContext context) {
+    final pageContext = context;
+    final meta = StoreMetaService.instance.latestData;
+    final info = meta != null ? getTopStrongWarning(meta) : null;
+    if (info == null) {
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        const SnackBar(content: Text('強警告が解消されています。')),
+      );
+      return;
+    }
+    final targetBusinessDateKey = info.targetBusinessDateKey;
+    if (targetBusinessDateKey.isEmpty) {
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        const SnackBar(content: Text('閉店対象日を取得できません。')),
+      );
+      return;
+    }
+
+    int selectedHours = 1;
+    showDialog<void>(
+      context: pageContext,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (_, setState) {
+            return AlertDialog(
+              title: const Text('営業継続'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '閉店時間の目安を選択してください。選択した時間後に閉店確認のリマインドが実行されます。',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<int>(
+                      value: selectedHours,
+                      decoration: const InputDecoration(
+                        labelText: '閉店予定までの時間',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: List.generate(8, (i) => i + 1).map((h) {
+                        return DropdownMenuItem<int>(
+                          value: h,
+                          child: Text('$h 時間'),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        if (value != null) setState(() => selectedHours = value);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('キャンセル'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    Navigator.of(dialogContext).pop();
+                    try {
+                      final callable = FirebaseFunctions.instance.httpsCallable('continueBusinessTerminal');
+                      await callable.call(<String, dynamic>{
+                        'intendedBusinessDateKey': targetBusinessDateKey,
+                        'hours': selectedHours,
+                      });
+                      if (!pageContext.mounted) return;
+                      ScaffoldMessenger.of(pageContext).showSnackBar(
+                        SnackBar(
+                          content: Text('$selectedHours 時間後に閉店確認のリマインドを予約しました。'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    } on FirebaseFunctionsException catch (e) {
+                      if (!pageContext.mounted) return;
+                      ScaffoldMessenger.of(pageContext).showSnackBar(
+                        SnackBar(
+                          content: Text(e.message ?? '営業継続に失敗しました（リマインド予約を含む）。'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                    } catch (e) {
+                      if (!pageContext.mounted) return;
+                      ScaffoldMessenger.of(pageContext).showSnackBar(
+                        SnackBar(
+                          content: Text('営業継続に失敗しました。${e.toString()}'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                    }
+                  },
+                  child: const Text('決定'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

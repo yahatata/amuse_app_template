@@ -52,11 +52,10 @@
 
 7. **自動化（週次Planner + Cloud Tasks）**:
    - Cloud Schedulerは週1回（例：日曜20:00 JST）だけ起動
-   - 起動されたPlannerが、翌週（月〜日）分のopen/closeをCloud Tasksに`scheduleTime`付きで投入
-   - Tasks名は冪等のため固定化（例：`open_YYYY-MM-DD` / `close_YYYY-MM-DD`）
-   - 自動開閉店は`globalConstant`のON/OFFで切替
-   - **OFF時の挙動**: Plannerは起動してもno-op（Tasks作成しない）を原則とする
-   - **タスク実行時刻**: デフォルトは`openMinute`/`closeMinute`ちょうど。安全のための前後オフセットは`globalConstant`で設定可能（デフォルト: 0）
+   - 起動されたPlannerが、翌週（月〜日）分の「閉店認定」「開店認定」タスクをCloud Tasksに`scheduleTime`付きで投入
+   - 自動処理は破壊的操作を行わず、認定結果のみをstate docに記録
+   - UIは認定結果を検知し、閉店時間超過時は画面操作を実質ブロック（意思決定強制）
+   - 詳細仕様は[自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md)を参照
 
 ## 旧方針との差分（何が変わったか）
 
@@ -83,11 +82,39 @@
 - [Step3: state docと自動開閉店の設計](./step3_state_doc_and_scheduling.md) - ✅ 完了
   - `storeMeta/currentBusinessDay`の設計
   - 状態遷移、手動open/close、Tasks冪等、週次Planner、エラー時の挙動
+- [自動開閉店（補助）機能 仕様書](./automatic_store_assessment_spec.md) - ✅ 完了
+  - 自動開閉店の補助機能としての詳細仕様
+  - 閉店認定・開店認定の処理フロー、UI強警告、冪等性保証、認証/IAM仕様
 - [Step4: 改修実装チェックリスト](./step4_migration_plan_checklist.md) - ✅ 完了
   - UI（Dart）チェックリスト
   - Functions（TS）チェックリスト
   - Schedulingチェックリスト
   - テスト観点
+
+## Phase6: 手動開閉店処理の実装（4ステップに分割）
+
+Phase6は以下の4ステップに分けて実装します：
+
+- [Phase6 Step1: UIでstoreMetaをsnapshot購読する仕様の実装](./phase6/step1/implementation_plan.md) - ⏳ 未着手
+  - 複数ページで`storeMeta/currentBusinessDay`をsnapshot購読
+  - `lib/utils`に共通実装を作成
+  - AppBar内にボタン兼日付表示要素を追加
+
+- [Phase6 Step2 (Phase7): 閉店処理の具体処理の作成](./phase6/step2/implementation_plan.md) - ⏳ 未着手
+  - 未会計billsの抽出と保存
+  - ユーザー判断を挟む場所の検討
+  - 未会計billsのUI表示作成
+
+- [Phase6 Step3 (Phase8): 閉店処理の一括操作の実装](./phase6/step3/implementation_plan.md) - ⏳ 未着手
+  - 日付ボタンからの開閉店操作
+  - ターミナル関数経由での閉店処理実行
+  - エラーハンドリングと処理順序の考慮
+
+- [Phase6 Step4 (Phase9): storeMeta監視ページでの自動開閉店時の挙動・表示の実装](./phase6/step4/implementation_plan.md) - ⏳ 未着手
+  - 自動開閉店処理時の挙動・表示の実装
+  - `lib/utils`に共通実装を作成
+
+**重要**: 各ステップを始める際に、検討事項が残っているステップについては、changeSpecの作成や実装の前に必ず検討事項の方針を固めてからスタートしてください。
 
 ## 保留中の作業
 

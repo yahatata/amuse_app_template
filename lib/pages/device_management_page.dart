@@ -12,6 +12,10 @@ class _TableItem {
 }
 
 /// デバイス管理画面（管理者用）
+///
+/// 【テスト用機能の有効化】
+/// 画面上で role を変更するテスト用UIを有効にするには、本ファイル内で
+/// 「テスト期間限定: role変更」で始まるブロックコメントの 先頭の /* と 末尾の */ を削除してください。
 class DeviceManagementPage extends StatefulWidget {
   const DeviceManagementPage({super.key});
 
@@ -23,14 +27,23 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   final DeviceService _deviceService = DeviceService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<Device> _devices = [];
-  String? _currentDeviceId;
   bool _isLoading = true;
   String? _error;
+  /// 現在操作しているデバイスID（この画面を開いている端末）
+  String? _currentDeviceId;
 
   @override
   void initState() {
     super.initState();
+    _loadCurrentDeviceId();
     _loadDevices();
+  }
+
+  Future<void> _loadCurrentDeviceId() async {
+    final device = await _deviceService.getCurrentDevice();
+    if (mounted) {
+      setState(() => _currentDeviceId = device?.id);
+    }
   }
 
   Future<void> _loadDevices() async {
@@ -41,10 +54,11 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
 
     try {
       final devices = await _deviceService.getDevices();
-      final current = await _deviceService.getCurrentDevice();
+      if (_currentDeviceId == null) {
+        await _loadCurrentDeviceId();
+      }
       setState(() {
         _devices = devices;
-        _currentDeviceId = current?.id;
         _isLoading = false;
       });
     } catch (e) {
@@ -59,7 +73,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     try {
       await _deviceService.updateDeviceStatus(device.id, status);
       await _loadDevices(); // リストを再読み込み
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -104,7 +118,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       try {
         await _deviceService.deleteDevice(device.id);
         await _loadDevices(); // リストを再読み込み
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -128,9 +142,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
 
   /// 卓一覧を取得（逆用途に指定された卓を除外）
   Future<List<_TableItem>> _getAvailableTablesForOption(
-    String optionKey,
-    String currentDeviceId,
-  ) async {
+      String optionKey,
+      String currentDeviceId,
+      ) async {
     try {
       // 1. tables コレクションから有効な卓を取得
       final tablesSnap = await _firestore
@@ -161,12 +175,12 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       return tablesSnap.docs
           .where((doc) => !excludedTableIds.contains(doc.id))
           .map((doc) {
-            final data = doc.data();
-            return _TableItem(
-              id: doc.id,
-              name: data['name'] as String? ?? doc.id,
-            );
-          })
+        final data = doc.data();
+        return _TableItem(
+          id: doc.id,
+          name: data['name'] as String? ?? doc.id,
+        );
+      })
           .toList();
     } catch (e) {
       print('卓一覧取得エラー: $e');
@@ -271,9 +285,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                               future: tableCache.containsKey(key)
                                   ? Future.value(tableCache[key])
                                   : _getAvailableTablesForOption(key, device.id).then((tables) {
-                                      tableCache[key] = tables;
-                                      return tables;
-                                    }),
+                                tableCache[key] = tables;
+                                return tables;
+                              }),
                               builder: (context, snapshot) {
                                 if (snapshot.connectionState == ConnectionState.waiting) {
                                   return const SizedBox(
@@ -508,6 +522,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       itemCount: _devices.length,
       itemBuilder: (context, index) {
         final device = _devices[index];
+        final isCurrentDevice = _currentDeviceId != null && device.id == _currentDeviceId;
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           elevation: 2,
@@ -516,20 +531,28 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 現在操作中のデバイス表示
+                if (isCurrentDevice)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green[700], size: 20),
+                        const SizedBox(width: 6),
+                        Text(
+                          '現在操作中のデバイス',
+                          style: TextStyle(
+                            color: Colors.green[700],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 // デバイス名とステータス
                 Row(
                   children: [
-                    if (device.id == _currentDeviceId) ...[
-                      Tooltip(
-                        message: 'この端末',
-                        child: Icon(
-                          Icons.smartphone,
-                          size: 20,
-                          color: Colors.blue[700],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
                     Expanded(
                       child: Text(
                         device.name,
@@ -582,6 +605,41 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                     ),
                   ],
                 ),
+                // /* テスト期間限定: role変更（有効化するにはこのブロックの先頭 /* と末尾 */ を削除）
+                Row(
+                  children: [
+                    const Text('role変更: ', style: TextStyle(fontSize: 12)),
+                    DropdownButton<String>(
+                      value: device.role,
+                      items: const [
+                        DropdownMenuItem(value: 'admin', child: Text('admin')),
+                        DropdownMenuItem(value: 'terminal', child: Text('terminal')),
+                      ],
+                      onChanged: (String? newRole) async {
+                        if (newRole == null || newRole == device.role) return;
+                        try {
+                          await _deviceService.updateDeviceRoleByAdmin(
+                            targetDeviceId: device.id,
+                            role: newRole,
+                          );
+                          await _loadDevices();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('roleを$newRoleに変更しました'), backgroundColor: Colors.green),
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('エラー: $e'), backgroundColor: Colors.red),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                // */
                 const SizedBox(height: 4),
 
                 // プラットフォーム
@@ -665,13 +723,13 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                     children: device.options.entries
                         .where((e) => e.value == true && DeviceOptionKeys.all.contains(e.key))
                         .map((e) {
-                          // 卓紐づけがある場合は表示
-                          final tableId = device.getTableIdForOption(e.key);
-                          final label = tableId != null
-                              ? '${DeviceOptionKeys.label(e.key)} ($tableId)'
-                              : DeviceOptionKeys.label(e.key);
-                          return Chip(label: Text(label));
-                        })
+                      // 卓紐づけがある場合は表示
+                      final tableId = device.getTableIdForOption(e.key);
+                      final label = tableId != null
+                          ? '${DeviceOptionKeys.label(e.key)} ($tableId)'
+                          : DeviceOptionKeys.label(e.key);
+                      return Chip(label: Text(label));
+                    })
                         .toList(),
                   ),
                 ],
