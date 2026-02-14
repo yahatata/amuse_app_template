@@ -23,6 +23,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   final DeviceService _deviceService = DeviceService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<Device> _devices = [];
+  String? _currentDeviceId;
   bool _isLoading = true;
   String? _error;
 
@@ -40,8 +41,10 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
 
     try {
       final devices = await _deviceService.getDevices();
+      final current = await _deviceService.getCurrentDevice();
       setState(() {
         _devices = devices;
+        _currentDeviceId = current?.id;
         _isLoading = false;
       });
     } catch (e) {
@@ -516,6 +519,17 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                 // デバイス名とステータス
                 Row(
                   children: [
+                    if (device.id == _currentDeviceId) ...[
+                      Tooltip(
+                        message: 'この端末',
+                        child: Icon(
+                          Icons.smartphone,
+                          size: 20,
+                          color: Colors.blue[700],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     Expanded(
                       child: Text(
                         device.name,
