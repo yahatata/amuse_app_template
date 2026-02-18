@@ -26,6 +26,9 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
   // 選択されたプレイヤー
   Map<int, String?> _selectedPlayers = {}; // 順位 -> playerId
   Map<String, Map<String, dynamic>> _playerData = {}; // playerId -> playerData
+
+  /// 今回の「確定」送信用の冪等キー。同一送信・リトライでは同じキーを再利用し、二重付与を防ぐ。
+  String? _grantIdempotencyKeyForSubmit;
   
   @override
   void initState() {
@@ -202,17 +205,41 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
           rankingData['${rank}stPlayerUid'] = playerId;
         }
       }
-      
+
+      // 同一確定で二重付与しないための冪等キー（1回の確定で1つ。二重タップ・リトライでは同じキーを再利用）
+      _grantIdempotencyKeyForSubmit ??=
+          '${widget.tournamentId}:${DateTime.now().millisecondsSinceEpoch}';
+      final grantIdempotencyKey = _grantIdempotencyKeyForSubmit!;
+
       final callable = _functions.httpsCallable('setRankingData');
       final result = await callable.call({
         'tournamentId': widget.tournamentId,
         'rankingData': rankingData,
+        'grantIdempotencyKey': grantIdempotencyKey,
       });
       
       if (result.data['success'] == true) {
+        // 二度目の付与スキップ時は先にポップで表示
+        if (result.data['prizeGrantSkipped'] == true) {
+          await showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('付与スキップ'),
+              content: const Text(
+                '二度目のプライズ付与を検知しました。処理をスキップします',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+
         // 全ての順位が埋まっているかチェック
         final allRanksFilled = _checkAllRanksFilled();
-        
         if (allRanksFilled) {
           // トーナメント終了処理の確認
           final endTournament = await showDialog<bool>(
@@ -232,15 +259,17 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
               ],
             ),
           );
-          
           if (endTournament == true) {
             await _endTournament();
           }
         }
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('順位を確定しました')),
-        );
+
+        if (result.data['prizeGrantSkipped'] != true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('順位を確定しました')),
+          );
+        }
+        _grantIdempotencyKeyForSubmit = null; // 次回の確定用にクリア
         Navigator.of(context).pop();
       } else {
         setState(() {

@@ -30,6 +30,8 @@ export * from "./tournamentTemplate";
 export * from "./staff";
 // 勤怠管理関連関数
 export * from "./attendance";
+// シフト・営業時間関連関数（人員不足日、募集、確定、営業時間スタイル等）
+export * from "./shift";
 // スケジュール済みトーナメント関連関数
 export * from "./callables";
 // 開閉店管理関数（Phase1）
