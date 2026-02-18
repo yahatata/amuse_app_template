@@ -1,2 +1,0 @@
-export { lineWebhook } from './lineWebhook';
-
