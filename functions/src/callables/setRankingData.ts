@@ -1,6 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { getFirestore } from 'firebase-admin/firestore';
-import { addLogEntry } from '../utils/logUtils';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import * as crypto from 'crypto';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../lib/devicePermissions';
 
 export const setRankingData = onCall(async (request) => {
@@ -23,7 +23,7 @@ export const setRankingData = onCall(async (request) => {
       throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
     }
 
-    const { tournamentId, rankingData } = request.data;
+    const { tournamentId, rankingData, grantIdempotencyKey } = request.data;
     
     console.log('=== setRankingData 開始 ===');
     console.log('tournamentId:', tournamentId);
@@ -35,6 +35,10 @@ export const setRankingData = onCall(async (request) => {
     
     if (!rankingData || typeof rankingData !== 'object') {
       throw new HttpsError('invalid-argument', 'rankingData is required');
+    }
+
+    if (!grantIdempotencyKey || typeof grantIdempotencyKey !== 'string' || grantIdempotencyKey.trim() === '') {
+      throw new HttpsError('invalid-argument', 'grantIdempotencyKey is required (e.g. tournamentId:rankingVersion)');
     }
     
     const db = getFirestore();
@@ -65,8 +69,15 @@ export const setRankingData = onCall(async (request) => {
     
     await mainViewRef.update(updateData);
     
-    // プライズ付与処理
-    await _awardPrizes(db, tournamentId, cleanRankingData);
+    // 既に順位確定済みのトーナメントでは付与しない（画面を閉じて再度開いて再送した場合の二重付与を防ぐ）
+    const tournamentSnap = await db.collection('scheduledTournaments').doc(tournamentId).get();
+    const alreadySet = tournamentSnap.data()?.SetedRanking === true;
+    if (!alreadySet) {
+      // プライズ付与処理（同一 grantIdempotencyKey では二重付与しない）
+      await _awardPrizes(db, tournamentId, cleanRankingData, grantIdempotencyKey.trim());
+    } else {
+      console.log('SetedRanking が既に true のためプライズ付与をスキップ', { tournamentId });
+    }
     
     // 全ての順位が確定しているかチェック
     const mainViewDoc = await mainViewRef.get();
@@ -100,6 +111,7 @@ export const setRankingData = onCall(async (request) => {
     return {
       success: true,
       message: 'Ranking data saved successfully',
+      prizeGrantSkipped: alreadySet,
     };
     
   } catch (error) {
@@ -114,85 +126,140 @@ export const setRankingData = onCall(async (request) => {
   }
 });
 
-// プライズ付与処理
-async function _awardPrizes(db: any, tournamentId: string, rankingData: Record<string, any>) {
+/**
+ * 同一 grantIdempotencyKey では付与を1回だけ行う（冪等）。
+ * scheduledTournaments/{tournamentId}/grantRecords/{grantIdempotencyKey} の存在で判定する。
+ */
+async function _awardPrizes(
+  db: ReturnType<typeof getFirestore>,
+  tournamentId: string,
+  rankingData: Record<string, any>,
+  grantIdempotencyKey: string
+) {
   try {
-    console.log('=== プライズ付与処理開始 ===');
-    
-    // メインビューデータからpointTypeを取得
+    console.log('=== プライズ付与処理開始 ===', { grantIdempotencyKey });
+
     const mainViewRef = db
       .collection('scheduledTournaments')
       .doc(tournamentId)
       .collection('views')
       .doc('main');
-    
+
     const mainViewDoc = await mainViewRef.get();
     const mainViewData = mainViewDoc.data();
     const pointType = mainViewData?.pointType || 'pointA';
-    
-    console.log('pointType:', pointType);
-    
-    // 順位データを処理
-    const prizeAwards = [];
-    
+
+    const prizeAwards: { playerUid: string; rank: string; prizeAmount: number }[] = [];
     for (const [key, value] of Object.entries(rankingData)) {
-      if (key.endsWith('stPlayerUid') && value) {
+      if (typeof key === 'string' && key.endsWith('stPlayerUid') && value) {
         const rank = key.replace('stPlayerUid', '');
         const prizeKey = `${rank}stPrize`;
-        
-        // メインビューデータからプライズ金額を取得
         const prizeAmount = mainViewData?.[prizeKey];
-        
-        console.log(`順位 ${rank}: playerUid=${value}, prizeKey=${prizeKey}, prizeAmount=${prizeAmount}`);
-        
         if (prizeAmount && prizeAmount > 0) {
           prizeAwards.push({
-            playerUid: value,
-            rank: rank,
-            prizeAmount: prizeAmount
+            playerUid: value as string,
+            rank,
+            prizeAmount: Number(prizeAmount),
           });
         }
       }
     }
-    
-    console.log('prizeAwards:', JSON.stringify(prizeAwards, null, 2));
-    
-    // 各プレイヤーにプライズを付与
-    for (const award of prizeAwards) {
-      const userRef = db.collection('users').doc(award.playerUid);
-      const userDoc = await userRef.get();
-      
-      if (userDoc.exists) {
-        const userData = userDoc.data();
-        const currentPoints = (userData as any)[pointType] || 0;
+
+    if (prizeAwards.length === 0) {
+      console.log('付与対象なし');
+      return;
+    }
+
+    const logType = pointType === 'pointA' ? 'pointALogs' : 'pointBLogs';
+    const today = new Date().toISOString().split('T')[0];
+
+    const result = await db.runTransaction(async (tx) => {
+      const grantRecordRef = db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('grantRecords')
+        .doc(grantIdempotencyKey);
+
+      const grantRecordSnap = await tx.get(grantRecordRef);
+      if (grantRecordSnap.exists) {
+        console.log('同一 grantIdempotencyKey で既に付与済みのためスキップ', { grantIdempotencyKey });
+        return { skipped: true };
+      }
+
+      // 全読み取りを先に実行
+      const userSnaps = await Promise.all(
+        prizeAwards.map((a) => tx.get(db.collection('users').doc(a.playerUid)))
+      );
+      const pointLogRefs = prizeAwards.map((a) =>
+        db.collection('users').doc(a.playerUid).collection(logType).doc(today)
+      );
+      const pointLogSnaps = await Promise.all(pointLogRefs.map((ref) => tx.get(ref)));
+
+      // 付与とログ書き込み
+      for (let i = 0; i < prizeAwards.length; i++) {
+        const award = prizeAwards[i];
+        const userSnap = userSnaps[i];
+        const logRef = pointLogRefs[i];
+        const logSnap = pointLogSnaps[i];
+
+        if (!userSnap.exists) {
+          console.warn(`ユーザー ${award.playerUid} が見つかりません（スキップ）`);
+          continue;
+        }
+
+        const userData = userSnap.data();
+        const currentPoints = (userData as any)?.[pointType] ?? 0;
         const newPoints = currentPoints + award.prizeAmount;
-        
-        await userRef.update({
+
+        tx.update(db.collection('users').doc(award.playerUid), {
           [pointType]: newPoints,
-          updatedAt: new Date()
+          updatedAt: FieldValue.serverTimestamp(),
         });
-        
-        // ログ記録を追加
-        const logType = pointType === 'pointA' ? 'pointALogs' : 'pointBLogs';
-        await addLogEntry(award.playerUid, logType, {
+
+        const entryId = crypto
+          .createHash('sha256')
+          .update(`${grantIdempotencyKey}:${award.playerUid}`)
+          .digest('hex')
+          .substring(0, 8);
+        const logEntry = {
+          entryId,
           appliedAt: new Date(),
           category: 'income',
           amountDelta: award.prizeAmount,
-          reasonType: 'tournamentId',
-          actor: 'tablet_front', // 実際の端末IDに置き換え可能
-        });
-        
-        console.log(`プレイヤー ${award.playerUid} に ${award.prizeAmount} ポイント付与 (${pointType}: ${currentPoints} -> ${newPoints})`);
-      } else {
-        console.warn(`ユーザー ${award.playerUid} が見つかりません`);
+          reasonType: 'tournamentId' as const,
+          actor: 'tablet_front',
+          grantIdempotencyKey,
+        };
+
+        if (!logSnap.exists) {
+          tx.set(logRef, {
+            logs: { [entryId]: logEntry },
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        } else {
+          tx.update(logRef, {
+            [`logs.${entryId}`]: logEntry,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
       }
+
+      tx.set(grantRecordRef, {
+        tournamentId,
+        appliedAt: FieldValue.serverTimestamp(),
+      });
+
+      return { skipped: false };
+    });
+
+    if (result.skipped) {
+      console.log('=== プライズ付与処理スキップ（冪等） ===');
+    } else {
+      console.log('=== プライズ付与処理完了 ===');
     }
-    
-    console.log('=== プライズ付与処理完了 ===');
-    
   } catch (error) {
-    console.error('=== プライズ付与処理エラー ===');
-    console.error('_awardPrizes error:', error);
+    console.error('=== プライズ付与処理エラー ===', error);
     throw error;
   }
 }

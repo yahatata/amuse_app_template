@@ -28,6 +28,15 @@ class _CreateStaffAccountState extends State<CreateStaffAccount> {
 
   bool _isLoading = false;
 
+  void _resetForm() {
+    _fullNameController.clear();
+    _fullNameKanaController.clear();
+    _emailController.clear();
+    _phoneNumberController.clear();
+    _birthMonthDayController.clear();
+    if (mounted) setState(() {});
+  }
+
   Future<bool> _isStaffNameTaken(String fullNameKana) async {
     try {
       final callable = FirebaseFunctions.instance.httpsCallable('checkNameExists');
@@ -87,10 +96,13 @@ class _CreateStaffAccountState extends State<CreateStaffAccount> {
         }
 
         setState(() => _isLoading = false);
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("アカウントが作成されました！")),
+          const SnackBar(content: Text("アカウントが作成されました")),
         );
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PlaceholderPage(title: "")));
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _resetForm();
+        });
       } on FirebaseAuthException catch (e) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
