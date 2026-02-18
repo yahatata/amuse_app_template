@@ -126,7 +126,7 @@ export const placeOrderByUser = onCall(async (request) => {
         });
       }
 
-      // 各 itemId ごとに docId=itemId で set（merge）、集計は既に完了
+      // 各 itemId ごとに docId=itemId で set（merge）、集計は既に完了（注文履歴で金額表示するため unitPriceIncl を保存）
       for (const { ref: todaysOrderRef, ar, r } of todaysOrderSnaps) {
         tx.set(todaysOrderRef, {
           orderDocId,
@@ -137,6 +137,7 @@ export const placeOrderByUser = onCall(async (request) => {
           name: r.name,
           category: r.category,
           quantity: ar.quantity,
+          unitPriceIncl: r.unitPriceIncl,
           status: "preparing",
           orderedAt: FieldValue.serverTimestamp(),
           currentTable: (billData.place?.table as string) || null,

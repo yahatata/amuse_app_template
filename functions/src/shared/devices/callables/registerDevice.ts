@@ -13,6 +13,9 @@ const registerDeviceSchema = z.object({
   platform: z.string().min(1),
 });
 
+/**
+ * デバイス登録（同一 uid に対して冪等: 1回目は作成、2回目以降は更新して同じ deviceId を返す）
+ */
 export const registerDevice = onCall(async (request) => {
   try {
     // 認証チェック

@@ -18,6 +18,16 @@ class _CreateUserAccountState extends State<CreateUserAccount> {
 
   bool _isLoading = false;
 
+  void _resetForm() {
+    _nameController.clear();
+    _emailController.clear();
+    _pinController.clear();
+    _birthMonthDayController.clear();
+    // FormState.reset() はフィールドを initialValue に戻すため、controller の clear が
+    // 上書きされることがある。controller のみクリアし setState で再描画する。
+    if (mounted) setState(() {});
+  }
+
   Future<void> _signUp() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
@@ -37,13 +47,14 @@ class _CreateUserAccountState extends State<CreateUserAccount> {
         });
 
         setState(() => _isLoading = false);
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("アカウントが作成されました！")),
+          const SnackBar(content: Text("アカウントが作成されました")),
         );
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const PlaceholderPage(title: "")),
-        );
+        // 次のフレームでリセットし、SnackBar 表示と競合しないようにする
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _resetForm();
+        });
       } on FirebaseFunctionsException catch (e) {
         setState(() => _isLoading = false);
         final message = e.message ?? "登録に失敗しました";

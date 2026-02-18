@@ -1,7 +1,8 @@
+import 'dart:async'; // For TimeoutException
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:async'; // For TimeoutException
 
 /// Addon確認ダイアログ
 Future<void> showAddonDialog({
@@ -274,11 +275,16 @@ Future<void> _executeAddon({
       loadingShown = true;
     }
 
+    // 操作記録用の operationId（1 試行 1 ドキュメント）
+    final operationId =
+        '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+
     // Cloud Function呼び出し（タイムアウト付き）
     final functions = FirebaseFunctions.instance;
     final callable = functions.httpsCallable('addon');
 
     final result = await callable.call({
+      'operationId': operationId,
       'tournamentId': tournamentId,
       'userId': userId,
       'pokerName': pokerName,

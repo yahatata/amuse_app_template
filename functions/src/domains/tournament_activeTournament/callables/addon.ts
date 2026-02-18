@@ -6,9 +6,11 @@ import { recordTournamentAction } from '../../bills/repos/recordTournamentAction
 import * as crypto from 'crypto';
 
 const addonSchema = z.object({
+  operationId: z.string().min(1, 'operationId は必須です'),
   tournamentId: z.string(),
   userId: z.string(),
   pokerName: z.string(),
+  deviceName: z.string().optional(),
 });
 
 export const addon = onCall(async (request) => {
@@ -18,10 +20,11 @@ export const addon = onCall(async (request) => {
   }
 
   const callerUid = request.auth.uid;
+  let device: DeviceDoc | null = null;
 
   try {
     // デバイス権限の確認（role: admin または options.tournament: true）
-    const device = await getCallerDeviceByUid(callerUid);
+    device = await getCallerDeviceByUid(callerUid);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
@@ -31,6 +34,7 @@ export const addon = onCall(async (request) => {
       throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
     }
 
+    const startedAt = FieldValue.serverTimestamp();
     console.log('=== Addon処理開始 ===');
     // 循環参照を避けるため、必要なデータのみをログ出力
     const { data } = request;
@@ -54,7 +58,7 @@ export const addon = onCall(async (request) => {
 
     // 入力検証
     const validatedData = addonSchema.parse(data);
-    const { tournamentId, userId, pokerName } = validatedData;
+    const { operationId, tournamentId, userId, pokerName, deviceName } = validatedData;
 
     console.log('tournamentId:', tournamentId);
     console.log('userId:', userId);
@@ -112,6 +116,13 @@ export const addon = onCall(async (request) => {
       const tournamentInfo = existingTournamentDoc.data()!;
       const existingAddonCount = tournamentInfo.addonCount || 0;
       if (existingAddonCount >= 1) {
+        console.warn('既にAddon済みと判定', {
+          billId,
+          templateId,
+          userId,
+          existingAddonCount,
+          tournamentInfoKeys: Object.keys(tournamentInfo),
+        });
         throw new Error('既にAddon処理済みです');
       }
     }
@@ -177,6 +188,23 @@ export const addon = onCall(async (request) => {
       // scheduledTournamentsの更新は成功しているため
     }
 
+    // 操作記録（成功）
+    await writeSingleOperationLog({
+      operationId,
+      operationName: 'アドオン購入',
+      deviceId: device.id,
+      deviceName: deviceName ?? undefined,
+      status: 'succeeded',
+      startedAt,
+      payload: {
+        tournamentId,
+        playerUid: userId,
+        playerName: pokerName,
+        billId: result.billId,
+        templateId: result.templateId,
+      },
+    });
+
     console.log('=== Addon処理完了 ===');
     console.log('ユーザー', result.pokerName, 'のAddon処理が完了しました');
 
@@ -192,12 +220,35 @@ export const addon = onCall(async (request) => {
     console.error('=== Addon処理エラー ===');
     console.error(error);
 
+    // 操作記録（失敗）。operationId があれば 1 件作成する
+    const rawData = request.data as Record<string, unknown> | undefined;
+    const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : undefined;
+    if (opId && device != null) {
+      try {
+        await writeSingleOperationLog({
+          operationId: opId,
+          operationName: 'アドオン購入',
+          deviceId: device.id,
+          deviceName: typeof rawData?.deviceName === 'string' ? rawData.deviceName : undefined,
+          status: 'failed',
+          errorSummary: toErrorSummary(error),
+          payload: {},
+        });
+      } catch (logErr) {
+        console.error('operationLog 書き込み失敗', logErr);
+      }
+    }
+
     if (error instanceof z.ZodError) {
       return {
         success: false,
         error: '入力検証エラー',
         details: error.errors,
       };
+    }
+
+    if (error instanceof HttpsError) {
+      throw error;
     }
 
     return {
