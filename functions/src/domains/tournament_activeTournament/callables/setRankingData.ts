@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { getFirestore } from 'firebase-admin/firestore';
-import { addLogEntry } from '../../user/services/logUtils';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import * as crypto from 'crypto';
 
 export const setRankingData = onCall(async (request) => {
   // 認証チェック
@@ -23,7 +23,7 @@ export const setRankingData = onCall(async (request) => {
       throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
     }
 
-    const { tournamentId, rankingData } = request.data;
+    const { tournamentId, rankingData, grantIdempotencyKey } = request.data as { tournamentId?: string; rankingData?: unknown; grantIdempotencyKey?: string };
     
     console.log('=== setRankingData 開始 ===');
     console.log('tournamentId:', tournamentId);

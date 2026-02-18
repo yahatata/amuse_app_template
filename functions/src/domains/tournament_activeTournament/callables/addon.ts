@@ -1,8 +1,11 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
+import type { DeviceDoc } from '../../../shared/devices';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
+import { writeSingleOperationLog, toErrorSummary } from '../../../unused_function_lib/operationLog';
 import * as crypto from 'crypto';
 
 const addonSchema = z.object({
