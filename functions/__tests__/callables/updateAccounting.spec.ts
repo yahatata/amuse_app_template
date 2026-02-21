@@ -12,7 +12,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { updateAccounting } from '../../src/callables/updateAccounting';
+import { updateAccounting } from '../../src/domains/bills/callables/updateAccounting';
 
 describe('updateAccounting (新世界版)', () => {
   let testEnv: RulesTestEnvironment;

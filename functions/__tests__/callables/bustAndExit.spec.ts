@@ -14,8 +14,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { bustAndExit } from '../../src/callables/bustAndExit';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { bustAndExit } from '../../src/domains/tournament_activeTournament/callables/bustAndExit';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('bustAndExit', () => {
   let testEnv: RulesTestEnvironment;

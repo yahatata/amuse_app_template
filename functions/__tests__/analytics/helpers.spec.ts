@@ -4,7 +4,7 @@
  * distributePaymentMethods の退行対策を検証
  */
 
-import { distributePaymentMethods, calculateCategoryAmounts } from '../../src/analytics/helpers';
+import { distributePaymentMethods, calculateCategoryAmounts } from '../../src/domains/analytics/services/helpers';
 
 describe('analytics helpers', () => {
   describe('distributePaymentMethods', () => {

@@ -7,8 +7,8 @@
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { enqueueSettlement, enqueueEvent } from '../../src/analytics/aggregator';
-import { BillDoc, EventDoc } from '../../src/analytics/aggregator/types';
+import { enqueueSettlement, enqueueEvent } from '../../src/domains/analytics/services/aggregator';
+import { BillDoc, EventDoc } from '../../src/domains/analytics/services/aggregator/types';
 
 describe('Analytics Aggregator', () => {
   let testEnv: any;

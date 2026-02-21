@@ -16,7 +16,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { startAccounting } from '../../../src/helpers/billsApi/startAccounting';
+import { startAccounting } from '../../../src/domains/bills/repos/startAccounting';
 
 describe('startAccounting', () => {
   let testEnv: RulesTestEnvironment;

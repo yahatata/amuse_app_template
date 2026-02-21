@@ -11,7 +11,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 describe('cleanupActiveStaysOnClose', () => {
   let testEnv: any;
   let db: admin.firestore.Firestore;
-  let cleanupActiveStaysOnClose: typeof import('../../src/close_process/cleanupActiveStaysOnClose').cleanupActiveStaysOnClose;
+  let cleanupActiveStaysOnClose: typeof import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose').cleanupActiveStaysOnClose;
   let emulatorAvailable = true;
 
   beforeAll(async () => {
@@ -26,7 +26,7 @@ describe('cleanupActiveStaysOnClose', () => {
     }
     
     db = getFirestore();
-    const mod = await import('../../src/close_process/cleanupActiveStaysOnClose');
+    const mod = await import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose');
     cleanupActiveStaysOnClose = mod.cleanupActiveStaysOnClose;
   });
 

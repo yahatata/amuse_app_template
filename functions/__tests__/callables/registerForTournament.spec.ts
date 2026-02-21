@@ -15,8 +15,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { registerForTournament } from '../../src/callables/registerForTournament';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { registerForTournament } from '../../src/domains/tournament_activeTournament/callables/registerForTournament';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('registerForTournament', () => {
   let testEnv: RulesTestEnvironment;

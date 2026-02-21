@@ -13,7 +13,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { processBillAnalyticsAtomically } from '../../src/analytics/updateAnalyticsForBill';
+import { processBillAnalyticsAtomically } from '../../src/domains/analytics/services/updateAnalyticsForBill';
 
 describe('processBillAnalyticsAtomically', () => {
   let testEnv: RulesTestEnvironment;

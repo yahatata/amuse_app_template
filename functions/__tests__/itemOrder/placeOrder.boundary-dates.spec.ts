@@ -12,7 +12,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { placeOrder } from '../../src/itemOrder/placeOrder';
+import { placeOrder } from '../../src/domains/itemOrder/callables/placeOrder';
 
 describe('placeOrder.boundary-dates', () => {
   let testEnv: RulesTestEnvironment;

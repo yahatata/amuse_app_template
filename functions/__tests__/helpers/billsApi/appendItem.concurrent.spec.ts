@@ -12,7 +12,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { appendItem } from '../../../src/helpers/billsApi/appendItem';
+import { appendItem } from '../../../src/domains/bills/repos/appendItem';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 describe('appendItem.concurrent', () => {

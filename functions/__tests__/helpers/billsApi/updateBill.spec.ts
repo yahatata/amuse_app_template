@@ -15,7 +15,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { updateBill } from '../../../src/helpers/billsApi/updateBill';
+import { updateBill } from '../../../src/domains/bills/repos/updateBill';
 
 describe('updateBill', () => {
   let testEnv: RulesTestEnvironment;

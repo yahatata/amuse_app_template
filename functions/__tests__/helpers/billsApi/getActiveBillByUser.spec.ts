@@ -8,7 +8,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getActiveBillByUser } from '../../../src/helpers/billsApi/getActiveBillByUser';
+import { getActiveBillByUser } from '../../../src/domains/bills/repos/getActiveBillByUser';
 
 describe('getActiveBillByUser', () => {
   let testEnv: RulesTestEnvironment;

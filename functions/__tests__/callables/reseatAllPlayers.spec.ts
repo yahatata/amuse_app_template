@@ -14,8 +14,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { reseatAllPlayers } from '../../src/callables/reseatAllPlayers';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { reseatAllPlayers } from '../../src/domains/tournament_activeTournament/callables/reseatAllPlayers';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('reseatAllPlayers', () => {
   let testEnv: RulesTestEnvironment;

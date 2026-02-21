@@ -15,8 +15,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { updateActiveBill } from '../../src/callables/updateActiveBill';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { updateActiveBill } from '../../src/domains/bills/callables/updateActiveBill';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('updateActiveBill', () => {
   let testEnv: RulesTestEnvironment;
