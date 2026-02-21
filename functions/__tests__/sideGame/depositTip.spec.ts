@@ -12,8 +12,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { depositTip } from '../../src/sideGame/depositTip';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { depositTip } from '../../src/domains/sideGame/callables/depositTip';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('depositTip', () => {
   let testEnv: RulesTestEnvironment;

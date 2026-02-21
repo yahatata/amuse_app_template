@@ -11,6 +11,9 @@ export { createTournamentRecurrence } from "./callables/createTournamentRecurren
 export { getTournamentRecurrences } from "./callables/getTournamentRecurrences";
 export { deleteTournamentRecurrence } from "./callables/deleteTournamentRecurrence";
 export { generateRecurringTournaments } from "./callables/generateRecurringTournaments";
+export { generateRecurringTournamentsByScheduler } from "./scheduler/GenerateRecurringTournamentsByScheduler";
+export { enqueueTournamentTasks } from "./callables/enqueueTournamentTasks";
+export { enqueueTournamentTasksByScheduler } from "./scheduler/EnqueueTournamentTasksByScheduler";
 export { updateTournamentRecurrence } from "./callables/updateTournamentRecurrence";
 export { updateTournamentTemplate } from "./callables/updateTournamentTemplate";
 export { getScheduledTournamentsForEdit } from "./callables/getScheduledTournamentsForEdit";

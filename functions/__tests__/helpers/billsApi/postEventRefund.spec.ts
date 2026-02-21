@@ -15,7 +15,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { postEventRefund } from '../../../src/helpers/billsApi/postEventRefund';
+import { postEventRefund } from '../../../src/domains/bills/repos/postEventRefund';
 
 describe('postEventRefund', () => {
   let testEnv: RulesTestEnvironment;

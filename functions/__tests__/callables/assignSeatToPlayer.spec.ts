@@ -15,8 +15,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { assignSeatToPlayer } from '../../src/callables/assignSeatToPlayer';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { assignSeatToPlayer } from '../../src/domains/tournament_activeTournament/callables/assignSeatToPlayer';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('assignSeatToPlayer', () => {
   let testEnv: RulesTestEnvironment;

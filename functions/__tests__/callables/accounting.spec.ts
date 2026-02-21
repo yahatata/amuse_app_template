@@ -14,9 +14,9 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { startAccounting } from '../../src/callables/accounting';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
-import { appendItem } from '../../src/helpers/billsApi/appendItem';
+import { startAccounting } from '../../src/domains/bills/callables/accounting';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
+import { appendItem } from '../../src/domains/bills/repos/appendItem';
 
 describe('accounting (startAccounting)', () => {
   let testEnv: RulesTestEnvironment;

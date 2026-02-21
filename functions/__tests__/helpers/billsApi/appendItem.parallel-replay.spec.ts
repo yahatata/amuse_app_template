@@ -13,8 +13,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { appendItem } from '../../../src/helpers/billsApi/appendItem';
-import { createBillWithActiveStay } from '../../../src/helpers/billsApi/createBillWithActiveStay';
+import { appendItem } from '../../../src/domains/bills/repos/appendItem';
+import { createBillWithActiveStay } from '../../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('appendItem.parallel-replay', () => {
   let testEnv: RulesTestEnvironment;

@@ -1,8 +1,10 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
-import { enqueueStartTask, enqueueRegistTask } from "../services/tasks";
+import { logger } from "firebase-functions";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
+import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
 
 // 入力スキーマの定義
 const createTournamentRecurrenceSchema = z.object({
@@ -106,6 +108,18 @@ export const createTournamentRecurrence = onCall(async (request) => {
       storeId,
       tenantId
     );
+
+    // 作成完了後、enqueue を 1 回呼び出し（Step 5）。storeId/tenantId で対象を絞る
+    try {
+      await runEnqueueTournamentTasks({ storeId, tenantId });
+    } catch (enqueueError) {
+      logger.error('enqueue 呼び出しエラー', {
+        recurrenceId: recurrenceRef.id,
+        storeId,
+        tenantId,
+        error: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
+      });
+    }
 
     console.log('生成されたトーナメント数:', generatedTournaments.length);
 
@@ -260,7 +274,6 @@ async function createScheduledTournamentFromRecurrence(
 
     // トーナメントIDを生成（一意性を保証）
     const tournamentRef = db.collection('scheduledTournaments').doc();
-    const tournamentId = tournamentRef.id;
 
     // blindTemplateからstagesを生成し、plannedRegistAtを計算
     const blindStructureId = templateData.blindStructure || templateData.blindStructureId;
@@ -334,6 +347,43 @@ async function createScheduledTournamentFromRecurrence(
 
     const plannedStartAt = Timestamp.fromDate(startAtDate);
 
+    // startAtから営業日を計算（createScheduledTournament.tsと同様）
+    const businessDateResult = await calcBusinessDate(startAtDate);
+    let businessDate: string;
+    if (businessDateResult.status === 'NONE') {
+      console.log('スキップ: 営業日に該当しない時刻のため', startAtDate.toISOString());
+      return null;
+    }
+    if (businessDateResult.status === 'AMBIGUOUS') {
+      businessDate = businessDateResult.candidates[0];
+      logger.warn('calcBusinessDate returned AMBIGUOUS, using first candidate', {
+        candidates: businessDateResult.candidates,
+        selected: businessDate,
+        startAt: startAtDate.toISOString(),
+      });
+    } else {
+      businessDate = businessDateResult.businessDateKey;
+    }
+
+    // 同一営業日・同一テンプレート重複チェック（TEMPLATE_BUSINESSDATE_CHECK が true の時のみ）
+    const templateBusinessDateCheck = process.env.TEMPLATE_BUSINESSDATE_CHECK === "true";
+    if (templateBusinessDateCheck) {
+      const sameTemplateSameDayQuery = await db
+        .collection("scheduledTournaments")
+        .where("templateId", "==", templateId)
+        .where("businessDate", "==", businessDate)
+        .where("status", "==", "scheduled")
+        .limit(1)
+        .get();
+      if (!sameTemplateSameDayQuery.empty) {
+        console.log("スキップ: 同一営業日に同じテンプレートのトーナメントが既に存在", {
+          templateId,
+          businessDate: businessDate,
+        });
+        return null;
+      }
+    }
+
     // scheduledTournaments ドキュメント作成
     const scheduledTournamentData = {
       templateId,
@@ -341,6 +391,7 @@ async function createScheduledTournamentFromRecurrence(
       storeId,
       tenantId,
       status: 'scheduled',
+      businessDate,
       startAt: plannedStartAt,
       regEndAt: Timestamp.fromDate(plannedRegistAt), // 正確なregEndAt
       freeze: false,
@@ -350,7 +401,13 @@ async function createScheduledTournamentFromRecurrence(
       generateBy: recurrenceId, // 定期開催IDを格納
       createdAt: Timestamp.fromDate(now),
       updatedAt: Timestamp.fromDate(now),
-      
+
+      // Cloud Tasks enqueue バッチ用管理フィールド（spec.md 1.1）
+      schedulePlanVersion: 1,
+      schedulePlanUpdatedAt: Timestamp.fromDate(now),
+      taskSyncNeeded: true,
+      taskSyncReason: ['created'],
+
       // スナップショット（テンプレート内容の不変コピー）
       snapshot: {
         name: templateData.name || '',
@@ -440,36 +497,6 @@ async function createScheduledTournamentFromRecurrence(
       const runtimeRef = tournamentRef.collection('views').doc('runtime');
       transaction.set(runtimeRef, runtimeData);
     });
-
-    // Cloud Tasks にタスクを投入
-    try {
-      console.log('=== Cloud Tasks 投入開始（定期開催） ===');
-      console.log('tournamentId:', tournamentId);
-      console.log('plannedStartAt:', plannedStartAt.toDate().toISOString());
-      console.log('plannedRegistAt:', plannedRegistAt.toISOString());
-
-      // 開始タスクを投入
-      const nowForTask = new Date();
-      const startTime = plannedStartAt.toDate() < nowForTask 
-        ? new Date(nowForTask.getTime() + 5000)
-        : plannedStartAt.toDate();
-      
-      const startTaskName = await enqueueStartTask(tournamentId, startTime, 1);
-      console.log('開始タスク投入完了:', startTaskName);
-
-      // レジスト確定タスクを投入
-      const registTime = plannedRegistAt < nowForTask 
-        ? new Date(nowForTask.getTime() + 10000)
-        : plannedRegistAt;
-        
-      const registTaskName = await enqueueRegistTask(tournamentId, registTime, 1);
-      console.log('レジスト確定タスク投入完了:', registTaskName);
-
-      console.log('=== Cloud Tasks 投入完了 ===');
-    } catch (taskError) {
-      console.error('Cloud Tasks 投入エラー:', taskError);
-      // タスク投入に失敗してもトーナメント作成は成功とする
-    }
 
     console.log('定期開催トーナメント作成完了:', tournamentRef.id);
     return tournamentRef.id;

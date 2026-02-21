@@ -4,7 +4,7 @@
  * ChangeSpec P1-01 に準拠
  */
 
-import { calcBusinessDate } from '../../../src/helpers/billsApi/calcBusinessDate';
+import { calcBusinessDate } from '../../../src/domains/bills/repos/calcBusinessDate';
 
 describe('calcBusinessDate', () => {
   const originalEnv = process.env;

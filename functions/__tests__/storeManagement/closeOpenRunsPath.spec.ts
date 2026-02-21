@@ -17,8 +17,8 @@ const PROJECT_ID = 'test-project-close-open-runs-path';
 describe('closeRuns / openRuns path (storeMeta/closeRuns, storeMeta/openRuns)', () => {
   let testEnv: any;
   let db: admin.firestore.Firestore;
-  let closeStoreTerminal: typeof import('../../src/storeManagement/closeStoreTerminal').closeStoreTerminal;
-  let openStoreTerminal: typeof import('../../src/storeManagement/openStoreTerminal').openStoreTerminal;
+  let closeStoreTerminal: typeof import('../../src/domains/storeMeta/callables/closeStoreTerminal').closeStoreTerminal;
+  let openStoreTerminal: typeof import('../../src/domains/storeMeta/callables/openStoreTerminal').openStoreTerminal;
 
   beforeAll(async () => {
     process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
@@ -30,8 +30,8 @@ describe('closeRuns / openRuns path (storeMeta/closeRuns, storeMeta/openRuns)', 
     }
     db = getFirestore();
 
-    const closeMod = await import('../../src/storeManagement/closeStoreTerminal');
-    const openMod = await import('../../src/storeManagement/openStoreTerminal');
+    const closeMod = await import('../../src/domains/storeMeta/callables/closeStoreTerminal');
+    const openMod = await import('../../src/domains/storeMeta/callables/openStoreTerminal');
     closeStoreTerminal = closeMod.closeStoreTerminal;
     openStoreTerminal = openMod.openStoreTerminal;
   });
@@ -203,7 +203,7 @@ describe('closeRuns/openRuns path: 実装が仕様パスを使用している（
     const fs = require('fs');
     const path = require('path');
     const src = fs.readFileSync(
-      path.join(__dirname, '../../src/helpers/stateDoc/processingLease.ts'),
+      path.join(__dirname, '../../src/domains/storeMeta/services/processingLease.ts'),
       'utf8'
     );
     expect(src).toContain("doc(runDocId).collection('runs').doc(oldRunId)");

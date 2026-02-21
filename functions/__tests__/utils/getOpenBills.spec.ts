@@ -14,8 +14,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getOpenBills } from '../../src/utils/getOpenBills';
-import { calcBusinessDate } from '../../src/helpers/billsApi/calcBusinessDate';
+import { getOpenBills } from '../../src/domains/bills/callables/getOpenBills';
+import { calcBusinessDate } from '../../src/domains/bills/repos/calcBusinessDate';
 
 describe('getOpenBills', () => {
   let testEnv: RulesTestEnvironment;

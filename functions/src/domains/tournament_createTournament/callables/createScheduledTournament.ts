@@ -1,10 +1,10 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
-import { enqueueStartTask, enqueueRegistTask } from "../services/tasks";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { logger } from "firebase-functions";
+import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
 
 // 入力スキーマの定義
 const createScheduledTournamentSchema = z.object({
@@ -98,6 +98,24 @@ export const createScheduledTournament = onCall(async (request) => {
       businessDate = businessDateResult.businessDateKey;
     }
 
+    // 同一営業日・同一テンプレート重複チェック（TEMPLATE_BUSINESSDATE_CHECK が true の時のみ）
+    const templateBusinessDateCheck = process.env.TEMPLATE_BUSINESSDATE_CHECK === "true";
+    if (templateBusinessDateCheck) {
+      const sameTemplateSameDayQuery = await db
+        .collection("scheduledTournaments")
+        .where("templateId", "==", templateId)
+        .where("businessDate", "==", businessDate)
+        .where("status", "==", "scheduled")
+        .limit(1)
+        .get();
+      if (!sameTemplateSameDayQuery.empty) {
+        throw new HttpsError(
+          "failed-precondition",
+          "同一営業日に同じテンプレートのトーナメントは作成できません。"
+        );
+      }
+    }
+
     // 冪等制御キー（templateId + startAt）
     // const idempotentKey = `${templateId}_${startAtDate.getTime()}`;
     
@@ -155,7 +173,13 @@ export const createScheduledTournament = onCall(async (request) => {
       generateBy: null, // 通常作成の場合はnull
       createdAt: Timestamp.fromDate(now),
       updatedAt: Timestamp.fromDate(now),
-      
+
+      // Cloud Tasks enqueue バッチ用管理フィールド（spec.md 1.1）
+      schedulePlanVersion: 1,
+      schedulePlanUpdatedAt: Timestamp.fromDate(now),
+      taskSyncNeeded: true,
+      taskSyncReason: ['created'],
+
       // スナップショット（テンプレート内容の不変コピー）
       snapshot: {
         name: templateData.name || '',
@@ -327,35 +351,16 @@ export const createScheduledTournament = onCall(async (request) => {
       transaction.set(runtimeRef, runtimeData);
     });
 
-    // Cloud Tasks にタスクを投入
+    // 作成完了後、enqueue を即時呼び出し（Step 5）。storeId/tenantId で対象を絞る
     try {
-      console.log('=== Cloud Tasks 投入開始 ===');
-      console.log('tournamentId:', tournamentId);
-      console.log('plannedStartAt:', plannedStartAt.toDate().toISOString());
-      console.log('plannedRegistAt:', plannedRegistAt.toISOString());
-
-      // 開始タスクを投入（Rev=1で初期投入）
-      // 過去時刻の場合は5秒後に丸める
-      const now = new Date();
-      const startTime = plannedStartAt.toDate() < now 
-        ? new Date(now.getTime() + 5000) // 5秒後
-        : plannedStartAt.toDate();
-      
-      const startTaskName = await enqueueStartTask(tournamentId, startTime, 1);
-      console.log('開始タスク投入完了:', startTaskName);
-
-      // レジスト確定タスクを投入（Rev=1で初期投入）
-      const registTime = plannedRegistAt < now 
-        ? new Date(now.getTime() + 10000) // 10秒後
-        : plannedRegistAt;
-        
-      const registTaskName = await enqueueRegistTask(tournamentId, registTime, 1);
-      console.log('レジスト確定タスク投入完了:', registTaskName);
-
-      console.log('=== Cloud Tasks 投入完了 ===');
-    } catch (taskError) {
-      console.error('Cloud Tasks 投入エラー:', taskError);
-      // タスク投入に失敗してもトーナメント作成は成功とする
+      await runEnqueueTournamentTasks({ storeId, tenantId });
+    } catch (enqueueError) {
+      logger.error('enqueue 呼び出しエラー', {
+        tournamentId,
+        storeId,
+        tenantId,
+        error: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
+      });
     }
 
     return {

@@ -1,0 +1,474 @@
+/**
+ * 定期開催トーナメント自動生成のコアロジック
+ *
+ * Callable（generateRecurringTournaments）および
+ * Scheduler（generateRecurringTournamentsByScheduler）から共用される。
+ *
+ * 処理内容:
+ * - 有効な tournamentRecurrences を取得
+ * - 各 recurrence について、最後に生成されたトーナメント以降〜3ヶ月先までを生成
+ * - scheduledTournaments を作成（Cloud Tasks 投入は enqueue 専用 function に委譲）
+ */
+
+import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { logger } from "firebase-functions";
+import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
+import { runEnqueueTournamentTasks } from "./enqueueTournamentTasksCore";
+
+const ENQUEUE_AFTER_GENERATE_THRESHOLD = 50;
+
+export interface GenerateRecurringTournamentsResult {
+  success: boolean;
+  generatedCount: number;
+  message: string;
+  error?: string;
+}
+
+/**
+ * 定期開催トーナメントを自動生成する
+ * @returns 生成結果
+ */
+export async function runGenerateRecurringTournaments(): Promise<GenerateRecurringTournamentsResult> {
+  try {
+    console.log("=== 定期開催トーナメント自動生成開始 ===");
+
+    const db = getFirestore();
+    const now = new Date();
+
+    // 有効な定期開催を取得
+    const recurrencesSnapshot = await db
+      .collection("tournamentRecurrences")
+      .where("isActive", "==", true)
+      .get();
+
+    console.log("有効な定期開催数:", recurrencesSnapshot.docs.length);
+
+    let totalGenerated = 0;
+
+    for (const recurrenceDoc of recurrencesSnapshot.docs) {
+      const recurrenceData = recurrenceDoc.data();
+      const recurrenceId = recurrenceDoc.id;
+
+      console.log(`処理中の定期開催: ${recurrenceId}`);
+
+      // テンプレート情報を取得
+      const templateDoc = await db
+        .collection("tournamentTemplates")
+        .doc(recurrenceData.templateId)
+        .get();
+
+      if (!templateDoc.exists) {
+        console.log(`テンプレートが見つかりません: ${recurrenceData.templateId}`);
+        continue;
+      }
+
+      const templateData = templateDoc.data()!;
+
+      // 間隔を週数に変換
+      const intervalWeeks = parseInt(
+        recurrenceData.interval.replace("weeks", "").replace("week", "")
+      );
+
+      // 終了日を設定（3ヶ月後）
+      const endDate = new Date(
+        now.getTime() + 3 * 30 * 24 * 60 * 60 * 1000
+      );
+
+      // 最後に生成されたトーナメントの日付を取得
+      const lastGeneratedQuery = await db
+        .collection("scheduledTournaments")
+        .where("recurrenceId", "==", recurrenceId)
+        .orderBy("startAt", "desc")
+        .limit(1)
+        .get();
+
+      let startDate = new Date(recurrenceData.startOn.toDate());
+
+      if (!lastGeneratedQuery.empty) {
+        const lastGenerated = lastGeneratedQuery.docs[0].data();
+        const lastStartAt = lastGenerated.startAt.toDate();
+        startDate = new Date(
+          lastStartAt.getTime() +
+            intervalWeeks * 7 * 24 * 60 * 60 * 1000
+        );
+      }
+
+      console.log(`生成開始日: ${startDate.toISOString()}`);
+      console.log(`生成終了日: ${endDate.toISOString()}`);
+
+      // 曜日の数値マッピング
+      const weekdayMap: { [key: string]: number } = {
+        SU: 0,
+        MO: 1,
+        TU: 2,
+        WE: 3,
+        TH: 4,
+        FR: 5,
+        SA: 6,
+      };
+
+      const generatedTournaments: string[] = [];
+      const currentDate = new Date(startDate);
+
+      while (currentDate <= endDate) {
+        // 現在の週の指定された曜日をチェック
+        for (const weekday of recurrenceData.byWeekday) {
+          const targetWeekday = weekdayMap[weekday];
+          const dayOfWeek = currentDate.getDay();
+
+          if (dayOfWeek === targetWeekday) {
+            // 重複チェック
+            // JST時刻を明示的に作成し、UTCに変換
+            const [hours, minutes] = (
+              recurrenceData.startTime || "19:00"
+            )
+              .split(":")
+              .map(Number);
+            const jstDate = new Date(currentDate);
+            jstDate.setHours(hours, minutes, 0, 0);
+
+            // JSTからUTCに変換（-9時間）
+            const startAt = new Date(
+              jstDate.getTime() - 9 * 60 * 60 * 1000
+            );
+
+            const isDuplicate = await checkDuplicateTournament(
+              db,
+              recurrenceData.templateId,
+              startAt,
+              recurrenceData.storeId,
+              recurrenceData.tenantId
+            );
+
+            if (!isDuplicate) {
+              // トーナメントを作成
+              const tournamentId = await createScheduledTournamentFromRecurrence(
+                db,
+                recurrenceId,
+                recurrenceData.templateId,
+                templateData,
+                startAt,
+                recurrenceData.storeId,
+                recurrenceData.tenantId
+              );
+
+              if (tournamentId) {
+                generatedTournaments.push(tournamentId);
+                console.log(
+                  "トーナメント作成完了:",
+                  tournamentId,
+                  startAt.toISOString()
+                );
+              }
+            } else {
+              console.log("重複トーナメントをスキップ:", startAt.toISOString());
+            }
+          }
+        }
+
+        // 次の週に移動
+        currentDate.setDate(currentDate.getDate() + 7 * intervalWeeks);
+      }
+
+      totalGenerated += generatedTournaments.length;
+      console.log(
+        `定期開催 ${recurrenceId} で ${generatedTournaments.length} 件のトーナメントを生成`
+      );
+    }
+
+    console.log(`合計 ${totalGenerated} 件のトーナメントを生成しました`);
+
+    // 閾値以下かつ Step 5 経路の場合のみ enqueue を呼び出し。閾値超えは Scheduler に任せる
+    if (totalGenerated <= ENQUEUE_AFTER_GENERATE_THRESHOLD) {
+      try {
+        const storeIds = new Set(
+          recurrencesSnapshot.docs.map((d) => d.data().storeId || "default-store")
+        );
+        const opts = storeIds.size === 1 ? { storeId: Array.from(storeIds)[0] } : {};
+        await runEnqueueTournamentTasks(opts);
+      } catch (enqueueError) {
+        logger.error("enqueue 呼び出しエラー（定期生成後）", {
+          totalGenerated,
+          error: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
+        });
+      }
+    } else {
+      console.log(
+        `enqueue スキップ: 生成数 ${totalGenerated} が閾値 ${ENQUEUE_AFTER_GENERATE_THRESHOLD} を超えたため Scheduler に任せる`
+      );
+    }
+
+    return {
+      success: true,
+      generatedCount: totalGenerated,
+      message: `${totalGenerated}件の定期開催トーナメントを生成しました`,
+    };
+  } catch (error) {
+    console.error("定期開催トーナメント自動生成エラー:", error);
+    return {
+      success: false,
+      generatedCount: 0,
+      message: "定期開催トーナメントの自動生成に失敗しました",
+      error: String(error),
+    };
+  }
+}
+
+/** 重複トーナメントをチェック */
+async function checkDuplicateTournament(
+  db: FirebaseFirestore.Firestore,
+  templateId: string,
+  startAt: Date,
+  storeId: string,
+  tenantId: string
+): Promise<boolean> {
+  const startAtTimestamp = Timestamp.fromDate(startAt);
+
+  const query = await db
+    .collection("scheduledTournaments")
+    .where("templateId", "==", templateId)
+    .where("startAt", "==", startAtTimestamp)
+    .where("storeId", "==", storeId)
+    .where("tenantId", "==", tenantId)
+    .where("status", "==", "scheduled")
+    .limit(1)
+    .get();
+
+  return !query.empty;
+}
+
+/** 定期開催からトーナメントを作成 */
+async function createScheduledTournamentFromRecurrence(
+  db: FirebaseFirestore.Firestore,
+  recurrenceId: string,
+  templateId: string,
+  templateData: any,
+  startAt: Date,
+  storeId: string,
+  tenantId: string
+): Promise<string | null> {
+  try {
+    const now = new Date();
+    const startAtDate = startAt;
+
+    const tournamentRef = db.collection("scheduledTournaments").doc();
+
+    const blindStructureId =
+      templateData.blindStructure || templateData.blindStructureId;
+    let stages: any[] = [];
+    let lateRegUntilLev = 0;
+    let breakDuration = 0;
+    let plannedRegistAt: Date;
+
+    if (blindStructureId) {
+      const blindTemplateDoc = await db
+        .collection("blindTemplates")
+        .doc(blindStructureId)
+        .get();
+      if (blindTemplateDoc.exists) {
+        const blindTemplateData = blindTemplateDoc.data()!;
+        const levels = blindTemplateData.levels || [];
+        lateRegUntilLev = blindTemplateData.lateRegUntilLev || 0;
+        breakDuration = blindTemplateData.breakDuration || 0;
+
+        stages = levels
+          .map((level: any) => {
+            const stage = {
+              type: "level",
+              lev: level.level,
+              durationSec: (level.duration || 0) * 60,
+            };
+
+            if (level.hasBreakAfter) {
+              return [
+                stage,
+                {
+                  type: "break",
+                  durationSec: breakDuration * 60,
+                },
+              ];
+            }
+
+            return stage;
+          })
+          .flat();
+
+        if (lateRegUntilLev > 0) {
+          const newStages: any[] = [];
+
+          for (let i = 0; i < stages.length; i++) {
+            const stage = stages[i];
+
+            if (stage.type === "level" && stage.lev === lateRegUntilLev + 1) {
+              newStages.push({
+                type: "regist",
+                durationSec: 0,
+              });
+            }
+
+            newStages.push(stage);
+          }
+
+          stages = newStages;
+        }
+      }
+    }
+
+    if (lateRegUntilLev > 0 && stages.length > 0) {
+      let totalDurationSec = 0;
+      for (let i = 0; i < stages.length; i++) {
+        const stage = stages[i];
+        if (stage.type === "level" && stage.lev === lateRegUntilLev + 1) {
+          break;
+        }
+        totalDurationSec += stage.durationSec;
+      }
+      plannedRegistAt = new Date(
+        startAtDate.getTime() + totalDurationSec * 1000
+      );
+    } else {
+      plannedRegistAt = startAtDate;
+    }
+
+    const plannedStartAt = Timestamp.fromDate(startAtDate);
+
+    // startAtから営業日を計算（createScheduledTournament.tsと同様）
+    const businessDateResult = await calcBusinessDate(startAtDate);
+    let businessDate: string;
+    if (businessDateResult.status === "NONE") {
+      console.log("スキップ: 営業日に該当しない時刻のため", startAtDate.toISOString());
+      return null;
+    }
+    if (businessDateResult.status === "AMBIGUOUS") {
+      businessDate = businessDateResult.candidates[0];
+      logger.warn("calcBusinessDate returned AMBIGUOUS, using first candidate", {
+        candidates: businessDateResult.candidates,
+        selected: businessDate,
+        startAt: startAtDate.toISOString(),
+      });
+    } else {
+      businessDate = businessDateResult.businessDateKey;
+    }
+
+    // 同一営業日・同一テンプレート重複チェック（TEMPLATE_BUSINESSDATE_CHECK が true の時のみ）
+    const templateBusinessDateCheck = process.env.TEMPLATE_BUSINESSDATE_CHECK === "true";
+    if (templateBusinessDateCheck) {
+      const sameTemplateSameDayQuery = await db
+        .collection("scheduledTournaments")
+        .where("templateId", "==", templateId)
+        .where("businessDate", "==", businessDate)
+        .where("status", "==", "scheduled")
+        .limit(1)
+        .get();
+      if (!sameTemplateSameDayQuery.empty) {
+        console.log("スキップ: 同一営業日に同じテンプレートのトーナメントが既に存在", {
+          templateId,
+          businessDate,
+        });
+        return null;
+      }
+    }
+
+    const scheduledTournamentData = {
+      templateId,
+      recurrenceId,
+      storeId,
+      tenantId,
+      status: "scheduled",
+      businessDate,
+      startAt: plannedStartAt,
+      regEndAt: Timestamp.fromDate(plannedRegistAt),
+      freeze: false,
+      isPrizeConfirmed: false,
+      isArchived: false,
+      regular: true,
+      generateBy: recurrenceId,
+      createdAt: Timestamp.fromDate(now),
+      updatedAt: Timestamp.fromDate(now),
+
+      // Cloud Tasks enqueue バッチ用管理フィールド（spec.md 1.1）
+      schedulePlanVersion: 1,
+      schedulePlanUpdatedAt: Timestamp.fromDate(now),
+      taskSyncNeeded: true,
+      taskSyncReason: ['created'],
+
+      snapshot: {
+        name: templateData.name || "",
+        entryFee: templateData.entryFee || 0,
+        isReentry: templateData.isReentry || false,
+        maxReentries: templateData.maxReentries || null,
+        reentryFee: templateData.reentryFee || null,
+        isAddon: templateData.isAddon || false,
+        addonFee: templateData.addonFee || null,
+        addonStack: templateData.addonStack || null,
+        startStack: templateData.startStack || 0,
+        blindStructure:
+          templateData.blindStructure || templateData.blindStructureId || "",
+        prizeRatio: templateData.prizeRatio || 0.7,
+        color: templateData.color || "#2196F3",
+        pointType: templateData.pointType || "pointA",
+        isArchived: false,
+        updatedAt: Timestamp.fromDate(now),
+      },
+    };
+
+    const mainViewData = {
+      entries: 0,
+      reentries: 0,
+      addons: 0,
+      playersIn: 0,
+      playersBusted: 0,
+      seatedCount: 0,
+      waitingCount: 0,
+      currentLevel: 1,
+      levelEndsAt: null,
+      lastEventAt: Timestamp.fromDate(now),
+    };
+
+    const waitingListData = {
+      waiting: {},
+      count: 0,
+      updatedAt: Timestamp.fromDate(now),
+    };
+
+    const usersListData = {
+      users: {},
+      updatedAt: Timestamp.fromDate(now),
+    };
+
+    const runtimeData = {
+      status: "scheduled",
+      startedAt: null,
+      pausedAt: null,
+      shiftSec: 0,
+      regClosedAt: null,
+      plannedStartAt: plannedStartAt,
+      plannedRegistAt: Timestamp.fromDate(plannedRegistAt),
+      stages: stages,
+      lateRegUntilLev: lateRegUntilLev,
+      breakDurationSec: breakDuration * 60,
+      startRev: 1,
+      registRev: 1,
+      updatedAt: Timestamp.fromDate(now),
+    };
+
+    await db.runTransaction(async (transaction) => {
+      transaction.set(tournamentRef, scheduledTournamentData);
+      const mainViewRef = tournamentRef.collection("views").doc("main");
+      transaction.set(mainViewRef, mainViewData);
+      const usersListRef = tournamentRef.collection("views").doc("usersList");
+      transaction.set(usersListRef, usersListData);
+      const waitingRef = tournamentRef.collection("tablesSeat").doc("waiting");
+      transaction.set(waitingRef, waitingListData);
+      const bustedRef = tournamentRef.collection("tablesSeat").doc("busted");
+      transaction.set(bustedRef, { bustedUser: {} });
+      const runtimeRef = tournamentRef.collection("views").doc("runtime");
+      transaction.set(runtimeRef, runtimeData);
+    });
+
+    return tournamentRef.id;
+  } catch (error) {
+    console.error("定期開催トーナメント作成エラー:", error);
+    return null;
+  }
+}

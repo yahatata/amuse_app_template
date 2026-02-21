@@ -14,7 +14,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { verifyPaymentSplit } from '../../src/callables/verifyPaymentSplit';
+import { verifyPaymentSplit } from '../../src/domains/bills/callables/verifyPaymentSplit';
 
 describe('verifyPaymentSplit', () => {
   let testEnv: RulesTestEnvironment;

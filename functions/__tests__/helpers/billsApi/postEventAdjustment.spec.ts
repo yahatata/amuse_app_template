@@ -15,7 +15,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { postEventAdjustment } from '../../../src/helpers/billsApi/postEventAdjustment';
+import { postEventAdjustment } from '../../../src/domains/bills/repos/postEventAdjustment';
 
 describe('postEventAdjustment', () => {
   let testEnv: RulesTestEnvironment;

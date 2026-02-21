@@ -15,7 +15,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { postEventReopen } from '../../../src/helpers/billsApi/postEventReopen';
+import { postEventReopen } from '../../../src/domains/bills/repos/postEventReopen';
 
 describe('postEventReopen', () => {
   let testEnv: RulesTestEnvironment;

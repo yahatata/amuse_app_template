@@ -13,8 +13,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { placeOrder } from '../../src/itemOrder/placeOrder';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { placeOrder } from '../../src/domains/itemOrder/callables/placeOrder';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('placeOrder.businessDate', () => {
   let testEnv: RulesTestEnvironment;

@@ -19,11 +19,11 @@ const PROJECT_ID = 'test-project-phase6-5';
 describe('Phase6.5: 営業管理権限（store_management）', () => {
   let testEnv: any;
   let db: admin.firestore.Firestore;
-  let getUnsettledBillsForClose: typeof import('../../src/close_process/getUnsettledBillsForClose').getUnsettledBillsForClose;
-  let applyCloseSnapshot: typeof import('../../src/close_process/applyCloseSnapshot').applyCloseSnapshot;
-  let openStore: typeof import('../../src/storeManagement/openStore').openStore;
-  let closeStore: typeof import('../../src/storeManagement/closeStore').closeStore;
-  let cleanupActiveStaysOnClose: typeof import('../../src/close_process/cleanupActiveStaysOnClose').cleanupActiveStaysOnClose;
+  let getUnsettledBillsForClose: typeof import('../../src/domains/storeMeta/services/getUnsettledBillsForClose').getUnsettledBillsForClose;
+  let applyCloseSnapshot: typeof import('../../src/domains/storeMeta/services/applyCloseSnapshot').applyCloseSnapshot;
+  let openStore: typeof import('../../src/domains/storeMeta/callables/openStore').openStore;
+  let closeStore: typeof import('../../src/domains/storeMeta/callables/closeStore').closeStore;
+  let cleanupActiveStaysOnClose: typeof import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose').cleanupActiveStaysOnClose;
 
   let emulatorAvailable = true;
   const PERMISSION_DENIED_MESSAGE = '営業管理の権限がありません';
@@ -36,11 +36,11 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
     }
     db = getFirestore();
 
-    const getMod = await import('../../src/close_process/getUnsettledBillsForClose');
-    const applyMod = await import('../../src/close_process/applyCloseSnapshot');
-    const openMod = await import('../../src/storeManagement/openStore');
-    const closeMod = await import('../../src/storeManagement/closeStore');
-    const cleanupMod = await import('../../src/close_process/cleanupActiveStaysOnClose');
+    const getMod = await import('../../src/domains/storeMeta/services/getUnsettledBillsForClose');
+    const applyMod = await import('../../src/domains/storeMeta/services/applyCloseSnapshot');
+    const openMod = await import('../../src/domains/storeMeta/callables/openStore');
+    const closeMod = await import('../../src/domains/storeMeta/callables/closeStore');
+    const cleanupMod = await import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose');
 
     getUnsettledBillsForClose = getMod.getUnsettledBillsForClose;
     applyCloseSnapshot = applyMod.applyCloseSnapshot;

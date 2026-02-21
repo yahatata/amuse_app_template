@@ -15,8 +15,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { appendItem } from '../../../src/helpers/billsApi/appendItem';
-import { createBillWithActiveStay } from '../../../src/helpers/billsApi/createBillWithActiveStay';
+import { appendItem } from '../../../src/domains/bills/repos/appendItem';
+import { createBillWithActiveStay } from '../../../src/domains/bills/repos/createBillWithActiveStay';
 import { logger } from 'firebase-functions';
 
 // logger をモック
@@ -31,8 +31,8 @@ jest.mock('firebase-functions', () => ({
 
 // dualwrite モジュールをモック（デフォルトは実装どおり、個別テストで上書き可能）
 const mockLegacyAppendItemUpdate = jest.fn();
-jest.mock('../../../src/helpers/billsApi/dualWrite', () => {
-  const actual = jest.requireActual('../../../src/helpers/billsApi/dualWrite');
+jest.mock('../../../src/domains/bills/repos/dualWrite', () => {
+  const actual = jest.requireActual('../../../src/domains/bills/repos/dualWrite');
   return {
     ...actual,
     legacyAppendItemUpdate: (...args: any[]) => mockLegacyAppendItemUpdate(...args),
@@ -81,7 +81,7 @@ describe('appendItem.dualwrite-failure', () => {
     // legacyAppendItemUpdate モックをリセット（デフォルトは実装どおり）
     mockLegacyAppendItemUpdate.mockReset();
     mockLegacyAppendItemUpdate.mockImplementation(async (tx: any, db: any, params: any) => {
-      const actual = jest.requireActual('../../../src/helpers/billsApi/dualWrite');
+      const actual = jest.requireActual('../../../src/domains/bills/repos/dualWrite');
       return actual.legacyAppendItemUpdate(tx, db, params);
     });
   });
@@ -289,7 +289,7 @@ describe('appendItem.dualwrite-failure', () => {
       // legacyAppendItemUpdate は正常動作（モックをリセットして実装どおり）
       mockLegacyAppendItemUpdate.mockReset();
       mockLegacyAppendItemUpdate.mockImplementation(async (tx: any, db: any, params: any) => {
-        const actual = jest.requireActual('../../../src/helpers/billsApi/dualWrite');
+        const actual = jest.requireActual('../../../src/domains/bills/repos/dualWrite');
         return actual.legacyAppendItemUpdate(tx, db, params);
       });
       

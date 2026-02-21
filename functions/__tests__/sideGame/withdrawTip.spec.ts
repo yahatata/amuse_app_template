@@ -12,8 +12,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { withdrawTip } from '../../src/sideGame/withdrawTip';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { withdrawTip } from '../../src/domains/sideGame/callables/withdrawTip';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('withdrawTip', () => {
   let testEnv: RulesTestEnvironment;
