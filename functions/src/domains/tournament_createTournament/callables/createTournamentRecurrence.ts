@@ -365,6 +365,24 @@ async function createScheduledTournamentFromRecurrence(
       businessDate = businessDateResult.businessDateKey;
     }
 
+    // 同一 recurrence・同一営業日の重複チェック（status=cancelled も含めて再生成を防止）
+    const sameRecurrenceSameDayQuery = await db
+      .collection("scheduledTournaments")
+      .where("recurrenceId", "==", recurrenceId)
+      .where("businessDate", "==", businessDate)
+      .where("storeId", "==", storeId)
+      .where("tenantId", "==", tenantId)
+      .where("status", "in", ["scheduled", "running", "registered", "cancelled"])
+      .limit(1)
+      .get();
+    if (!sameRecurrenceSameDayQuery.empty) {
+      console.log("スキップ: 同一 recurrence・同一営業日のトーナメントが既に存在", {
+        recurrenceId,
+        businessDate,
+      });
+      return null;
+    }
+
     // 同一営業日・同一テンプレート重複チェック（TEMPLATE_BUSINESSDATE_CHECK が true の時のみ）
     const templateBusinessDateCheck = process.env.TEMPLATE_BUSINESSDATE_CHECK === "true";
     if (templateBusinessDateCheck) {

@@ -65,6 +65,13 @@ service cloud.firestore {
         allow read: if true;
         allow write: if false; // 書き込みはCloud Functions経由のみ
       }
+
+      // taskIndex サブコレクション（Step 9）
+      // 内部台帳。enqueue バッチ・controlHook が Admin SDK で読み書き。クライアント非公開。
+      // docID は taskType（startTournament, closeRegistration）。
+      match /taskIndex/{taskType} {
+        allow read, write: if false;
+      }
     }
 
     // tournamentTemplates の読み取り（開発用：全許可）

@@ -17,3 +17,5 @@ export { enqueueTournamentTasksByScheduler } from "./scheduler/EnqueueTournament
 export { updateTournamentRecurrence } from "./callables/updateTournamentRecurrence";
 export { updateTournamentTemplate } from "./callables/updateTournamentTemplate";
 export { getScheduledTournamentsForEdit } from "./callables/getScheduledTournamentsForEdit";
+export { updateScheduledTournamentStatus } from "./callables/updateScheduledTournamentStatus";
+export { updateScheduledTournamentStartAt } from "./callables/updateScheduledTournamentStartAt";

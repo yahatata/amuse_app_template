@@ -114,7 +114,7 @@ class TournamentCreationMenuPage extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               
-              // 単発でのトーナメントの登録（カレンダーから登録）
+              // カレンダーからトーナメント作成・編集
               SizedBox(
                 height: buttonHeight,
                 child: ElevatedButton(
@@ -136,7 +136,7 @@ class TournamentCreationMenuPage extends StatelessWidget {
                     ),
                   ),
                   child: const Text(
-                    '単発でのトーナメントの登録\n（カレンダーから登録）',
+                    'カレンダーからトーナメント作成・編集',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
                   ),

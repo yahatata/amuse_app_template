@@ -10,8 +10,8 @@
 |-----------|--------|----------------|----------------------|-----------------------------|---------------------------|--------------------------------------------------|-------------|-------|
 | ①index.ts | ②— | ③No | ④— | ⑤— | ⑥集約のみ | ⑦domains/analytics（移行先で callables/services 等から再 export して再構成） | ⑧No | ⑨export 集約。移行時に domains/analytics 配下の構成に合わせて再編する |
 | ①migrateSettledBillsForBusinessDay.ts | ②callable | ③Yes | ④Yes | ⑤storeMeta（読）, bills, analyticsMonthly とサブコレクション | ⑥アプリ onCall。runMigrateSettledBillsForBusinessDay は storeManagement/closeStoreTerminal からも呼ばれる | ⑦domains/analytics/callables | ⑧No | ⑨営業日単位の settled bills を analytics へ移管。入口は onCall |
-| ①generateDummyData.ts | ②callable | ③Yes | ④Yes | ⑤analyticsMonthly とサブコレクション（days, byCategory, byTemplateTournaments, byUser） | ⑥アプリ onCall | ⑦domains/analytics/callables | ⑧No | ⑨テスト用ダミーデータ生成（4 ヶ月分） |
-| ①helpers.ts | ②service | ③No | ④Yes | ⑤なし（計算のみ） | ⑥addToMonthlyIndex, addToDailySummary, addToByCategory, addToByUser 等 | ⑦domains/analytics/services | ⑧No | ⑨resolveBusinessDate, distributePaymentMethods, calculateCategoryAmounts 等。config/ops 参照 |
+| ①generateDummyData.ts | ②callable | ③Yes | ④Yes | ⑤analyticsMonthly とサブコレクション（days, byCategory, byTemplateTournaments, byUser） | ⑥アプリ onCall | ⑦domains/analytics/callables | ⑧Yes | ⑨テスト用ダミーデータ生成（4 ヶ月分）| ⑩ダミーデータであるため、本番時までに削除が必要。UIのボタン等も含めて削除の必要がある。＜検討事項＞ |
+| ①helpers.ts | ②service | ③No | ④Yes | ⑤なし（計算のみ） | ⑥addToMonthlyIndex, addToDailySummary, addToByCategory, addToByUser 等 | ⑦domains/analytics/services | ⑧No | ⑨resolveBusinessDate, distributePaymentMethods, calculateCategoryAmounts 等。config/ops 参照。|　⑩ファイルの名称変更を行う必要がある可能性あり＜検討事項＞ |
 | ①addToMonthlyIndex.ts | ②service | ③No | ④Yes | ⑤analyticsMonthly（書） | ⑥updateAnalyticsForBill（processBillAnalyticsAtomically） | ⑦domains/analytics/services | ⑧No | ⑨トランザクション内で月次 doc 更新 |
 | ①addToDailySummary.ts | ②service | ③No | ④Yes | ⑤analyticsMonthly/{month}/days（書） | ⑥同上 | ⑦domains/analytics/services | ⑧No | ⑨日次サマリ更新 |
 | ①addToByCategory.ts | ②service | ③No | ④Yes | ⑤analyticsMonthly/{month}/byCategory（書） | ⑥同上 | ⑦domains/analytics/services | ⑧No | ⑨カテゴリ別集計 |

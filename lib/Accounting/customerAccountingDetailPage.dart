@@ -47,6 +47,40 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     }
   }
 
+  Map<String, int> _extractSideGameChipSummary(Map<String, dynamic> record) {
+    int chipQtyTotal = 0;
+    int amountInclTotal = 0;
+    bool hasStructuredData = false;
+
+    final sideGameChipsSubcollection =
+        record['sideGameChips'] as List<dynamic>? ?? [];
+    for (final chip in sideGameChipsSubcollection) {
+      if (chip is! Map) continue;
+      if (chip['action'] != null && chip['action'] != 'purchase') continue;
+      chipQtyTotal += (chip['chipQty'] as num?)?.toInt() ?? 0;
+      amountInclTotal += (chip['amountIncl'] as num?)?.toInt() ?? 0;
+      hasStructuredData = true;
+    }
+
+    if (hasStructuredData) {
+      return {'chipQty': chipQtyTotal, 'amountIncl': amountInclTotal};
+    }
+
+    // 旧形式フォールバック（sideGameChip配列）
+    final sideGameChipsLegacy = record['sideGameChip'] as List<dynamic>? ?? [];
+    for (final chip in sideGameChipsLegacy) {
+      if (chip is! Map) continue;
+      if (chip['action'] != null && chip['action'] != 'purchase') continue;
+      chipQtyTotal += (chip['chipQty'] as num?)?.toInt() ??
+          (chip['chipCount'] as num?)?.toInt() ??
+          0;
+      amountInclTotal += (chip['amountIncl'] as num?)?.toInt() ??
+          (chip['price'] as num?)?.toInt() ??
+          0;
+    }
+    return {'chipQty': chipQtyTotal, 'amountIncl': amountInclTotal};
+  }
+
   @override
   Widget build(BuildContext context) {
     final customerName = customer['customerName'] ?? '不明';
@@ -415,12 +449,9 @@ class CustomerAccountingDetailPage extends StatelessWidget {
       );
     }
 
-    // サイドゲームチップ
-    final sideGameChips = record['sideGameChip'] as List<dynamic>? ?? [];
-    int totalSideGameChipAmount = 0;
-    for (final chip in sideGameChips) {
-      totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
-    }
+    // サイドゲームチップ（sideGameChipsサブコレクション由来を優先）
+    final sideGameChipSummary = _extractSideGameChipSummary(record);
+    final totalSideGameChipAmount = sideGameChipSummary['amountIncl'] ?? 0;
     if (totalSideGameChipAmount > 0) {
       final paymentValue = paymentMethodsByCategory['sideGameChip'] ?? 'cash';
       breakdown.add(
@@ -519,10 +550,10 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     // サイドゲームチップの場合は換算して表示
     String displayText;
     if (method == 'sideGameChip' && amount != null) {
-      final chipValue = (amount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE)
-          .toInt();
+      final chipCount =
+          (amount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
       displayText =
-          '${_getPaymentMethodName(method)} チップ${amount}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
+          '${_getPaymentMethodName(method)} チップ${chipCount}枚 (¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
     } else if (amount != null) {
       displayText =
           '${_getPaymentMethodName(method)} ¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';

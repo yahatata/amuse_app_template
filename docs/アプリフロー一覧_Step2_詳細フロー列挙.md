@@ -170,6 +170,7 @@
 9. `createTournamentRecurrence` Cloud Function呼び出し
 10. `tournamentRecurrences` コレクションに保存
 11. 定期生成トリガーが設定される
+12. 生成されたトーナメント分の enqueue を 1 回実行（`runEnqueueTournamentTasks`）
 
 ### 3.4 単発トーナメント作成フロー（直接入力）
 1. 単発トーナメント作成画面表示
@@ -180,6 +181,7 @@
 6. 日時をJST→UTC変換
 7. `createScheduledTournament` Cloud Function呼び出し
 8. `scheduledTournaments` コレクションに保存
+9. `runEnqueueTournamentTasks` を呼び出し（Cloud Tasks 投入の準備）
 
 ### 3.5 単発トーナメント作成フロー（カレンダー）
 1. カレンダー表示画面表示
@@ -188,6 +190,7 @@
 4. 開始時刻入力
 5. 「作成」ボタン押下
 6. `createScheduledTournament` Cloud Function呼び出し
+7. `runEnqueueTournamentTasks` を呼び出し（Cloud Tasks 投入の準備）
 
 ### 3.6 スケジュール済みトーナメント一覧表示フロー
 1. スケジュール済みトーナメント一覧画面表示
@@ -1054,8 +1057,17 @@
    - 該当日が来ている場合、トーナメントを作成
    - `createScheduledTournament` を呼び出し
 4. 終了日に達した定期設定は無効化
+5. 全 recurrence 処理完了後、`runEnqueueTournamentTasks` を 1 回呼び出し（閾値以下の場合）
 
-### 12.5 注文追加時の分析データ更新フロー
+### 12.5 Cloud Tasks 投入フロー（enqueue バッチ）
+1. 日次 Scheduler（`enqueueTournamentTasksByScheduler`）が毎日 5:00 JST に実行
+2. `runEnqueueTournamentTasks` が呼ばれる
+3. 対象期間（lookback〜horizon）内の status='scheduled' の scheduledTournament を取得
+4. 各 tournament の taskIndex と planHash を突合
+5. `enqueueState === 'pending'` かつ 30 日以内のものを Cloud Tasks に投入
+6. controlHook がタスク実行時に status 遷移（scheduled→running, running→registered）
+
+### 12.6 注文追加時の分析データ更新フロー
 1. `placeOrder` Cloud Function実行時
 2. `addToDailySummary` を呼び出し
 3. `analyticsDaily/{date}` の日次サマリーを更新
@@ -1064,7 +1076,7 @@
 6. `addToByUser` を呼び出し
 7. `analyticsMonthly/{monthId}/byUser/{userId}` のユーザー別データを更新
 
-### 12.6 会計確定時の分析データ更新フロー
+### 12.7 会計確定時の分析データ更新フロー
 1. `completeAccounting` Cloud Function実行時
 2. `addToDailySummary` を呼び出し
 3. `addToMonthlyIndex` を呼び出し

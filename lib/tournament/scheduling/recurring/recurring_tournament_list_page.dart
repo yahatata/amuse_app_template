@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/tournament/scheduling/recurring/create_recurring_tournament_page.dart';
 import 'package:amuse_app_template/tournament/scheduling/recurring/edit_recurring_tournament_page.dart';
@@ -80,6 +81,76 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  /// 編集画面へ遷移（Firestore snapshot から最新データを取得して渡す）
+  Future<void> _navigateToEdit(BuildContext context, String recurrenceId) async {
+    // ローディング表示
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('tournamentRecurrences')
+          .doc(recurrenceId)
+          .get();
+
+      if (!mounted) return;
+      Navigator.of(context).pop(); // ローディングを閉じる
+
+      if (!doc.exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('定期開催データが見つかりませんでした')),
+        );
+        return;
+      }
+
+      final data = doc.data()!;
+
+      // Timestamp → String / List に正規化
+      final recurrenceData = <String, dynamic>{
+        'id': doc.id,
+        'templateId': data['templateId'] ?? '',
+        'storeId': data['storeId'] ?? '',
+        'tenantId': data['tenantId'] ?? '',
+        'interval': data['interval'] ?? '',
+        'byWeekday': (data['byWeekday'] as List?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [],
+        'startTime': data['startTime'] ?? '',
+        'isActive': data['isActive'] ?? false,
+        'startOn': (data['startOn'] as Timestamp?)?.toDate().toIso8601String() ??
+            data['startOn']?.toString() ?? '',
+        'endsOn': data['endsOn'] != null
+            ? (data['endsOn'] as Timestamp?)?.toDate().toIso8601String() ??
+                data['endsOn'].toString()
+            : null,
+        'createdAt':
+            (data['createdAt'] as Timestamp?)?.toDate().toIso8601String() ?? '',
+        'updatedAt':
+            (data['updatedAt'] as Timestamp?)?.toDate().toIso8601String() ?? '',
+      };
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => EditRecurringTournamentPage(
+            recurrenceId: recurrenceId,
+            recurrenceData: recurrenceData,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // ローディングを閉じる
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('データの取得に失敗しました: $e')),
+      );
     }
   }
 
@@ -318,17 +389,7 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
                                 TextButton.icon(
                                   icon: const Icon(Icons.edit, size: 16),
                                   label: const Text('編集'),
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => EditRecurringTournamentPage(
-                                          recurrenceId: recurrence['id'],
-                                          recurrenceData: recurrence,
-                                        ),
-                                      ),
-                                    );
-                                  },
+                                  onPressed: () => _navigateToEdit(context, recurrence['id']),
                                 ),
                                 const SizedBox(width: 8),
                                 TextButton.icon(
