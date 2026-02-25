@@ -81,6 +81,22 @@ class GlobalConstants {
   // 注意: この値はJST基準で記載（実装時はUTCに変換する必要がある）
   // 日曜20:00 JST = UTC 11:00（UTC+9のため）
   static const String WEEKLY_PLANNER_CRON = '0 20 * * 0';  // 日曜20:00 JST（UTC+9のため、UTCでは11:00）
+
+  // 定期開催トーナメント自動生成スケジューラの実行タイミング
+  // ⚠️ 実行タイミングは GlobalConstants のこの変数で明示的に定義されています。
+  // 変更時は functions/src/domains/tournament_createTournament/scheduler/GenerateRecurringTournamentsByScheduler.ts
+  // の SCHEDULE_CRON も同期すること
+  static const String RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON = '0 23 * * 0';  // 日曜 23:00 JST
+  /// 定期開催トーナメント自動生成の実行日時（人間が読める形式）
+  /// GlobalConstants で実行タイミングを定義していることを明示するための説明
+  static const String RECURRING_TOURNAMENT_GENERATION_SCHEDULER_RUN_AT_DESCRIPTION =
+      '定期開催トーナメント自動生成: 日曜 23:00 (JST) に実行。実行タイミングは GlobalConstants.RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON で定義。';
+
+  // enqueue バッチ Scheduler の実行タイミング（Step 4）
+  // 変更時は EnqueueTournamentTasksByScheduler.ts の SCHEDULE_CRON と同期すること
+  static const String ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON = '0 5 * * *';  // 毎日 5:00 JST
+  static const String ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_RUN_AT_DESCRIPTION =
+      'enqueue バッチ: 毎日 5:00 (JST) に実行。';
   
   /// STORE_CLOSE_HOUR を正規化（24以上は翌日繰り上がりとして扱う）
   /// @param hour 0-48 の整数

@@ -64,10 +64,22 @@ export async function runGenerateRecurringTournaments(): Promise<GenerateRecurri
 
       const templateData = templateDoc.data()!;
 
-      // 間隔を週数に変換
-      const intervalWeeks = parseInt(
-        recurrenceData.interval.replace("weeks", "").replace("week", "")
-      );
+      // 間隔を週数に変換（Firestore: 数値 1〜5 または 文字列 "1week"/"2weeks" の両対応）
+      let intervalWeeks: number;
+      const intervalRaw = recurrenceData.interval;
+      if (typeof intervalRaw === "number" && intervalRaw >= 1 && intervalRaw <= 5) {
+        intervalWeeks = intervalRaw;
+      } else if (typeof intervalRaw === "string") {
+        const n = parseInt(intervalRaw.replace("weeks", "").replace("week", ""), 10);
+        if (Number.isNaN(n)) {
+          console.warn(`不正な interval をスキップ: recurrenceId=${recurrenceId}, interval=${intervalRaw}`);
+          continue;
+        }
+        intervalWeeks = n;
+      } else {
+        console.warn(`不正な interval をスキップ: recurrenceId=${recurrenceId}, interval=${intervalRaw}`);
+        continue;
+      }
 
       // 終了日を設定（3ヶ月後）
       const endDate = new Date(
@@ -348,6 +360,24 @@ async function createScheduledTournamentFromRecurrence(
       });
     } else {
       businessDate = businessDateResult.businessDateKey;
+    }
+
+    // 同一 recurrence・同一営業日の重複チェック（status=cancelled も含めて再生成を防止）
+    const sameRecurrenceSameDayQuery = await db
+      .collection("scheduledTournaments")
+      .where("recurrenceId", "==", recurrenceId)
+      .where("businessDate", "==", businessDate)
+      .where("storeId", "==", storeId)
+      .where("tenantId", "==", tenantId)
+      .where("status", "in", ["scheduled", "running", "registered", "cancelled"])
+      .limit(1)
+      .get();
+    if (!sameRecurrenceSameDayQuery.empty) {
+      console.log("スキップ: 同一 recurrence・同一営業日のトーナメントが既に存在", {
+        recurrenceId,
+        businessDate,
+      });
+      return null;
     }
 
     // 同一営業日・同一テンプレート重複チェック（TEMPLATE_BUSINESSDATE_CHECK が true の時のみ）

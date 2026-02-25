@@ -105,7 +105,16 @@ export const scheduledCleanup = onSchedule(
 - **スケジュール**: 毎日午前2時 JST（UTC 17:00）
 - **処理内容**: 却下後7日経過したシフトを自動削除
 
-### 1.6 cron文字列生成関数
+### 1.6 enqueue バッチ (`enqueueTournamentTasksByScheduler`)
+
+**ファイル**: `functions/src/domains/tournament_createTournament/scheduler/EnqueueTournamentTasksByScheduler.ts`
+
+- **スケジュール**: 毎日 5:00 JST（`lib/globalConstant.dart` の `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` と同期）
+- **処理内容**: `runEnqueueTournamentTasks` を実行し、対象期間内の scheduledTournament について taskIndex 突合・Cloud Tasks 投入
+- **有効化**: `ENQUEUE_SCHEDULER_ENABLED === 'true'` であること。Step 6 デプロイ完了まで無効化推奨
+- **詳細**: `docs/cloud_tasks_tournament_enqueue/step8.5/scheduler_enable_procedure.md`
+
+### 1.7 cron文字列生成関数
 
 **ファイル**: `functions/src/config/ops.ts`
 
@@ -124,242 +133,59 @@ export function getNightlyCronTriplet() {
 
 ## 2. Cloud Tasks へのキュー投入処理
 
-Cloud Tasksへのキュー投入は、`functions/src/lib/tasks.ts` で定義された関数を使用します。
+### 2.1 現行フロー（Step 4〜6 移行済み、Step 7 で deprecated 削除済み）
 
-### 2.1 タスク投入関数の定義
+**ファイル**: `functions/src/domains/tournament_createTournament/services/tasks.ts`
 
-**ファイル**: `functions/src/lib/tasks.ts`
+#### 2.1.1 タスク投入関数 (`enqueueTournamentTask`)
 
-#### 2.1.1 開始タスク投入 (`enqueueStartTask`)
+新 payload 仕様で Cloud Tasks に投入する唯一の関数。
 
-```145:201:functions/src/lib/tasks.ts
-export async function enqueueStartTask(tournamentId: string, scheduledTime: Date, rev: number): Promise<string> {
-  // 環境変数を遅延取得
-  const controlHookUrl = getEnv('CONTROL_HOOK_URL');
-  const tasksQueue = getEnv('TASKS_QUEUE');
-  const tasksLocation = getEnv('TASKS_LOCATION');
-  const tasksInvokerSa = getEnv('TASKS_INVOKER_SA');
+- **ペイロード**: `{ tournamentId, taskType, planVersion, planHash, scheduledAt, storeId }`
+- **taskType**: `startTournament` | `closeRegistration`
+- **呼び出し元**: `enqueueTournamentTasksCore`（日次 enqueue バッチ、作成完了後の即時 enqueue）
+- **controlHook**: 新 payload を受付し、no-op 判定・taskIndex 更新を行う
 
-  const queuePath = client.queuePath(PROJECT_ID, tasksLocation, tasksQueue);
+#### 2.1.2 enqueue Callable (`enqueueTournamentTasks`)
 
-  const payload = {
-    action: 'start',
-    tournamentId: tournamentId,
-    rev: rev
-  };
+**ファイル**: `functions/src/domains/tournament_createTournament/callables/enqueueTournamentTasks.ts`
 
-  const task = {
-    httpRequest: {
-      httpMethod: 'POST' as const,
-      url: controlHookUrl,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: Buffer.from(JSON.stringify(payload)).toString('base64'),
-      oidcToken: {
-        serviceAccountEmail: tasksInvokerSa,
-      },
-    },
-    scheduleTime: {
-      seconds: Math.floor(scheduledTime.getTime() / 1000),
-    },
-  };
+- **用途**: 手動実行用。Firebase Functions SDK で `enqueueTournamentTasks` Callable を invoke して `runEnqueueTournamentTasks()` を実行する
+- **処理**: `runEnqueueTournamentTasks()` を呼び出し、enqueue バッチと同様の処理を行う
 
-  const [response] = await client.createTask({
-    parent: queuePath,
-    task: task,
-  });
+#### 2.1.3 taskIndex サブコレクション
 
-  return response.name || '';
-}
-```
+| 項目 | 内容 |
+|------|------|
+| パス | `scheduledTournaments/{tournamentId}/taskIndex/{taskType}` |
+| 役割 | 内部台帳。enqueue バッチと controlHook が planHash・enqueueState を管理 |
+| taskType | startTournament, closeRegistration |
+| フィールド例 | planHash, enqueueState, enqueuedAt, cloudTaskName, lastRunAt, lastRunResult |
+| クライアント | 非公開（firestore.rules で read/write: false） |
 
-- **用途**: トーナメント開始タスクをCloud Tasksに投入
-- **ペイロード**: `{ action: 'start', tournamentId, rev }`
+#### 2.1.4 controlHook payload
 
-#### 2.1.2 レジスト確定タスク投入 (`enqueueRegistTask`)
+- **新 payload（推奨）**: `{ tournamentId, taskType, planVersion, planHash, scheduledAt, storeId }`
+- **旧 payload（後方互換）**: `{ action: 'start' \| 'regist', tournamentId, rev }` は残存タスク処理のため受付継続
+- **no-op 判定**: planVersion 不一致または planHash 不一致時は no-op で成功終了。taskIndex に lastRunResult: 'noop' を記録
 
-```206:262:functions/src/lib/tasks.ts
-export async function enqueueRegistTask(tournamentId: string, scheduledTime: Date, rev: number): Promise<string> {
-  // 環境変数を遅延取得
-  const controlHookUrl = getEnv('CONTROL_HOOK_URL');
-  const tasksQueue = getEnv('TASKS_QUEUE');
-  const tasksLocation = getEnv('TASKS_LOCATION');
-  const tasksInvokerSa = getEnv('TASKS_INVOKER_SA');
+#### 2.1.5 廃止した関数（Step 7 で削除）
 
-  const queuePath = client.queuePath(PROJECT_ID, tasksLocation, tasksQueue);
+| 関数 | 備考 |
+|------|------|
+| enqueueStartTask | 旧 payload（action/rev）で投入。enqueueTournamentTask に統合 |
+| enqueueRegistTask | 同上 |
+| scheduleTask | 未使用のため削除。payload 形式が controlHook と不一致だった |
+| listTasks, deleteTask | デバッグ用。削除後は Cloud Tasks API / gcloud CLI / Console で一覧・削除可能 |
 
-  const payload = {
-    action: 'regist',
-    tournamentId: tournamentId,
-    rev: rev
-  };
+#### 2.1.6 新 enqueue フロー概要
 
-  const task = {
-    httpRequest: {
-      httpMethod: 'POST' as const,
-      url: controlHookUrl,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: Buffer.from(JSON.stringify(payload)).toString('base64'),
-      oidcToken: {
-        serviceAccountEmail: tasksInvokerSa,
-      },
-    },
-    scheduleTime: {
-      seconds: Math.floor(scheduledTime.getTime() / 1000),
-    },
-  };
+1. **enqueue バッチ**（日次 Scheduler または作成完了後）が `runEnqueueTournamentTasks` を実行
+2. 対象期間内の scheduledTournament を取得し、taskIndex と突合
+3. `enqueueState === 'pending'` かつ 30 日以内のものについて `enqueueTournamentTask` で Cloud Tasks に投入
+4. **controlHook** が HTTP でタスクを受領し、version/hash 一致時に status 遷移を実行
 
-  const [response] = await client.createTask({
-    parent: queuePath,
-    task: task,
-  });
-
-  return response.name || '';
-}
-```
-
-- **用途**: レジスト確定タスクをCloud Tasksに投入
-- **ペイロード**: `{ action: 'regist', tournamentId, rev }`
-
-#### 2.1.3 汎用タスク投入 (`scheduleTask`)
-
-```33:98:functions/src/lib/tasks.ts
-export async function scheduleTask(params: ScheduleTaskParams): Promise<string> {
-  // ... タスク投入処理 ...
-}
-```
-
-- **用途**: 汎用的なタスク投入関数（現在は使用されていない）
-- **パラメータ**: `{ kind: 'start' | 'regist', tournamentId, revision, scheduledTime }`
-
-### 2.2 タスク投入の呼び出し箇所
-
-#### 2.2.1 スケジュール済みトーナメント作成時
-
-**ファイル**: `functions/src/callables/createScheduledTournament.ts`
-
-```293:322:functions/src/callables/createScheduledTournament.ts
-    // Cloud Tasks にタスクを投入
-    try {
-      console.log('=== Cloud Tasks 投入開始 ===');
-      console.log('tournamentId:', tournamentId);
-      console.log('plannedStartAt:', plannedStartAt.toDate().toISOString());
-      console.log('plannedRegistAt:', plannedRegistAt.toISOString());
-
-      // 開始タスクを投入（Rev=1で初期投入）
-      // 過去時刻の場合は5秒後に丸める
-      const now = new Date();
-      const startTime = plannedStartAt.toDate() < now 
-        ? new Date(now.getTime() + 5000) // 5秒後
-        : plannedStartAt.toDate();
-      
-      const startTaskName = await enqueueStartTask(tournamentId, startTime, 1);
-      console.log('開始タスク投入完了:', startTaskName);
-
-      // レジスト確定タスクを投入（Rev=1で初期投入）
-      const registTime = plannedRegistAt < now 
-        ? new Date(now.getTime() + 10000) // 10秒後
-        : plannedRegistAt;
-        
-      const registTaskName = await enqueueRegistTask(tournamentId, registTime, 1);
-      console.log('レジスト確定タスク投入完了:', registTaskName);
-
-      console.log('=== Cloud Tasks 投入完了 ===');
-    } catch (taskError) {
-      console.error('Cloud Tasks 投入エラー:', taskError);
-      // タスク投入に失敗してもトーナメント作成は成功とする
-    }
-```
-
-- **呼び出しタイミング**: スケジュール済みトーナメント作成時
-- **投入タスク**: 
-  - 開始タスク（`enqueueStartTask`）
-  - レジスト確定タスク（`enqueueRegistTask`）
-
-#### 2.2.2 定期開催トーナメント作成時（`createTournamentRecurrence`）
-
-**ファイル**: `functions/src/callables/createTournamentRecurrence.ts`
-
-```444:472:functions/src/callables/createTournamentRecurrence.ts
-    // Cloud Tasks にタスクを投入
-    try {
-      console.log('=== Cloud Tasks 投入開始（定期開催） ===');
-      console.log('tournamentId:', tournamentId);
-      console.log('plannedStartAt:', plannedStartAt.toDate().toISOString());
-      console.log('plannedRegistAt:', plannedRegistAt.toISOString());
-
-      // 開始タスクを投入
-      const nowForTask = new Date();
-      const startTime = plannedStartAt.toDate() < nowForTask 
-        ? new Date(nowForTask.getTime() + 5000)
-        : plannedStartAt.toDate();
-      
-      const startTaskName = await enqueueStartTask(tournamentId, startTime, 1);
-      console.log('開始タスク投入完了:', startTaskName);
-
-      // レジスト確定タスクを投入
-      const registTime = plannedRegistAt < nowForTask 
-        ? new Date(nowForTask.getTime() + 10000)
-        : plannedRegistAt;
-        
-      const registTaskName = await enqueueRegistTask(tournamentId, registTime, 1);
-      console.log('レジスト確定タスク投入完了:', registTaskName);
-
-      console.log('=== Cloud Tasks 投入完了 ===');
-    } catch (taskError) {
-      console.error('Cloud Tasks 投入エラー:', taskError);
-      // タスク投入に失敗してもトーナメント作成は成功とする
-    }
-```
-
-- **呼び出しタイミング**: 定期開催からトーナメントを作成時（`createScheduledTournamentFromRecurrence`関数内）
-- **投入タスク**: 
-  - 開始タスク（`enqueueStartTask`）
-  - レジスト確定タスク（`enqueueRegistTask`）
-
-#### 2.2.3 定期開催トーナメント自動生成時（`generateRecurringTournaments`）
-
-**ファイル**: `functions/src/callables/generateRecurringTournaments.ts`
-
-```361:389:functions/src/callables/generateRecurringTournaments.ts
-    // Cloud Tasks にタスクを投入
-    try {
-      console.log('=== Cloud Tasks 投入開始（定期開催） ===');
-      console.log('tournamentId:', tournamentId);
-      console.log('plannedStartAt:', plannedStartAt.toDate().toISOString());
-      console.log('plannedRegistAt:', plannedRegistAt.toISOString());
-
-      // 開始タスクを投入
-      const nowForTask = new Date();
-      const startTime = plannedStartAt.toDate() < nowForTask 
-        ? new Date(nowForTask.getTime() + 5000)
-        : plannedStartAt.toDate();
-      
-      const startTaskName = await enqueueStartTask(tournamentId, startTime, 1);
-      console.log('開始タスク投入完了:', startTaskName);
-
-      // レジスト確定タスクを投入
-      const registTime = plannedRegistAt < nowForTask 
-        ? new Date(nowForTask.getTime() + 10000)
-        : plannedRegistAt;
-        
-      const registTaskName = await enqueueRegistTask(tournamentId, registTime, 1);
-      console.log('レジスト確定タスク投入完了:', registTaskName);
-
-      console.log('=== Cloud Tasks 投入完了 ===');
-    } catch (taskError) {
-      console.error('Cloud Tasks 投入エラー:', taskError);
-      // タスク投入に失敗してもトーナメント作成は成功とする
-    }
-```
-
-- **呼び出しタイミング**: 定期開催トーナメントを自動生成時（`createScheduledTournamentFromRecurrence`関数内）
-- **投入タスク**: 
-  - 開始タスク（`enqueueStartTask`）
-  - レジスト確定タスク（`enqueueRegistTask`）
+詳細は `docs/cloud_tasks_tournament_enqueue/spec.md` および各 Step の changeSpec を参照。
 
 ## 3. 環境変数
 
@@ -374,16 +200,17 @@ Cloud Tasksの設定に使用される環境変数：
 ## 4. まとめ
 
 ### Cloud Scheduler
-- **合計5つのスケジュール関数**を定義
+- **合計6つのスケジュール関数**を定義
   - 夜間再計算（`nightlyRecalculateBalanceDue`）
   - デュアルライト差分チェック（`nightlyReconciliationCheck`）
   - 夜間整合確認（`nightlyIntegrityCheck`）
   - 月次給与計算（`monthlyPayrollTrigger`）
   - スケジュール削除（`scheduledCleanup`）
+  - enqueue バッチ（`enqueueTournamentTasksByScheduler`）
 
 ### Cloud Tasks
-- **合計3箇所**でタスク投入を実行
-  - `createScheduledTournament`: スケジュール済みトーナメント作成時
-  - `createTournamentRecurrence`: 定期開催トーナメント作成時
-  - `generateRecurringTournaments`: 定期開催トーナメント自動生成時
-- **投入されるタスク**: 各トーナメントに対して開始タスクとレジスト確定タスクの2つ
+- **enqueueTournamentTask** により新 payload でタスク投入
+- **呼び出し経路**: 日次 enqueue バッチ（Scheduler）、作成完了後の即時 enqueue（createScheduledTournament / createTournamentRecurrence / generateRecurringTournamentsCore）
+- **taskIndex** と突合し、30 日以内分を Cloud Tasks に投入
+- **Scheduler 有効化手順**：`docs/cloud_tasks_tournament_enqueue/step8.5/scheduler_enable_procedure.md`
+- 詳細: `docs/cloud_tasks_tournament_enqueue/`

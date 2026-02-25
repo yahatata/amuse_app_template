@@ -6,6 +6,11 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shar
 const getScheduledTournamentsForEditSchema = z.object({
   type: z.enum(['recurrence', 'template']),
   id: z.string(),
+  includeCancelled: z.boolean().optional().default(false),
+  excludeBeforeBusinessDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "excludeBeforeBusinessDate must be YYYY-MM-DD")
+    .optional(),
 });
 
 export const getScheduledTournamentsForEdit = onCall(async (request) => {
@@ -28,27 +33,36 @@ export const getScheduledTournamentsForEdit = onCall(async (request) => {
   }
 
   try {
-    const { type, id } = getScheduledTournamentsForEditSchema.parse(request.data);
+    const { type, id, includeCancelled, excludeBeforeBusinessDate } =
+      getScheduledTournamentsForEditSchema.parse(request.data);
 
     const db = getFirestore();
-    let query;
+    let query: FirebaseFirestore.Query = db.collection('scheduledTournaments');
 
     if (type === 'recurrence') {
       // recurrenceIdで検索
-      query = db.collection('scheduledTournaments')
-        .where('recurrenceId', '==', id)
-        .where('status', '==', 'scheduled');
+      query = query.where('recurrenceId', '==', id);
     } else {
       // templateIdで検索
-      query = db.collection('scheduledTournaments')
-        .where('templateId', '==', id)
-        .where('status', '==', 'scheduled');
+      query = query.where('templateId', '==', id);
+    }
+
+    query = includeCancelled
+      ? query.where('status', 'in', ['scheduled', 'cancelled'])
+      : query.where('status', '==', 'scheduled');
+
+    if (excludeBeforeBusinessDate) {
+      query = query.where('businessDate', '>=', excludeBeforeBusinessDate);
     }
 
     const snapshot = await query.get();
     const tournaments = snapshot.docs.map(doc => ({
       id: doc.id,
       startAt: doc.data().startAt,
+      regEndAt: doc.data().regEndAt ?? null,
+      status: doc.data().status ?? 'scheduled',
+      businessDate: doc.data().businessDate ?? null,
+      recurrenceId: doc.data().recurrenceId ?? null,
       name: doc.data().snapshot?.name || '',
     }));
 

@@ -572,7 +572,10 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
       return tournaments.take(10).toList();
     }
     
-    return tournaments;
+    return tournaments.where((t) {
+      final status = (t['status'] ?? '').toString();
+      return status != 'cancelled' && status != 'canceled';
+    }).toList();
   }
   
   /// 11件目が存在するかどうか（「すべて表示」ボタンを表示するかどうか）
@@ -1224,6 +1227,7 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
         return Colors.green;
       case 'ended':
         return Colors.grey;
+      case 'cancelled':
       case 'canceled':
         return Colors.red;
       default:
@@ -1241,6 +1245,7 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
         return '実施中（レジスト済み）';
       case 'ended':
         return '終了';
+      case 'cancelled':
       case 'canceled':
         return 'キャンセル';
       default:

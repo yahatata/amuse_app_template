@@ -15,10 +15,8 @@ import 'package:amuse_app_template/sideGame/pages/side_game_table_list.dart';
 import 'package:amuse_app_template/OrderView/OrderManagement/order_management_page.dart';
 import 'package:amuse_app_template/dashboard/home/dashboard_home_page.dart';
 import 'package:amuse_app_template/Utils/firestore_size_page.dart';
-import 'package:amuse_app_template/tournament/pages/tournament_select_page.dart';
-import 'package:amuse_app_template/tournament/pages/table_select_page.dart';
-import 'package:amuse_app_template/tournament/active/pages/table_detail_page.dart';
-import 'package:amuse_app_template/tournament/active/pages/blind_timer_page.dart';
+import 'package:amuse_app_template/Home/table_home_page.dart';
+import 'package:amuse_app_template/tournament/active/pages/blind_timer_tournament_select_page.dart';
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
@@ -201,70 +199,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
         }
         return const SizedBox.shrink();
       },
-    );
-  }
-
-  /// 卓ページへの遷移（トーナメント選択→卓選択→卓詳細ページ）
-  Future<void> _navigateToTablePage(BuildContext context) async {
-    // デバイスに卓番が指定されているか確認
-    final device = await _deviceService.getCurrentDevice();
-    final myTableId = device?.getTableIdForOption(DeviceOptionKeys.tournamentTable);
-    final hasTableAssignment = myTableId != null;
-
-    if (!context.mounted) return;
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => TournamentSelectPage(
-          title: '卓ページ - トーナメント選択',
-          filterByDeviceTable: hasTableAssignment, // 卓番指定がある場合のみフィルタ
-          onSelected: (tournamentId, tournamentName) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => TableSelectPage(
-                  tournamentId: tournamentId,
-                  tournamentName: tournamentName,
-                  onSelected: (tableId, tableName) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => TableDetailPage(
-                          tournamentId: tournamentId,
-                          tableId: tableId,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  /// ブラインドタイマーへの遷移（トーナメント選択→タイマーページ）
-  void _navigateToBlindTimer(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => TournamentSelectPage(
-          title: 'ブラインドタイマー - トーナメント選択',
-          onSelected: (tournamentId, tournamentName) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => BlindTimerPage(
-                  tournamentId: tournamentId,
-                ),
-              ),
-            );
-          },
-        ),
-      ),
     );
   }
 
@@ -601,7 +535,12 @@ class _terminalHomePageState extends State<terminalHomePage> {
 
   /// 閉店処理完了後のダイアログ（§4.8: 関数ごとの作業表示）
   Future<void> _showCloseCompletedDialog(BuildContext context, Map<String, dynamic> data) async {
-    final displaySummary = data['displaySummary'] as Map<String, dynamic>?;
+    // Cloud Functions のレスポンスはネストされた Map が _Map<Object?, Object?> になることがあるため、
+    // 直接 as Map<String, dynamic>? でキャストすると型エラーになる。Map.from で安全に変換する。
+    final rawDisplaySummary = data['displaySummary'];
+    final displaySummary = rawDisplaySummary != null && rawDisplaySummary is Map
+        ? Map<String, dynamic>.from(rawDisplaySummary as Map)
+        : null;
     final message = data['message'] as String? ?? '閉店しました。';
 
     if (displaySummary == null) {
@@ -621,9 +560,18 @@ class _terminalHomePageState extends State<terminalHomePage> {
       return;
     }
 
-    final unsettledMark = displaySummary['unsettledMark'] as Map<String, dynamic>?;
-    final cleanupActiveStays = displaySummary['cleanupActiveStays'] as Map<String, dynamic>?;
-    final migrateMissedSettlements = displaySummary['migrateMissedSettlements'] as Map<String, dynamic>?;
+    final rawUnsettledMark = displaySummary['unsettledMark'];
+    final unsettledMark = rawUnsettledMark != null && rawUnsettledMark is Map
+        ? Map<String, dynamic>.from(rawUnsettledMark as Map)
+        : null;
+    final rawCleanupActiveStays = displaySummary['cleanupActiveStays'];
+    final cleanupActiveStays = rawCleanupActiveStays != null && rawCleanupActiveStays is Map
+        ? Map<String, dynamic>.from(rawCleanupActiveStays as Map)
+        : null;
+    final rawMigrateMissedSettlements = displaySummary['migrateMissedSettlements'];
+    final migrateMissedSettlements = rawMigrateMissedSettlements != null && rawMigrateMissedSettlements is Map
+        ? Map<String, dynamic>.from(rawMigrateMissedSettlements as Map)
+        : null;
     final storeMeta = displaySummary['storeMeta'] as String? ?? '';
 
     String unsettledText;
@@ -1224,24 +1172,27 @@ class _terminalHomePageState extends State<terminalHomePage> {
     final buttonHeight = (screenHeight - kToolbarHeight - 80) / 2.3;
 
     // 通常のボタン（直接遷移）
-    final List<({String label, Widget destination, String? optionKey})> buttons = [
-      (label: 'ユーザー作成', destination: const CreateUserAccount(), optionKey: null),
-      (label: 'ユーザーログイン', destination: const UserCheckInPage(), optionKey: DeviceOptionKeys.userEntryExit),
-      (label: 'メニュー追加', destination: const MenuEditorListPage(), optionKey: null),
-      (label: '注文画面', destination: const CategorySelectPage(), optionKey: DeviceOptionKeys.order),
-      (label: '入店中user一覧', destination: const StayingUsersListPage(), optionKey: null),
-      (label: 'Tournament 作成', destination: const TournamentCreationMenuPage(), optionKey: DeviceOptionKeys.tournament),
-      (label: 'Tournament Home', destination: const ScheduledTournamentListPage(), optionKey: DeviceOptionKeys.tournament),
-      (label: 'sideGame', destination: const SideGameTableListPage(), optionKey: DeviceOptionKeys.sideGame),
-      (label: '注文管理', destination: const OrderManagementPage(), optionKey: DeviceOptionKeys.kitchen),
-      (label: 'スタッフ打刻', destination: const StaffAttendancePage(), optionKey: DeviceOptionKeys.staffEntryExit),
-      (label: '会計管理', destination: const AccountingPage(), optionKey: DeviceOptionKeys.accounting),
-      (label: '未会計の会計', destination: const UnsettledAccountingPage(), optionKey: DeviceOptionKeys.accounting),
-      (label: '売上ダッシュボード', destination: const DashboardHomePage(), optionKey: null),
-      (label: '支払い分割テスト', destination: const PaymentSplitTestPage(), optionKey: null),
-      (label: 'Firestoreサイズ計算', destination: const FirestoreSizePage(), optionKey: null),
+    // optionKeys: いずれか1つでも付与されていれば表示（null = 常に表示）
+    final List<({String label, Widget destination, List<String>? optionKeys})> buttons = [
+      (label: 'ユーザー作成', destination: const CreateUserAccount(), optionKeys: null),
+      (label: 'ユーザーログイン', destination: const UserCheckInPage(), optionKeys: [DeviceOptionKeys.userEntryExit]),
+      (label: 'メニュー追加', destination: const MenuEditorListPage(), optionKeys: null),
+      (label: '注文画面', destination: const CategorySelectPage(), optionKeys: [DeviceOptionKeys.order]),
+      (label: '入店中user一覧', destination: const StayingUsersListPage(), optionKeys: null),
+      (label: 'Tournament 作成', destination: const TournamentCreationMenuPage(), optionKeys: [DeviceOptionKeys.tournament]),
+      (label: 'Tournament Home', destination: const ScheduledTournamentListPage(), optionKeys: [DeviceOptionKeys.tournament]),
+      (label: '卓ページ', destination: const TableHomePage(), optionKeys: [DeviceOptionKeys.tournament, DeviceOptionKeys.tournamentTable]),
+      (label: 'ブラインドタイマー', destination: const BlindTimerTournamentSelectPage(), optionKeys: [DeviceOptionKeys.tournament]),
+      (label: 'sideGame', destination: const SideGameTableListPage(), optionKeys: [DeviceOptionKeys.sideGame]),
+      (label: '注文管理', destination: const OrderManagementPage(), optionKeys: [DeviceOptionKeys.kitchen]),
+      (label: 'スタッフ打刻', destination: const StaffAttendancePage(), optionKeys: [DeviceOptionKeys.staffEntryExit]),
+      (label: '会計管理', destination: const AccountingPage(), optionKeys: [DeviceOptionKeys.accounting]),
+      (label: '未会計の会計', destination: const UnsettledAccountingPage(), optionKeys: [DeviceOptionKeys.accounting]),
+      (label: '売上ダッシュボード', destination: const DashboardHomePage(), optionKeys: null),
+      (label: '支払い分割テスト', destination: const PaymentSplitTestPage(), optionKeys: null),
+      (label: 'Firestoreサイズ計算', destination: const FirestoreSizePage(), optionKeys: null),
       // テスト用: 会計後調整画面への遷移ボタン
-      (label: '会計後調整（テスト）', destination: const PostAccountingAdjustmentsPage(), optionKey: null),
+      (label: '会計後調整（テスト）', destination: const PostAccountingAdjustmentsPage(), optionKeys: null),
     ];
 
     final visibleButtons = buttons.where((btn) {
@@ -1250,20 +1201,10 @@ class _terminalHomePageState extends State<terminalHomePage> {
       // オプションがまだ付与されていない（空）場合は従来通り全表示
       if (_deviceOptions.isEmpty) return true;
       // オプションキーが無いボタンは常に表示（一般系）
-      if (btn.optionKey == null) return true;
-      // 付与済みオプションのみ表示
-      return _deviceOptions[btn.optionKey!] == true;
+      if (btn.optionKeys == null) return true;
+      // いずれか1つでも付与済みなら表示
+      return btn.optionKeys!.any((key) => _deviceOptions[key] == true);
     }).toList();
-
-    // 特殊ボタン（ダイアログ経由で遷移）
-    final showTablePageButton = _isAdminDevice ||
-        _deviceOptions.isEmpty ||
-        _deviceOptions[DeviceOptionKeys.tournament] == true ||
-        _deviceOptions[DeviceOptionKeys.tournamentTable] == true;
-
-    final showBlindTimerButton = _isAdminDevice ||
-        _deviceOptions.isEmpty ||
-        _deviceOptions[DeviceOptionKeys.tournament] == true;
 
     final showStoreManagementButton = _isAdminDevice ||
         _deviceOptions[DeviceOptionKeys.storeManagement] == true;
@@ -1311,21 +1252,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
           ...visibleButtons.map((btn) {
             return ElevatedButton(
               onPressed: () async {
-                // オプションチェック（optionKeyが指定されている場合のみ）
-                if (btn.optionKey != null) {
-                  final ok = await _deviceService.hasOption(btn.optionKey!);
-                  if (!ok) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('権限がありません: ${DeviceOptionKeys.label(btn.optionKey!)}'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                    return;
-                  }
-                }
                 if (context.mounted) {
                   Navigator.push(
                     context,
@@ -1336,26 +1262,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
               child: Text(btn.label, textAlign: TextAlign.center),
             );
           }),
-          // 卓ページボタン
-          if (showTablePageButton)
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal,
-                foregroundColor: Colors.white,
-              ),
-              onPressed: () => _navigateToTablePage(context),
-              child: const Text('卓ページ', textAlign: TextAlign.center),
-            ),
-          // ブラインドタイマーボタン
-          if (showBlindTimerButton)
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple,
-                foregroundColor: Colors.white,
-              ),
-              onPressed: () => _navigateToBlindTimer(context),
-              child: const Text('ブラインドタイマー', textAlign: TextAlign.center),
-            ),
           // 営業管理ボタン（開閉店管理ダイアログ）
           if (showStoreManagementButton)
             ElevatedButton(
