@@ -10,7 +10,8 @@ import 'dart:math';
 import 'dart:async'; // For TimeoutException
 import 'package:amuse_app_template/user_actions/user_action_home.dart';
 import 'package:amuse_app_template/user_actions/bulk_addon_popup.dart';
-// Added import for TournamentActionsHistoryPage
+import 'package:amuse_app_template/ActionHistory/tournamentActionsHistoryPage.dart';
+import 'package:amuse_app_template/services/device_service.dart';
 
 class TableDetailPage extends StatefulWidget {
   final String tournamentId;
@@ -1094,17 +1095,23 @@ class _TableDetailPageState extends State<TableDetailPage> {
       print('pokerName: $pokerName');
       print('seatNumber: $seatNumber');
       
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+
       final functions = FirebaseFunctions.instance;
       final callable = functions.httpsCallable('assignSeatToPlayer');
-      
-      // Cloud Function呼び出し（タイムアウト付き）
+
       print('=== Cloud Function呼び出し実行中 ===');
       final result = await callable.call({
+        'operationId': operationId,
         'tournamentId': widget.tournamentId,
         'tableId': widget.tableId,
         'seatNumber': seatNumber,
         'userId': userId,
         'pokerName': pokerName,
+        if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
       }).timeout(
         const Duration(seconds: 30),
         onTimeout: () {
@@ -1217,26 +1224,27 @@ class _TableDetailPageState extends State<TableDetailPage> {
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('キャンセル'),
             ),
-            /*ElevatedButton(
+            ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
                 _navigateToActionHistory();
               },
-              child: const Text('Yes'),
-            ),*/
+              child: const Text('表示する'),
+            ),
           ],
         );
       },
     );
   }
 
-  /*void _navigateToActionHistory() {
+  void _navigateToActionHistory() {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => TournamentActionsHistoryPage(
           tournamentId: widget.tournamentId,
+          tableId: widget.tableId,
         ),
       ),
     );
-  }*/
+  }
 }

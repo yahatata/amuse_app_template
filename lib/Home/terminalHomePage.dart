@@ -257,6 +257,16 @@ class _terminalHomePageState extends State<terminalHomePage> {
     );
   }
 
+  void _showAuthExpiredSnackBar() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('認証が切れています。アプリを再起動するか、再度ログインしてください。'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
   /// 開閉店管理ダイアログを表示（Phase6 Step3: 開店中は閉店、閉店中は開店）
   /// ダイアログを閉じたあとでもフローを続行するため、ページの context を保持して渡す。
   void _showStoreManagementDialog(BuildContext context) {
@@ -424,8 +434,12 @@ class _terminalHomePageState extends State<terminalHomePage> {
     }
 
     try {
+      // デバイス登録済みの場合は signInAnonymously() を呼ばない（新規匿名ユーザーが作られ uid が変わり permission-denied の原因になる）
       final auth = FirebaseAuth.instance;
-      if (auth.currentUser == null) await auth.signInAnonymously();
+      if (auth.currentUser == null) {
+        if (mounted) _showAuthExpiredSnackBar();
+        return;
+      }
 
       loadingOverlay = OverlayEntry(
         builder: (_) => Material(

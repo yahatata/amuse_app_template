@@ -302,6 +302,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
       final callable = _functions.httpsCallable('endTournament');
       final result = await callable.call({
         'tournamentId': widget.tournamentId,
+        'endType': 'normal',
       });
       
       if (result.data['success'] == true) {

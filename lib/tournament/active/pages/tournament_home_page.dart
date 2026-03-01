@@ -14,6 +14,7 @@ import 'package:amuse_app_template/tournament/active/widgets/dialogs/register_pa
 import 'package:amuse_app_template/tournament/active/models/table_and_users.dart';
 import 'package:amuse_app_template/tournament/active/services/tournament_data_service.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/ActionHistory/tournamentActionsHistoryPage.dart';
 import 'table_detail_page.dart';
 import 'prize_setup_page.dart';
 import 'ranking_setup_page.dart';
@@ -380,6 +381,9 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
     });
 
     try {
+      bool isForceEnd = false;
+      String? forceReason;
+
       // 検証ダイアログを表示（画面中央）
       showDialog(
         context: context,
@@ -424,20 +428,19 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           if (!shouldForceEnd) {
             return;
           }
-          // 強制終了の場合、さらに確認
           final confirmed = await _showForceEndConfirmationDialog(
             'レジスト前のトーナメントの終了処理を行って問題ないでしょうか？',
           );
           if (!confirmed) {
             return;
           }
+          isForceEnd = true;
+          forceReason = 'not_registered';
         } else if (errorType == 'no_prize') {
-          // プライズ未確定
           final action = await _showNoPrizeDialog();
           if (action == 'cancel') {
             return;
           } else if (action == 'prize') {
-            // プライズ確定画面へ遷移
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (context) => PrizeSetupPage(
@@ -447,21 +450,20 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
             );
             return;
           }
-          // action == 'force_end' の場合は処理を続ける
           final confirmed = await _showForceEndConfirmationDialog(
             'プライズ未確定のトーナメントの強制終了処理を実行しますか？',
           );
           if (!confirmed) {
             return;
           }
+          isForceEnd = true;
+          forceReason = 'no_prize';
         } else if (errorType == 'no_ranking') {
-          // 順位未確定
           final rankingData = validateResult.data['rankingData'];
           final action = await _showNoRankingDialog(rankingData);
           if (action == 'cancel') {
             return;
           } else if (action == 'ranking') {
-            // 順位確定画面へ遷移
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (context) => RankingSetupPage(
@@ -471,15 +473,15 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
             );
             return;
           }
-          // action == 'force_end' の場合は処理を続ける
           final confirmed = await _showForceEndConfirmationDialog(
             '順位未確定のトーナメントの強制終了処理を実行しますか？',
           );
           if (!confirmed) {
             return;
           }
+          isForceEnd = true;
+          forceReason = 'no_ranking';
         } else {
-          // その他のエラー
           await showDialog(
             context: context,
             builder: (context) => AlertDialog(
@@ -496,7 +498,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           return;
         }
       } else {
-        // 検証成功 - 順位情報を表示して最終確認
+        // 検証成功 - 順位情報を表示して最終確認（通常終了）
         final rankingData = validateResult.data['rankingData'];
         final confirmed = await _showFinalConfirmationDialog(rankingData);
         if (!confirmed) {
@@ -513,11 +515,15 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
         ),
       );
       
-      // 終了処理を実行
       final endCallable = functions.httpsCallable('endTournament');
-      final endResult = await endCallable.call({
+      final endParams = <String, dynamic>{
         'tournamentId': widget.tournamentId,
-      });
+        'endType': isForceEnd ? 'force' : 'normal',
+      };
+      if (isForceEnd && forceReason != null) {
+        endParams['forceReason'] = forceReason;
+      }
+      final endResult = await endCallable.call(endParams);
       
       Navigator.of(context).pop(); // 処理中ダイアログを閉じる
       
@@ -1096,18 +1102,11 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   }
 
   void _showActionHistory() {
-    // 仮の画面に遷移
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('操作履歴'),
-        content: const Text('操作履歴画面は今後実装予定です。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('閉じる'),
-          ),
-        ],
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => TournamentActionsHistoryPage(
+          tournamentId: widget.tournamentId,
+        ),
       ),
     );
   }
@@ -1353,144 +1352,147 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                         ),
                         child: Column(
                           children: [
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.orange[100],
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(8),
-                                  topRight: Radius.circular(8),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.hourglass_empty, color: Colors.orange[700]),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '待機者一覧',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.orange[700],
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  ElevatedButton.icon(
-                                    onPressed: () => _assignSeatToWaiting(),
-                                    icon: const Icon(Icons.event_seat, size: 16),
-                                    label: const Text('着席', style: TextStyle(fontSize: 12)),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.orange[600],
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      minimumSize: const Size(0, 28),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '${_waitingPlayers.length}人',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.orange[700],
-                                      fontSize: 18,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
                             Expanded(
                               child: StreamBuilder<DocumentSnapshot>(
                                 stream: FirebaseFirestore.instance
-                                    .collection('scheduledTournaments')
-                                    .doc(widget.tournamentId)
-                                    .collection('tablesSeat')
-                                    .doc('waiting')
-                                    .snapshots(),
-                                builder: (context, waitingSnapshot) {
-                                  if (waitingSnapshot.hasError) {
-                                    return Center(
-                                      child: Text(
-                                        '待機者データエラー: ${waitingSnapshot.error}',
-                                        style: const TextStyle(color: Colors.red),
-                                      ),
-                                    );
-                                  }
+                                  .collection('scheduledTournaments')
+                                  .doc(widget.tournamentId)
+                                  .collection('tablesSeat')
+                                  .doc('waiting')
+                                  .snapshots(),
+                              builder: (context, waitingSnapshot) {
+                                int waitingCount = 0;
+                                List<WaitingPlayer> playersFromStream = [];
 
-                                  if (waitingSnapshot.connectionState == ConnectionState.waiting) {
-                                    return const Center(child: CircularProgressIndicator());
-                                  }
-
-                                  final waitingData = waitingSnapshot.data?.data() != null 
+                                if (!waitingSnapshot.hasError &&
+                                    waitingSnapshot.connectionState == ConnectionState.active &&
+                                    waitingSnapshot.data != null) {
+                                  final waitingData = waitingSnapshot.data!.data() != null
                                       ? Map<String, dynamic>.from(waitingSnapshot.data!.data()! as Map)
                                       : null;
                                   final waitingList = waitingData?['waiting'] as Map<String, dynamic>? ?? {};
-                                  final waitingCount = waitingList.length;
+                                  waitingCount = waitingList.length;
+                                  for (final e in waitingList.entries) {
+                                    final userId = e.key;
+                                    final v = e.value;
+                                    if (v is Map<String, dynamic>) {
+                                      final pokerName = v['pokerName'] as String? ?? 'ユーザー$userId';
+                                      DateTime joinedAt = DateTime.now();
+                                      if (v['joinedAt'] != null && v['joinedAt'] is Timestamp) {
+                                        joinedAt = (v['joinedAt'] as Timestamp).toDate();
+                                      }
+                                      playersFromStream.add(WaitingPlayer(
+                                        userId: userId,
+                                        displayName: pokerName,
+                                        joinedAt: joinedAt,
+                                      ));
+                                    }
+                                  }
+                                }
 
-                                  debugPrint('=== 待機者データ取得成功 ===');
-                                  debugPrint('待機者数: $waitingCount');
-                                  debugPrint('待機者リスト: $waitingList');
-
-                                  if (waitingCount == 0) {
-                                    return const Center(
-                                      child: Text(
-                                        '待機者がいません',
-                                        style: TextStyle(color: Colors.grey),
+                                return Column(
+                                  children: [
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange[100],
+                                        borderRadius: const BorderRadius.only(
+                                          topLeft: Radius.circular(8),
+                                          topRight: Radius.circular(8),
+                                        ),
                                       ),
-                                    );
-                                  }
-
-                                  // Firestoreから読み込んだデータを使用して待機者リストを表示
-                                  if (_isLoadingData) {
-                                    return const Center(child: CircularProgressIndicator());
-                                  }
-                                  
-                                  if (_waitingPlayers.isEmpty) {
-                                    return const Center(
-                                      child: Text(
-                                        '待機者がいません',
-                                        style: TextStyle(color: Colors.grey),
-                                      ),
-                                    );
-                                  }
-                                  
-                                  return ListView.builder(
-                                    padding: const EdgeInsets.all(8),
-                                    itemCount: _waitingPlayers.length,
-                                    itemBuilder: (context, index) {
-                                      final player = _waitingPlayers[index];
-                                      
-                                      return Card(
-                                        margin: const EdgeInsets.only(bottom: 4),
-                                        child: ListTile(
-                                          leading: CircleAvatar(
-                                            backgroundColor: Colors.orange[100],
-                                            child: Text(
-                                              '${index + 1}',
-                                              style: TextStyle(
-                                                color: Colors.orange[700],
-                                                fontWeight: FontWeight.bold,
-                                              ),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.hourglass_empty, color: Colors.orange[700]),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            '待機者一覧',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.orange[700],
+                                              fontSize: 16,
                                             ),
                                           ),
-                                          title: Text(player.displayName),
-                                          subtitle: Text('待機時間: ${player.waitingMinutes}分'),
-                                          trailing: IconButton(
-                                            icon: const Icon(Icons.event_seat, color: Colors.green),
-                                            onPressed: () => _showAssignSeatDialogForPlayer(player.userId),
+                                          const Spacer(),
+                                          ElevatedButton.icon(
+                                            onPressed: () => _assignSeatToWaiting(),
+                                            icon: const Icon(Icons.event_seat, size: 16),
+                                            label: const Text('着席', style: TextStyle(fontSize: 12)),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.orange[600],
+                                              foregroundColor: Colors.white,
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              minimumSize: const Size(0, 28),
+                                            ),
                                           ),
-                                        ),
-                                      );
-                                    },
-                                  );
-                                },
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            '${waitingCount}人',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.orange[700],
+                                              fontSize: 18,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: waitingSnapshot.hasError
+                                          ? Center(
+                                              child: Text(
+                                                '待機者データエラー: ${waitingSnapshot.error}',
+                                                style: const TextStyle(color: Colors.red),
+                                              ),
+                                            )
+                                          : waitingSnapshot.connectionState == ConnectionState.waiting
+                                              ? const Center(child: CircularProgressIndicator())
+                                              : waitingCount == 0
+                                                  ? const Center(
+                                                      child: Text(
+                                                        '待機者がいません',
+                                                        style: TextStyle(color: Colors.grey),
+                                                      ),
+                                                    )
+                                                  : ListView.builder(
+                                                      padding: const EdgeInsets.all(8),
+                                                      itemCount: playersFromStream.length,
+                                                      itemBuilder: (context, index) {
+                                                        final player = playersFromStream[index];
+                                                        return Card(
+                                                          margin: const EdgeInsets.only(bottom: 4),
+                                                          child: ListTile(
+                                                            leading: CircleAvatar(
+                                                              backgroundColor: Colors.orange[100],
+                                                              child: Text(
+                                                                '${index + 1}',
+                                                                style: TextStyle(
+                                                                  color: Colors.orange[700],
+                                                                  fontWeight: FontWeight.bold,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                            title: Text(player.displayName),
+                                                            subtitle: Text('待機時間: ${player.waitingMinutes}分'),
+                                                            trailing: IconButton(
+                                                              icon: const Icon(Icons.event_seat, color: Colors.green),
+                                                              onPressed: () => _showAssignSeatDialogForPlayer(player.userId),
+                                                            ),
+                                                          ),
+                                                        );
+                                                      },
+                                                    ),
+                                    ),
+                                  ],
+                                );
+                              },
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    
                     // 右側: 卓一覧 (70%)
                     Expanded(
                       flex: 7,

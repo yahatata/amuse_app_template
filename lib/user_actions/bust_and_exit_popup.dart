@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'dart:async';
+import 'package:amuse_app_template/services/device_service.dart';
 
 /// Bust&退席確認ダイアログ
 Future<void> showBustAndExitDialog({
@@ -137,13 +140,20 @@ Future<void> _executeBustAndExit({
     print('seatNumber: $seatNumber');
     print('userId: ${user['userId']}');
     
-    // Cloud Function呼び出し（タイムアウト付き）
+    // 操作記録用の operationId（1 試行 1 ドキュメント）
+    final operationId =
+        '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+    final device = await DeviceService().getCurrentDevice();
+    final deviceName = device?.name;
+
     print('=== Cloud Function呼び出し実行中 ===');
     final result = await callable.call({
+      'operationId': operationId,
       'tournamentId': tournamentId,
       'tableId': tableId,
       'seatNumber': seatNumber,
       'userId': user['userId'],
+      if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
     }).timeout(
       const Duration(seconds: 30),
       onTimeout: () {

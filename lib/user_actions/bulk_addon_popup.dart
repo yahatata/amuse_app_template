@@ -217,6 +217,7 @@ Future<void> showBulkAddonDialog({
                           _processBulkAddon(
                             context: outerCtx,
                             tournamentId: tournamentId,
+                            tableId: tableId,
                             selectedUsers: selectedUsersList,
                           ).catchError((error) {
                             // エラーハンドリング（outerCtxを使用）
@@ -244,6 +245,7 @@ Future<void> showBulkAddonDialog({
 Future<void> _processBulkAddon({
   required BuildContext context,
   required String tournamentId,
+  required String tableId,
   required List<Map<String, dynamic>> selectedUsers,
 }) async {
   // ローディングダイアログを表示
@@ -335,6 +337,7 @@ Future<void> _processBulkAddon({
     
     final result = await callable.call({
       'tournamentId': tournamentId,
+      'tableId': tableId,
       'users': selectedUsers.map((user) => {
         'userId': user['userId'],
         'pokerName': user['pokerName'],

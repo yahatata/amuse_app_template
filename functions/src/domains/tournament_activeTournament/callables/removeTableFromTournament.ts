@@ -41,50 +41,43 @@ export const removeTableFromTournament = onCall(async (request) => {
     
     const db = admin.firestore();
     
-    // トランザクション開始
+    // トランザクション開始（Firestore: 全読み取り → 全書き込みの順で実行すること）
     await db.runTransaction(async (transaction) => {
-      // 1. tablesSeatサブコレクションのドキュメントを取得して確認
       const tournamentTableRef = db
         .collection('scheduledTournaments')
         .doc(tournamentId)
         .collection('tablesSeat')
         .doc(tableId);
-      
-      const tournamentTableDoc = await transaction.get(tournamentTableRef);
-      
+      const tableRef = db.collection('tables').doc(tableId);
+
+      // 1. すべての読み取りを先に実行
+      const [tournamentTableDoc, tableDoc] = await Promise.all([
+        transaction.get(tournamentTableRef),
+        transaction.get(tableRef),
+      ]);
+
       if (!tournamentTableDoc.exists) {
         throw new Error('トーナメントに該当する卓が見つかりません');
       }
-      
       const tableData = tournamentTableDoc.data()!;
-      const seats = tableData.seats as { [key: string]: string | null } | undefined ?? {};
-      
-      // 着席しているユーザーがいるかチェック
+      const seats = (tableData.seats as { [key: string]: string | null } | undefined) ?? {};
+
       const hasOccupiedSeats = Object.entries(seats).some(
         ([key, value]) => {
           if (!key.endsWith('UserId')) return false;
-          // null、空文字列、空の値をチェック
-          return value != null && 
-                 typeof value === 'string' && 
-                 value.trim().length > 0;
+          return value != null && typeof value === 'string' && value.trim().length > 0;
         }
       );
-      
       if (hasOccupiedSeats) {
         throw new Error('着席しているユーザーがいるため、卓を削除できません');
       }
-      
-      // 2. tablesSeatサブコレクションのドキュメントを削除
-      transaction.delete(tournamentTableRef);
-      
-      // 3. tablesコレクションのstatusをopenに変更
-      const tableRef = db.collection('tables').doc(tableId);
-      const tableDoc = await transaction.get(tableRef);
-      
+
       if (!tableDoc.exists) {
         throw new Error('テーブルが存在しません');
       }
-      
+
+      // 2. 読み取りの後に書き込み
+      transaction.delete(tournamentTableRef);
       transaction.update(tableRef, {
         status: 'open',
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),

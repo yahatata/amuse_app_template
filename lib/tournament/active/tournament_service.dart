@@ -1,6 +1,8 @@
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import '../../services/device_service.dart';
 import '../../utils/business_date_ambiguous_dialog.dart';
 
 // 後フェーズで実装予定のインターフェース
@@ -255,13 +257,19 @@ class TournamentServiceImpl implements TournamentService {
     required int seatNumber,
   }) async {
     try {
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+
       final callable = _functions.httpsCallable('assignSeatToPlayer');
-      
       final result = await callable.call({
+        'operationId': operationId,
         'tournamentId': tournamentId,
         'userId': userId,
         'tableId': tableId,
         'seatNumber': seatNumber,
+        if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
       });
 
       final response = result.data as Map<String, dynamic>;
@@ -277,11 +285,17 @@ class TournamentServiceImpl implements TournamentService {
     required List<Map<String, dynamic>> playerAssignments,
   }) async {
     try {
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+
       final callable = _functions.httpsCallable('reseatAllPlayers');
-      
       final result = await callable.call({
+        'operationId': operationId,
         'tournamentId': tournamentId,
         'playerAssignments': playerAssignments,
+        if (deviceName != null) 'deviceName': deviceName,
       });
 
       final response = result.data as Map<String, dynamic>;
@@ -299,13 +313,19 @@ class TournamentServiceImpl implements TournamentService {
     required int seatNumber,
   }) async {
     try {
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+
       final callable = _functions.httpsCallable('bustAndExit');
-      
       final result = await callable.call({
+        'operationId': operationId,
         'tournamentId': tournamentId,
         'userId': userId,
         'tableId': tableId,
         'seatNumber': seatNumber,
+        if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
       });
 
       final response = result.data as Map<String, dynamic>;

@@ -44,34 +44,48 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
       content: SizedBox(
         width: double.maxFinite,
         height: 400,
-        child: Column(
+        child: Stack(
           children: [
-            const Text('リシート対象者を選択してください'),
-            const SizedBox(height: 16),
-            
-            // 待機者リストとリシート対象者リストを横並びで表示
-            Expanded(
-              child: Row(
-                children: [
-                  // 左側: 待機者リスト
-                  Expanded(
-                    child: _buildWaitingList(),
+            Column(
+              children: [
+                const Text('リシート対象者を選択してください'),
+                const SizedBox(height: 16),
+                // 待機者リストとリシート対象者リストを横並びで表示
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(child: _buildWaitingList()),
+                      const SizedBox(width: 16),
+                      Expanded(child: _buildReseatTargetList()),
+                    ],
                   ),
-                  
-                  const SizedBox(width: 16),
-                  
-                  // 右側: リシート対象者リスト
-                  Expanded(
-                    child: _buildReseatTargetList(),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 16),
+                _buildCapacityInfo(),
+              ],
             ),
-            
-            const SizedBox(height: 16),
-            
-            // 上限表示
-            _buildCapacityInfo(),
+            // リシート実行中のローディング表示
+            if (_isLoading)
+              Container(
+                color: Colors.black26,
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text(
+                        'リシート実行中...',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),

@@ -1,17 +1,22 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import type { DeviceDoc } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
+import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 
 // 入力スキーマ
 const reseatAllPlayersSchema = z.object({
+  operationId: z.string().min(1, 'operationId は必須です'),
   tournamentId: z.string(),
   playerAssignments: z.array(z.object({
     userId: z.string(),
     tableId: z.string(),
     seatNumber: z.number().int().positive(),
   })),
+  deviceName: z.string().optional(),
 });
 
 export const reseatAllPlayers = onCall(async (request) => {
@@ -21,24 +26,21 @@ export const reseatAllPlayers = onCall(async (request) => {
   }
 
   const callerUid = request.auth.uid;
-
-  // デバイス権限の確認（role: admin または options.tournament: true）
-  const device = await getCallerDeviceByUid(callerUid);
-  if (!device || !isActive(device.status)) {
-    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
-  }
-
-  const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
-  if (!hasPermission) {
-    throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
-  }
+  let device: DeviceDoc | null = null;
 
   try {
-    // データを取得
+    device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+    }
+
+    const startedAt = FieldValue.serverTimestamp();
     const { data } = request;
-    
-    // 入力検証
-    const { tournamentId, playerAssignments } = reseatAllPlayersSchema.parse(data);
+    const { operationId, tournamentId, playerAssignments, deviceName } = reseatAllPlayersSchema.parse(data);
     
     console.log(`=== 全員リシート開始 ===`);
     console.log(`tournamentId: ${tournamentId}`);
@@ -48,13 +50,26 @@ export const reseatAllPlayers = onCall(async (request) => {
     
     // トランザクション開始
     const result = await db.runTransaction(async (transaction) => {
-      // 1. 全テーブルのシートをクリア
       const tablesSeatRef = db
         .collection('scheduledTournaments')
         .doc(tournamentId)
         .collection('tablesSeat');
       
       const tablesSeatDocs = await transaction.get(tablesSeatRef);
+
+      // 1. 巻き戻し用: 変更前の座席配置を保存（undoReseatAllPlayers で復元する形式）
+      const previousSeatingData: Record<string, { waiting?: Record<string, unknown>; count?: number; seats?: Record<string, unknown> }> = {};
+      for (const doc of tablesSeatDocs.docs) {
+        const d = doc.data();
+        if (doc.id === 'waiting') {
+          previousSeatingData.waiting = {
+            waiting: d.waiting ?? {},
+            count: d.count ?? Object.keys((d.waiting as Record<string, unknown>) ?? {}).length,
+          };
+        } else {
+          previousSeatingData[doc.id] = { seats: d.seats ?? {} };
+        }
+      }
       
       // 2. activeStaysからユーザー情報を事前に取得（すべての読み取りを最初に実行）
       const userPokerNames: { [userId: string]: string } = {};
@@ -189,10 +204,11 @@ export const reseatAllPlayers = onCall(async (request) => {
       //   timestamp: admin.firestore.FieldValue.serverTimestamp(),
       // });
       
-      // トランザクション内で取得した情報を返す（トランザクション外でupdatePlaceを呼び出すため）
+      // トランザクション内で取得した情報を返す（トランザクション外で updatePlace と operationLog に使用）
       return { 
         success: true, 
         playerCount: playerAssignments.length,
+        previousSeatingData,
         playerAssignments: playerAssignments.map(a => ({
           userId: a.userId,
           tableId: a.tableId,
@@ -220,6 +236,21 @@ export const reseatAllPlayers = onCall(async (request) => {
       }
     }
     
+    // 操作記録（成功）。op-106。トーナメント単位（卓に紐づかない）のため tableId はトップレベルに付けない
+    await writeSingleOperationLog({
+      operationId,
+      operationName: '全員着席替え',
+      deviceId: device.id,
+      deviceName: deviceName ?? device.name ?? undefined,
+      status: 'succeeded',
+      startedAt,
+      tournamentId,
+      payload: {
+        tournamentId,
+        previousSeatingData: result.previousSeatingData,
+      },
+    });
+
     console.log(`=== 全員リシート完了 ===`);
     console.log(`結果:`, result);
     
@@ -228,12 +259,28 @@ export const reseatAllPlayers = onCall(async (request) => {
   } catch (error) {
     console.error('=== 全員リシートエラー ===');
     console.error(error);
+
+    const rawData = request.data as Record<string, unknown> | undefined;
+    const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : undefined;
+    if (opId && device != null) {
+      try {
+        await writeSingleOperationLog({
+          operationId: opId,
+          operationName: '全員着席替え',
+          deviceId: device.id,
+          deviceName: typeof rawData?.deviceName === 'string' ? rawData.deviceName : device.name ?? undefined,
+          status: 'failed',
+          errorSummary: toErrorSummary(error),
+          payload: {},
+        });
+      } catch (logErr) {
+        console.error('operationLog 書き込み失敗', logErr);
+      }
+    }
     
-    // エラーメッセージを適切に返す
     if (error instanceof Error) {
       throw new HttpsError('internal', error.message);
-    } else {
-      throw new HttpsError('internal', '全員リシートに失敗しました');
     }
+    throw new HttpsError('internal', '全員リシートに失敗しました');
   }
 });

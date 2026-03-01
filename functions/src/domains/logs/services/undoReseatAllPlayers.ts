@@ -1,10 +1,8 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { markActionAsRolledBack } from "./actionLogger";
 
 export interface UndoReseatAllPlayersParams {
   tournamentId: string;
-  actionLogId: string;
-  previousSeatingData: Record<string, any>; // 前の座席配置データ
+  previousSeatingData: Record<string, any>; // 前の座席配置データ（waiting + 各 table.seats）
   rollBackBy: string;
 }
 
@@ -17,70 +15,65 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
   
   try {
     await db.runTransaction(async (transaction) => {
-      // 1. 前の座席配置データを復元
-      for (const [tableId, tableData] of Object.entries(params.previousSeatingData)) {
-        if (tableId === 'waiting') {
-          // waiting リストを復元
-          const waitingRef = db
-            .collection('scheduledTournaments')
-            .doc(params.tournamentId)
-            .collection('tablesSeat')
-            .doc('waiting');
-            
-          transaction.set(waitingRef, {
-            waiting: tableData.waiting || {},
-            count: Object.keys(tableData.waiting || {}).length,
-            updatedAt: now,
-          });
-        } else {
-          // 各テーブルの座席配置を復元
-          const seatRef = db
-            .collection('scheduledTournaments')
-            .doc(params.tournamentId)
-            .collection('tablesSeat')
-            .doc(tableId);
-            
-          transaction.set(seatRef, {
-            seats: tableData.seats || {},
-            updatedAt: now,
-          });
-        }
-      }
-      
-      // 2. main view の統計を復元
       const mainViewRef = db
         .collection('scheduledTournaments')
         .doc(params.tournamentId)
         .collection('views')
         .doc('main');
-        
+
+      // すべての読み取りを先に実行
       const mainViewDoc = await transaction.get(mainViewRef);
-      if (mainViewDoc.exists) {
-        // 前の座席配置から統計を計算
-        let seatedCount = 0;
-        let waitingCount = 0;
-        
-        for (const [tableId, tableData] of Object.entries(params.previousSeatingData)) {
-          if (tableId === 'waiting') {
-            waitingCount = Object.keys(tableData.waiting || {}).length;
-          } else {
-            seatedCount += Object.keys(tableData.seats || {}).length;
+
+      let seatedCount = 0;
+      let waitingCount = 0;
+      for (const [tableId, tableData] of Object.entries(params.previousSeatingData)) {
+        if (tableId === 'waiting') {
+          waitingCount = Object.keys((tableData as { waiting?: Record<string, unknown> }).waiting || {}).length;
+        } else {
+          const seats = (tableData as { seats?: Record<string, unknown> }).seats || {};
+          for (const [k, v] of Object.entries(seats)) {
+            if (k.endsWith('UserId') && v != null && v !== '') seatedCount++;
           }
         }
-        
+      }
+
+      // ここから書き込みのみ
+      for (const [tableId, tableData] of Object.entries(params.previousSeatingData)) {
+        if (tableId === 'waiting') {
+          const data = tableData as { waiting?: Record<string, unknown> };
+          const waiting = data.waiting || {};
+          const waitingRef = db
+            .collection('scheduledTournaments')
+            .doc(params.tournamentId)
+            .collection('tablesSeat')
+            .doc('waiting');
+          transaction.set(waitingRef, {
+            waiting,
+            count: Object.keys(waiting).length,
+            updatedAt: now,
+          });
+        } else {
+          const data = tableData as { seats?: Record<string, unknown> };
+          const seatRef = db
+            .collection('scheduledTournaments')
+            .doc(params.tournamentId)
+            .collection('tablesSeat')
+            .doc(tableId);
+          // merge: true で seats と updatedAt のみ更新し、isEnabled 等の既存フィールドを保持する
+          transaction.set(seatRef, {
+            seats: data.seats || {},
+            updatedAt: now,
+          }, { merge: true });
+        }
+      }
+
+      if (mainViewDoc.exists) {
         transaction.update(mainViewRef, {
           seatedCount,
           waitingCount,
           updatedAt: now,
         });
       }
-      
-      // 3. actionLog をロールバック済みとしてマーク
-      await markActionAsRolledBack(
-        params.tournamentId,
-        params.actionLogId,
-        params.rollBackBy
-      );
     });
     
     console.log(`Reseat all players operation undone in tournament ${params.tournamentId}`);

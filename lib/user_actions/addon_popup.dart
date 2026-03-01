@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/services/device_service.dart';
 
 /// Addon確認ダイアログ
 Future<void> showAddonDialog({
@@ -201,6 +202,7 @@ Future<void> showAddonDialog({
                 userId: userId,
                 pokerName: pokerName,
                 tournamentId: tournamentId,
+                tableId: user['tableId'] as String?,
               );
             },
             style: ElevatedButton.styleFrom(
@@ -221,6 +223,7 @@ Future<void> _executeAddon({
   required String userId,
   required String pokerName,
   required String tournamentId,
+  String? tableId,
 }) async {
   if (!context.mounted) return;
 
@@ -279,7 +282,8 @@ Future<void> _executeAddon({
     final operationId =
         '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
 
-    // Cloud Function呼び出し（タイムアウト付き）
+    final device = await DeviceService().getCurrentDevice();
+    final deviceName = device?.name;
     final functions = FirebaseFunctions.instance;
     final callable = functions.httpsCallable('addon');
 
@@ -288,6 +292,8 @@ Future<void> _executeAddon({
       'tournamentId': tournamentId,
       'userId': userId,
       'pokerName': pokerName,
+      if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
+      if (tableId != null && tableId.isNotEmpty) 'tableId': tableId,
     }).timeout(
       const Duration(seconds: 30),
       onTimeout: () => throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました'),

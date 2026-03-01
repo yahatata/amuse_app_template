@@ -1,15 +1,20 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
+import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
+import type { DeviceDoc } from '../../../shared/devices';
 
 // 入力データの検証スキーマ
 const bustAndExitSchema = z.object({
+  operationId: z.string().min(1, 'operationId は必須です'),
   tournamentId: z.string().min(1),
   tableId: z.string().min(1),
   seatNumber: z.number().int().positive(),
   userId: z.string().min(1),
+  deviceName: z.string().optional(),
 });
 
 export const bustAndExit = onCall(async (request) => {
@@ -19,25 +24,25 @@ export const bustAndExit = onCall(async (request) => {
   }
 
   const callerUid = request.auth.uid;
-
-  // デバイス権限の確認（role: admin または options.tournament: true）
-  const device = await getCallerDeviceByUid(callerUid);
-  if (!device || !isActive(device.status)) {
-    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
-  }
-
-  const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
-  if (!hasPermission) {
-    throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
-  }
+  let device: DeviceDoc | null = null;
 
   try {
+    device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+    }
+
+    const startedAt = FieldValue.serverTimestamp();
     console.log('=== Bust&退席処理開始 ===');
     const { data } = request;
     console.log('受信データ:', data);
 
     // 入力検証
-    const { tournamentId, tableId, seatNumber, userId } = bustAndExitSchema.parse(data);
+    const { operationId, tournamentId, tableId, seatNumber, userId, deviceName } = bustAndExitSchema.parse(data);
 
     console.log(`tournamentId: ${tournamentId}`);
     console.log(`tableId: ${tableId}`);
@@ -170,6 +175,25 @@ export const bustAndExit = onCall(async (request) => {
       }
     }
 
+    // 操作記録（成功）。op-103。卓単位のため tableId/tournamentId をトップレベルに付与
+    await writeSingleOperationLog({
+      operationId,
+      operationName: 'バスト＆退店',
+      deviceId: device.id,
+      deviceName: deviceName ?? device.name ?? undefined,
+      status: 'succeeded',
+      startedAt,
+      tournamentId,
+      tableId,
+      payload: {
+        playerUid: userId,
+        playerName: pokerName,
+        tableId,
+        seatNumber,
+        billId: result.billId,
+      },
+    });
+
     console.log(`=== Bust&退席完了 ===`);
     console.log(`ユーザー ${userId} のBust&退席が完了しました`);
 
@@ -183,12 +207,34 @@ export const bustAndExit = onCall(async (request) => {
     console.error('=== Bust&退席エラー ===');
     console.error(error);
 
+    const rawData = request.data as Record<string, unknown> | undefined;
+    const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : undefined;
+    if (opId && device != null) {
+      try {
+        await writeSingleOperationLog({
+          operationId: opId,
+          operationName: 'バスト＆退店',
+          deviceId: device.id,
+          deviceName: typeof rawData?.deviceName === 'string' ? rawData.deviceName : device.name ?? undefined,
+          status: 'failed',
+          errorSummary: toErrorSummary(error),
+          payload: {},
+        });
+      } catch (logErr) {
+        console.error('operationLog 書き込み失敗', logErr);
+      }
+    }
+
     if (error instanceof z.ZodError) {
       return {
         success: false,
         error: '入力検証エラー',
         details: error.errors,
       };
+    }
+
+    if (error instanceof HttpsError) {
+      throw error;
     }
 
     if (error instanceof Error) {
