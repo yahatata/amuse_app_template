@@ -1,15 +1,20 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import type { DeviceDoc } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
+import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 
 // 入力スキーマ
 const assignSeatToPlayerSchema = z.object({
+  operationId: z.string().min(1, 'operationId は必須です'),
   tournamentId: z.string(),
   userId: z.string(),
   tableId: z.string(),
   seatNumber: z.number().int().positive(),
+  deviceName: z.string().optional(),
 });
 
 export const assignSeatToPlayer = onCall(async (request) => {
@@ -19,24 +24,21 @@ export const assignSeatToPlayer = onCall(async (request) => {
   }
 
   const callerUid = request.auth.uid;
-
-  // デバイス権限の確認（role: admin または options.tournament: true）
-  const device = await getCallerDeviceByUid(callerUid);
-  if (!device || !isActive(device.status)) {
-    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
-  }
-
-  const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
-  if (!hasPermission) {
-    throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
-  }
+  let device: DeviceDoc | null = null;
 
   try {
-    // データを取得
+    device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+    }
+
+    const startedAt = FieldValue.serverTimestamp();
     const { data } = request;
-    
-    // 入力検証
-    const { tournamentId, userId, tableId, seatNumber } = assignSeatToPlayerSchema.parse(data);
+    const { operationId, tournamentId, userId, tableId, seatNumber, deviceName } = assignSeatToPlayerSchema.parse(data);
     
     console.log(`=== 待機者着席開始 ===`);
     console.log(`tournamentId: ${tournamentId}`);
@@ -127,8 +129,8 @@ export const assignSeatToPlayer = onCall(async (request) => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       
-      // billIdを返して、トランザクション外でupdatePlaceを呼び出す
-      return { success: true, userId, tableId, seatNumber, billId };
+      // billId, pokerName を返してトランザクション外で updatePlace と operationLog に使用
+      return { success: true, userId, pokerName, tableId, seatNumber, billId };
       
       // 5. usersサブコレクションにユーザー情報を記録
       // TODO: 今後実装予定 - usersサブコレクションへの記録
@@ -180,10 +182,26 @@ export const assignSeatToPlayer = onCall(async (request) => {
         });
       } catch (error) {
         console.error('updatePlace failed', error);
-        // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
-        // ただし、エラーを再スローして呼び出し側に通知することも検討可能
       }
     }
+
+    // 操作記録（成功）。op-105。卓単位のため tableId/tournamentId をトップレベルに付与
+    await writeSingleOperationLog({
+      operationId,
+      operationName: '座席割当',
+      deviceId: device.id,
+      deviceName: deviceName ?? device.name ?? undefined,
+      status: 'succeeded',
+      startedAt,
+      tournamentId,
+      tableId,
+      payload: {
+        playerUid: transactionResult.userId,
+        playerName: transactionResult.pokerName,
+        tableId,
+        seatNumber: transactionResult.seatNumber,
+      },
+    });
     
     console.log(`=== 待機者着席完了 ===`);
     console.log(`結果:`, transactionResult);
@@ -193,12 +211,28 @@ export const assignSeatToPlayer = onCall(async (request) => {
   } catch (error) {
     console.error('=== 待機者着席エラー ===');
     console.error(error);
+
+    const rawData = request.data as Record<string, unknown> | undefined;
+    const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : undefined;
+    if (opId && device != null) {
+      try {
+        await writeSingleOperationLog({
+          operationId: opId,
+          operationName: '座席割当',
+          deviceId: device.id,
+          deviceName: typeof rawData?.deviceName === 'string' ? rawData.deviceName : device.name ?? undefined,
+          status: 'failed',
+          errorSummary: toErrorSummary(error),
+          payload: {},
+        });
+      } catch (logErr) {
+        console.error('operationLog 書き込み失敗', logErr);
+      }
+    }
     
-    // エラーメッセージを適切に返す
     if (error instanceof Error) {
       throw new HttpsError('internal', error.message);
-    } else {
-      throw new HttpsError('internal', '待機者着席に失敗しました');
     }
+    throw new HttpsError('internal', '待機者着席に失敗しました');
   }
 });

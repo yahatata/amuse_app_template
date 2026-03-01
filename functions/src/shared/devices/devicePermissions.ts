@@ -5,6 +5,8 @@ const db = getFirestore();
 export type DeviceDoc = {
   id: string;
   role: string;
+  /** デバイス表示名。operationLogs の実行者表示に使用 */
+  name?: string;
   options?: Record<string, boolean>;
   status?: string;
 };
@@ -13,12 +15,17 @@ export async function getCallerDeviceByUid(uid: string): Promise<DeviceDoc | nul
   const snap = await db.collection("devices").where("uid", "==", uid).limit(1).get();
   if (snap.empty) return null;
   const doc = snap.docs[0];
-  const data = doc.data() as any;
+  const data = doc.data() as Record<string, unknown> | undefined;
+  const name = typeof data?.name === "string" && data.name.length > 0 ? data.name : undefined;
+  if (!name) {
+    console.warn("[getCallerDeviceByUid] device has no name", { deviceId: doc.id, uid });
+  }
   return {
     id: doc.id,
-    role: data?.role ?? "terminal",
-    options: data?.options ?? {},
-    status: data?.status ?? "active",
+    role: (data?.role as string) ?? "terminal",
+    name,
+    options: (data?.options as Record<string, boolean>) ?? {},
+    status: (data?.status as string) ?? "active",
   };
 }
 

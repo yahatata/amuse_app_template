@@ -1,7 +1,20 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import * as crypto from 'crypto';
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { writeSingleOperationLog } from '../../logs/lib/operationLog';
+
+export interface RankingEntryForRollback {
+  playerUid: string;
+  /** 表示用（操作履歴でランキングと名前を表示するため） */
+  playerName?: string;
+  rank: string;
+  prizeAmount: number;
+  entryId: string;
+  pointType: 'pointA' | 'pointB';
+  /** pointALogs/pointBLogs のドキュメントID（YYYY-MM-DD） */
+  logDate: string;
+}
 
 export const setRankingData = onCall(async (request) => {
   // 認証チェック
@@ -42,48 +55,46 @@ export const setRankingData = onCall(async (request) => {
     }
 
     const db = getFirestore();
-    
-    // メインビューデータを更新
     const mainViewRef = db
       .collection('scheduledTournaments')
       .doc(tournamentId)
       .collection('views')
       .doc('main');
-    
-    // nullやundefinedの値を除外してクリーンなデータを作成
+
+    // 更新前の main を取得（取り消し用）
+    const mainViewDocBefore = await mainViewRef.get();
+    const beforeMainView = mainViewDocBefore.exists ? mainViewDocBefore.data() ?? {} : {};
+
     const cleanRankingData: Record<string, any> = {};
     for (const [key, value] of Object.entries(rankingData)) {
       if (value !== null && value !== undefined) {
         cleanRankingData[key] = value;
       }
     }
-    
+
     console.log('cleanRankingData:', JSON.stringify(cleanRankingData, null, 2));
-    
+
     const updateData = {
       ...cleanRankingData,
       updatedAt: new Date(),
     };
-    
-    console.log('updateData:', JSON.stringify(updateData, null, 2));
-    
+
     await mainViewRef.update(updateData);
-    
-    // 既に順位確定済みのトーナメントでは付与しない（画面を閉じて再度開いて再送した場合の二重付与を防ぐ）
+
     const tournamentSnap = await db.collection('scheduledTournaments').doc(tournamentId).get();
     const alreadySet = tournamentSnap.data()?.SetedRanking === true;
+    let rankingEntries: RankingEntryForRollback[] = [];
     if (!alreadySet) {
-      // プライズ付与処理（同一 grantIdempotencyKey では二重付与しない）
-      await _awardPrizes(db, tournamentId, cleanRankingData, grantIdempotencyKey.trim());
+      const awardResult = await _awardPrizes(db, tournamentId, cleanRankingData, grantIdempotencyKey.trim());
+      rankingEntries = awardResult.rankingEntries ?? [];
     } else {
       console.log('SetedRanking が既に true のためプライズ付与をスキップ', { tournamentId });
     }
-    
-    // 全ての順位が確定しているかチェック
+
     const mainViewDoc = await mainViewRef.get();
     const mainViewData = mainViewDoc.data();
     const prizeReceiverCount = mainViewData?.prizeReceiverCount || 0;
-    
+
     if (prizeReceiverCount > 0) {
       let allRanksFilled = true;
       for (let i = 1; i <= prizeReceiverCount; i++) {
@@ -94,8 +105,7 @@ export const setRankingData = onCall(async (request) => {
           break;
         }
       }
-      
-      // 全ての順位が確定している場合のみSetedRanking: trueを格納
+
       if (allRanksFilled) {
         const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
         await tournamentRef.update({
@@ -105,13 +115,36 @@ export const setRankingData = onCall(async (request) => {
         console.log('全ての順位が確定しました。SetedRanking: trueを格納しました。');
       }
     }
-    
+
+    // 2回目以降（SetedRanking 済みで付与スキップした場合）は操作ログを書かない
+    let operationId: string | undefined;
+    if (!alreadySet) {
+      const pointType = (mainViewDocBefore.data()?.pointType || tournamentSnap.data()?.snapshot?.pointType || 'pointA') as 'pointA' | 'pointB';
+      operationId = crypto.randomUUID();
+      await writeSingleOperationLog({
+        operationId,
+        operationName: 'ランキングデータ設定',
+        deviceId: device.id,
+        deviceName: device.name ?? undefined,
+        status: 'succeeded',
+        payload: {
+          tournamentId,
+          grantIdempotencyKey: grantIdempotencyKey.trim(),
+          pointType,
+          beforeMainView,
+          rankingEntries,
+        },
+        tournamentId,
+      });
+    }
+
     console.log('=== setRankingData 成功 ===');
-    
+
     return {
       success: true,
       message: 'Ranking data saved successfully',
       prizeGrantSkipped: alreadySet,
+      ...(operationId != null ? { operationId } : {}),
     };
     
   } catch (error) {
@@ -128,51 +161,49 @@ export const setRankingData = onCall(async (request) => {
 
 /**
  * 同一 grantIdempotencyKey では付与を1回だけ行う（冪等）。
- * scheduledTournaments/{tournamentId}/grantRecords/{grantIdempotencyKey} の存在で判定する。
+ * 戻り値: スキップ有無と取り消し用の rankingEntries。
  */
 async function _awardPrizes(
   db: ReturnType<typeof getFirestore>,
   tournamentId: string,
   rankingData: Record<string, any>,
   grantIdempotencyKey: string
-) {
-  try {
-    console.log('=== プライズ付与処理開始 ===', { grantIdempotencyKey });
+): Promise<{ skipped: boolean; rankingEntries: RankingEntryForRollback[] }> {
+  const mainViewRef = db
+    .collection('scheduledTournaments')
+    .doc(tournamentId)
+    .collection('views')
+    .doc('main');
 
-    const mainViewRef = db
-      .collection('scheduledTournaments')
-      .doc(tournamentId)
-      .collection('views')
-      .doc('main');
+  const mainViewDoc = await mainViewRef.get();
+  const mainViewData = mainViewDoc.data();
+  const pointType = (mainViewData?.pointType || 'pointA') as 'pointA' | 'pointB';
 
-    const mainViewDoc = await mainViewRef.get();
-    const mainViewData = mainViewDoc.data();
-    const pointType = mainViewData?.pointType || 'pointA';
-
-    const prizeAwards: { playerUid: string; rank: string; prizeAmount: number }[] = [];
-    for (const [key, value] of Object.entries(rankingData)) {
-      if (typeof key === 'string' && key.endsWith('stPlayerUid') && value) {
-        const rank = key.replace('stPlayerUid', '');
-        const prizeKey = `${rank}stPrize`;
-        const prizeAmount = mainViewData?.[prizeKey];
-        if (prizeAmount && prizeAmount > 0) {
-          prizeAwards.push({
-            playerUid: value as string,
-            rank,
-            prizeAmount: Number(prizeAmount),
-          });
-        }
+  const prizeAwards: { playerUid: string; rank: string; prizeAmount: number }[] = [];
+  for (const [key, value] of Object.entries(rankingData)) {
+    if (typeof key === 'string' && key.endsWith('stPlayerUid') && value) {
+      const rank = key.replace('stPlayerUid', '');
+      const prizeKey = `${rank}stPrize`;
+      const prizeAmount = mainViewData?.[prizeKey];
+      if (prizeAmount && prizeAmount > 0) {
+        prizeAwards.push({
+          playerUid: value as string,
+          rank,
+          prizeAmount: Number(prizeAmount),
+        });
       }
     }
+  }
 
-    if (prizeAwards.length === 0) {
-      console.log('付与対象なし');
-      return;
-    }
+  if (prizeAwards.length === 0) {
+    console.log('付与対象なし');
+    return { skipped: false, rankingEntries: [] };
+  }
 
-    const logType = pointType === 'pointA' ? 'pointALogs' : 'pointBLogs';
-    const today = new Date().toISOString().split('T')[0];
+  const logType = pointType === 'pointA' ? 'pointALogs' : 'pointBLogs';
+  const today = new Date().toISOString().split('T')[0];
 
+  try {
     const result = await db.runTransaction(async (tx) => {
       const grantRecordRef = db
         .collection('scheduledTournaments')
@@ -183,10 +214,9 @@ async function _awardPrizes(
       const grantRecordSnap = await tx.get(grantRecordRef);
       if (grantRecordSnap.exists) {
         console.log('同一 grantIdempotencyKey で既に付与済みのためスキップ', { grantIdempotencyKey });
-        return { skipped: true };
+        return { skipped: true, rankingEntries: [] as RankingEntryForRollback[] };
       }
 
-      // 全読み取りを先に実行
       const userSnaps = await Promise.all(
         prizeAwards.map((a) => tx.get(db.collection('users').doc(a.playerUid)))
       );
@@ -195,7 +225,8 @@ async function _awardPrizes(
       );
       const pointLogSnaps = await Promise.all(pointLogRefs.map((ref) => tx.get(ref)));
 
-      // 付与とログ書き込み
+      const rankingEntries: RankingEntryForRollback[] = [];
+
       for (let i = 0; i < prizeAwards.length; i++) {
         const award = prizeAwards[i];
         const userSnap = userSnaps[i];
@@ -221,6 +252,17 @@ async function _awardPrizes(
           .update(`${grantIdempotencyKey}:${award.playerUid}`)
           .digest('hex')
           .substring(0, 8);
+        const playerName = (rankingData[`${award.rank}stPlayerName`] as string) ?? '';
+        rankingEntries.push({
+          playerUid: award.playerUid,
+          playerName: playerName || undefined,
+          rank: award.rank,
+          prizeAmount: award.prizeAmount,
+          entryId,
+          pointType,
+          logDate: today,
+        });
+
         const logEntry = {
           entryId,
           appliedAt: new Date(),
@@ -250,7 +292,7 @@ async function _awardPrizes(
         appliedAt: FieldValue.serverTimestamp(),
       });
 
-      return { skipped: false };
+      return { skipped: false, rankingEntries };
     });
 
     if (result.skipped) {
@@ -258,6 +300,7 @@ async function _awardPrizes(
     } else {
       console.log('=== プライズ付与処理完了 ===');
     }
+    return result;
   } catch (error) {
     console.error('=== プライズ付与処理エラー ===', error);
     throw error;

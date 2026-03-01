@@ -1,16 +1,21 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import type { DeviceDoc } from '../../../shared/devices';
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
+import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
 
 // 入力スキーマ
 const bustAndReentrySchema = z.object({
+  operationId: z.string().min(1, 'operationId は必須です'),
   tournamentId: z.string(),
   userId: z.string(),
   tableId: z.string(),
   seatNumber: z.number().int().positive(),
+  deviceName: z.string().optional(),
 });
 
 export const bustAndReentry = onCall(async (request) => {
@@ -20,24 +25,21 @@ export const bustAndReentry = onCall(async (request) => {
   }
 
   const callerUid = request.auth.uid;
-
-  // デバイス権限の確認（role: admin または options.tournament: true）
-  const device = await getCallerDeviceByUid(callerUid);
-  if (!device || !isActive(device.status)) {
-    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
-  }
-
-  const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
-  if (!hasPermission) {
-    throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
-  }
+  let device: DeviceDoc | null = null;
 
   try {
-    // データを取得
+    device = await getCallerDeviceByUid(callerUid);
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
+    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+    if (!hasPermission) {
+      throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+    }
+
+    const startedAt = FieldValue.serverTimestamp();
     const { data } = request;
-    
-    // 入力検証
-    const { tournamentId, userId, tableId, seatNumber } = bustAndReentrySchema.parse(data);
+    const { operationId, tournamentId, userId, tableId, seatNumber, deviceName } = bustAndReentrySchema.parse(data);
     
     console.log(`=== Bust＆リエントリー開始 ===`);
     console.log(`tournamentId: ${tournamentId}`);
@@ -327,6 +329,26 @@ export const bustAndReentry = onCall(async (request) => {
       // scheduledTournamentsの更新は成功しているため
     }
     
+    // 操作記録（成功）。op-104。卓単位のため tableId/tournamentId をトップレベルに付与。巻き戻し時に bills の reentryCount を戻すため billId/templateId を保存
+    await writeSingleOperationLog({
+      operationId,
+      operationName: 'バスト＆再入場',
+      deviceId: device.id,
+      deviceName: deviceName ?? device.name ?? undefined,
+      status: 'succeeded',
+      startedAt,
+      tournamentId,
+      tableId,
+      payload: {
+        playerUid: result.userId,
+        playerName: result.pokerName,
+        tableId,
+        seatNumber,
+        billId: result.billId,
+        templateId: result.templateId,
+      },
+    });
+
     console.log(`=== Bust＆リエントリー完了 ===`);
     console.log(`ユーザー ${result.userId} のBust＆リエントリーが完了しました`);
     
@@ -339,6 +361,24 @@ export const bustAndReentry = onCall(async (request) => {
   } catch (error) {
     console.error('=== Bust＆リエントリーエラー ===');
     console.error(error);
+
+    const rawData = request.data as Record<string, unknown> | undefined;
+    const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : undefined;
+    if (opId && device != null) {
+      try {
+        await writeSingleOperationLog({
+          operationId: opId,
+          operationName: 'バスト＆再入場',
+          deviceId: device.id,
+          deviceName: typeof rawData?.deviceName === 'string' ? rawData.deviceName : device.name ?? undefined,
+          status: 'failed',
+          errorSummary: toErrorSummary(error),
+          payload: {},
+        });
+      } catch (logErr) {
+        console.error('operationLog 書き込み失敗', logErr);
+      }
+    }
     
     if (error instanceof z.ZodError) {
       return {
@@ -347,7 +387,7 @@ export const bustAndReentry = onCall(async (request) => {
         details: error.errors,
       };
     }
-    
+    if (error instanceof HttpsError) throw error;
     return {
       success: false,
       error: error instanceof Error ? error.message : '不明なエラー',

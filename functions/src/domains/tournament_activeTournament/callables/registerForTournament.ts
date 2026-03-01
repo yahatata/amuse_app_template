@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import { z } from "zod";
 import { recordTournamentAction } from "../../bills/repos/recordTournamentAction";
 import * as crypto from "crypto";
+import { writeSingleOperationLog, toErrorSummary } from "../../logs/lib/operationLog";
 
 // 入力スキーマ
 const registerForTournamentSchema = z.object({
@@ -211,10 +212,29 @@ export const registerForTournament = onCall(async (request) => {
       // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
       // scheduledTournamentsの更新は成功しているため
     }
-    
+
+    // 操作記録（成功）。巻き戻し可能。LIFF のため deviceId は 'liff'
+    const operationId = crypto.randomUUID();
+    await writeSingleOperationLog({
+      operationId,
+      operationName: 'トーナメント登録',
+      deviceId: 'liff',
+      deviceName: 'LIFF（本人）',
+      status: 'succeeded',
+      startedAt: null,
+      payload: {
+        playerUid: result.userId,
+        playerName: result.pokerName,
+        tournamentId,
+        templateId,
+        billId,
+      },
+      tournamentId,
+    });
+
     console.log(`=== LIFF用トーナメント参加登録完了 ===`);
     console.log(`ユーザー ${result.userId} がトーナメント ${result.tournamentName} に参加登録しました`);
-    
+
     return {
       success: true,
       message: 'トーナメントに参加登録しました',
@@ -225,11 +245,28 @@ export const registerForTournament = onCall(async (request) => {
         registeredAt: new Date().toISOString(),
       }
     };
-    
+
   } catch (error) {
     console.error('=== LIFF用トーナメント参加登録エラー ===');
     console.error(error);
-    
+
+    const rawData = request.data as Record<string, unknown> | undefined;
+    const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : crypto.randomUUID();
+    try {
+      await writeSingleOperationLog({
+        operationId: opId,
+        operationName: 'トーナメント登録',
+        deviceId: 'liff',
+        deviceName: 'LIFF（本人）',
+        status: 'failed',
+        errorSummary: toErrorSummary(error),
+        payload: {},
+        tournamentId: typeof rawData?.tournamentId === 'string' ? rawData.tournamentId : undefined,
+      });
+    } catch (logErr) {
+      console.error('operationLog 書き込み失敗', logErr);
+    }
+
     if (error instanceof z.ZodError) {
       return {
         success: false,
@@ -237,7 +274,7 @@ export const registerForTournament = onCall(async (request) => {
         details: error.errors,
       };
     }
-    
+
     return {
       success: false,
       error: error instanceof Error ? error.message : '不明なエラー',
