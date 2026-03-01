@@ -19,7 +19,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { billsEventsOnCreate } from '../../src/triggers/bills.events.onCreate';
+import { billsEventsOnCreate } from '../../src/domains/bills/triggers/billsEventsOnCreate';
 
 describe('bills.events.onCreate', () => {
   let testEnv: RulesTestEnvironment;

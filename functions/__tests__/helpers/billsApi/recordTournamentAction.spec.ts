@@ -16,7 +16,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { recordTournamentAction } from '../../../src/helpers/billsApi/recordTournamentAction';
+import { recordTournamentAction } from '../../../src/domains/bills/repos/recordTournamentAction';
 
 describe('recordTournamentAction', () => {
   let testEnv: RulesTestEnvironment;

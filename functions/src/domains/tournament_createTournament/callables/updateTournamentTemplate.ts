@@ -85,9 +85,11 @@ export const updateTournamentTemplate = onCall(async (request) => {
           Object.entries(snapshotUpdateData).filter(([_, value]) => value !== undefined)
         );
 
+        // Step 3: blindStructure 変更時のみ taskSyncNeeded=true（regEndAt 変化の可能性。再計算は Step 4 に委譲）
         batch.update(tournamentRef, {
           snapshot: filteredSnapshotData,
           updatedAt: new Date(),
+          ...(updateData.blindStructure !== undefined && { taskSyncNeeded: true }),
         });
       }
     }

@@ -15,8 +15,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { bustAndReentry } from '../../src/callables/bustAndReentry';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { bustAndReentry } from '../../src/domains/tournament_activeTournament/callables/bustAndReentry';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('bustAndReentry', () => {
   let testEnv: RulesTestEnvironment;
@@ -137,7 +137,7 @@ describe('bustAndReentry', () => {
 
       // まずentryを記録
       const entryIdempotencyKey = 'idem_entry_001';
-      const { recordTournamentAction } = await import('../../src/helpers/billsApi/recordTournamentAction');
+      const { recordTournamentAction } = await import('../../src/domains/bills/repos/recordTournamentAction');
       await recordTournamentAction({
         billId,
         templateId,
@@ -256,7 +256,7 @@ describe('bustAndReentry', () => {
       });
 
       // entry + reentry を記録（maxReentriesPerPlayer = 1 なので、これで制限に達する）
-      const { recordTournamentAction } = await import('../../src/helpers/billsApi/recordTournamentAction');
+      const { recordTournamentAction } = await import('../../src/domains/bills/repos/recordTournamentAction');
       await recordTournamentAction({
         billId,
         templateId,

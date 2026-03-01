@@ -14,7 +14,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { billsOnSettle } from '../../src/triggers/bills.onSettle';
+import { billsOnSettle } from '../../src/domains/bills/triggers/billsOnSettle';
 
 describe('bills.onSettle', () => {
   let testEnv: RulesTestEnvironment;
@@ -631,7 +631,7 @@ describe('bills.onSettle', () => {
       process.env.ENABLE_SETTLEMENT_AGGREGATOR = 'true';
 
       // 動的 import を spy するため、モジュールを事前に読み込む
-      const aggregatorModule = await import('../../src/analytics/aggregator');
+      const aggregatorModule = await import('../../src/domains/analytics/services/aggregator');
       const enqueueSettlementSpy = jest.spyOn(aggregatorModule, 'enqueueSettlement').mockImplementation(async () => {
         // 実際の処理は実行しない（spy のみ）
       });
@@ -670,7 +670,7 @@ describe('bills.onSettle', () => {
       process.env.ENABLE_SETTLEMENT_AGGREGATOR = 'false';
 
       // 動的 import を spy するため、モジュールを事前に読み込む
-      const aggregatorModule = await import('../../src/analytics/aggregator');
+      const aggregatorModule = await import('../../src/domains/analytics/services/aggregator');
       const enqueueSettlementSpy = jest.spyOn(aggregatorModule, 'enqueueSettlement').mockImplementation(async () => {
         // 実際の処理は実行しない（spy のみ）
       });

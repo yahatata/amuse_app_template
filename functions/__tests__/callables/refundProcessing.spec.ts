@@ -12,7 +12,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { processRefund } from '../../src/callables/refundProcessing';
+import { processRefund } from '../../src/domains/bills/callables/refundProcessing';
 
 describe('refundProcessing', () => {
   let testEnv: RulesTestEnvironment;

@@ -15,7 +15,7 @@ import {
   calculatePaymentsSummary,
   calculateContentHash,
   ITEMS_SNAPSHOT_TOP_N,
-} from '../../../src/helpers/billsApi/snapshots';
+} from '../../../src/domains/bills/services/snapshots';
 
 describe('snapshots', () => {
   // QueryDocumentSnapshot のスタブ（方針1: 高速化のためスタブを使用）

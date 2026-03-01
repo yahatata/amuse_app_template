@@ -8,7 +8,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { resolveMenuItem } from '../../../src/helpers/billsApi/resolveMenuItem';
+import { resolveMenuItem } from '../../../src/domains/bills/repos/resolveMenuItem';
 
 describe('resolveMenuItem', () => {
   let testEnv: RulesTestEnvironment;

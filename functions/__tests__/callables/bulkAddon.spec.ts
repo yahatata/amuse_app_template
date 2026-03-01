@@ -15,8 +15,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { bulkAddon } from '../../src/callables/bulkAddon';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
+import { bulkAddon } from '../../src/domains/tournament_activeTournament/callables/bulkAddon';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('bulkAddon', () => {
   let testEnv: RulesTestEnvironment;
@@ -202,7 +202,7 @@ describe('bulkAddon', () => {
       await setupTournament(tournamentId, templateId, true);
 
       // 1人目のユーザーは既にAddon済みにする
-      const { recordTournamentAction } = await import('../../src/helpers/billsApi/recordTournamentAction');
+      const { recordTournamentAction } = await import('../../src/domains/bills/repos/recordTournamentAction');
       const firstUserForAddon = users[0];
       if (!firstUserForAddon.billId) {
         throw new Error('firstUserForAddon.billId is required');

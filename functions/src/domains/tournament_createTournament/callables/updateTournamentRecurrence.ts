@@ -1,5 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 
@@ -117,6 +117,24 @@ export const updateTournamentRecurrence = onCall(async (request) => {
         // 定期開催が停止された場合
         if (isActive === false) {
           tournamentUpdateData.status = 'cancelled';
+        }
+
+        // Step 3: version++ / taskSyncNeeded の条件付き設定
+        const hasStartAtChange = startTime !== undefined;
+        const hasTemplateChange = newTemplateData !== null;
+        const hasScheduleChange = hasStartAtChange || hasTemplateChange;
+
+        if (hasScheduleChange) {
+          if (hasStartAtChange) {
+            tournamentUpdateData.schedulePlanVersion = FieldValue.increment(1);
+            tournamentUpdateData.schedulePlanUpdatedAt = Timestamp.now();
+            tournamentUpdateData.taskSyncReason = ['startAtChanged'];
+          } else {
+            tournamentUpdateData.taskSyncReason = ['regEndAtChangedByTemplate'];
+          }
+          tournamentUpdateData.taskSyncNeeded = true;
+        } else if (isActive === false) {
+          tournamentUpdateData.taskSyncNeeded = false;
         }
 
         batch.update(tournamentRef, tournamentUpdateData);

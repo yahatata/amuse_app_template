@@ -4,7 +4,7 @@
  * STORE_CLOSE_HOUR の取得と cron 生成のテスト
  */
 
-import { getStoreCloseHour, cronFromHourAndMinuteJst, getNightlyCronTriplet } from '../../src/config/ops';
+import { getStoreCloseHour, cronFromHourAndMinuteJst, getNightlyCronTriplet } from '../../src/shared/time';
 
 describe('ops.ts', () => {
   const originalEnv = process.env;

@@ -13,7 +13,7 @@ const PROJECT_ID = 'test-project-processing-lease';
 describe('processingLease (Phase6 Step3)', () => {
   let testEnv: any;
   let db: admin.firestore.Firestore;
-  let acquireProcessing: typeof import('../../../src/helpers/stateDoc/processingLease').acquireProcessing;
+  let acquireProcessing: typeof import('../../../src/domains/storeMeta/services/processingLease').acquireProcessing;
 
   let emulatorAvailable = true;
 
@@ -24,7 +24,7 @@ describe('processingLease (Phase6 Step3)', () => {
       admin.initializeApp({ projectId: PROJECT_ID });
     }
     db = getFirestore();
-    const mod = await import('../../../src/helpers/stateDoc/processingLease');
+    const mod = await import('../../../src/domains/storeMeta/services/processingLease');
     acquireProcessing = mod.acquireProcessing;
   });
 

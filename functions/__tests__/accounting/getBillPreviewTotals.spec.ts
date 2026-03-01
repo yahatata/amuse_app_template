@@ -14,7 +14,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getBillPreviewTotals } from '../../src/accounting/getBillPreviewTotals';
+import { getBillPreviewTotals } from '../../src/domains/bills/callables/getBillPreviewTotals';
 
 describe('getBillPreviewTotals', () => {
   let testEnv: RulesTestEnvironment;

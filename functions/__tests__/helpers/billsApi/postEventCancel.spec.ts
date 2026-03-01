@@ -15,7 +15,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { postEventCancel } from '../../../src/helpers/billsApi/postEventCancel';
+import { postEventCancel } from '../../../src/domains/bills/repos/postEventCancel';
 
 describe('postEventCancel', () => {
   let testEnv: RulesTestEnvironment;

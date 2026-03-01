@@ -244,21 +244,24 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
       now: currentTime,
     );
 
-    return Stack(
-      children: [
-        // 画面上部 - トーナメント名
-        Positioned(
-          left: screenSize.width * 0.5 - (screenSize.width * 0.4),
-          top: screenSize.height * 0.1 - (screenSize.height * 0.075),
-          child: Text(
-            _getTournamentName(),
-            style: TextStyle(
-              fontSize: screenSize.height * 0.075, // 半分に変更
-              fontWeight: FontWeight.bold,
+    // Stack の子がすべて Positioned だと Stack がサイズを持たず描画されないため、
+    // 明示的に画面全体のサイズを指定する
+    return SizedBox.expand(
+      child: Stack(
+        children: [
+          // 画面上部 - トーナメント名
+          Positioned(
+            left: screenSize.width * 0.5 - (screenSize.width * 0.4),
+            top: screenSize.height * 0.1 - (screenSize.height * 0.075),
+            child: Text(
+              _getTournamentName(),
+              style: TextStyle(
+                fontSize: screenSize.height * 0.075, // 半分に変更
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
             ),
-            textAlign: TextAlign.center,
           ),
-        ),
 
         // 画面中央 - ブラインド情報
         _buildCenterContent(progress, runtimeData, screenSize),
@@ -271,7 +274,8 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
         
         // 画面下部 - プライズ情報
         _buildPrizeContent(screenSize),
-      ],
+        ],
+      ),
     );
   }
 

@@ -16,8 +16,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getUserOrderHistory } from '../../src/itemOrder/getUserOrderHistory';
-import { calcBusinessDate } from '../../src/helpers/billsApi/calcBusinessDate';
+import { getUserOrderHistory } from '../../src/domains/itemOrder/callables/getUserOrderHistory';
+import { calcBusinessDate } from '../../src/domains/bills/repos/calcBusinessDate';
 
 describe('getUserOrderHistory', () => {
   let testEnv: RulesTestEnvironment;

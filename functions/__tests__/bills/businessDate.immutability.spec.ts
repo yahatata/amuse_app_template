@@ -13,8 +13,8 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { createBillWithActiveStay } from '../../src/helpers/billsApi/createBillWithActiveStay';
-import { updateBill } from '../../src/helpers/billsApi/updateBill';
+import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
+import { updateBill } from '../../src/domains/bills/repos/updateBill';
 
 describe('businessDate.immutability', () => {
   let testEnv: RulesTestEnvironment;

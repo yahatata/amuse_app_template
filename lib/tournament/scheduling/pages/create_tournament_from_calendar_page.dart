@@ -84,6 +84,9 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
         
         final snapshot = data['snapshot'] as Map<String, dynamic>?;
         final name = snapshot?['name'] ?? '名称未設定';
+        final status = (data['status'] ?? 'scheduled').toString();
+        final regEndAtRaw = data['regEndAt'] as Timestamp?;
+        final regEndAt = regEndAtRaw?.toDate();
         
         if (!tournamentsByDate.containsKey(businessDate)) {
           tournamentsByDate[businessDate] = [];
@@ -93,6 +96,8 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
           'id': doc.id,
           'name': name,
           'startAt': startAtJST,
+          'regEndAt': regEndAt,
+          'status': status,
           'snapshot': snapshot,
         });
 
@@ -171,6 +176,10 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
     final name = snapshot?['name'] ?? '名称未設定';
     final entryFee = snapshot?['entryFee'] ?? 0;
     final startAt = tournament['startAt'] as DateTime;
+    final status = (tournament['status'] ?? 'scheduled').toString();
+    final isCancelled = status == 'cancelled' || status == 'canceled';
+    final regEndAt = tournament['regEndAt'] as DateTime?;
+    final canRestore = isCancelled && regEndAt != null && DateTime.now().isBefore(regEndAt);
 
     showDialog(
       context: context,
@@ -231,9 +240,53 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
                   fontWeight: FontWeight.bold,
                 ),
               ),
+              const SizedBox(height: 16),
+              Text(
+                'ステータス',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _statusText(status),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: _statusColor(status),
+                ),
+              ),
             ],
           ),
           actions: [
+            if (!isCancelled)
+              TextButton(
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await _showEditStartTimeDialog(tournament);
+                },
+                child: const Text('開始時刻編集'),
+              ),
+            if (!isCancelled)
+              TextButton(
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await _confirmAndUpdateStatus(tournament['id'] as String, 'cancel');
+                },
+                child: const Text('キャンセル', style: TextStyle(color: Colors.red)),
+              ),
+            if (isCancelled)
+              TextButton(
+                onPressed: canRestore
+                    ? () async {
+                        Navigator.of(context).pop();
+                        await _confirmAndUpdateStatus(tournament['id'] as String, 'restore');
+                      }
+                    : null,
+                child: const Text('復旧'),
+              ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('閉じる'),
@@ -242,6 +295,216 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
         );
       },
     );
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'scheduled':
+        return Colors.blue;
+      case 'running':
+        return Colors.orange;
+      case 'registered':
+        return Colors.green;
+      case 'cancelled':
+      case 'canceled':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _statusText(String status) {
+    switch (status) {
+      case 'scheduled':
+        return '予定';
+      case 'running':
+        return '実施中（レジスト前）';
+      case 'registered':
+        return '実施中（レジスト済み）';
+      case 'cancelled':
+      case 'canceled':
+        return 'キャンセル済み';
+      default:
+        return status;
+    }
+  }
+
+  Future<void> _confirmAndUpdateStatus(String tournamentId, String action) async {
+    final actionLabel = action == 'cancel' ? 'キャンセル' : '復旧';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('確認'),
+        content: Text('このトーナメントを$actionLabelしますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('戻る'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+    try {
+      final callable = FirebaseFunctions.instance
+          .httpsCallable('updateScheduledTournamentStatus');
+      final result = await callable.call({
+        'tournamentId': tournamentId,
+        'action': action,
+      });
+      final message = result.data['message']?.toString() ?? '更新しました';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      }
+      await _loadTournaments();
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('エラー: ${e.message}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('エラー: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _showEditStartTimeDialog(Map<String, dynamic> tournament) async {
+    final currentStartAt = tournament['startAt'] as DateTime;
+    final controller = TextEditingController(
+      text: DateFormat('HH:mm').format(currentStartAt),
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('開始時刻編集'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: '開始時刻',
+            hintText: 'HH:MM',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('戻る'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('更新'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final input = controller.text.trim();
+    if (!RegExp(r'^\d{2}:\d{2}$').hasMatch(input)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('時刻は HH:MM 形式で入力してください')),
+        );
+      }
+      return;
+    }
+
+    final parts = input.split(':');
+    final hh = int.tryParse(parts[0]) ?? -1;
+    final mm = int.tryParse(parts[1]) ?? -1;
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('時刻の範囲が不正です')),
+        );
+      }
+      return;
+    }
+
+    final jstDate = DateTime(
+      currentStartAt.year,
+      currentStartAt.month,
+      currentStartAt.day,
+      hh,
+      mm,
+    );
+    final utcDate = jstDate.subtract(const Duration(hours: 9));
+
+    setState(() {
+      _isLoading = true;
+    });
+    try {
+      final callable = FirebaseFunctions.instance
+          .httpsCallable('updateScheduledTournamentStartAt');
+      final result = await callable.call({
+        'tournamentId': tournament['id'],
+        'startAt': utcDate.toIso8601String(),
+      });
+      final message = result.data['message']?.toString() ?? '開始時刻を更新しました';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      }
+      await _loadTournaments();
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        final candidates = extractAmbiguousCandidates(e);
+        if (candidates != null && candidates.isNotEmpty) {
+          final selectedKey = await showBusinessDateAmbiguousDialog(
+            context: context,
+            candidates: candidates,
+            onSelected: (selectedKey) async {
+              final callable = FirebaseFunctions.instance
+                  .httpsCallable('updateScheduledTournamentStartAt');
+              await callable.call({
+                'tournamentId': tournament['id'],
+                'startAt': utcDate.toIso8601String(),
+                'selectedBusinessDateKey': selectedKey,
+              });
+              await _loadTournaments();
+            },
+          );
+          if (selectedKey != null && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('開始時刻を更新しました')),
+            );
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('エラー: ${e.message}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('エラー: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   /// トーナメントテンプレートを読み込み
@@ -598,7 +861,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(appBarHeight),
         child: AppBar(
-          title: const Text('カレンダーからトーナメント登録'),
+          title: const Text('カレンダーからトーナメント作成・編集'),
           backgroundColor: Colors.grey[800],
           foregroundColor: Colors.white,
         ),
@@ -863,6 +1126,8 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
                     colorString ??= tournament['color'] as String?;
                     
                     final tournamentColor = _parseColor(colorString);
+                    final status = (tournament['status'] ?? 'scheduled').toString();
+                    final isCancelled = status == 'cancelled' || status == 'canceled';
                     
                     // JST時刻として表示（既にJST変換済み）
                     final displayTime = tournament['startAt'] as DateTime;
@@ -871,11 +1136,11 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
-                          color: tournamentColor,
+                          color: isCancelled ? Colors.grey : tournamentColor,
                           borderRadius: BorderRadius.circular(3),
                         ),
                         child: Text(
-                          '${DateFormat('HH:mm').format(displayTime)} ${tournament['name']}',
+                          '${DateFormat('HH:mm').format(displayTime)} ${tournament['name']}${isCancelled ? ' (キャンセル)' : ''}',
                           style: const TextStyle(
                             fontSize: 9,
                             color: Colors.white,
@@ -981,6 +1246,8 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
                 colorString ??= tournament['color'] as String?;
                 
                 final tournamentColor = _parseColor(colorString);
+                final status = (tournament['status'] ?? 'scheduled').toString();
+                final isCancelled = status == 'cancelled' || status == 'canceled';
                 return Card(
                   margin: const EdgeInsets.only(bottom: 6),
                   child: ListTile(
@@ -988,7 +1255,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     leading: CircleAvatar(
                       radius: 18,
-                      backgroundColor: tournamentColor,
+                      backgroundColor: isCancelled ? Colors.grey : tournamentColor,
                       child: Text(
                         DateFormat('HH:mm').format(displayTime).substring(0, 2),
                         style: const TextStyle(color: Colors.white, fontSize: 11),
@@ -999,8 +1266,12 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     ),
                     subtitle: Text(
-                      '開始時刻: ${DateFormat('HH:mm').format(displayTime)}',
-                      style: const TextStyle(fontSize: 12),
+                      '開始時刻: ${DateFormat('HH:mm').format(displayTime)} / ${_statusText(status)}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isCancelled ? Colors.red : null,
+                        fontWeight: isCancelled ? FontWeight.bold : FontWeight.normal,
+                      ),
                     ),
                     trailing: const Icon(Icons.arrow_forward_ios, size: 14),
                     onTap: () {

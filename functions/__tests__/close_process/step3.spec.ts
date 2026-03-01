@@ -15,8 +15,8 @@ const PROJECT_ID = 'test-project-close-process-step3';
 describe('Phase6 Step3: close_process', () => {
   let testEnv: any;
   let db: admin.firestore.Firestore;
-  let applyCloseSnapshot: typeof import('../../src/close_process/applyCloseSnapshot').applyCloseSnapshot;
-  let getUnsettledBillsForClose: typeof import('../../src/close_process/getUnsettledBillsForClose').getUnsettledBillsForClose;
+  let applyCloseSnapshot: typeof import('../../src/domains/storeMeta/services/applyCloseSnapshot').applyCloseSnapshot;
+  let getUnsettledBillsForClose: typeof import('../../src/domains/storeMeta/services/getUnsettledBillsForClose').getUnsettledBillsForClose;
 
   let emulatorAvailable = true;
 
@@ -27,8 +27,8 @@ describe('Phase6 Step3: close_process', () => {
       admin.initializeApp({ projectId: PROJECT_ID });
     }
     db = getFirestore();
-    const applyMod = await import('../../src/close_process/applyCloseSnapshot');
-    const getMod = await import('../../src/close_process/getUnsettledBillsForClose');
+    const applyMod = await import('../../src/domains/storeMeta/services/applyCloseSnapshot');
+    const getMod = await import('../../src/domains/storeMeta/services/getUnsettledBillsForClose');
     applyCloseSnapshot = applyMod.applyCloseSnapshot;
     getUnsettledBillsForClose = getMod.getUnsettledBillsForClose;
   });
@@ -116,11 +116,11 @@ describe('Phase6 Step3: close_process', () => {
   describe('closeStore / openStore が残存している', () => {
     it('storeManagement から openStore / closeStore が import でき、.run が存在する', async () => {
       if (!emulatorAvailable) return;
-      const storeManagement = await import('../../src/storeManagement');
-      expect(storeManagement.openStore).toBeDefined();
-      expect(storeManagement.closeStore).toBeDefined();
-      expect(typeof storeManagement.openStore.run).toBe('function');
-      expect(typeof storeManagement.closeStore.run).toBe('function');
+      const storeMeta = await import('../../src/domains/storeMeta');
+      expect(storeMeta.openStore).toBeDefined();
+      expect(storeMeta.closeStore).toBeDefined();
+      expect(typeof storeMeta.openStore.run).toBe('function');
+      expect(typeof storeMeta.closeStore.run).toBe('function');
     });
   });
 });

@@ -69,35 +69,38 @@ class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPag
   }
 
   void _initializeData() {
-    // isActiveの型変換
+    // isActive
     final isActiveValue = widget.recurrenceData['isActive'];
     _isActive = isActiveValue is bool ? isActiveValue : true;
-    
-    // templateIdの型変換
+
+    // templateId
     final templateIdValue = widget.recurrenceData['templateId'];
     _selectedTemplateId = templateIdValue is String ? templateIdValue : '';
-    
-    // intervalの型変換（String -> int）
+
+    // interval: int / "1" / "1week" / "1weeks" いずれも数値に変換
     final intervalValue = widget.recurrenceData['interval'];
-    if (intervalValue is String) {
-      _interval = int.tryParse(intervalValue) ?? 1;
-    } else if (intervalValue is int) {
+    if (intervalValue is int) {
       _interval = intervalValue;
+    } else if (intervalValue is String) {
+      // 先頭の数字部分だけ取り出す（例: "2weeks" → 2）
+      final match = RegExp(r'^\d+').firstMatch(intervalValue);
+      _interval = match != null ? (int.tryParse(match.group(0)!) ?? 1) : 1;
     } else {
       _interval = 1;
     }
-    
-    // byWeekdayの型変換
+
+    // byWeekday
     final byWeekdayValue = widget.recurrenceData['byWeekday'];
     if (byWeekdayValue is List) {
-      _selectedWeekdays = byWeekdayValue.map((item) => item.toString()).toList();
+      _selectedWeekdays =
+          byWeekdayValue.map((item) => item.toString()).toList();
     } else {
       _selectedWeekdays = [];
     }
-    
-    // startTimeの初期化
+
+    // startTime: "HH:mm" 形式（Firestore snapshot から直接取得した値）
     final startTimeValue = widget.recurrenceData['startTime'];
-    if (startTimeValue is String) {
+    if (startTimeValue is String && startTimeValue.isNotEmpty) {
       final timeParts = startTimeValue.split(':');
       if (timeParts.length == 2) {
         final hour = int.tryParse(timeParts[0]) ?? 19;
@@ -142,10 +145,17 @@ class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPag
 
   Future<void> _loadScheduledTournaments() async {
     try {
+      final now = DateTime.now();
+      // 「2日前以前」を除外し、昨日以降のみ対象にする
+      final minBusinessDate = DateFormat('yyyy-MM-dd').format(
+        DateTime(now.year, now.month, now.day).subtract(const Duration(days: 1)),
+      );
       final callable = _functions.httpsCallable('getScheduledTournamentsForEdit');
       final result = await callable.call({
         'type': 'recurrence',
         'id': widget.recurrenceId,
+        'includeCancelled': true,
+        'excludeBeforeBusinessDate': minBusinessDate,
       });
       final response = result.data;
 
@@ -168,6 +178,19 @@ class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPag
               } else if (startAtValue is String) {
                 // ISO文字列の場合
                 tournamentMap['startAt'] = DateTime.parse(startAtValue);
+              }
+            }
+
+            if (tournamentMap['regEndAt'] != null) {
+              final regEndAtValue = tournamentMap['regEndAt'];
+              if (regEndAtValue is Map && regEndAtValue.containsKey('_seconds')) {
+                final seconds = regEndAtValue['_seconds'] as int;
+                final nanoseconds = regEndAtValue['_nanoseconds'] as int? ?? 0;
+                tournamentMap['regEndAt'] = DateTime.fromMillisecondsSinceEpoch(
+                  seconds * 1000 + (nanoseconds / 1000000).round(),
+                );
+              } else if (regEndAtValue is String) {
+                tournamentMap['regEndAt'] = DateTime.parse(regEndAtValue);
               }
             }
             
@@ -488,7 +511,7 @@ class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPag
                             ),
                             const SizedBox(height: 4),
                             const Text(
-                              '※すでにスケジューリングされたトーナメントを全て表示しています。',
+                              '※昨日以降のトーナメントを表示しています。キャンセル済みは選択できません。',
                               style: TextStyle(fontSize: 12, color: Colors.grey),
                             ),
                             if (!_isActive)
@@ -520,11 +543,20 @@ class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPag
                                 itemCount: _scheduledTournaments.length,
                                 itemBuilder: (context, index) {
                                   final tournament = _scheduledTournaments[index];
+                                  final status = (tournament['status'] ?? 'scheduled').toString();
+                                  final isCancelled = status == 'cancelled' || status == 'canceled';
+                                  final recurrenceStartTime =
+                                      (widget.recurrenceData['startTime'] ?? '').toString();
+                                  final normalizedStartTime = recurrenceStartTime.trim();
                                   final isSelected = _selectedTournamentIds.contains(tournament['id']);
                                   final startAt = tournament['startAt'] as DateTime;
+                                  final displayTime = DateFormat('HH:mm').format(startAt);
+                                  final isTimeModified =
+                                      normalizedStartTime.isNotEmpty &&
+                                      displayTime != normalizedStartTime;
                                   
                                   return GestureDetector(
-                                    onTap: () {
+                                    onTap: isCancelled ? null : () {
                                       setState(() {
                                         if (isSelected) {
                                           _selectedTournamentIds.remove(tournament['id']);
@@ -535,10 +567,14 @@ class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPag
                                     },
                                     child: Container(
                                       decoration: BoxDecoration(
-                                        color: isSelected ? Colors.blue : Colors.grey[300],
+                                        color: isCancelled
+                                            ? Colors.grey[200]
+                                            : (isSelected ? Colors.blue : Colors.grey[300]),
                                         borderRadius: BorderRadius.circular(8),
                                         border: Border.all(
-                                          color: isSelected ? Colors.blue : Colors.grey,
+                                          color: isCancelled
+                                              ? Colors.red
+                                              : (isSelected ? Colors.blue : Colors.grey),
                                           width: 2,
                                         ),
                                       ),
@@ -550,16 +586,44 @@ class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPag
                                             style: TextStyle(
                                               fontSize: 10,
                                               fontWeight: FontWeight.bold,
-                                              color: isSelected ? Colors.white : Colors.black,
+                                              color: isCancelled
+                                                  ? Colors.red
+                                                  : (isSelected ? Colors.white : Colors.black),
                                             ),
                                           ),
                                           Text(
-                                            DateFormat('HH:mm').format(startAt),
+                                            displayTime,
                                             style: TextStyle(
                                               fontSize: 8,
-                                              color: isSelected ? Colors.white : Colors.black,
+                                              color: isCancelled
+                                                  ? Colors.red
+                                                  : (isSelected ? Colors.white : Colors.black),
                                             ),
                                           ),
+                                          if (isCancelled)
+                                            const Text(
+                                              'キャンセル済み',
+                                              style: TextStyle(
+                                                fontSize: 7,
+                                                color: Colors.red,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          if (!isCancelled && isTimeModified)
+                                            const Text(
+                                              '※スタート時刻修正済↩︎例外の定期トーナメント',
+                                              style: TextStyle(
+                                                fontSize: 7,
+                                                color: Colors.red,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              textAlign: TextAlign.center,
+                                            ),
                                         ],
                                       ),
                                     ),

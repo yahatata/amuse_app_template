@@ -16,7 +16,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { appendSideGameChip } from '../../../src/helpers/billsApi/appendSideGameChip';
+import { appendSideGameChip } from '../../../src/domains/bills/repos/appendSideGameChip';
 
 describe('appendSideGameChip', () => {
   let testEnv: RulesTestEnvironment;

@@ -33,6 +33,16 @@ class _AutoSplitResult {
   final bool verified;
 }
 
+class _SideGameChipPurchaseSummary {
+  const _SideGameChipPurchaseSummary({
+    required this.chipQtyTotal,
+    required this.amountInclTotal,
+  });
+
+  final int chipQtyTotal;
+  final int amountInclTotal;
+}
+
 class AccountingPage extends StatefulWidget {
   const AccountingPage({
     super.key,
@@ -58,6 +68,29 @@ class _AccountingPageState extends State<AccountingPage> {
   bool _showSettledBills = false;
   String? _currentBusinessDateKey;
 
+  Future<_SideGameChipPurchaseSummary> _fetchSideGameChipPurchaseSummary(
+    String billId,
+  ) async {
+    final snapshot = await _firestore
+        .collection('bills')
+        .doc(billId)
+        .collection('sideGameChips')
+        .get();
+
+    int chipQtyTotal = 0;
+    int amountInclTotal = 0;
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      if (data['action'] != 'purchase') continue;
+      chipQtyTotal += (data['chipQty'] as num?)?.toInt() ?? 0;
+      amountInclTotal += (data['amountIncl'] as num?)?.toInt() ?? 0;
+    }
+    return _SideGameChipPurchaseSummary(
+      chipQtyTotal: chipQtyTotal,
+      amountInclTotal: amountInclTotal,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +114,8 @@ class _AccountingPageState extends State<AccountingPage> {
       final data = doc.data()!;
       final ops = data['ops'] as Map<String, dynamic>?;
       final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>?;
+      final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(doc.id);
+
       final mappedData = <String, dynamic>{
         'id': doc.id,
         'userId': (data['party'] as Map<String, dynamic>?)?['userId'],
@@ -93,6 +128,8 @@ class _AccountingPageState extends State<AccountingPage> {
         'accountingStartedAt': ops?['accountingStartedAt'],
         'paymentMethodsByAmount': paymentsSummary?['byMethod'],
         'totalPrice': null,
+        'sideGameChipPurchaseChipQty': sideGameChipSummary.chipQtyTotal,
+        'sideGameChipPurchaseAmountIncl': sideGameChipSummary.amountInclTotal,
       };
       setState(() {
         _activeBills = [mappedData];
@@ -128,14 +165,14 @@ class _AccountingPageState extends State<AccountingPage> {
         return unresolved != true; // フィールドが無い or false の場合は表示対象
       }).toList();
 
-      setState(() {
-        _activeBills = filteredDocs.map((doc) {
+      final mappedActiveBills = await Future.wait(
+        filteredDocs.map((doc) async {
           final data = doc.data();
-          // レスポンス形式のマッピング
           final ops = data['ops'] as Map<String, dynamic>?;
           final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>?;
-          
-          final mappedData = <String, dynamic>{
+          final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(doc.id);
+
+          return <String, dynamic>{
             'id': doc.id,
             'userId': (data['party'] as Map<String, dynamic>?)?['userId'],
             'pokerName': (data['party'] as Map<String, dynamic>?)?['pokerName'],
@@ -144,18 +181,20 @@ class _AccountingPageState extends State<AccountingPage> {
             'status': data['status'],
             'createdAt': data['createdAt'],
             'updatedAt': data['updatedAt'],
-            // accountingStartedAt: ops.accountingStartedAt (Functions側のstartAccounting.tsで設定)
             'accountingStartedAt': ops?['accountingStartedAt'],
-            // paymentMethodsByAmount: paymentsSummary.byMethod (Functions側のtypes.tsで定義されている)
-            // byMethod は Record<string, number> で、支払い方法ごとの金額を保持
             'paymentMethodsByAmount': paymentsSummary?['byMethod'],
-            // totalPrice は一覧表示では簡易的な参考値（または非表示）
-            // 厳密な計算は「現在の合計金額を計算」ボタン押下時のみ
-            'totalPrice': null, // 一覧表示では非表示または簡易値
+            'totalPrice': null,
+            'sideGameChipPurchaseChipQty': sideGameChipSummary.chipQtyTotal,
+            'sideGameChipPurchaseAmountIncl': sideGameChipSummary.amountInclTotal,
           };
-          return mappedData;
-        }).toList();
-      });
+        }),
+      );
+
+      if (mounted) {
+        setState(() {
+          _activeBills = mappedActiveBills;
+        });
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -196,12 +235,12 @@ class _AccountingPageState extends State<AccountingPage> {
         debugPrint('[_loadSettledBills] ops.accountingCompletedAt: ${(data['ops'] as Map<String, dynamic>?)?['accountingCompletedAt']}');
       }
 
-      setState(() {
-        _settledBills = querySnapshot.docs.map((doc) {
+      final mappedSettledBills = await Future.wait(
+        querySnapshot.docs.map((doc) async {
           final data = doc.data();
-          // レスポンス形式のマッピング
           final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>?;
-          final mappedData = <String, dynamic>{
+          final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(doc.id);
+          return <String, dynamic>{
             'id': doc.id,
             'userId': (data['party'] as Map<String, dynamic>?)?['userId'],
             'pokerName': (data['party'] as Map<String, dynamic>?)?['pokerName'],
@@ -210,15 +249,20 @@ class _AccountingPageState extends State<AccountingPage> {
             'status': data['status'],
             'createdAt': data['createdAt'],
             'updatedAt': data['updatedAt'],
-            // 確定済み伝票の場合は amounts.grandTotalRounded を使用
             'totalPrice': (data['amounts'] as Map<String, dynamic>?)?['grandTotalRounded'],
             'accountingCompletedAt': (data['ops'] as Map<String, dynamic>?)?['accountingCompletedAt'],
-            // paymentsSummary.byMethod を paymentMethodsByAmount としてマッピング
             'paymentMethodsByAmount': paymentsSummary?['byMethod'],
+            'sideGameChipPurchaseChipQty': sideGameChipSummary.chipQtyTotal,
+            'sideGameChipPurchaseAmountIncl': sideGameChipSummary.amountInclTotal,
           };
-          return mappedData;
-        }).toList();
-      });
+        }),
+      );
+
+      if (mounted) {
+        setState(() {
+          _settledBills = mappedSettledBills;
+        });
+      }
       
       debugPrint('[_loadSettledBills] マッピング後の件数: ${_settledBills.length}');
     } catch (e, stackTrace) {
@@ -624,6 +668,7 @@ class _AccountingPageState extends State<AccountingPage> {
     Map<String, dynamic> bill,
     _CategoryAmounts categoryAmounts,
     Map<String, int> paymentMethodsByAmount,
+    _SideGameChipPurchaseSummary sideGameChipSummary,
   ) async {
     final pokerName = bill['pokerName'] ?? '不明';
     final totalPrice = categoryAmounts.total;
@@ -699,8 +744,8 @@ class _AccountingPageState extends State<AccountingPage> {
 
                             // サイドゲームチップの場合はチップ枚数と円換算額を表示
                             if (categoryKey == 'sideGameChip') {
-                              final yenAmount = categoryValue; // 保存されている値は円換算値
-                              final chipCount = (yenAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round(); // チップ枚数に変換
+                              final yenAmount = sideGameChipSummary.amountInclTotal;
+                              final chipCount = sideGameChipSummary.chipQtyTotal;
                               displayAmount =
                                   'チップ${chipCount.toString()}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
                             } else {
@@ -768,8 +813,8 @@ class _AccountingPageState extends State<AccountingPage> {
                             String displayText;
 
                             if (method == 'sideGameChip') {
-                              final yenAmount = amount; // 保存されている値は円換算値
-                              final chipCount = (yenAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round(); // チップ枚数に変換
+                              final yenAmount = sideGameChipSummary.amountInclTotal;
+                              final chipCount = sideGameChipSummary.chipQtyTotal;
                               displayText =
                                   'チップ${chipCount.toString()}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
                             } else {
@@ -1085,6 +1130,7 @@ class _AccountingPageState extends State<AccountingPage> {
     Map<String, dynamic> bill,
     _CategoryAmounts categoryAmounts,
     Map<String, int> userBalances,
+    _SideGameChipPurchaseSummary sideGameChipSummary,
   ) async {
     final pokerName = bill['pokerName']?.toString() ?? '不明';
     String selectedBaseMethod = 'cash';
@@ -1243,13 +1289,10 @@ class _AccountingPageState extends State<AccountingPage> {
                           final value = entry.value;
                           String amountText;
                           if (category == 'sideGameChip') {
-                            final yenValue =
-                                (value *
-                                        GlobalConstants
-                                            .SIDE_GAME_CHIP_EXCHANGE_RATE)
-                                    .toInt();
+                            final yenValue = sideGameChipSummary.amountInclTotal;
+                            final chipQty = sideGameChipSummary.chipQtyTotal;
                             amountText =
-                                'チップ$value枚 (${_formatCurrency(yenValue)})';
+                                'チップ$chipQty枚 (${_formatCurrency(yenValue)})';
                           } else {
                             amountText = _formatCurrency(value);
                           }
@@ -1724,11 +1767,13 @@ class _AccountingPageState extends State<AccountingPage> {
       }
 
       final userBalances = await _getUserBalances(bill['userId']?.toString());
+      final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(billId);
 
       final startOptions = await _showPaymentStartOptionsDialog(
         bill,
         categoryAmounts,
         userBalances,
+        sideGameChipSummary,
       );
 
       // ローディングダイアログを閉じる
@@ -1824,6 +1869,7 @@ class _AccountingPageState extends State<AccountingPage> {
         bill,
         categoryAmounts,
         paymentMethodsByAmount,
+        sideGameChipSummary,
       );
 
       if (!shouldStart) return;
@@ -2891,8 +2937,9 @@ class _AccountingPageState extends State<AccountingPage> {
       // サイドゲームチップの場合はチップ枚数と換算額を表示
       String displayText;
       if (method == 'sideGameChip') {
-        final yenAmount = amount; // 保存されている値は円換算値
-        final chipCount = (yenAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round(); // チップ枚数に変換
+        final yenAmount = (bill['sideGameChipPurchaseAmountIncl'] as num?)?.toInt() ?? amount;
+        final chipCount = (bill['sideGameChipPurchaseChipQty'] as num?)?.toInt() ??
+            (yenAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
         displayText =
             'チップ${chipCount.toString()} (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
       } else {
