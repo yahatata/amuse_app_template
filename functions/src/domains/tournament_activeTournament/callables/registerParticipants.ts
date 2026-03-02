@@ -4,17 +4,28 @@ import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import * as crypto from 'crypto';
+import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 
 // 入力スキーマ
 const registerParticipantsSchema = z.object({
   tournamentId: z.string(),
   userIds: z.array(z.string()),
+  operationId: z.string().optional(),
 });
 
 interface RegistrationResult {
   success: boolean;
   userId: string;
   error?: string;
+}
+
+/** 巻き戻し用に保存する1ユーザー分の情報 */
+interface SuccessDetail {
+  playerUid: string;
+  playerName: string;
+  billId: string;
+  templateId: string;
+  isReentry: boolean;
 }
 
 export const registerParticipants = onCall(async (request) => {
@@ -41,8 +52,9 @@ export const registerParticipants = onCall(async (request) => {
     const { data } = request;
     
     // 入力検証
-    const { tournamentId, userIds } = registerParticipantsSchema.parse(data);
-    
+    const { tournamentId, userIds, operationId: clientOperationId } = registerParticipantsSchema.parse(data);
+    const operationId = clientOperationId ?? crypto.randomUUID();
+
     console.log(`=== 参加者登録開始 ===`);
     console.log(`tournamentId: ${tournamentId}`);
     console.log(`userIds: ${userIds}`);
@@ -50,7 +62,8 @@ export const registerParticipants = onCall(async (request) => {
     
     const db = admin.firestore();
     const results: RegistrationResult[] = [];
-    
+    const successDetails: SuccessDetail[] = [];
+
     // トーナメント情報を事前取得
     const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
     const tournamentDoc = await tournamentRef.get();
@@ -281,8 +294,14 @@ export const registerParticipants = onCall(async (request) => {
         }
         
         results.push({ success: true, userId: result.userId });
+        successDetails.push({
+          playerUid: result.userId,
+          playerName: result.pokerName,
+          billId: result.billId,
+          templateId: result.templateId,
+          isReentry: result.isUserAlreadyRegistered,
+        });
         console.log(`ユーザー ${userId} の登録完了`);
-        
       } catch (error) {
         console.error(`ユーザー ${userId} の登録失敗:`, error);
         results.push({ 
@@ -297,10 +316,28 @@ export const registerParticipants = onCall(async (request) => {
     const successCount = results.filter(r => r.success).length;
     const failureCount = results.filter(r => !r.success).length;
     
+    // 1人以上成功していれば操作記録を残す（巻き戻しは成功分のみ対象）
+    if (successDetails.length > 0) {
+      await writeSingleOperationLog({
+        operationId,
+        operationName: '参加者一括登録',
+        deviceId: device.id,
+        deviceName: device.name ?? undefined,
+        status: 'succeeded',
+        startedAt: null,
+        payload: {
+          playerUids: successDetails.map((d) => d.playerUid),
+          playerNames: successDetails.map((d) => d.playerName),
+          details: successDetails,
+        },
+        tournamentId,
+      });
+    }
+
     console.log(`=== 参加者登録完了 ===`);
     console.log(`成功: ${successCount}人`);
     console.log(`失敗: ${failureCount}人`);
-    
+
     return {
       success: true,
       results: results,
@@ -310,11 +347,27 @@ export const registerParticipants = onCall(async (request) => {
         failure: failureCount,
       }
     };
-    
   } catch (error) {
     console.error('=== 参加者登録エラー ===');
     console.error(error);
-    
+
+    const rawData = request.data as Record<string, unknown> | undefined;
+    const opId = (typeof rawData?.operationId === 'string' ? rawData.operationId : null) ?? crypto.randomUUID();
+    try {
+      await writeSingleOperationLog({
+        operationId: opId,
+        operationName: '参加者一括登録',
+        deviceId: device?.id ?? 'unknown',
+        deviceName: device?.name ?? undefined,
+        status: 'failed',
+        errorSummary: toErrorSummary(error),
+        payload: {},
+        tournamentId: typeof rawData?.tournamentId === 'string' ? rawData.tournamentId : undefined,
+      });
+    } catch (logErr) {
+      console.error('operationLog 書き込み失敗', logErr);
+    }
+
     if (error instanceof z.ZodError) {
       return {
         success: false,

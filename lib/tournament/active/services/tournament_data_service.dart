@@ -1,11 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/tournament/active/models/table_and_users.dart';
 import 'package:amuse_app_template/tournament/active/models/waiting_user_data.dart';
 
 class TournamentDataService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
 
   /// トーナメントのテーブル情報を取得
   Future<List<TournamentTable>> getTournamentTables(String tournamentId) async {
@@ -188,44 +186,25 @@ class TournamentDataService {
     }
   }
 
-  /// 利用可能なテーブル（status: 'open'）を取得
+  /// 利用可能なテーブル（status: 'open'）を取得（Firestore スナップショットで取得）
   Future<List<Map<String, dynamic>>> getAvailableTables() async {
     try {
-      print('=== Cloud Functions経由でテーブル取得開始 ===');
-      
-      // Cloud Functions経由でテーブル情報を取得
-      final result = await _functions
-          .httpsCallable('getAvailableTables')
-          .call({});
-      
-      print('Cloud Functions レスポンス: ${result.data}');
-      print('レスポンスの型: ${result.data.runtimeType}');
-      print('tablesフィールドの型: ${result.data['tables'].runtimeType}');
-      if (result.data['tables'] is List) {
-        print('tablesリストの要素数: ${(result.data['tables'] as List).length}');
-        if ((result.data['tables'] as List).isNotEmpty) {
-          print('最初の要素の型: ${(result.data['tables'] as List).first.runtimeType}');
-        }
-      }
-      
-      if (result.data['success'] == true) {
-        final tablesList = result.data['tables'] as List;
-        final tables = tablesList.map((item) {
-          if (item is Map) {
-            // Map<Object?, Object?> を Map<String, dynamic> に変換
-            return Map<String, dynamic>.from(item);
-          } else {
-            print('予期しないデータ型: ${item.runtimeType}');
-            return <String, dynamic>{};
-          }
-        }).where((map) => map.isNotEmpty).toList();
-        
-        print('取得したテーブル数: ${tables.length}');
-        return tables;
-      } else {
-        print('Cloud Functions エラー: ${result.data['error']}');
-        return [];
-      }
+      final snapshot = await _firestore
+          .collection('tables')
+          .where('status', isEqualTo: 'open')
+          .get();
+
+      final tables = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return <String, dynamic>{
+          'tableId': doc.id,
+          'name': doc.id,
+          'maxSeats': data['maxSeats'] ?? 6,
+          'status': data['status'] ?? 'open',
+        };
+      }).toList();
+
+      return tables;
     } catch (e) {
       print('利用可能テーブル取得エラー: $e');
       return [];

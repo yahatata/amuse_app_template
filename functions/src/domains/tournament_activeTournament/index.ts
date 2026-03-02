@@ -21,5 +21,3 @@ export { getRankingData } from "./callables/getRankingData";
 export { setRankingData } from "./callables/setRankingData";
 export { endTournament } from "./callables/endTournament";
 export { validateEndTournament } from "./callables/validateEndTournament";
-export { getActionLogs } from "./callables/getActionLogs";
-export { rollbackAction } from "./callables/rollbackAction";

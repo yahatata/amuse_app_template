@@ -5,10 +5,13 @@ import '../../services/device_service.dart';
 
 class TournamentActionsHistoryPage extends StatefulWidget {
   final String tournamentId;
+  /// 卓ページから遷移した場合に指定。指定時はタブを出さずこの卓の操作のみ表示する。
+  final String? tableId;
 
   const TournamentActionsHistoryPage({
     super.key,
     required this.tournamentId,
+    this.tableId,
   });
 
   @override
@@ -17,31 +20,37 @@ class TournamentActionsHistoryPage extends StatefulWidget {
 
 class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryPage>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+  TabController? _tabController;
   List<Map<String, dynamic>> _actionLogs = [];
   bool _isLoading = false;
+  bool _isRollingBack = false;
   String? _currentDeviceId;
   String? _currentDeviceName;
   int _currentTabIndex = 0;
 
+  bool get _isTableScope => widget.tableId != null && widget.tableId!.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    _tabController.addListener(() {
-      if (_tabController.index != _currentTabIndex) {
-        setState(() {
-          _currentTabIndex = _tabController.index;
-        });
-        _loadActionLogs();
-      }
-    });
+    if (!_isTableScope) {
+      _tabController = TabController(length: 2, vsync: this);
+      _tabController!.addListener(() {
+        if (_tabController!.index != _currentTabIndex) {
+          setState(() {
+            _currentTabIndex = _tabController!.index;
+          });
+          _loadActionLogs();
+        }
+      });
+    }
     _initializeDeviceInfo();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadActionLogs());
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _tabController?.dispose();
     super.dispose();
   }
 
@@ -70,15 +79,17 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
     try {
       final functions = FirebaseFunctions.instance;
       
-      // タブに応じてクエリパラメータを設定
       Map<String, dynamic> params = {
         'tournamentId': widget.tournamentId,
         'limit': 100,
       };
-
-      if (_currentTabIndex == 0 && _currentDeviceId != null) {
-        // この端末の操作のみ
-        params['deviceId'] = _currentDeviceId;
+      if (_isTableScope) {
+        params['tableId'] = widget.tableId;
+      } else {
+        // トーナメントページから: index 0 = 全て, index 1 = この端末
+        if (_currentTabIndex == 1 && _currentDeviceId != null) {
+          params['deviceId'] = _currentDeviceId;
+        }
       }
 
       final result = await functions
@@ -86,96 +97,34 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
           .call(params);
 
       if (result.data['success'] == true) {
-        // デバッグ用ログ
-        print('=== ActionLogs Debug ===');
-        print('result.data type: ${result.data.runtimeType}');
-        print('result.data keys: ${(result.data as Map).keys.toList()}');
-        print('actionLogs type: ${result.data['actionLogs'].runtimeType}');
-        print('actionLogs length: ${(result.data['actionLogs'] as List).length}');
-        
-        // 最初のログの詳細を確認
-        if ((result.data['actionLogs'] as List).isNotEmpty) {
-          final firstLog = (result.data['actionLogs'] as List).first;
-          print('First log type: ${firstLog.runtimeType}');
-          if (firstLog is Map) {
-            print('First log keys: ${firstLog.keys.toList()}');
-            print('First log createdAt: ${firstLog['createdAt']}');
-            print('First log createdAt type: ${firstLog['createdAt']?.runtimeType}');
-          }
-        }
-        
-        // 型安全な変換を行う
         final rawLogs = result.data['actionLogs'] as List<dynamic>;
-        print('rawLogs type: ${rawLogs.runtimeType}');
-        
         final logs = rawLogs.map((log) {
-          print('log type: ${log.runtimeType}');
           if (log is Map) {
-            // Map<Object?, Object?> を Map<String, dynamic> に変換
-            final converted = Map<String, dynamic>.from(log.map((key, value) => 
-              MapEntry(key.toString(), value)
-            ));
-            print('converted log: $converted');
-            
-            // createdAtの詳細をデバッグ出力
-            if (converted.containsKey('createdAt')) {
-              print('=== createdAt Debug ===');
-              print('createdAt value: ${converted['createdAt']}');
-              print('createdAt type: ${converted['createdAt'].runtimeType}');
-              
-              // createdAtがMapの場合、Firestore Timestampの可能性
-              if (converted['createdAt'] is Map) {
-                final timestampMap = converted['createdAt'] as Map;
-                print('Timestamp Map keys: ${timestampMap.keys.toList()}');
-                print('Timestamp Map values: ${timestampMap.values.toList()}');
-                
-                if (timestampMap.containsKey('_seconds')) {
-                  final seconds = timestampMap['_seconds'] as int;
-                  final nanoseconds = timestampMap['_nanoseconds'] as int? ?? 0;
-                  final dateTime = DateTime.fromMillisecondsSinceEpoch(
-                    (seconds * 1000) + (nanoseconds ~/ 1000000),
-                    isUtc: true,
-                  );
-                  print('Converted DateTime: $dateTime');
-                  // 変換されたDateTimeで置き換え
-                  converted['createdAt'] = dateTime;
-                } else if (timestampMap.isEmpty) {
-                  print('WARNING: createdAt is an empty Map! This should not happen.');
-                }
+            final converted = Map<String, dynamic>.from(log.map((key, value) =>
+                MapEntry(key.toString(), value)));
+            // createdAt が Map（Firestore Timestamp 由来）の場合は DateTime に変換
+            if (converted['createdAt'] is Map) {
+              final m = converted['createdAt'] as Map;
+              if (m['_seconds'] != null) {
+                final sec = m['_seconds'] as int;
+                final nano = (m['_nanoseconds'] as int?) ?? 0;
+                converted['createdAt'] = DateTime.fromMillisecondsSinceEpoch(
+                  (sec * 1000) + (nano ~/ 1000000),
+                  isUtc: true,
+                );
               }
-              print('=== End createdAt Debug ===');
             }
-            
             return converted;
           }
-          print('log is not a Map: $log');
           return <String, dynamic>{};
         }).where((log) => log.isNotEmpty).toList();
         
         print('final logs length: ${logs.length}');
         print('=== End Debug ===');
         
-        // タブに応じてフィルタリング
-        List<Map<String, dynamic>> filteredLogs = logs;
-        
-        if (_currentTabIndex == 1) {
-          // 全ての端末の操作（フィルタリングなし）
-          print('全ての端末の操作: ${logs.length}件');
-        } else if (_currentTabIndex == 2) {
-          // 他端末の操作のみ
-          filteredLogs = logs.where((log) => 
-            log['deviceId'] != _currentDeviceId
-          ).toList();
-          print('他端末の操作: ${filteredLogs.length}件 (全体: ${logs.length}件)');
-        } else {
-          print('この端末の操作: ${logs.length}件');
-        }
-
         setState(() {
-          _actionLogs = filteredLogs;
+          _actionLogs = logs;
         });
-        
-        print('フィルタリング後のログ数: ${filteredLogs.length}');
       } else {
         throw Exception('アクションログの取得に失敗しました');
       }
@@ -206,16 +155,129 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
     }
   }
 
+  /// 一括アドオン・参加者一括登録で details からプレイヤー一覧を組み立てる
+  List<Map<String, dynamic>> _getPlayerItemsFromDetails(Map<String, dynamic> details) {
+    final detailsList = details['details'];
+    if (detailsList is List && detailsList.isNotEmpty) {
+      return detailsList.map((e) {
+        final m = Map<String, dynamic>.from(e is Map ? e : {});
+        return {
+          'playerUid': m['playerUid']?.toString() ?? '',
+          'playerName': m['playerName']?.toString() ?? '不明',
+          ...m,
+        };
+      }).where((e) => ((e['playerUid'] as String?) ?? '').isNotEmpty).toList();
+    }
+    final uids = (details['playerUids'] as List?)?.map((e) => e?.toString() ?? '').toList() ?? [];
+    final names = (details['playerNames'] as List?)?.map((e) => e?.toString() ?? '').toList() ?? [];
+    if (uids.isEmpty) return [];
+    return List.generate(uids.length, (i) {
+      return {
+        'playerUid': uids[i],
+        'playerName': i < names.length ? names[i] : 'User_${uids[i]}',
+      };
+    });
+  }
+
+  /// 一括アドオン・参加者一括登録の取り消し対象者を選択するダイアログ。選択された subset を返す（キャンセル時は null）
+  Future<Map<String, dynamic>?> _showPartialRollbackSelectionDialog(Map<String, dynamic> actionLog) async {
+    final details = actionLog['details'];
+    if (details is! Map) return null;
+    final detailsMap = Map<String, dynamic>.from(details as Map);
+    final players = _getPlayerItemsFromDetails(detailsMap);
+    if (players.isEmpty) return null;
+
+    final selected = List<bool>.filled(players.length, true);
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('取り消し対象の選択'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '取り消す対象にチェックを入れてください（${players.length}人）',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    ...List.generate(players.length, (i) {
+                      return CheckboxListTile(
+                        value: selected[i],
+                        onChanged: (v) {
+                          setDialogState(() => selected[i] = v ?? true);
+                        },
+                        title: Text(players[i]['playerName']?.toString() ?? '不明'),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        dense: true,
+                      );
+                    }),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(null),
+                  child: const Text('キャンセル'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final indices = <int>[];
+                    for (var i = 0; i < selected.length; i++) {
+                      if (selected[i]) indices.add(i);
+                    }
+                    if (indices.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('1人以上選択してください')),
+                      );
+                      return;
+                    }
+                    final subset = indices.map((i) => players[i]).toList();
+                    Navigator.of(context).pop(<String, dynamic>{
+                      'playerUids': subset.map((e) => e['playerUid']).toList(),
+                      'playerNames': subset.map((e) => e['playerName']).toList(),
+                      'details': subset,
+                    });
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  child: const Text('選択した分を取り消す', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _rollbackAction(Map<String, dynamic> actionLog) async {
-    // 確認ダイアログを表示
+    final action = actionLog['action'] as String;
+    final isPartialRollback = action == 'bulk_addon' || action == 'register_participants';
+
+    Map<String, dynamic>? selectedSubset;
+    if (isPartialRollback && actionLog['details'] is Map) {
+      selectedSubset = await _showPartialRollbackSelectionDialog(actionLog);
+      if (selectedSubset == null) return;
+      if (!mounted) return;
+    }
+
+    final confirmContent = selectedSubset != null
+        ? '操作: ${_getActionDisplayName(action, actionLog)}\n'
+            '取り消し対象: ${(selectedSubset['playerNames'] as List?)?.join(', ') ?? ''}\n'
+            '実行時刻: ${_formatDateTime(actionLog['executedAt'] ?? actionLog['createdAt'])}'
+        : '操作: ${_getActionDisplayName(action, actionLog)}\n'
+            '対象: ${_getTargetDisplayForConfirm(actionLog)}\n'
+            '実行時刻: ${_formatDateTime(actionLog['executedAt'] ?? actionLog['createdAt'])}';
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('操作の取り消し'),
-        content: Text('この操作を本当に取り消しますか？\n\n'
-            '操作: ${_getActionDisplayName(actionLog['action'])}\n'
-            '対象: ${actionLog['targetPlayerName'] ?? 'なし'}\n'
-            '実行時刻: ${_formatDateTime(actionLog['createdAt'])}'),
+        content: Text('この操作を本当に取り消しますか？\n\n$confirmContent'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -232,24 +294,28 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
 
     if (confirmed != true) return;
 
+    if (!mounted) return;
+    setState(() => _isRollingBack = true);
+
     try {
       final functions = FirebaseFunctions.instance;
       
-      // ロールバックに必要なパラメータを構築
-      final params = <String, dynamic>{
+      final action = actionLog['action'] as String;
+      // 操作履歴は operationLogs のみ。取り消しは常に operationId で指定
+        final params = <String, dynamic>{
         'tournamentId': widget.tournamentId,
-        'actionLogId': actionLog['id'],
-        'action': actionLog['action'],
+        'operationId': actionLog['operationId'] ?? actionLog['id'],
+        'action': action,
         'rollBackBy': _currentDeviceId ?? 'unknown',
+        if (_currentDeviceName != null && _currentDeviceName!.isNotEmpty) 'rollBackByDeviceName': _currentDeviceName,
       };
 
-      // 操作タイプに応じて必要なパラメータを追加
-      final action = actionLog['action'] as String;
+      // 操作タイプに応じて必要なパラメータを追加（addon は operationLogs から取得するため不要）
       switch (action) {
-        case 'addon':
         case 'bust_and_exit':
         case 'bust_and_reentry':
         case 'assign_seat_to_player':
+        case 'register_for_tournament':
           if (actionLog['targetUid'] != null) params['playerUid'] = actionLog['targetUid'];
           if (actionLog['targetPlayerName'] != null) params['playerName'] = actionLog['targetPlayerName'];
           if (actionLog['tableId'] != null) params['tableId'] = actionLog['tableId'];
@@ -257,19 +323,27 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
           break;
         case 'bulk_addon':
           if (actionLog['tableId'] != null) params['tableId'] = actionLog['tableId'];
-          // bulk_addonの場合は、detailsからplayerUidsとplayerNamesを取得
-          if (actionLog['details'] is Map) {
+          if (selectedSubset != null) {
+            params['playerUids'] = selectedSubset['playerUids'];
+            params['playerNames'] = selectedSubset['playerNames'];
+            params['details'] = selectedSubset['details'];
+          } else if (actionLog['details'] is Map) {
             final details = actionLog['details'] as Map;
             if (details['playerUids'] != null) params['playerUids'] = details['playerUids'];
             if (details['playerNames'] != null) params['playerNames'] = details['playerNames'];
+            if (details['details'] != null) params['details'] = details['details'];
           }
           break;
         case 'register_participants':
-          // register_participantsの場合は、detailsからplayerUidsとplayerNamesを取得
-          if (actionLog['details'] is Map) {
+          if (selectedSubset != null) {
+            params['playerUids'] = selectedSubset['playerUids'];
+            params['playerNames'] = selectedSubset['playerNames'];
+            params['details'] = selectedSubset['details'];
+          } else if (actionLog['details'] is Map) {
             final details = actionLog['details'] as Map;
             if (details['playerUids'] != null) params['playerUids'] = details['playerUids'];
             if (details['playerNames'] != null) params['playerNames'] = details['playerNames'];
+            if (details['details'] != null) params['details'] = details['details'];
           }
           break;
         case 'reseat_all_players':
@@ -315,10 +389,14 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
           ),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() => _isRollingBack = false);
+      }
     }
   }
 
-  String _getActionDisplayName(String action) {
+  String _getActionDisplayName(String action, [Map<String, dynamic>? log]) {
     switch (action) {
       case 'addon':
         return 'アドオン';
@@ -328,8 +406,18 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
         return 'バースト＆退場';
       case 'bust_and_reentry':
         return 'バースト＆リエントリー';
+      case 'end_tournament':
+        if (log != null && log['details'] is Map) {
+          final details = log['details'] as Map;
+          if (details['endType'] == 'force') return 'トーナメント強制終了';
+        }
+        return 'トーナメント終了';
+      case 'set_ranking_data':
+        return 'ランキングデータ設定';
       case 'register_participants':
-        return 'エントリー';
+        return '参加者一括登録';
+      case 'register_for_tournament':
+        return 'トーナメント登録';
       case 'assign_seat_to_player':
         return 'シート割当';
       case 'reseat_all_players':
@@ -343,69 +431,97 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
 
   String _formatDateTime(dynamic dateTime) {
     if (dateTime == null) return '不明';
-    
-    // 空のオブジェクトや無効なデータのチェック
-    if (dateTime is Map && dateTime.isEmpty) {
-      print('時刻データが空のオブジェクトです: $dateTime');
-      return '時刻不明';
-    }
-    
-    print('=== _formatDateTime Debug ===');
-    print('入力値: $dateTime');
-    print('入力値の型: ${dateTime.runtimeType}');
-    
-    DateTime? parsedDateTime;
-    
+    if (dateTime is Map && dateTime.isEmpty) return '時刻不明';
+
+    DateTime? parsed;
     if (dateTime is DateTime) {
-      parsedDateTime = dateTime;
-      print('DateTime型として処理');
+      parsed = dateTime;
     } else if (dateTime is String) {
-      // ISO文字列の場合
       try {
-        parsedDateTime = DateTime.parse(dateTime);
-        print('ISO文字列としてパース成功: $parsedDateTime');
-      } catch (e) {
-        print('日時文字列のパースエラー: $dateTime, $e');
-        return 'パースエラー';
+        parsed = DateTime.parse(dateTime);
+      } catch (_) {
+        return '時刻不明';
       }
-    } else if (dateTime is Map) {
-      // Firestore Timestampの場合
-      print('Map型として処理: $dateTime');
-      print('Mapのキー: ${dateTime.keys.toList()}');
-      
+    } else if (dateTime is Map && dateTime['_seconds'] != null) {
       try {
-        if (dateTime['_seconds'] != null) {
-          final seconds = dateTime['_seconds'] as int;
-          final nanoseconds = dateTime['_nanoseconds'] as int? ?? 0;
-          parsedDateTime = DateTime.fromMillisecondsSinceEpoch(
-            (seconds * 1000) + (nanoseconds ~/ 1000000),
-            isUtc: true,
-          );
-          print('Timestamp変換成功: $parsedDateTime');
-        } else {
-          print('_secondsフィールドが見つかりません');
+        final sec = dateTime['_seconds'] as int;
+        final nano = (dateTime['_nanoseconds'] as int?) ?? 0;
+        parsed = DateTime.fromMillisecondsSinceEpoch(
+          (sec * 1000) + (nano ~/ 1000000),
+          isUtc: true,
+        );
+      } catch (_) {
+        return '時刻不明';
+      }
+    } else if (dateTime is int) {
+      parsed = DateTime.fromMillisecondsSinceEpoch(dateTime, isUtc: true);
+    }
+
+    if (parsed != null) {
+      final jst = parsed.toUtc().add(const Duration(hours: 9));
+      return '${jst.year}/${jst.month.toString().padLeft(2, '0')}/${jst.day.toString().padLeft(2, '0')} '
+          '${jst.hour.toString().padLeft(2, '0')}:${jst.minute.toString().padLeft(2, '0')}:${jst.second.toString().padLeft(2, '0')}';
+    }
+    return '時刻不明';
+  }
+
+  /// 取り消し確認ダイアログ用の「対象」表示文字列
+  String _getTargetDisplayForConfirm(Map<String, dynamic> actionLog) {
+    if ((actionLog['action'] == 'register_participants' || actionLog['action'] == 'bulk_addon') &&
+        actionLog['details'] is Map) {
+      final details = actionLog['details'] as Map;
+      final playerNames = details['playerNames'];
+      if (playerNames is List && playerNames.isNotEmpty) {
+        final names = playerNames.map((e) => e?.toString() ?? '').where((s) => s.isNotEmpty).toList();
+        if (names.isNotEmpty) return names.join(', ');
+      }
+    }
+    if (actionLog['action'] == 'set_ranking_data' && actionLog['details'] is Map) {
+      final details = actionLog['details'] as Map;
+      final entries = details['rankingEntries'];
+      if (entries is List && entries.isNotEmpty) {
+        final parts = <String>[];
+        for (final e in entries) {
+          if (e is! Map) continue;
+          final rank = e['rank']?.toString() ?? '';
+          final name = e['playerName']?.toString() ?? e['playerUid']?.toString() ?? '不明';
+          final prize = e['prizeAmount'];
+          if (rank.isNotEmpty) parts.add('${rank}位: $name${prize != null ? ' (${prize}pt)' : ''}');
         }
-      } catch (e) {
-        print('Timestamp変換エラー: $dateTime, $e');
-        return '変換エラー';
+        if (parts.isNotEmpty) return parts.join(', ');
       }
     }
-    
-    if (parsedDateTime != null) {
-      // UTCからJSTに変換（+9時間）
-      final jstDateTime = parsedDateTime.toUtc().add(const Duration(hours: 9));
-      final result = '${jstDateTime.year}/${jstDateTime.month.toString().padLeft(2, '0')}/${jstDateTime.day.toString().padLeft(2, '0')} '
-          '${jstDateTime.hour.toString().padLeft(2, '0')}:'
-          '${jstDateTime.minute.toString().padLeft(2, '0')}:'
-          '${jstDateTime.second.toString().padLeft(2, '0')}';
-      print('最終結果: $result');
-      print('=== End _formatDateTime Debug ===');
-      return result;
+    return actionLog['targetPlayerName']?.toString() ?? 'なし';
+  }
+
+  /// 一括操作の対象者を details の playerNames から表示用 Widget を返す（参加者一括登録・一括アドオン）
+  Widget _buildTargetNamesFromDetails(Map details) {
+    final playerNames = details['playerNames'];
+    if (playerNames is! List || playerNames.isEmpty) {
+      return Text('対象: （なし）');
     }
-    
-    print('パース失敗、元の値を返却: ${dateTime.toString()}');
-    print('=== End _formatDateTime Debug ===');
-    return dateTime.toString();
+    final names = playerNames.map((e) => e?.toString() ?? '').where((s) => s.isNotEmpty).toList();
+    if (names.isEmpty) return Text('対象: （なし）');
+    return Text('対象: ${names.join(', ')}');
+  }
+
+  /// ランキングデータ設定の details（rankingEntries）からランキング・名前・賞金を表示する
+  Widget _buildRankingDisplayFromDetails(Map details) {
+    final entries = details['rankingEntries'];
+    if (entries is! List || entries.isEmpty) {
+      return const Text('設定ランキング: （なし）');
+    }
+    final lines = <String>[];
+    for (final e in entries) {
+      if (e is! Map) continue;
+      final rank = e['rank']?.toString() ?? '';
+      final name = e['playerName']?.toString() ?? e['playerUid']?.toString() ?? '不明';
+      final prize = e['prizeAmount'];
+      final prizeStr = prize != null ? ' (${prize}pt)' : '';
+      if (rank.isNotEmpty) lines.add('${rank}位: $name$prizeStr');
+    }
+    if (lines.isEmpty) return const Text('設定ランキング: （なし）');
+    return Text('設定ランキング: ${lines.join(', ')}');
   }
 
   @override
@@ -421,44 +537,70 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
             tooltip: '更新',
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'この端末'),
-            Tab(text: '全て'),
-            Tab(text: '他端末'),
-          ],
-        ),
+        bottom: _isTableScope
+            ? null
+            : TabBar(
+                controller: _tabController!,
+                tabs: const [
+                  Tab(text: '全て'),
+                  Tab(text: 'この端末'),
+                ],
+              ),
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // 初回データ取得ボタン
-          if (_actionLogs.isEmpty && !_isLoading)
+          Column(
+            children: [
+              // 初回データ取得ボタン
+              if (_actionLogs.isEmpty && !_isLoading)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  child: ElevatedButton(
+                    onPressed: _loadActionLogs,
+                    child: const Text('データを取得'),
+                  ),
+                ),
+              // ログ一覧
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _actionLogs.isEmpty
+                        ? const Center(
+                            child: Text('操作履歴がありません'),
+                          )
+                        : ListView.builder(
+                            itemCount: _actionLogs.length,
+                            itemBuilder: (context, index) {
+                              final log = _actionLogs[index];
+                              return _buildActionLogItem(log);
+                            },
+                          ),
+              ),
+            ],
+          ),
+          // 巻き戻し処理中のローディング表示
+          if (_isRollingBack)
             Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              child: ElevatedButton(
-                onPressed: _loadActionLogs,
-                child: const Text('データを取得'),
+              color: Colors.black26,
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text(
+                      '取り消し処理中...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          
-          // ログ一覧
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _actionLogs.isEmpty
-                    ? const Center(
-                        child: Text('操作履歴がありません'),
-                      )
-                    : ListView.builder(
-                        itemCount: _actionLogs.length,
-                        itemBuilder: (context, index) {
-                          final log = _actionLogs[index];
-                          return _buildActionLogItem(log);
-                        },
-                      ),
-          ),
         ],
       ),
     );
@@ -473,7 +615,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
         title: Row(
           children: [
             Text(
-              _getActionDisplayName(log['action']),
+              _getActionDisplayName(log['action'] as String, log),
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: isRolledBack ? Colors.grey : Colors.black,
@@ -498,18 +640,22 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (log['targetPlayerName'] != null)
+            if ((log['action'] == 'register_participants' || log['action'] == 'bulk_addon') && log['details'] is Map) ...[
+              _buildTargetNamesFromDetails(log['details'] as Map),
+            ] else if (log['action'] == 'set_ranking_data' && log['details'] is Map) ...[
+              _buildRankingDisplayFromDetails(log['details'] as Map),
+            ] else if (log['targetPlayerName'] != null)
               Text('対象: ${log['targetPlayerName']}'),
             if (log['tableId'] != null)
               Text('テーブル: ${log['tableId']}'),
             if (log['seatNumber'] != null)
               Text('シート: ${log['seatNumber']}'),
-            Text('実行者: ${log['deviceName']} (${log['deviceId']})'),
-            Text('時刻: ${_formatDateTime(log['createdAt'])}'),
-            // デバッグ用：生データも表示
-            Text('生データ: ${log['createdAt']}', style: TextStyle(fontSize: 10, color: Colors.grey)),
-            if (isRolledBack && log['rollBackBy'] != null)
-              Text('取り消し者: ${log['rollBackBy']}'),
+            Text('実行デバイス: ${log['deviceName'] ?? log['deviceId'] ?? '不明'}'),
+            Text('実行時刻: ${_formatDateTime(log['executedAt'] ?? log['createdAt'])}'),
+            if (isRolledBack && (log['rollBackBy'] != null || log['rollBackByDeviceName'] != null))
+              Text('取り消し者: ${log['rollBackByDeviceName'] ?? log['rollBackBy'] ?? '不明'}'),
+            if (isRolledBack && log['rollBackAt'] != null)
+              Text('取り消し時刻: ${_formatDateTime(log['rollBackAt'])}'),
           ],
         ),
         trailing: isRolledBack

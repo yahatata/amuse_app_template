@@ -35,6 +35,8 @@ export * from "./domains/bills";
 export * from "./domains/storeMeta";
 // スケジュール済みトーナメント・サイドゲーム
 export * from "./domains/tournament_activeTournament/index";
+// 操作履歴（取得・取り消し）
+export * from "./domains/logs/index";
 export * from "./domains/sideGame/index";
 // アナリティクス関連関数（Phase4: analytics）
 export * from "./domains/analytics";

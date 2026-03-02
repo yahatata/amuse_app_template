@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 
@@ -176,9 +177,40 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: $e')),
-        );
+        final msg = e.toString();
+        final isPermissionDenied = msg.contains('permission-denied') || msg.contains('デバイスが見つからない');
+        final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '(未ログイン)';
+        if (isPermissionDenied) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('権限エラー'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('$msg'),
+                    const SizedBox(height: 16),
+                    const Text('現在のAuth UID（Firestore devices の uid と一致しているか確認してください）:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    SelectableText(currentUid, style: const TextStyle(fontSize: 11)),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('エラー: $e')),
+          );
+        }
       }
     } finally {
       if (mounted) {

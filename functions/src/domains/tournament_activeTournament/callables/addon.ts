@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { DeviceDoc } from '../../../shared/devices';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
-import { writeSingleOperationLog, toErrorSummary } from '../../../unused_function_lib/operationLog';
+import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
 
 const addonSchema = z.object({
@@ -14,6 +14,8 @@ const addonSchema = z.object({
   userId: z.string(),
   pokerName: z.string(),
   deviceName: z.string().optional(),
+  /** 卓画面から呼ぶ場合に指定。指定時は operationLog の tableId にそのまま使用する */
+  tableId: z.string().optional(),
 });
 
 export const addon = onCall(async (request) => {
@@ -61,7 +63,7 @@ export const addon = onCall(async (request) => {
 
     // 入力検証
     const validatedData = addonSchema.parse(data);
-    const { operationId, tournamentId, userId, pokerName, deviceName } = validatedData;
+    const { operationId, tournamentId, userId, pokerName, deviceName, tableId: tableIdFromRequest } = validatedData;
 
     console.log('tournamentId:', tournamentId);
     console.log('userId:', userId);
@@ -191,20 +193,50 @@ export const addon = onCall(async (request) => {
       // scheduledTournamentsの更新は成功しているため
     }
 
-    // 操作記録（成功）
+    // 巻き戻し用: tableId はリクエストで渡されていればそれを使う。なければ tablesSeat から検索
+    let tableId: string | null = (tableIdFromRequest != null && tableIdFromRequest !== '') ? tableIdFromRequest : null;
+    let seatNumber: number | null = null;
+    if (!tableId) {
+      try {
+        const tablesSeatSnap = await admin.firestore()
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('tablesSeat')
+          .get();
+        for (const doc of tablesSeatSnap.docs) {
+          if (doc.id === 'waiting' || doc.id === 'busted') continue;
+          const seats = doc.data().seats || {};
+          for (let i = 1; i <= 99; i++) {
+            const key = `seat${i.toString().padStart(2, '0')}UserId`;
+            if (seats[key] === userId) {
+              tableId = doc.id;
+              seatNumber = i;
+              break;
+            }
+          }
+          if (tableId) break;
+        }
+      } catch (_) {
+        // 座席未割当のまま payload に null を入れる
+      }
+    }
+
+    // 操作記録（成功）。operationLogs から巻き戻し可能。卓単位のため tableId をトップレベルに付与
     await writeSingleOperationLog({
       operationId,
       operationName: 'アドオン購入',
       deviceId: device.id,
-      deviceName: deviceName ?? undefined,
+      deviceName: deviceName ?? device.name ?? undefined,
       status: 'succeeded',
       startedAt,
+      tournamentId,
+      ...(tableId != null && { tableId }),
       payload: {
-        tournamentId,
         playerUid: userId,
         playerName: pokerName,
         billId: result.billId,
         templateId: result.templateId,
+        ...(seatNumber != null && { seatNumber }),
       },
     });
 
@@ -232,7 +264,7 @@ export const addon = onCall(async (request) => {
           operationId: opId,
           operationName: 'アドオン購入',
           deviceId: device.id,
-          deviceName: typeof rawData?.deviceName === 'string' ? rawData.deviceName : undefined,
+          deviceName: typeof rawData?.deviceName === 'string' ? rawData.deviceName : device.name ?? undefined,
           status: 'failed',
           errorSummary: toErrorSummary(error),
           payload: {},

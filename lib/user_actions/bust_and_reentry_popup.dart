@@ -1,7 +1,11 @@
+import 'dart:async';
+
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:async'; // For TimeoutException
+import 'package:amuse_app_template/services/device_service.dart';
 
 /// Bust＆リエントリー確認ダイアログ
 Future<void> showBustAndReentryDialog({
@@ -208,16 +212,22 @@ Future<void> _executeBustAndReentry({
     print('tableId: $tableId');
     print('seatNumber: $seatNumber');
     
+    final operationId =
+        '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+    final device = await DeviceService().getCurrentDevice();
+    final deviceName = device?.name;
+
     final functions = FirebaseFunctions.instance;
     final callable = functions.httpsCallable('bustAndReentry');
-    
-    // Cloud Function呼び出し（タイムアウト付き）
+
     print('=== Cloud Function呼び出し実行中 ===');
     final result = await callable.call({
+      'operationId': operationId,
       'tournamentId': tournamentId,
       'userId': userId,
       'tableId': tableId,
       'seatNumber': seatNumber,
+      if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
     }).timeout(
       const Duration(seconds: 30),
       onTimeout: () {

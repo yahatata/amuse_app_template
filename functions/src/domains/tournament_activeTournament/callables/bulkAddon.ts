@@ -3,10 +3,15 @@ import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
+import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
 
 const bulkAddonSchema = z.object({
   tournamentId: z.string(),
+  /** 操作履歴・取り消し用。未指定時はサーバーで生成 */
+  operationId: z.string().optional(),
+  /** 卓単位絞り込み用。指定時は operationLog の tableId に保存 */
+  tableId: z.string().optional(),
   users: z.array(z.object({
     userId: z.string(),
     pokerName: z.string(),
@@ -20,10 +25,11 @@ export const bulkAddon = onCall(async (request) => {
   }
 
   const callerUid = request.auth.uid;
+  let device: Awaited<ReturnType<typeof getCallerDeviceByUid>> = null;
 
   try {
     // デバイス権限の確認（role: admin または options.tournament: true）
-    const device = await getCallerDeviceByUid(callerUid);
+    device = await getCallerDeviceByUid(callerUid);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
@@ -54,7 +60,8 @@ export const bulkAddon = onCall(async (request) => {
 
     // 入力検証
     const validatedData = bulkAddonSchema.parse(data);
-    const { tournamentId, users } = validatedData;
+    const { tournamentId, users, operationId: clientOperationId, tableId } = validatedData;
+    const operationId = clientOperationId ?? crypto.randomUUID();
 
     console.log('tournamentId:', tournamentId);
     console.log('対象ユーザー数:', users.length);
@@ -202,6 +209,34 @@ export const bulkAddon = onCall(async (request) => {
 
     await Promise.all(recordPromises);
 
+    // 操作記録（成功）。operationLogs から巻き戻し可能。卓単位の場合は tableId をトップレベルに付与
+    const playerUids = result.availableUsers.map((u) => u.userId);
+    const playerNames = result.availableUsers.map((u) => {
+      const u2 = users.find((us) => us.userId === u.userId);
+      return u2 ? u2.pokerName : `User_${u.userId}`;
+    });
+    const details = result.availableUsers.map((u) => ({
+      playerUid: u.userId,
+      playerName: users.find((us) => us.userId === u.userId)?.pokerName ?? `User_${u.userId}`,
+      billId: u.billId,
+      templateId,
+    }));
+    await writeSingleOperationLog({
+      operationId,
+      operationName: '一括アドオン',
+      deviceId: device.id,
+      deviceName: device.name ?? undefined,
+      status: 'succeeded',
+      tournamentId,
+      ...(tableId != null && tableId !== '' && { tableId }),
+      payload: {
+        playerUids,
+        playerNames,
+        ...(tableId != null && tableId !== '' && { tableId }),
+        details,
+      },
+    });
+
     console.log('=== まとめてAddon処理完了 ===');
     console.log('処理完了ユーザー数:', result.processedCount);
 
@@ -215,6 +250,27 @@ export const bulkAddon = onCall(async (request) => {
   } catch (error) {
     console.error('=== まとめてAddon処理エラー ===');
     console.error(error);
+
+    // 操作記録（失敗）
+    const rawData = request.data as Record<string, unknown> | undefined;
+    const opId = (typeof rawData?.operationId === 'string' ? rawData.operationId : null) ?? crypto.randomUUID();
+    if (device != null) {
+      try {
+        await writeSingleOperationLog({
+          operationId: opId,
+          operationName: '一括アドオン',
+          deviceId: device.id,
+          deviceName: device.name ?? undefined,
+          status: 'failed',
+          errorSummary: toErrorSummary(error),
+          tournamentId: typeof rawData?.tournamentId === 'string' ? rawData.tournamentId : undefined,
+          ...(typeof rawData?.tableId === 'string' && rawData.tableId !== '' ? { tableId: rawData.tableId } : {}),
+          payload: {},
+        });
+      } catch (logErr) {
+        console.error('operationLog 書き込み失敗', logErr);
+      }
+    }
 
     if (error instanceof z.ZodError) {
       return {

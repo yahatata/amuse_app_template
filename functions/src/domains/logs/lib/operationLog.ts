@@ -17,6 +17,10 @@ export interface WriteSingleOperationLogParams {
   errorSummary?: string | null;
   startedAt?: FirebaseFirestore.FieldValue | null;
   payload: Record<string, unknown>;
+  /** トーナメント関連操作の場合。getActionLogs で tournamentId 絞り込みに使用 */
+  tournamentId?: string | null;
+  /** 卓単位の操作の場合。getActionLogs で卓絞り込みに使用（addon / 一括アドオン / バスト退店・再入場など） */
+  tableId?: string | null;
 }
 
 const ERROR_SUMMARY_MAX_LENGTH = 200;
@@ -63,8 +67,35 @@ export async function writeSingleOperationLog(
   if (params.startedAt != null) {
     data.startedAt = params.startedAt;
   }
+  if (params.tournamentId != null && params.tournamentId !== '') {
+    data.tournamentId = params.tournamentId;
+  }
+  if (params.tableId != null && params.tableId !== '') {
+    data.tableId = params.tableId;
+  }
 
   await ref.set(data);
+}
+
+/**
+ * operationLog を巻き戻し済みとしてマークする（operationLogs のみで巻き戻す場合に使用）
+ */
+export async function markOperationLogRolledBack(
+  operationId: string,
+  rollBackBy: string,
+  rollBackByDeviceName?: string | null
+): Promise<void> {
+  const db = getFirestore();
+  const ref = db.collection('operationLogs').doc(operationId);
+  const updateData: Record<string, unknown> = {
+    rolledBack: true,
+    rollBackBy,
+    rollBackAt: FieldValue.serverTimestamp(),
+  };
+  if (rollBackByDeviceName != null && rollBackByDeviceName !== '') {
+    updateData.rollBackByDeviceName = rollBackByDeviceName;
+  }
+  await ref.update(updateData);
 }
 
 /** 方式 A' 用: 1 チャンクあたりの最大エントリ数 */
