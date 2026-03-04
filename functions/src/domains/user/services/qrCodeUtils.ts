@@ -2,6 +2,7 @@ import * as QRCode from "qrcode";
 import * as crypto from "crypto";
 import * as admin from "firebase-admin";
 import { QRCodeData } from "../../../shared/types";
+import { isProductionRuntime } from "../../../shared/runtime";
 
 /**
  * QRコードの有効期限（分）
@@ -15,12 +16,21 @@ const QR_EXPIRY_MINUTES = 10;
  * @param {number} timestamp タイムスタンプ
  * @return {string} セキュリティトークン
  */
+// QR_SECRET_KEY: コマンド/コンソールで設定。本番で未設定時は throw（Phase0A D-12）
+function getQRSecretKey(): string {
+  const secret = process.env.QR_SECRET_KEY;
+  if (isProductionRuntime() && (!secret || !secret.trim())) {
+    throw new Error("QR_SECRET_KEY is not set (required in production)");
+  }
+  return secret ?? "";
+}
+
 function generateSecurityToken(
   uid: string,
   loginId: string,
   timestamp: number
 ): string {
-  const secret = process.env.QR_SECRET_KEY || "default-secret-key";
+  const secret = getQRSecretKey();
   const data = `${uid}:${loginId}:${timestamp}:${secret}`;
   return crypto.createHash("sha256").update(data).digest("hex");
 }

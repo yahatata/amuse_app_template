@@ -108,22 +108,61 @@ tablesSeat/{tableId}
 
 ## 4. role 追加仕様
 
-### 4-1. Flutter 側変更
+### 4-1. 卓デバイスの卓 ID 保持（devices コレクション）
+
+`role: 'table'` のデバイスは、紐づく卓 ID を `devices` コレクション内の `optionParams` で保持する。
+
+- **格納キー**: `DeviceOptionKeys.tableDeviceTable`（例: `'table_device_table'`）
+- **格納形式**: `optionParams['table_device_table'] = { tableId: "T1" }`
+- **取得**: 既存の `Device.getTableIdForOption(DeviceOptionKeys.tableDeviceTable)` で取得
+- **`lib/services/device_options.dart`**: `tableDeviceTable` 定数を追加し、labels / descriptions に文言を定義
+
+### 4-2. Flutter 側変更
 
 | ファイル | 変更内容 |
 |----------|----------|
 | `lib/models/device.dart` | `DeviceRole` enum に `table('table')` を追加 |
 | `lib/main.dart` | `device.role == 'table'` の分岐を追加し `TableDedicatedHomePage` へ遷移 |
-| `lib/services/device_service.dart` | `isTableDevice()` メソッドを追加（`role == 'table'`） |
-| `lib/pages/device_management_page.dart` | role 選択 UI に `'table'` を追加（ドロップダウンへの追加） |
+| `lib/services/device_service.dart` | `isTableDevice()` メソッドを追加（`role == 'table'`）。`getTableIdForTableDevice()` または `getTableIdForOption(DeviceOptionKeys.tableDeviceTable)` で卓 ID 取得 |
+| `lib/services/device_options.dart` | `tableDeviceTable` 定数と labels / descriptions を追加 |
+| `lib/pages/device_management_page.dart` | 4-3 の仕様に従い変更 |
 | `lib/pages/device_registration_page.dart` | `'table'` は登録画面に表示しない（管理画面からのみ設定可） |
 
-### 4-2. Cloud Functions 側変更
+### 4-3. デバイス管理画面のオプション編集（role 別挙動）
+
+登録（選択）された role に応じて、オプション編集ボタンの有効/無効と押下時の内容を変える。
+
+| role | オプション編集ボタン | 押下時の内容 |
+|------|---------------------|-------------|
+| **admin** | 無効化（グレーアウト） | — |
+| **terminal** | 有効（現状どおり） | 既存のオプション編集ダイアログ（チェックボックス＋卓紐づけ等） |
+| **table** | 有効 | 卓紐づけ編集ダイアログ（4-4 参照） |
+
+### 4-4. role: table 時の卓紐づけ編集ダイアログ
+
+オプション編集ボタン押下時に表示する内容:
+
+1. **卓選択**
+   - `tables` コレクションを参照し、`isEnabled: true` の卓のみ選択可能とする
+   - ドロップダウンまたはリストで選択
+   - 「指定なし」は選択不可（卓デバイスは必ず 1 卓に紐づく）
+
+2. **現在の紐づけ表示**
+   - terminal の「付与済みオプション」と同様に、現状どの卓に紐づいているかを表示する
+   - 例: 「紐づけ卓: TableA」または未設定時は「未設定」
+   - 他端末の紐づけ状況は表示しない（自デバイスのみ）
+
+3. **保存**
+   - 選択した卓 ID を `optionParams[DeviceOptionKeys.tableDeviceTable] = { tableId: selectedTableId }` として保存
+   - 既存の `updateDeviceOptions` を呼び出す（Cloud Functions 側で `table_device_table` を許容するよう必要に応じて修正）
+
+### 4-5. Cloud Functions 側変更
 
 | ファイル | 変更内容 |
 |----------|----------|
 | `functions/src/shared/devices/callables/registerDevice.ts` | `role` の zod スキーマに `'table'` を追加 |
-| `functions/src/shared/devices/callables/updateDeviceRole.ts` | スキーマに `'table'` を追加。`table` ロール変更時は `options: {}`, `optionParams: {}` で初期化 |
+| `functions/src/shared/devices/callables/updateDeviceRole.ts` | スキーマに `'table'` を追加。`table` ロール変更時は `options: {}`, `optionParams: {}` で初期化（卓紐づけはオプション編集画面で別途設定） |
+| `functions/.../updateDeviceOptions.ts` | `optionParams` のキーに `table_device_table` を許容（role: table 時の卓紐づけ保存） |
 
 ---
 
@@ -168,10 +207,14 @@ functions/src/
   ↓
 AppInitializer（main.dart）
   ↓ device.role == 'table'
-TableDedicatedHomePage へ遷移
+  ↓ device.getTableIdForOption(DeviceOptionKeys.tableDeviceTable) で tableId を取得
+  ↓ tableId が null の場合はエラー表示 or 設定促し（要検討）
+TableDedicatedHomePage(tableId: tableId) へ遷移
   ↓
 物理戻るボタン: 無効化（WillPopScope / PopScope）
 ```
+
+**tableId の取得元**: `devices` コレクションの `optionParams.table_device_table.tableId`（4-1 参照）
 
 ### 6-2. 画面レイアウト
 
@@ -544,34 +587,30 @@ transaction.update(tableRef, {
 
 ### 11-3. `tournament_home_page.dart`：卓一覧の表示（確認）
 
-`TournamentDataService.getTournamentTables()` にて既に `isEnabled: true` のみを取得する実装になっていることをコードで確認済み（`tournament_data_service.dart` 25行目）。論理削除対応後も追加変更なしで動作する。
+`TournamentDataService.getTournamentTables()` にて既に `isEnabled: true` のみを取得する実装になっている（`tournament_data_service.dart` 22行目）。論理削除対応後も追加変更なしで動作する。
 
 ### 11-4. `remove_table_dialog.dart`：論理削除に対応
 
-`RemoveTableDialog` が呼び出す `removeTableFromTournament` を上記 11-2 の変更後 CF に差し替えることで対応完了。Flutter 側の追加変更は不要。
+- **Cloud Function 側**: 上記 11-2 の変更後 CF に差し替える
+- **Flutter 側**: `_loadEmptyTables` に `data['isEnabled'] == true` のフィルタを追加する。論理削除済み（`isEnabled: false`）の卓を削除リストに表示しないため
 
 ### 11-5. `endTournament`（既存 CF）：`tournamentDetail` クリア追加
 
-トーナメント終了時に `tables` コレクションのクリーンアップを行う。
+トーナメント終了時に `tables` コレクションのクリーンアップを行う。既存の `transaction.update(tableRef, { status: 'open' })` に `tournamentDetail: FieldValue.delete()` と `updatedAt` を追加する。
 
 ```typescript
 // 終了処理の一環として、このトーナメントに登録されていた全卓を更新
-const tablesSeatSnapshot = await db
-  .collection('scheduledTournaments')
-  .doc(tournamentId)
-  .collection('tablesSeat')
-  .get();
-
-for (const doc of tablesSeatSnapshot.docs) {
-  if (doc.id === 'waiting' || doc.id === 'busted') continue;
-  const tableRef = db.collection('tables').doc(doc.id);
-  batch.update(tableRef, {
-    status: 'open',
-    tournamentDetail: FieldValue.delete(),
-    updatedAt: FieldValue.serverTimestamp(),
-  });
-}
+// （既存の transaction 内ループで、tableRef に対する update に以下を追加）
+transaction.update(tableRef, {
+  status: 'open',
+  tournamentDetail: FieldValue.delete(),
+  updatedAt: FieldValue.serverTimestamp(),
+});
 ```
+
+### 11-6. `table_select_page.dart`：論理削除卓の非表示
+
+`TableSelectPage` の `_loadTables` で、`tablesSeat` から卓一覧を取得する際に `data['isEnabled'] == true` のフィルタを追加する。論理削除済みの卓は卓選択リストに表示しない。
 
 ---
 
@@ -600,6 +639,7 @@ for (const doc of tablesSeatSnapshot.docs) {
 | `endTournament` | 終了時の `tables` コレクションの `tournamentDetail` クリアの追加 |
 | `registerDevice` | `role` スキーマに `'table'` を追加 |
 | `updateDeviceRole` | スキーマに `'table'` を追加、`table` 時の options/optionParams 初期化 |
+| `updateDeviceOptions` | `optionParams` のキーに `table_device_table` を許容（role: table の卓紐づけ保存） |
 
 ---
 
@@ -650,6 +690,9 @@ const String forcePasscode =
 - `scheduledTournaments/tablesSeat` の論理削除対応（`isEnabled: false`）
 - 既存 CF の変更（`addTableToTournament`、`removeTableFromTournament`、`endTournament`）
 - `role: 'table'` の追加（Flutter モデル・CF スキーマ）
+- デバイス管理画面の role 別オプション編集挙動（4-3, 4-4）
+- `device_options.dart` に `tableDeviceTable` 追加
+- `updateDeviceOptions` で `table_device_table` 許容
 
 ### Phase 2: 卓専用ホーム画面
 
@@ -678,14 +721,17 @@ const String forcePasscode =
 | `lib/main.dart` | アプリ起動・ルーティング | **変更あり**（table 分岐追加） |
 | `lib/models/device.dart` | デバイスモデル | **変更あり**（table role 追加） |
 | `lib/services/device_service.dart` | デバイスサービス | **変更あり**（isTableDevice() 追加） |
-| `lib/pages/device_management_page.dart` | デバイス管理画面 | **変更あり**（table を role 選択肢に追加） |
+| `lib/services/device_options.dart` | オプションキー定義 | **変更あり**（tableDeviceTable 追加） |
+| `lib/pages/device_management_page.dart` | デバイス管理画面 | **変更あり**（4-3, 4-4 の仕様に従い role 別挙動を実装） |
 | `lib/pages/device_registration_page.dart` | デバイス登録画面 | **変更なし**（table は表示しない） |
 | `lib/tournament/active/pages/tournament_home_page.dart` | トーナメント管理画面 | **変更なし**（論理削除は CF 側で対応済み） |
 | `lib/tournament/active/widgets/dialogs/add_table_dialog.dart` | 卓追加ダイアログ | **変更なし** |
-| `lib/tournament/active/widgets/dialogs/remove_table_dialog.dart` | 卓削除ダイアログ | **変更なし**（CF 側変更で対応） |
+| `lib/tournament/active/widgets/dialogs/remove_table_dialog.dart` | 卓削除ダイアログ | **変更あり**（`_loadEmptyTables` に `isEnabled` フィルタ追加） |
+| `lib/tournament/pages/table_select_page.dart` | 卓選択ページ | **変更あり**（`_loadTables` に `isEnabled` フィルタ追加） |
 | `lib/tournament/active/pages/table_detail_page.dart` | 卓詳細（管理版） | **変更なし** |
 | `lib/sideGame/pages/side_game_table_home.dart` | SG卓画面（管理版） | **変更なし** |
 | `functions/.../addTableToTournament.ts` | 卓追加 CF | **変更あり** |
 | `functions/.../removeTableFromTournament.ts` | 卓削除 CF | **変更あり** |
 | `functions/.../registerDevice.ts` | デバイス登録 CF | **変更あり** |
 | `functions/.../updateDeviceRole.ts` | role 変更 CF | **変更あり** |
+| `functions/.../updateDeviceOptions.ts` | オプション更新 CF | **変更あり**（table_device_table を許容） |

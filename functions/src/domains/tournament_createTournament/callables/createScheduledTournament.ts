@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { validateStoreTenantForProduction } from "../../../shared/runtime";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { logger } from "firebase-functions";
 import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
@@ -26,8 +27,9 @@ const createScheduledTournamentSchema = z.object({
     }
   }, "レジスト終了時刻は有効な日時文字列である必要があります"),
   freeze: z.boolean().optional().default(false),
-  storeId: z.string().min(1, "店舗IDは必須です").optional().default("default-store"),
-  tenantId: z.string().min(1, "テナントIDは必須です").optional().default("default-tenant"),
+  // Phase0A D-13: default 削除。本番では default-store/default-tenant 禁止
+  storeId: z.string().min(1, "店舗IDは必須です").optional(),
+  tenantId: z.string().min(1, "テナントIDは必須です").optional(),
 });
 
 // type CreateScheduledTournamentInput = z.infer<typeof createScheduledTournamentSchema>;
@@ -57,7 +59,10 @@ export const createScheduledTournament = onCall(async (request) => {
     
     // 入力検証
     const validatedData = createScheduledTournamentSchema.parse(request.data);
-    const { templateId, startAt, regEndAt, freeze, storeId, tenantId } = validatedData;
+    validateStoreTenantForProduction(validatedData.storeId, validatedData.tenantId);
+    const storeId = validatedData.storeId ?? "default-store"; // emulator のみ（本番は上で throw 済み）
+    const tenantId = validatedData.tenantId ?? "default-tenant";
+    const { templateId, startAt, regEndAt, freeze } = validatedData;
     // selectedBusinessDateKeyはスキーマに含まれていないため、request.dataから直接取得
     const selectedBusinessDateKey = (request.data as any)?.selectedBusinessDateKey as string | undefined;
 

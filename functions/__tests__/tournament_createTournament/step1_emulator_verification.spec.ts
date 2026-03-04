@@ -154,8 +154,8 @@ describe('Step 1 Emulator 検証: 単発作成・定期生成', () => {
     // tournamentRecurrence（generateRecurringTournaments 用）
     await db.collection('tournamentRecurrences').doc(RECURRENCE_ID).set({
       templateId: TEMPLATE_ID,
-      storeId: 'default-store',
-      tenantId: 'default-tenant',
+      storeId: 'test-store',
+      tenantId: 'test-tenant',
       startOn: Timestamp.fromDate(new Date('2026-02-19')),
       interval: '1week',
       byWeekday: ['TH'], // 木曜
@@ -180,8 +180,8 @@ describe('Step 1 Emulator 検証: 単発作成・定期生成', () => {
         startAt: START_AT,
         regEndAt: REG_END_AT,
         freeze: false,
-        storeId: 'default-store',
-        tenantId: 'default-tenant',
+        storeId: 'test-store',
+        tenantId: 'test-tenant',
       },
     };
 
@@ -220,8 +220,8 @@ describe('Step 1 Emulator 検証: 単発作成・定期生成', () => {
         byWeekday: ['TH'],
         startTime: '14:00',
         isActive: true,
-        storeId: 'default-store',
-        tenantId: 'default-tenant',
+        storeId: 'test-store',
+        tenantId: 'test-tenant',
       },
     };
 

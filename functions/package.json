@@ -21,7 +21,9 @@
     "test:placeOrder": "jest __tests__/itemOrder/placeOrder.spec.ts",
     "test:placeOrderByUser": "jest __tests__/itemOrder/placeOrderByUser.spec.ts",
     "test:p1-02": "jest --runInBand __tests__/helpers/billsApi/resolveMenuItem.spec.ts __tests__/helpers/billsApi/getActiveBillByUser.spec.ts __tests__/helpers/billsApi/appendItem.spec.ts __tests__/itemOrder/placeOrder.spec.ts __tests__/itemOrder/placeOrderByUser.spec.ts",
-    "test:integration": "jest --runInBand"
+    "test:integration": "jest --runInBand",
+    "test:phase0A": "jest --runInBand __tests__/config_migration/phase0A_config_migration.spec.ts",
+    "test:phase0A:emulator": "cd .. && firebase emulators:exec --only firestore 'cd functions && npm test -- tournament_createTournament config_migration'"
   },
   "engines": {
     "node": "22"

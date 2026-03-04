@@ -4,7 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:amuse_app_template/tournament/active/pages/tournament_home_page.dart';
-import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/tournament/active/tournament_service.dart' show TournamentService, TournamentServiceImpl, kDevPlaceholderStoreId, kDevPlaceholderTenantId;
 import 'package:amuse_app_template/utils/date_time_utils.dart';
 import 'scheduled_tournament_in_calendar_page.dart';
 
@@ -1032,14 +1032,14 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
       debugPrint('regEndAtJST: ${regEndAtJST.toIso8601String()}');
       debugPrint('regEndAt (UTC): ${regEndAt.toIso8601String()}');
       
-      // 完全な送信オブジェクトをログ出力
+      // 完全な送信オブジェクトをログ出力（Phase0A D-13: default 埋め込み削除）
       final requestData = {
         'templateId': templateId,
         'startAt': startAt.toIso8601String(),
         'regEndAt': regEndAt.toIso8601String(),
         'freeze': false,
-        'storeId': 'default-store',
-        'tenantId': 'default-tenant',
+        'storeId': kDevPlaceholderStoreId,
+        'tenantId': kDevPlaceholderTenantId,
       };
       debugPrint('完全なリクエストデータ: ${requestData.toString()}');
 
@@ -1047,6 +1047,8 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
         templateId: templateId,
         startAt: startAt,
         regEndAt: regEndAt,
+        storeId: kDevPlaceholderStoreId,
+        tenantId: kDevPlaceholderTenantId,
       );
 
       if (result['success'] == true) {
