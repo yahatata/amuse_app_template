@@ -8,6 +8,7 @@
 import * as crypto from 'crypto';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
+import { validateStoreTenantForProduction, isProductionRuntime } from '../../../shared/runtime';
 import { enqueueTournamentTask } from './tasks';
 
 const HORIZON_DAYS = 14;
@@ -142,7 +143,11 @@ async function processTournament(
 ): Promise<{ enqueued: number }> {
   let enqueued = 0;
   const planVersion = doc.schedulePlanVersion ?? 0;
-  const storeId = doc.storeId ?? 'default-store';
+  // Phase0A D-13: 本番で storeId/tenantId 欠損・default-store は throw（failed 扱い）
+  if (isProductionRuntime()) {
+    validateStoreTenantForProduction(doc.storeId, doc.tenantId);
+  }
+  const storeId = doc.storeId ?? 'default-store'; // emulator のみ
   const startAt = doc.startAt?.toDate?.() ?? (doc.startAt instanceof Date ? doc.startAt : null);
   if (!startAt) return { enqueued };
 

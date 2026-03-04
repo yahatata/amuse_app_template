@@ -12,6 +12,7 @@
 
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
+import { isProductionRuntime, validateStoreTenantForProduction } from "../../../shared/runtime";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { runEnqueueTournamentTasks } from "./enqueueTournamentTasksCore";
 
@@ -49,7 +50,22 @@ export async function runGenerateRecurringTournaments(): Promise<GenerateRecurri
       const recurrenceData = recurrenceDoc.data();
       const recurrenceId = recurrenceDoc.id;
 
+      // Phase0A D-13: 本番で storeId/tenantId 欠損・default は skip
+      if (isProductionRuntime()) {
+        try {
+          validateStoreTenantForProduction(recurrenceData.storeId, recurrenceData.tenantId);
+        } catch {
+          logger.warn("generateRecurringTournaments: skipping recurrence with missing/invalid storeId/tenantId", {
+            recurrenceId,
+          });
+          continue;
+        }
+      }
+
       console.log(`処理中の定期開催: ${recurrenceId}`);
+
+      const storeId = recurrenceData.storeId || "default-store"; // emulator fallback
+      const tenantId = recurrenceData.tenantId || "default-tenant";
 
       // テンプレート情報を取得
       const templateDoc = await db
@@ -148,8 +164,8 @@ export async function runGenerateRecurringTournaments(): Promise<GenerateRecurri
               db,
               recurrenceData.templateId,
               startAt,
-              recurrenceData.storeId,
-              recurrenceData.tenantId
+              storeId,
+              tenantId
             );
 
             if (!isDuplicate) {
@@ -160,8 +176,8 @@ export async function runGenerateRecurringTournaments(): Promise<GenerateRecurri
                 recurrenceData.templateId,
                 templateData,
                 startAt,
-                recurrenceData.storeId,
-                recurrenceData.tenantId
+                storeId,
+                tenantId
               );
 
               if (tournamentId) {
@@ -193,8 +209,20 @@ export async function runGenerateRecurringTournaments(): Promise<GenerateRecurri
     // 閾値以下かつ Step 5 経路の場合のみ enqueue を呼び出し。閾値超えは Scheduler に任せる
     if (totalGenerated <= ENQUEUE_AFTER_GENERATE_THRESHOLD) {
       try {
+        // Phase0A D-13: 本番で storeId 欠損・default-store は skip
         const storeIds = new Set(
-          recurrencesSnapshot.docs.map((d) => d.data().storeId || "default-store")
+          recurrencesSnapshot.docs
+            .map((d) => {
+              const sid = d.data().storeId;
+              if (isProductionRuntime() && (!sid || sid === "default-store")) {
+                logger.warn("generateRecurringTournaments: skipping recurrence with missing/invalid storeId", {
+                  recurrenceId: d.id,
+                });
+                return null;
+              }
+              return sid || "default-store"; // emulator fallback
+            })
+            .filter((s): s is string => s !== null)
         );
         const opts = storeIds.size === 1 ? { storeId: Array.from(storeIds)[0] } : {};
         await runEnqueueTournamentTasks(opts);

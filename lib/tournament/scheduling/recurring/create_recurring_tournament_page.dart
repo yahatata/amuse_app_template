@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
+import 'package:amuse_app_template/tournament/active/tournament_service.dart' show kDevPlaceholderStoreId, kDevPlaceholderTenantId;
 
 /// 定期開催トーナメント作成画面
 class CreateRecurringTournamentPage extends StatefulWidget {
@@ -156,6 +157,8 @@ class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamen
         'endsOn': _endsOnText?.isNotEmpty == true ? _endsOnText : null,
         'isActive': true,
         'startTime': '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
+        'storeId': kDevPlaceholderStoreId,
+        'tenantId': kDevPlaceholderTenantId,
       };
 
       debugPrint('送信データ: $requestData');

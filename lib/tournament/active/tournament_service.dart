@@ -5,6 +5,11 @@ import 'package:cloud_functions/cloud_functions.dart';
 import '../../services/device_service.dart';
 import '../../utils/business_date_ambiguous_dialog.dart';
 
+/// Phase0A D-13: storeId/tenantId は必須。供給元未実装時は開発用仮値で呼び出し。
+/// 本番では Build/Deploy で注入する想定。
+const String kDevPlaceholderStoreId = 'test-store';
+const String kDevPlaceholderTenantId = 'test-tenant';
+
 // 後フェーズで実装予定のインターフェース
 abstract class TournamentService {
   // トーナメント作成
@@ -12,9 +17,9 @@ abstract class TournamentService {
     required String templateId,
     required DateTime startAt,
     required DateTime regEndAt,
+    required String storeId,
+    required String tenantId,
     bool freeze = false,
-    String storeId = 'default-store',
-    String tenantId = 'default-tenant',
     BuildContext? context,
   });
   // エントリー関連
@@ -85,9 +90,9 @@ class TournamentServiceImpl implements TournamentService {
     required String templateId,
     required DateTime startAt,
     required DateTime regEndAt,
+    required String storeId,
+    required String tenantId,
     bool freeze = false,
-    String storeId = 'default-store',
-    String tenantId = 'default-tenant',
     BuildContext? context,
   }) async {
     try {
@@ -385,9 +390,9 @@ class MockTournamentService implements TournamentService {
     required String templateId,
     required DateTime startAt,
     required DateTime regEndAt,
+    required String storeId,
+    required String tenantId,
     bool freeze = false,
-    String storeId = 'default-store',
-    String tenantId = 'default-tenant',
     BuildContext? context,
   }) async {
     await Future.delayed(const Duration(milliseconds: 1000));

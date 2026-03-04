@@ -2,11 +2,17 @@ import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import { defineString } from "firebase-functions/params";
+import { isProductionRuntime } from "../../../shared/runtime";
 
-// 環境変数定義（デフォルト値付き）
-const lineChannelAccessToken = defineString("LINE_CHANNEL_ACCESS_TOKEN", {
-  default: "JsnZdiDqZDylvlOEzAspG65YN1SNWqCaOXwtiyd2DSOMg8RTjhnaKOVZuH0/saa0gNFS5+9O+Qmifb4O6EPmhbIKHG6hQoKHZoJXTveyJWg4YaVYVCr9DtBZ2RSdh4eO+OOZUQ5gLZStBDoFPZLUXQdB04t89/1O/w1cDnyilFU="
-});
+// LINE_CHANNEL_ACCESS_TOKEN: コマンド/コンソールで設定。本番で未設定時はエラー（Phase0A D-01）
+function getLineChannelAccessToken(): string {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (isProductionRuntime() && (!token || !token.trim())) {
+    throw new Error("LINE_CHANNEL_ACCESS_TOKEN is not set (required in production)");
+  }
+  return token ?? "";
+}
+
 const staffRichMenuId = defineString("STAFF_RICHMENU_ID", {
   default: "richmenu-36bb594eadf1c8718bd9c12199c87dbb"
 });
@@ -70,8 +76,8 @@ export const lineWebhook = onRequest(async (request, response) => {
       eventTypes: events.map(e => e.type)
     });
 
-    // 環境変数から設定を取得
-    const channelAccessToken = lineChannelAccessToken.value();
+    // 環境変数から設定を取得（D-01: LINE_CHANNEL_ACCESS_TOKEN は process.env 経由）
+    const channelAccessToken = getLineChannelAccessToken();
     const staffMenu = staffRichMenuId.value();
     const userMenu = userRichMenuId.value();
 

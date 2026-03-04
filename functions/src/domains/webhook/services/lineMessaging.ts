@@ -1,10 +1,14 @@
 import * as logger from "firebase-functions/logger";
-import { defineString } from "firebase-functions/params";
+import { isProductionRuntime } from "../../../shared/runtime";
 
-// 環境変数定義
-const lineChannelAccessToken = defineString("LINE_CHANNEL_ACCESS_TOKEN", {
-  default: "JsnZdiDqZDylvlOEzAspG65YN1SNWqCaOXwtiyd2DSOMg8RTjhnaKOVZuH0/saa0gNFS5+9O+Qmifb4O6EPmhbIKHG6hQoKHZoJXTveyJWg4YaVYVCr9DtBZ2RSdh4eO+OOZUQ5gLZStBDoFPZLUXQdB04t89/1O/w1cDnyilFU="
-});
+// LINE_CHANNEL_ACCESS_TOKEN: コマンド/コンソールで設定。本番で未設定時はエラー（Phase0A D-01）
+function getLineChannelAccessToken(): string {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (isProductionRuntime() && (!token || !token.trim())) {
+    throw new Error("LINE_CHANNEL_ACCESS_TOKEN is not set (required in production)");
+  }
+  return token ?? "";
+}
 
 /**
  * LINE Push Message APIを使用してメッセージを送信する
@@ -18,7 +22,7 @@ export async function sendLinePushMessage(
   message: string
 ): Promise<boolean> {
   try {
-    const channelAccessToken = lineChannelAccessToken.value();
+    const channelAccessToken = getLineChannelAccessToken();
 
     if (!channelAccessToken) {
       logger.error("LINE_CHANNEL_ACCESS_TOKEN is not set");
@@ -114,7 +118,7 @@ export async function sendLineButtonMessage(
   buttons: Array<{ label: string; action: { type: string; uri?: string; data?: string } }>
 ): Promise<boolean> {
   try {
-    const channelAccessToken = lineChannelAccessToken.value();
+    const channelAccessToken = getLineChannelAccessToken();
 
     if (!channelAccessToken) {
       logger.error("LINE_CHANNEL_ACCESS_TOKEN is not set");

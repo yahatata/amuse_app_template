@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/tournament/active/tournament_service.dart' show TournamentService, TournamentServiceImpl, kDevPlaceholderStoreId, kDevPlaceholderTenantId;
 
 /// 単発トーナメント作成画面
 class CreateSingleTournamentPage extends StatefulWidget {
@@ -158,6 +158,8 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
         templateId: templateId,
         startAt: startAt,
         regEndAt: regEndAt,
+        storeId: kDevPlaceholderStoreId,
+        tenantId: kDevPlaceholderTenantId,
         context: context,
       );
 

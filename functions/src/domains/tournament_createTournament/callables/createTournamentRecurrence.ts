@@ -3,6 +3,7 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { logger } from "firebase-functions";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { validateStoreTenantForProduction } from "../../../shared/runtime";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
 
@@ -24,8 +25,9 @@ const createTournamentRecurrenceSchema = z.object({
   endsOn: z.string().optional().nullable(),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, "開始時刻はHH:MM形式である必要があります"),
   isActive: z.boolean().default(true),
-  storeId: z.string().min(1, "店舗IDは必須です").optional().default("default-store"),
-  tenantId: z.string().min(1, "テナントIDは必須です").optional().default("default-tenant"),
+  // Phase0A D-13: default 削除。本番では default-store/default-tenant 禁止
+  storeId: z.string().min(1, "店舗IDは必須です").optional(),
+  tenantId: z.string().min(1, "テナントIDは必須です").optional(),
 });
 
 export const createTournamentRecurrence = onCall(async (request) => {
@@ -53,7 +55,10 @@ export const createTournamentRecurrence = onCall(async (request) => {
     
     // 入力検証
     const validatedData = createTournamentRecurrenceSchema.parse(request.data);
-    const { templateId, startOn, interval, byWeekday, endsOn, startTime, isActive, storeId, tenantId } = validatedData;
+    validateStoreTenantForProduction(validatedData.storeId, validatedData.tenantId);
+    const storeId = validatedData.storeId ?? "default-store"; // emulator のみ（本番は上で throw 済み）
+    const tenantId = validatedData.tenantId ?? "default-tenant";
+    const { templateId, startOn, interval, byWeekday, endsOn, startTime, isActive } = validatedData;
 
     const db = getFirestore();
     const now = new Date();

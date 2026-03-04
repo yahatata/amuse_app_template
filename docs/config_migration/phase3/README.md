@@ -1,0 +1,46 @@
+# Phase3 README
+
+## 目的
+
+移行後のハードニングと整理を行い、運用を安定化する。
+
+## スコープ
+
+- deprecate 定義の最終掃除
+- docs-only 値の扱い整理
+- 運用手順・監査ログの定着
+- **Phase0A Task8 の成果物**: ロールバック手順・監視観点 Runbook、デプロイ前チェックリスト（D-0012 により Phase3 で実施）
+
+## 参照必須
+
+- `docs/config_migration/migration_roadmap.md`
+- `docs/config_migration/changeSpec_overview.md`
+- `docs/config_migration/CHANGE_RULES.md`
+- `docs/config_migration/CHANGE_LOG.md`
+- `docs/config_migration/DECISION_LOG.md`
+
+## 進め方（推奨順）
+
+1. 完了済みIDの残タスクを棚卸し
+2. 旧参照（deprecate）を撤去
+3. 運用Runbookを更新（Phase0A のロールバック手順・監視観点 Runbook を含む）
+4. 監査観点（変更履歴/意思決定）を整備
+
+## Done 条件
+
+- 旧参照が最終的に撤去または期限付き管理される
+- 全IDが Build/Deploy/Run のどこかに確定している
+- 運用担当が手順書だけで変更を実施できる
+
+## 失敗しやすいポイント
+
+- 実装は終わっているのに運用手順がない
+- 旧設定が残り続けて再発する
+- decision/change log が更新されず背景が失われる
+
+## 最小チェックリスト
+
+- [ ] deprecate 設定の処理方針が確定した
+- [ ] 運用手順を更新した
+- [ ] 監査ログを更新した
+- [ ] 未処理IDがないことを確認した

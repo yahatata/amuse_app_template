@@ -4,6 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/tournament/active/pages/tournament_home_page.dart';
 import 'package:amuse_app_template/utils/date_time_utils.dart';
+import 'package:amuse_app_template/tournament/active/tournament_service.dart' show kDevPlaceholderStoreId, kDevPlaceholderTenantId;
 import 'package:amuse_app_template/utils/business_date_ambiguous_dialog.dart';
 
 /// カレンダーからトーナメント登録画面
@@ -741,8 +742,8 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
         'startAt': startAt.toIso8601String(),
         'regEndAt': regEndAt.toIso8601String(),
         'freeze': false,
-        'storeId': 'default-store',
-        'tenantId': 'default-tenant',
+        'storeId': kDevPlaceholderStoreId,
+        'tenantId': kDevPlaceholderTenantId,
         if (selectedBusinessDateKey != null) 'selectedBusinessDateKey': selectedBusinessDateKey,
       };
       debugPrint('完全なリクエストデータ: ${requestData.toString()}');
