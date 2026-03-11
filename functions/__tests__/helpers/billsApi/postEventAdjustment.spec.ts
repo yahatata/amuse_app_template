@@ -23,7 +23,7 @@ describe('postEventAdjustment', () => {
   const projectId = 'test-project-post-event-adjustment';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
     
     testEnv = await initializeTestEnvironment({
       projectId,
@@ -105,6 +105,7 @@ describe('postEventAdjustment', () => {
           reason: '追加徴収',
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result.success).toBe(true);
@@ -144,6 +145,7 @@ describe('postEventAdjustment', () => {
           reason: '減額',
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result.success).toBe(true);
@@ -232,6 +234,7 @@ describe('postEventAdjustment', () => {
             sign: 1,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -256,6 +259,7 @@ describe('postEventAdjustment', () => {
             sign: 1,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -306,6 +310,7 @@ describe('postEventAdjustment', () => {
             sign: -1,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -328,6 +333,7 @@ describe('postEventAdjustment', () => {
             sign: 1,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -350,6 +356,7 @@ describe('postEventAdjustment', () => {
             sign: 1,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -372,6 +379,7 @@ describe('postEventAdjustment', () => {
             sign: 1,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -396,6 +404,7 @@ describe('postEventAdjustment', () => {
             sign: -1, // 減額
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         // 反映後の balanceDueIncl = 10000 - 10000 + (-1000) = -1000 < 0
         fail('Should have thrown an error');
@@ -447,6 +456,7 @@ describe('postEventAdjustment', () => {
             sign: -1, // 減額すると netSalesIncl = 0 - 1000 = -1000 < 0
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -500,6 +510,7 @@ describe('postEventAdjustment', () => {
           sign: 1, // 追加徴収
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result.success).toBe(true);
@@ -527,6 +538,7 @@ describe('postEventAdjustment', () => {
           sign: 1,
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result1.diagnostics?.reused).toBeUndefined();
@@ -540,6 +552,7 @@ describe('postEventAdjustment', () => {
           sign: 1,
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result2.diagnostics?.reused).toBe(true);

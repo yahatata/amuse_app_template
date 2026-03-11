@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_home.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/services/device_service.dart';
@@ -17,6 +18,9 @@ class SideGameTableListPage extends StatefulWidget {
 class _SideGameTableListPageState extends State<SideGameTableListPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final DeviceService _deviceService = DeviceService();
+
+  List<String> get _sideGameTypes =>
+      StoreConfigService.instance.latestData?.sideGameTypes ?? kDefaultSideGameTypes;
 
   String? _myTableId;
   Set<String> _excludedTableIds = {};
@@ -156,7 +160,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
     final maxSeats = data['maxSeats'] as int? ?? 6;
 
     final isAvailable = status == 'open';
-    final isSideGame = GlobalConstants.sideGameTypes.contains(status);
+    final isSideGame = _sideGameTypes.contains(status);
 
     return Card(
       elevation: 4,
@@ -226,7 +230,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
   String _getStatusText(String status) {
     if (status == 'open') {
       return '使用可能';
-    } else if (GlobalConstants.sideGameTypes.contains(status)) {
+    } else if (_sideGameTypes.contains(status)) {
       return status;
     } else {
       return '$status使用中';
@@ -235,7 +239,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
 
   void _handleTableSelection(String tableId, String status) async {
     final isAvailable = status == 'open';
-    final isSideGame = GlobalConstants.sideGameTypes.contains(status);
+    final isSideGame = _sideGameTypes.contains(status);
     final isInUse = !isAvailable && !isSideGame;
 
     if (isInUse) {
@@ -295,9 +299,9 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
           width: double.maxFinite,
           child: ListView.builder(
             shrinkWrap: true,
-            itemCount: GlobalConstants.sideGameTypes.length,
+            itemCount: _sideGameTypes.length,
             itemBuilder: (context, index) {
-              final game = GlobalConstants.sideGameTypes[index];
+              final game = _sideGameTypes[index];
               return ListTile(
                 leading: const Icon(Icons.casino),
                 title: Text(game),

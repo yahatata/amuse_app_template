@@ -25,9 +25,10 @@ describe('closeRuns / openRuns path (storeMeta/closeRuns, storeMeta/openRuns)', 
 
     testEnv = await initializeTestEnvironment({ projectId: PROJECT_ID });
 
-    if (admin.apps.length === 0) {
-      admin.initializeApp({ projectId: PROJECT_ID });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     }
+    admin.initializeApp({ projectId: PROJECT_ID });
     db = getFirestore();
 
     const closeMod = await import('../../src/domains/storeMeta/callables/closeStoreTerminal');
@@ -180,7 +181,7 @@ describe('closeRuns/openRuns path: 実装が仕様パスを使用している（
     const fs = require('fs');
     const path = require('path');
     const src = fs.readFileSync(
-      path.join(__dirname, '../../src/storeManagement/closeStoreTerminal.ts'),
+      path.join(__dirname, '../../src/domains/storeMeta/callables/closeStoreTerminal.ts'),
       'utf8'
     );
     expect(src).toContain("doc('closeRuns').collection('runs').doc(runId)");
@@ -192,7 +193,7 @@ describe('closeRuns/openRuns path: 実装が仕様パスを使用している（
     const fs = require('fs');
     const path = require('path');
     const src = fs.readFileSync(
-      path.join(__dirname, '../../src/storeManagement/openStoreTerminal.ts'),
+      path.join(__dirname, '../../src/domains/storeMeta/callables/openStoreTerminal.ts'),
       'utf8'
     );
     expect(src).toContain("doc('openRuns').collection('runs').doc(runId)");

@@ -2,6 +2,7 @@ import 'package:amuse_app_template/Home/adminHomePage.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/pages/device_registration_page.dart';
 import 'package:amuse_app_template/services/device_service.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -16,6 +17,13 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform, // ⬅️ 必須！
   );
+
+  // When: アプリ起動時
+  // Where: main.dart
+  // What: storeMeta/config の購読を早期開始
+  // How: StoreConfigService.instance にアクセスしシングルトン構築→snapshots()購読開始。
+  //      チェックイン画面への遷移までに初回snapshot到着の余裕を持たせ、latestData null によるデフォルト適用を防ぐ。
+  StoreConfigService.instance;
   
   // When: アプリ起動時
   // Where: main.dart

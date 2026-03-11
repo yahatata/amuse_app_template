@@ -98,6 +98,15 @@ export const createStaffAccount = onCall(
           qrExpiresAt: admin.firestore.Timestamp.fromDate(new Date(expiresAt)),
         });
 
+      // 提案C-A: スタッフ登録時にスタッフ用リッチメニューを設定（LIFF では uid = LINE User ID）
+      try {
+        const { linkStaffRichMenu } = await import("../../webhook/services/lineRichMenu");
+        await linkStaffRichMenu(uid);
+      } catch (richMenuError) {
+        // リッチメニュー更新失敗はログのみ。スタッフ登録は成功とする
+        console.warn("スタッフ登録: リッチメニュー更新に失敗（登録は成功）", richMenuError);
+      }
+
       return {
         success: true,
         uid,

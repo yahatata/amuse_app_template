@@ -5,9 +5,8 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { startAccounting as startAccountingHelper } from '../repos/startAccounting';
 import * as crypto from 'crypto';
 import { getFirestore } from 'firebase-admin/firestore';
-
-// サイドゲームチップ換算率（globalConstant.dartと同期）
-const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0; // サイドゲームチップ1 = 10円相当
+import { getStoreConfig } from '../../../shared/config/configLoader';
+import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
 
 // 支払い方法の表示名を取得するヘルパー関数
 function _getPaymentMethodDisplayName(paymentMethod: string): string {
@@ -27,8 +26,9 @@ function normalizePaymentMethods(options: {
   paymentMethodsByAmount?: Record<string, number>;
   paymentMethodsByCategory?: Record<string, any>;
   categoryAmounts: Record<string, number>;
+  sideGameChipExchangeRate?: number;
 }): Record<string, number> {
-  const { paymentMethodsByAmount, paymentMethodsByCategory, categoryAmounts } = options;
+  const { paymentMethodsByAmount, paymentMethodsByCategory, categoryAmounts, sideGameChipExchangeRate = DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } = options;
 
   if (paymentMethodsByAmount && Object.keys(paymentMethodsByAmount).length > 0) {
     const normalized: Record<string, number> = {};
@@ -65,7 +65,7 @@ function normalizePaymentMethods(options: {
             normalized[method] = (normalized[method] || 0) + amount;
           } else if (method === 'sideGameChip') {
             // split.amountはチップ枚数なので、円換算値に変換して格納
-            const yenAmount = Math.floor(amount * SIDE_GAME_CHIP_EXCHANGE_RATE);
+            const yenAmount = Math.floor(amount * sideGameChipExchangeRate);
             normalized[method] = (normalized[method] || 0) + yenAmount;
           }
         }
@@ -111,6 +111,8 @@ export const startAccounting = onCall(async (request) => {
 
   const adminId = request.auth.uid;
   const db = getFirestore();
+  const storeConfig = await getStoreConfig();
+  const chipRate = storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
 
   try {
     // デバイス権限の確認（role: admin または options.accounting: true）
@@ -244,6 +246,7 @@ export const startAccounting = onCall(async (request) => {
       paymentMethodsByAmount: inputPaymentMethodsByAmount,
       paymentMethodsByCategory,
       categoryAmounts,
+      sideGameChipExchangeRate: chipRate,
     });
 
     if (Object.keys(normalizedPaymentMethods).length === 0) {
@@ -278,7 +281,7 @@ export const startAccounting = onCall(async (request) => {
         pointA: Math.floor(normalizedPaymentMethods['pointA'] || 0),
         pointB: Math.floor(normalizedPaymentMethods['pointB'] || 0),
         // 円換算値からチップ枚数に変換
-        sideGameChip: Math.floor((normalizedPaymentMethods['sideGameChip'] || 0) / SIDE_GAME_CHIP_EXCHANGE_RATE),
+        sideGameChip: Math.floor((normalizedPaymentMethods['sideGameChip'] || 0) / chipRate),
       };
 
       for (const [fieldName, amount] of Object.entries(balanceDeductions)) {

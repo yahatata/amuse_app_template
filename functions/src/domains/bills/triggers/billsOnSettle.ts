@@ -11,8 +11,8 @@ import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { logger } from 'firebase-functions';
-import { defineString } from 'firebase-functions/params';
 import { cleanupIdempotencyOnSettle } from '../services/onSettleCleanupIdempotency';
+import { getStoreConfig } from '../../../shared/config/configLoader';
 import {
   calculateAmounts,
   calculateCategoryBreakdown,
@@ -25,10 +25,6 @@ import {
 } from '../services/snapshots';
 import { enqueueSettlement } from '../../analytics/services/aggregator';
 
-// 環境変数定義（Firebase Functions v2の推奨方法）
-const enableSettlementAggregator = defineString('ENABLE_SETTLEMENT_AGGREGATOR', {
-  default: 'true',
-});
 
 /**
  * Settlement トリガ
@@ -72,8 +68,9 @@ export const billsOnSettle = onDocumentUpdated(
     const billRef = db.collection('bills').doc(billId);
 
     try {
-      // 親doc after を基準に処理
-      // サブコレクションを読み取り
+      const storeConfig = await getStoreConfig();
+      const chipRate = storeConfig.billing?.sideGameChipRate;
+
       const [itemsSnapshot, extrasSnapshot, sideGameChipsSnapshot, tournamentsSnapshot, paymentsSnapshot] = await Promise.all([
         billRef.collection('items').get(),
         billRef.collection('extras').get(),
@@ -112,6 +109,7 @@ export const billsOnSettle = onDocumentUpdated(
         metaPaymentMethodsByCategory: afterData.meta?.paymentMethodsByCategory,
         metaPaymentMethodsByAmount: afterData.meta?.paymentMethodsByAmount,
         categoryBreakdown,
+        sideGameChipExchangeRate: chipRate,
       });
 
       const paymentsSummary = calculatePaymentsSummary({
@@ -175,8 +173,7 @@ export const billsOnSettle = onDocumentUpdated(
       // cleanupIdempotencyOnSettle を呼ぶ
       await cleanupIdempotencyOnSettle(billId);
 
-      // enqueueSettlement を環境変数で制御
-      if (enableSettlementAggregator.value() === 'true') {
+      if (storeConfig.features?.settlementAggregatorEnabled) {
         // snapshot 更新後の内容を再読み込みして enqueueSettlement に渡す
         const updatedBillDoc = await billRef.get();
         if (updatedBillDoc.exists) {

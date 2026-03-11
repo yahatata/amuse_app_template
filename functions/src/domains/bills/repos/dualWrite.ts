@@ -14,26 +14,12 @@ import { logger } from 'firebase-functions';
 
 /**
  * WRITE_TODAYS_BILLS_IN_PARALLEL フラグを取得
+ * storeMeta/config から features.dualWriteEnabled を参照する。
  */
-export function shouldDualWrite(): boolean {
-  // 環境変数を優先
-  if (process.env.WRITE_TODAYS_BILLS_IN_PARALLEL) {
-    return process.env.WRITE_TODAYS_BILLS_IN_PARALLEL === 'true';
-  }
-  
-  // functions:config を次に試行
-  try {
-    const functions = require('firebase-functions');
-    const config = functions.config();
-    if (config?.bills?.write_todays_bills_in_parallel) {
-      return config.bills.write_todays_bills_in_parallel === true;
-    }
-  } catch (error) {
-    // config が未設定の場合は無視
-  }
-  
-  // デフォルト: false（Phase1 開始時は true に設定する想定）
-  return false;
+export async function shouldDualWrite(): Promise<boolean> {
+  const { getStoreConfig } = await import('../../../shared/config/configLoader');
+  const config = await getStoreConfig();
+  return config.features?.dualWriteEnabled ?? false;
 }
 
 /**

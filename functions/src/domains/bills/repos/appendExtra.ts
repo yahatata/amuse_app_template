@@ -129,7 +129,7 @@ export async function appendExtraCore(
   // 4) デュアルライト: todaysBills の読み取りを書き込みの前に実行（トランザクションの制約）
   let legacyRef: admin.firestore.DocumentReference | null = null;
   let legacySnap: admin.firestore.DocumentSnapshot | null = null;
-  if (shouldDualWrite()) {
+  if (await shouldDualWrite()) {
     legacyRef = db.collection('todaysBills').doc(billId);
     legacySnap = await tx.get(legacyRef);
   }
@@ -157,7 +157,7 @@ export async function appendExtraCore(
   let dualWriteResult: 'success' | 'failed' | 'skipped' = 'skipped';
   let dualWriteError: any = null;
   
-  if (shouldDualWrite() && legacyRef && legacySnap) {
+  if ((await shouldDualWrite()) && legacyRef && legacySnap) {
     try {
       // DualWriteの実装は省略（必要に応じて追加）
       dualWriteResult = 'skipped';

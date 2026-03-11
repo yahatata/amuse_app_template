@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/Accounting/payment_split_calculator.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 /// 支払い分割計算のテスト用画面
 /// 
@@ -68,7 +69,7 @@ class _PaymentSplitTestPageState extends State<PaymentSplitTestPage> {
       // 計算実行
       final result = calculatePaymentSplit(
         selectedBaseMethod: _selectedBaseMethod,
-        categoryPaymentMethods: GlobalConstants.categoryPaymentMethods,
+        categoryPaymentMethods: StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods,
         bill: bill,
         balances: balances,
         pointPriority: _pointPriority,
@@ -319,7 +320,7 @@ class _PaymentSplitTestPageState extends State<PaymentSplitTestPage> {
                             children: [
                               Text(_getPointLabel(entry.key)),
                               Text(
-                                '${entry.value.toString()}円${isChip ? " (${(entry.value / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toStringAsFixed(1)}チップ)" : ""}',
+                                '${entry.value.toString()}円${isChip ? " (${(entry.value / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toStringAsFixed(1)}チップ)" : ""}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -361,7 +362,7 @@ class _PaymentSplitTestPageState extends State<PaymentSplitTestPage> {
                               Text(_getPointLabel(entry.key)),
                               Text(
                                 isChip
-                                    ? '${displayValue.toStringAsFixed(1)}チップ (${(displayValue * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toStringAsFixed(0)}円相当)'
+                                    ? '${displayValue.toStringAsFixed(1)}チップ (${(displayValue * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toStringAsFixed(0)}円相当)'
                                     : '${displayValue.toStringAsFixed(0)}${isChip ? "チップ" : "ポイント"}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
@@ -566,7 +567,7 @@ class _PaymentSplitTestPageState extends State<PaymentSplitTestPage> {
 
       if (entry.key == 'sideGameChip') {
         // sideGameChipはチップ数として扱う
-        final usedChips = usedAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE;
+        final usedChips = usedAmount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate);
         remaining[entry.key] = initialBalance - usedChips;
       } else {
         // 通常のポイントは円単位

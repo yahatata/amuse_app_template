@@ -1,7 +1,11 @@
 import { HttpsError } from "firebase-functions/v2/https";
+import { logger } from "firebase-functions";
 import * as admin from "firebase-admin";
+import type { Firestore } from "firebase-admin/firestore";
+import { CONFIG_ERROR_CODES } from "../../../shared/config/configLoader";
 
 const db = admin.firestore();
+const MAX_RETRIES = 2;
 
 /**
  * 日付キー（YYYY-MM-DD）から年月（YYYY-MM）を取得
@@ -65,6 +69,66 @@ export function validateWithinBusinessHours(
       `Start time (${startMinute}) must be less than end time (${endMinute})`
     );
   }
+}
+
+/** R-09: storeMeta/requiredStaffByTimeSlot から時間帯別必要人数を取得。
+ * 未存在時・読み取り失敗時は defaults にフォールバック（リトライ後も失敗時は defaults）。
+ * 空配列の場合は不足判定を行わない（[] を返す）。
+ */
+export async function getRequiredStaffByTimeSlot(firestore?: Firestore): Promise<
+  Array<{ startHour: number; endHour: number; requiredCount: number }>
+> {
+  const { DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT } = await import(
+    "../../../shared/config/defaults"
+  );
+  const firestoreInstance = firestore ?? db;
+  const docRef = firestoreInstance.collection("storeMeta").doc("requiredStaffByTimeSlot");
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        logger.warn("config_fallback", {
+          code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,
+          configKey: "requiredStaffByTimeSlot",
+          fallbackSource: "defaults.ts",
+          reason: "document_missing",
+        });
+        return [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
+      }
+      const data = doc.data();
+      const arr = data?.data;
+      if (!Array.isArray(arr)) {
+        return [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
+      }
+      const filtered = arr.filter(
+        (x: unknown) =>
+          x && typeof x === "object" && typeof (x as Record<string, unknown>).startHour === "number"
+      ) as { startHour: number; endHour: number; requiredCount: number }[];
+      // 空配列は「不足判定を行わない」としてそのまま返す
+      if (arr.length === 0) return [];
+      // 全要素不正の場合は defaults
+      return filtered.length > 0 ? filtered : [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
+    } catch (err) {
+      lastError = err;
+      if (attempt < MAX_RETRIES) continue;
+      logger.error("config_read_error", {
+        code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
+        reason: "read_error",
+        message: String(err instanceof Error ? err.message : err),
+        error: String(lastError),
+      });
+      logger.warn("config_fallback", {
+        code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,
+        configKey: "requiredStaffByTimeSlot",
+        fallbackSource: "defaults.ts",
+        reason: "read_error_after_retries",
+      });
+      return [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
+    }
+  }
+  return [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
 }
 
 /**
@@ -190,7 +254,7 @@ export function findGapTimeSlots(
 
 /**
  * スタッフ不足時間帯を検出（1時間刻み）
- * GlobalConstants.requiredStaffByTimeSlot を使用
+ * requiredStaffByTimeSlot は getRequiredStaffByTimeSlot() から取得して呼び出し元から渡す
  */
 export function findInsufficientTimeSlots(
   openMinute: number,
@@ -323,17 +387,8 @@ export async function getBusinessHoursFromMap(
 // ========================================
 // シフト管理フロー期間設定
 // ========================================
-// ⚠️ 重要: この定義を変更する場合は、Flutter側（lib/globalConstant.dart）にも必ず同期すること
-// Flutter側: lib/globalConstant.dart の SHIFT_*_DAY と値が一致している必要があります
-
-/**
- * シフト管理フロー期間の定数
- * 対象月の前月の何日から何日まで、という形で設定します
- * ⚠️ 重要: この定義を変更する場合は、Flutter側（lib/globalConstant.dart）にも必ず同期すること
- */
-export const SHIFT_SUBMISSION_START_DAY = 1; // ①提出期間の開始日（前月の何日から）
-export const SHIFT_SUBMISSION_END_DAY = 15; // ①提出期間の終了日（前月の何日まで）
-export const SHIFT_SCHEDULING_START_DAY = 16; // ②シフトを組む期間の開始日（前月の何日から、以降は管理者の裁量で最終確定可能）
+// R-08: schedulingStartDay は storeMeta/config から取得。呼び出し元で getStoreConfig() により取得し、
+// config.shift?.schedulingStartDay ?? DEFAULT_SHIFT_SCHEDULING_START_DAY を isInShiftSchedulingPeriod に渡す。
 
 // 管理者が直接作成したシフトのsourceRequestIdに使用する識別子
 export const ADMIN_CREATED_SHIFT_ID = "admin-created";
@@ -341,39 +396,33 @@ export const ADMIN_CREATED_SHIFT_ID = "admin-created";
 /**
  * 対象日のシフトが②期間（シフトを組む期間）以降かどうかを判定
  * @param dateKey シフト日付（YYYY-MM-DD形式）
+ * @param schedulingStartDay ②期間の開始日（前月の何日から）。storeMeta/config の shift.schedulingStartDay を呼び出し元で取得して渡す
  * @returns true: ②期間以降（基本的に提出・修正不可）、false: ②期間前
- * 
- * 例: 2月シフト（2026-02-XX）の場合、前月（1月）の16日以降が②期間
- * この期間中は基本的に提出・修正不可。管理者が不足日・不足時間を送信したタイミングで、不足日・不足時間のみ提出可能になる
- * 16日以降は管理者の裁量で最終確定可能（isFinalized=true）
+ *
+ * 例: 2月シフト（2026-02-XX）、schedulingStartDay=16 の場合、前月（1月）の16日以降が②期間
  */
-export function isInShiftSchedulingPeriod(dateKey: string): boolean {
-  // dateKeyから年月を抽出
+export function isInShiftSchedulingPeriod(dateKey: string, schedulingStartDay: number): boolean {
   const [yearStr, monthStr] = dateKey.split("-");
   const targetYear = parseInt(yearStr, 10);
   const targetMonth = parseInt(monthStr, 10);
-  
-  // 対象月の前月を計算
+
   let prevMonthYear = targetYear;
   let prevMonth = targetMonth - 1;
   if (prevMonth < 1) {
     prevMonth = 12;
     prevMonthYear--;
   }
-  
-  // JSTの現在日付を取得
+
   const now = new Date();
-  // JST = UTC + 9時間
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   const currentYear = jstNow.getUTCFullYear();
-  const currentMonth = jstNow.getUTCMonth() + 1; // getUTCMonth()は0-11、+1で1-12
+  const currentMonth = jstNow.getUTCMonth() + 1;
   const currentDay = jstNow.getUTCDate();
-  
-  // 現在の日付が前月の16日以降かどうかを判定
+
   if (currentYear === prevMonthYear && currentMonth === prevMonth) {
-    return currentDay >= SHIFT_SCHEDULING_START_DAY;
+    return currentDay >= schedulingStartDay;
   }
-  
+
   return false;
 }
 
@@ -480,11 +529,7 @@ export async function isInsufficientDayOrTimeSlot(dateKey: string): Promise<bool
   // 不足時間の条件: gapSlots または insufficientSlots が存在する
   const assignments = (dayData.assignments as Array<{ startMinute: number; endMinute: number }>) || [];
   
-  // 時間帯別の必要人数設定を取得（デフォルト値）
-  const requiredStaffByTimeSlot = [
-    { startHour: 19, endHour: 22, requiredCount: 2 },
-    { startHour: 10, endHour: 12, requiredCount: 3 },
-  ];
+  const requiredStaffByTimeSlot = await getRequiredStaffByTimeSlot();
   
   const gapSlots = findGapTimeSlots(
     businessHours.openMinute,

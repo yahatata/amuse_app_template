@@ -135,7 +135,7 @@ export async function updateBill(request: UpdateBillRequest): Promise<UpdateBill
     // 3) デュアルライト: todaysBills の該当フィールドを更新（トランザクション外でベストエフォート）
     let dualWriteResult: 'success' | 'failed' | 'skipped' = 'skipped';
     
-    if (shouldDualWrite()) {
+    if (await shouldDualWrite()) {
       try {
         await legacyUpdateBillUpdate(db, {
           billId,

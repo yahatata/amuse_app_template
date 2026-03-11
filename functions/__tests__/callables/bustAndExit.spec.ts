@@ -20,22 +20,11 @@ import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBi
 describe('bustAndExit', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-bust-exit';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -49,6 +38,16 @@ describe('bustAndExit', () => {
     await testEnv.clearFirestore();
     delete process.env.WRITE_TODAYS_BILLS_IN_PARALLEL;
   });
+
+  async function createAdminDevice(uid: string) {
+    await db.collection('devices').add({
+      uid,
+      role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
 
   // テスト用のヘルパ関数: scheduledTournaments のセットアップ
   async function setupTournament(tournamentId: string, tableId: string, userId: string, seatNumber: number, pokerName: string) {
@@ -118,15 +117,19 @@ describe('bustAndExit', () => {
 
       await setupTournament(tournamentId, tableId, userId, seatNumber, pokerName);
 
+      const adminId = 'admin_test_bust_001';
+      await createAdminDevice(adminId);
+
       // bustAndExit を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_bust_${tournamentId}`,
           tournamentId,
           tableId,
           seatNumber,
           userId,
         },
-        auth: null,
       } as any;
 
       const result = await (bustAndExit as any).run(mockRequest);
@@ -184,14 +187,18 @@ describe('bustAndExit', () => {
 
       await setupTournament(tournamentId, tableId, userId, seatNumber, 'テスト太郎');
 
+      const adminId = 'admin_test_bust_error_001';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_bust_${tournamentId}`,
           tournamentId,
           tableId,
           seatNumber,
           userId,
         },
-        auth: null,
       } as any;
 
       const result = await (bustAndExit as any).run(mockRequest);
@@ -215,14 +222,18 @@ describe('bustAndExit', () => {
 
       await setupTournament(tournamentId, tableId, userId, seatNumber, 'テスト太郎');
 
+      const adminId = 'admin_test_bust_error_002';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_bust_${tournamentId}`,
           tournamentId,
           tableId,
           seatNumber,
           userId,
         },
-        auth: null,
       } as any;
 
       const result = await (bustAndExit as any).run(mockRequest);
@@ -268,15 +279,19 @@ describe('bustAndExit', () => {
       const billDocBefore = await db.collection('bills').doc(billId).get();
       const placeBefore = billDocBefore.data()!.place;
 
+      const adminId = 'admin_test_bust_error_003';
+      await createAdminDevice(adminId);
+
       // requestUserId で bustAndExit を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_bust_${tournamentId}`,
           tournamentId,
           tableId,
           seatNumber,
           userId: requestUserId, // 座っているユーザーとは異なる
         },
-        auth: null,
       } as any;
 
       const result = await (bustAndExit as any).run(mockRequest);
@@ -380,15 +395,19 @@ describe('bustAndExit', () => {
 
       // busted ドキュメントは作成しない（実装が merge: true で自己修復することを検証）
 
+      const adminId = 'admin_test_bust_busted_missing_001';
+      await createAdminDevice(adminId);
+
       // bustAndExit を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_bust_${tournamentId}`,
           tournamentId,
           tableId,
           seatNumber,
           userId,
         },
-        auth: null,
       } as any;
 
       const result = await (bustAndExit as any).run(mockRequest);

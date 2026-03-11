@@ -17,22 +17,11 @@ import { updateAccounting } from '../../src/domains/bills/callables/updateAccoun
 describe('updateAccounting (新世界版)', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-update-accounting';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -51,6 +40,8 @@ describe('updateAccounting (新世界版)', () => {
     await db.collection('devices').add({
       uid,
       role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   }

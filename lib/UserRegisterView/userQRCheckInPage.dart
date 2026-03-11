@@ -2,7 +2,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 class UserQRCheckInPage extends StatefulWidget {
   const UserQRCheckInPage({super.key});
@@ -53,9 +54,9 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
       final callable = FirebaseFunctions.instance.httpsCallable('processVisitByQR');
       final result = await callable.call({
         'qrData': raw,
-        'entranceFee': GlobalConstants.entranceFee,
-        'entranceFeeDescription': GlobalConstants.entranceFeeDescription,
-        'chargeEntranceFeeOnReentry': GlobalConstants.chargeEntranceFeeOnReentry,
+        'entranceFee': StoreConfigService.instance.latestData?.entranceFee ?? kDefaultEntranceFee,
+        'entranceFeeDescription': StoreConfigService.instance.latestData?.entranceFeeDescription ?? kDefaultEntranceFeeDescription,
+        'chargeEntranceFeeOnReentry': StoreConfigService.instance.latestData?.chargeEntranceFeeOnReentry ?? kDefaultChargeEntranceFeeOnReentry,
       });
       final data = result.data as Map<dynamic, dynamic>;
 

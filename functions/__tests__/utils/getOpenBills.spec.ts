@@ -20,22 +20,11 @@ import { calcBusinessDate } from '../../src/domains/bills/repos/calcBusinessDate
 describe('getOpenBills', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-get-open-bills';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -89,7 +78,8 @@ describe('getOpenBills', () => {
       const billId2 = 'bill_test_happy_002';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
 
       await createOpenBill(billId1, userId1, businessDate, 'テスト太郎', 'table_01', 1);
       await createOpenBill(billId2, userId2, businessDate, 'テスト花子', 'table_02', 2);
@@ -114,7 +104,8 @@ describe('getOpenBills', () => {
       const billId3 = 'bill_test_happy_005';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
 
       await createOpenBill(billId1, userId1, businessDate);
       // in_progress の伝票（取得されない）
@@ -160,7 +151,8 @@ describe('getOpenBills', () => {
       const billId3 = 'bill_test_happy_008';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
 
       await createOpenBill(billId1, userId1, businessDate, 'さとう');
       await createOpenBill(billId2, userId2, businessDate, 'あべ');
@@ -202,7 +194,8 @@ describe('getOpenBills', () => {
       const billId = 'bill_test_response_001';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
 
       await createOpenBill(billId, userId, businessDate);
 
@@ -228,7 +221,8 @@ describe('getOpenBills', () => {
       const seat = 1;
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
 
       await createOpenBill(billId, userId, businessDate, pokerName, table, seat);
 
@@ -256,10 +250,12 @@ describe('getOpenBills', () => {
       const billId2 = 'bill_test_business_date_002';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
       // 前日の営業日を計算（現在時刻から1日前）
       const prevDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const prevBusinessDate = calcBusinessDate(prevDate);
+      const prevCalcResult = await calcBusinessDate(prevDate);
+      const prevBusinessDate = typeof prevCalcResult === 'string' ? prevCalcResult : (prevCalcResult.status === 'OK' ? prevCalcResult.businessDateKey! : '2025-01-01');
 
       await createOpenBill(billId1, userId1, businessDate);
       await createOpenBill(billId2, userId2, prevBusinessDate);
@@ -283,7 +279,8 @@ describe('getOpenBills', () => {
       // 前日の営業日を計算（現在時刻から1日前）
       const now = new Date();
       const prevDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const prevBusinessDate = calcBusinessDate(prevDate);
+      const prevCalcResult = await calcBusinessDate(prevDate);
+      const prevBusinessDate = typeof prevCalcResult === 'string' ? prevCalcResult : (prevCalcResult.status === 'OK' ? prevCalcResult.businessDateKey! : '2025-01-01');
 
       await createOpenBill(billId, userId, prevBusinessDate);
 

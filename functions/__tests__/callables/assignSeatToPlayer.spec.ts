@@ -21,22 +21,11 @@ import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBi
 describe('assignSeatToPlayer', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-assign-seat';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -50,6 +39,16 @@ describe('assignSeatToPlayer', () => {
     await testEnv.clearFirestore();
     delete process.env.WRITE_TODAYS_BILLS_IN_PARALLEL;
   });
+
+  async function createAdminDevice(uid: string) {
+    await db.collection('devices').add({
+      uid,
+      role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
 
   // テスト用のヘルパ関数: scheduledTournaments のセットアップ
   async function setupTournament(tournamentId: string, tableId: string) {
@@ -108,15 +107,19 @@ describe('assignSeatToPlayer', () => {
           count: 1,
         });
 
+      const adminId = 'admin_test_assign_001';
+      await createAdminDevice(adminId);
+
       // assignSeatToPlayer を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_assign_${tournamentId}`,
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       const result = await (assignSeatToPlayer as any).run(mockRequest);
@@ -183,15 +186,19 @@ describe('assignSeatToPlayer', () => {
           count: 1,
         });
 
+      const adminId = 'admin_test_assign_002';
+      await createAdminDevice(adminId);
+
       // assignSeatToPlayer を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_assign_${tournamentId}`,
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       const result = await (assignSeatToPlayer as any).run(mockRequest);
@@ -219,14 +226,18 @@ describe('assignSeatToPlayer', () => {
 
       await setupTournament(tournamentId, tableId);
 
+      const adminId = 'admin_test_assign_error_001';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_assign_${tournamentId}`,
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       await expect((assignSeatToPlayer as any).run(mockRequest)).rejects.toThrow();
@@ -248,14 +259,18 @@ describe('assignSeatToPlayer', () => {
 
       await setupTournament(tournamentId, tableId);
 
+      const adminId = 'admin_test_assign_error_002';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_assign_${tournamentId}`,
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       await expect((assignSeatToPlayer as any).run(mockRequest)).rejects.toThrow();
@@ -310,14 +325,18 @@ describe('assignSeatToPlayer', () => {
       const billDocBefore = await db.collection('bills').doc(billId).get();
       const placeBefore = billDocBefore.data()!.place;
 
+      const adminId = 'admin_test_assign_error_003';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_assign_${tournamentId}`,
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       await expect((assignSeatToPlayer as any).run(mockRequest)).rejects.toThrow();
@@ -389,14 +408,18 @@ describe('assignSeatToPlayer', () => {
       const billDocBefore = await db.collection('bills').doc(billId).get();
       const placeBefore = billDocBefore.data()!.place;
 
+      const adminId = 'admin_test_assign_error_004';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_assign_${tournamentId}`,
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       await expect((assignSeatToPlayer as any).run(mockRequest)).rejects.toThrow();
@@ -451,15 +474,19 @@ describe('assignSeatToPlayer', () => {
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
+      const adminId = 'admin_test_assign_waiting_missing_001';
+      await createAdminDevice(adminId);
+
       // assignSeatToPlayer を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_assign_${tournamentId}`,
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       const result = await (assignSeatToPlayer as any).run(mockRequest);

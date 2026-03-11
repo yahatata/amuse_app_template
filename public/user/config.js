@@ -1,5 +1,9 @@
 // 店舗別設定ファイル
 window.__CONFIG__ = {
+  // デバッグ: LIFF初期化などの処理内容を画面上に表示する（true: 表示, false: 非表示）
+  // 詳細: docs/LINEミニアプリ、LIFF/LINEミニアプリ、LIFF処理表示.md
+  DEBUG_SHOW_LIFF_PROCESS: false,
+
   // LIFF ID（ミニアプリ開発用）
   liffId: "2007950789-ZJ7b0JgO",
   

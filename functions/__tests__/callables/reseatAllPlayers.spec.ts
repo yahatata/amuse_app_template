@@ -20,22 +20,11 @@ import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBi
 describe('reseatAllPlayers', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-reseat-all';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -49,6 +38,16 @@ describe('reseatAllPlayers', () => {
     await testEnv.clearFirestore();
     delete process.env.WRITE_TODAYS_BILLS_IN_PARALLEL;
   });
+
+  async function createAdminDevice(uid: string) {
+    await db.collection('devices').add({
+      uid,
+      role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
 
   // テスト用のヘルパ関数: scheduledTournaments のセットアップ
   async function setupTournament(tournamentId: string, tableIds: string[]) {
@@ -119,16 +118,20 @@ describe('reseatAllPlayers', () => {
           count: 2,
         });
 
+      const adminId = 'admin_test_reseat_001';
+      await createAdminDevice(adminId);
+
       // reseatAllPlayers を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_reseat_${tournamentId}`,
           tournamentId,
           playerAssignments: [
             { userId: userId1, tableId: tableId1, seatNumber: 1 },
             { userId: userId2, tableId: tableId2, seatNumber: 2 },
           ],
         },
-        auth: null,
       } as any;
 
       const result = await (reseatAllPlayers as any).run(mockRequest);
@@ -208,16 +211,20 @@ describe('reseatAllPlayers', () => {
 
       await setupTournament(tournamentId, [tableId1, tableId2]);
 
+      const adminId = 'admin_test_reseat_002';
+      await createAdminDevice(adminId);
+
       // reseatAllPlayers を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_reseat_${tournamentId}`,
           tournamentId,
           playerAssignments: [
             { userId: userId1, tableId: tableId1, seatNumber: 1 },
             { userId: userId2, tableId: tableId2, seatNumber: 2 },
           ],
         },
-        auth: null,
       } as any;
 
       const result = await (reseatAllPlayers as any).run(mockRequest);
@@ -263,15 +270,19 @@ describe('reseatAllPlayers', () => {
 
       await setupTournament(tournamentId, [tableId1, tableId2]);
 
+      const adminId = 'admin_test_reseat_error_001';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_reseat_${tournamentId}`,
           tournamentId,
           playerAssignments: [
             { userId: userId1, tableId: tableId1, seatNumber: 1 },
             { userId: userId2, tableId: tableId2, seatNumber: 2 },
           ],
         },
-        auth: null,
       } as any;
 
       await expect((reseatAllPlayers as any).run(mockRequest)).rejects.toThrow();
@@ -292,14 +303,18 @@ describe('reseatAllPlayers', () => {
 
       await setupTournament(tournamentId, [tableId1]);
 
+      const adminId = 'admin_test_reseat_error_002';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: `op_reseat_${tournamentId}`,
           tournamentId,
           playerAssignments: [
             { userId: userId1, tableId: tableId1, seatNumber: 1 },
           ],
         },
-        auth: null,
       } as any;
 
       await expect((reseatAllPlayers as any).run(mockRequest)).rejects.toThrow();

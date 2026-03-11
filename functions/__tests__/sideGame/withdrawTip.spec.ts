@@ -18,22 +18,11 @@ import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBi
 describe('withdrawTip', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-withdrawtip';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await admin.app().delete();
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -47,6 +36,16 @@ describe('withdrawTip', () => {
     await testEnv.clearFirestore();
     delete process.env.WRITE_TODAYS_BILLS_IN_PARALLEL;
   });
+
+  async function createAdminDevice(uid: string) {
+    await db.collection('devices').add({
+      uid,
+      role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
 
   describe('正常系（初回呼び出し）', () => {
     it('appendSideGameChip が成功し、ユーザ残高が減少し、sideGameChipLogs に1件追加されること', async () => {
@@ -71,14 +70,17 @@ describe('withdrawTip', () => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
+      const adminId = 'admin_test_withdraw_001';
+      await createAdminDevice(adminId);
+
       // withdrawTip を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
           userId,
           amount,
           clientNonce,
         },
-        auth: null,
       } as any;
 
       const result = await (withdrawTip as any).run(mockRequest);
@@ -144,13 +146,16 @@ describe('withdrawTip', () => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
+      const adminId = 'admin_test_withdraw_idempotent_001';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
           userId,
           amount,
           clientNonce,
         },
-        auth: null,
       } as any;
 
       // 1回目の実行

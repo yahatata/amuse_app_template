@@ -1,5 +1,9 @@
 // 店舗別設定ファイル（staff用）
 window.__CONFIG__ = {
+  // デバッグ: LIFF初期化などの処理内容を画面上に表示する（true: 表示, false: 非表示）
+  // 詳細: docs/LINEミニアプリ、LIFF/LINEミニアプリ、LIFF処理表示.md
+  DEBUG_SHOW_LIFF_PROCESS: false,
+
   // LIFF ID（スタッフ用ミニアプリ）
   liffId: "2008640140-kWpQ25Jp",
   // ユーザー用LIFF ID（「ユーザーに切り替え」で開く先。LINE Developersのユーザー用LIFFのIDと一致させる）
@@ -20,12 +24,30 @@ window.__CONFIG__ = {
     id: "amuse-app-template"
   },
   
-  // LINEプラン設定（globalConstant.dartと同期必須）
-  // 'communication' | 'light' | 'standard'
+  // SSoT: storeMeta/config.linePlan（Firestore 初期化後に loadLinePlanFromFirestore() で上書き）
   linePlan: "communication",
   
-  // シフト要請機能の有効/無効
   isShiftRequestEnabled: function() {
     return this.linePlan !== 'communication';
+  },
+
+  /**
+   * Firestore storeMeta/config から linePlan を読み取り、__CONFIG__ を上書きする。
+   * Firebase 初期化後に呼び出すこと。
+   * @param {import('firebase/firestore').Firestore} db
+   */
+  loadLinePlanFromFirestore: async function(db) {
+    try {
+      const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+      const snap = await getDoc(doc(db, "storeMeta", "config"));
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.linePlan && ['communication', 'light', 'standard'].includes(data.linePlan)) {
+          this.linePlan = data.linePlan;
+        }
+      }
+    } catch (e) {
+      console.warn("[config.js] Failed to load linePlan from Firestore, using default:", e);
+    }
   }
 };

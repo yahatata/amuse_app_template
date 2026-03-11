@@ -1,5 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import { DEFAULT_SHIFT_SCHEDULING_START_DAY } from "../../../shared/config/defaults";
 import { assertStaffExists, assertHourStep, getYearMonthFromDateKey, isInShiftSchedulingPeriod, isInsufficientDaysNotificationSent, isInsufficientDayOrTimeSlot } from "../../shift/services/helpers";
 
 const db = admin.firestore();
@@ -67,6 +69,9 @@ export const updateShiftRequest = onCall(
     }
 
     try {
+      const config = await getStoreConfig();
+      const schedulingStartDay = config.shift?.schedulingStartDay ?? DEFAULT_SHIFT_SCHEDULING_START_DAY;
+
       // スタッフ存在確認
       await assertStaffExists(staffId);
 
@@ -100,7 +105,7 @@ export const updateShiftRequest = onCall(
       const yearMonth = getYearMonthFromDateKey(dateKey);
 
       // ②期間（シフトを組む期間）チェック
-      const isInSchedulingPeriod = isInShiftSchedulingPeriod(dateKey);
+      const isInSchedulingPeriod = isInShiftSchedulingPeriod(dateKey, schedulingStartDay);
       
       if (isInSchedulingPeriod) {
         // ②期間中: 管理者が不足日・不足時間を送信したかどうかを確認

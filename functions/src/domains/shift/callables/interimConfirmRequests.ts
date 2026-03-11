@@ -5,6 +5,7 @@ import {
   assertHourStep,
   getYearMonthFromDateKey,
   calculateIsSufficient,
+  getRequiredStaffByTimeSlot,
 } from "../services/helpers";
 
 const db = admin.firestore();
@@ -21,19 +22,6 @@ interface InterimConfirmRequestsRequest {
   installationId: string;
 }
 
-/**
- * 時間帯別の必要人数設定を取得（デフォルト値）
- * TODO: 将来的に shiftSettings コレクションから取得する
- */
-async function getRequiredStaffByTimeSlot(): Promise<
-  Array<{ startHour: number; endHour: number; requiredCount: number }>
-> {
-  // デフォルト値（GlobalConstants.requiredStaffByTimeSlot と同期）
-  return [
-    { startHour: 19, endHour: 22, requiredCount: 2 },
-    { startHour: 10, endHour: 12, requiredCount: 3 },
-  ];
-}
 
 /**
  * 申請を中間確定

@@ -1,7 +1,9 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getFirestore } from 'firebase-admin/firestore';
-import { calculatePaymentSplit, DEFAULT_POINT_PRIORITY } from '../services/paymentSplitCalculator';
+import { calculatePaymentSplit } from '../services/paymentSplitCalculator';
+import { getStoreConfig } from '../../../shared/config/configLoader';
+import { DEFAULT_POINT_PRIORITY } from '../../../shared/config/defaults';
 
 // 入力スキーマ
 const VerifyPaymentSplitSchema = z.object({
@@ -35,7 +37,9 @@ export const verifyPaymentSplit = onCall(async (request) => {
     
     // 入力検証
     const validatedData = VerifyPaymentSplitSchema.parse(request.data);
-    const { billId, clientResult, selectedBaseMethod, pointPriority = DEFAULT_POINT_PRIORITY } = validatedData;
+    const config = await getStoreConfig();
+    const { billId, clientResult, selectedBaseMethod } = validatedData;
+    const pointPriority = validatedData.pointPriority ?? config.billing?.paymentPolicy?.pointPriority ?? DEFAULT_POINT_PRIORITY;
 
     // 請求書を取得
     const billRef = db.collection('bills').doc(billId);
@@ -114,6 +118,8 @@ export const verifyPaymentSplit = onCall(async (request) => {
       bill: categoryAmounts,
       balances,
       pointPriority,
+      categoryPaymentMethods: config.billing?.paymentPolicy?.categoryPaymentMethods,
+      sideGameChipExchangeRate: config.billing?.sideGameChipRate,
     });
 
     // クライアント側とサーバー側の結果を比較

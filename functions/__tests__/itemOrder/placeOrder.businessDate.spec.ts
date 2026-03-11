@@ -19,23 +19,12 @@ import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBi
 describe('placeOrder.businessDate', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = `test-project-bills-${process.pid}-${Date.now()}`;
+  const projectId = 'test-default';
   let prevStoreCloseHour: string | undefined;
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -45,9 +34,20 @@ describe('placeOrder.businessDate', () => {
     delete process.env.FIRESTORE_EMULATOR_HOST;
   });
 
+  async function createAdminDevice(uid: string) {
+    await db.collection('devices').add({
+      uid,
+      role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
   beforeEach(async () => {
     await testEnv.clearFirestore();
     prevStoreCloseHour = process.env.STORE_CLOSE_HOUR;
+    await createAdminDevice('admin_placeorder_bd');
   });
 
   afterEach(() => {
@@ -92,17 +92,17 @@ describe('placeOrder.businessDate', () => {
     
     // 注文
     const mockRequest = {
+      auth: { uid: 'admin_placeorder_bd' },
       data: {
-        userId,
+        billId,
         item: {
           menuItemId,
           quantity: 1,
         },
         clientNonce: 'nonce-1',
       },
-      auth: null,
     } as any;
-    const orderResult = await placeOrder.run(mockRequest);
+    const orderResult = await (placeOrder as any).run(mockRequest);
     
     expect(orderResult.success).toBe(true);
     
@@ -148,17 +148,17 @@ describe('placeOrder.businessDate', () => {
     
     // 注文
     const mockRequest = {
+      auth: { uid: 'admin_placeorder_bd' },
       data: {
-        userId,
+        billId,
         item: {
           menuItemId,
           quantity: 1,
         },
         clientNonce: 'nonce-2',
       },
-      auth: null,
     } as any;
-    const orderResult = await placeOrder.run(mockRequest);
+    const orderResult = await (placeOrder as any).run(mockRequest);
     
     expect(orderResult.success).toBe(true);
     
@@ -202,33 +202,33 @@ describe('placeOrder.businessDate', () => {
     
     // 1回目の注文
     const mockRequest1 = {
+      auth: { uid: 'admin_placeorder_bd' },
       data: {
-        userId,
+        billId,
         item: {
           menuItemId: menuItemId1,
           quantity: 1,
         },
         clientNonce: 'nonce-3-1',
       },
-      auth: null,
     } as any;
-    const orderResult1 = await placeOrder.run(mockRequest1);
+    const orderResult1 = await (placeOrder as any).run(mockRequest1);
     
     expect(orderResult1.success).toBe(true);
     
     // 2回目の注文
     const mockRequest2 = {
+      auth: { uid: 'admin_placeorder_bd' },
       data: {
-        userId,
+        billId,
         item: {
           menuItemId: menuItemId2,
           quantity: 2,
         },
         clientNonce: 'nonce-3-2',
       },
-      auth: null,
     } as any;
-    const orderResult2 = await placeOrder.run(mockRequest2);
+    const orderResult2 = await (placeOrder as any).run(mockRequest2);
     
     expect(orderResult2.success).toBe(true);
     

@@ -3,6 +3,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:amuse_app_template/tournament/template/blind/tournament_blind_template_list_page.dart';
 import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 class CreateTournamentTemplatePage extends StatefulWidget {
   final Map<String, dynamic>? existingTemplate;
@@ -23,7 +25,7 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
   // 基本設定
   int _entryFee = 1000;
   int _startStack = 10000;
-  double _prizeRatio = GlobalConstants.defaultPrizeRatio;
+  double _prizeRatio = StoreConfigService.instance.latestData?.tournamentDefaultPrizeRatio ?? kDefaultTournamentPrizeRatio;
   
   // リエントリー設定
   bool _isReentry = false;
@@ -67,7 +69,7 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
       _nameController.text = template['name'] ?? '';
       _entryFee = template['entryFee'] ?? 1000;
       _startStack = template['startStack'] ?? 10000;
-      _prizeRatio = template['prizeRatio'] ?? GlobalConstants.defaultPrizeRatio;
+      _prizeRatio = (template['prizeRatio'] as num?)?.toDouble() ?? (StoreConfigService.instance.latestData?.tournamentDefaultPrizeRatio ?? kDefaultTournamentPrizeRatio);
       _isReentry = template['isReentry'] ?? false;
       _maxReentries = template['maxReentries'];
       _reentryFee = template['reentryFee'];

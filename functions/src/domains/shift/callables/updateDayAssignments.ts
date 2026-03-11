@@ -5,6 +5,7 @@ import {
   getYearMonthFromDateKey,
   calculateIsSufficient,
   ADMIN_CREATED_SHIFT_ID,
+  getRequiredStaffByTimeSlot,
 } from "../services/helpers";
 
 const db = admin.firestore();
@@ -23,19 +24,6 @@ interface UpdateDayAssignmentsRequest {
   installationId: string;
 }
 
-/**
- * 時間帯別の必要人数設定を取得（デフォルト値）
- * TODO: 将来的に shiftSettings コレクションから取得する
- */
-async function getRequiredStaffByTimeSlot(): Promise<
-  Array<{ startHour: number; endHour: number; requiredCount: number }>
-> {
-  // デフォルト値（GlobalConstants.requiredStaffByTimeSlot と同期）
-  return [
-    { startHour: 19, endHour: 22, requiredCount: 2 },
-    { startHour: 10, endHour: 12, requiredCount: 3 },
-  ];
-}
 
 /**
  * シフト日の割当を更新

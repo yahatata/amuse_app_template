@@ -24,8 +24,10 @@
     import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js";
 
+      if (window._debugLog) window._debugLog('2. Firebaseモジュール開始');
       // 設定ファイルから設定を取得
       const { firebaseConfig, liffId } = window.__CONFIG__;
+      if (window._debugLog) window._debugLog('2a. __CONFIG__取得済み');
       
       // Cloud Functions URLを動的に生成
       const functionsUrl = `https://us-central1-${firebaseConfig.projectId}.cloudfunctions.net`;
@@ -35,27 +37,32 @@
     const db = getFirestore(app);
        const functions = getFunctions(app);
 
-       // グローバルに公開
+       // グローバルに公開（DOMContentLoaded発火前に必ず代入するため、loadLinePlanFromFirestoreより先に実行）
        window.Firebase = { app, auth, db, functions };
     window.FirebaseAuth = { signInWithCustomToken };
        window.FirebaseFunctions = { httpsCallable };
-       
       
       // LIFFとFirebase認証の初期化関数
       window.initLiffAndFirebaseAuth = async function() {
+        if (window._debugLog) window._debugLog('3. initLiffAndFirebaseAuth開始');
         if (!window.liff) {
+          if (window._debugLog) window._debugLog('3a. window.liffなし→終了', true);
           return;
         }
-
         try {
+        if (window._debugLog) window._debugLog('3b. liff.init実行中');
         await liff.init({ liffId });
+        if (window._debugLog) window._debugLog('3c. liff.init完了');
+        if (typeof window.updateInitProgress === 'function') window.updateInitProgress(20);
 
         if (!liff.isLoggedIn()) {
+          if (window._debugLog) window._debugLog('3d. 未ログイン→liff.login()へリダイレクト');
           liff.login();
           // ログイン画面にリダイレクトされるため、ここで処理を終了
           // ログイン後、ページがリロードされて再度初期化処理が実行される
             return;
         }
+        if (window._debugLog) window._debugLog('3e. ログイン済み');
 
         // ミニアプリ用：profile権限の確認と要求
         try {
@@ -68,12 +75,16 @@
           // LIFF環境では権限APIが使えない場合があるため、エラーは無視して続行
         }
 
+        if (window._debugLog) window._debugLog('3f. getIDToken取得中');
         const idToken = await liff.getIDToken();
           if (!idToken) {
             throw new Error("LIFFのIDトークン取得に失敗しました。");
           }
+        if (window._debugLog) window._debugLog('3g. getIDToken取得成功');
+        if (typeof window.updateInitProgress === 'function') window.updateInitProgress(40);
 
           // サーバーからFirebaseカスタムトークンを取得
+          if (window._debugLog) window._debugLog('3h. getFirebaseCustomToken呼び出し中');
           const res = await fetch(`${functionsUrl}/getFirebaseCustomToken`, {
           method: "POST",
           headers: {
@@ -83,8 +94,11 @@
         });
 
           if (!res.ok) {
+            if (window._debugLog) window._debugLog('3h-ERR. getFirebaseCustomToken失敗 res.ok=' + res.ok + ' status=' + res.status, true);
             throw new Error("Firebaseカスタムトークンの取得に失敗しました。");
           }
+        if (window._debugLog) window._debugLog('3i. getFirebaseCustomToken成功');
+        if (typeof window.updateInitProgress === 'function') window.updateInitProgress(60);
 
         const { firebaseToken } = await res.json();
           if (!firebaseToken) {
@@ -94,7 +108,33 @@
           // Firebase v10 modular SDK対応
           const { auth } = window.Firebase;
           const { signInWithCustomToken } = window.FirebaseAuth;
-        await signInWithCustomToken(auth, firebaseToken);
+          const SIGNIN_TIMEOUT_MS = 15000; // 15秒
+          const signInStartMs = Date.now();
+          if (window._debugLog) window._debugLog('3j. signInWithCustomToken実行中 (token長=' + (firebaseToken?.length || 0) + ' タイムアウト=' + SIGNIN_TIMEOUT_MS + 'ms)');
+          const waitIntervalMs = 3000;
+          const waitIntervalId = setInterval(() => {
+            if (window._debugLog) {
+              const elapsed = Math.round((Date.now() - signInStartMs) / 1000);
+              window._debugLog('3j-wait. signInWithCustomToken待機中 (' + elapsed + '秒経過)');
+            }
+          }, waitIntervalMs);
+          try {
+            await Promise.race([
+              signInWithCustomToken(auth, firebaseToken),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('処理がタイムアウトしました。再試行して下さい')), SIGNIN_TIMEOUT_MS))
+            ]);
+            clearInterval(waitIntervalId);
+            if (window._debugLog) window._debugLog('3k. signInWithCustomToken正常完了 (所要' + (Date.now() - signInStartMs) + 'ms)');
+          } catch (signInErr) {
+            clearInterval(waitIntervalId);
+            if (window._debugLog) {
+              const isTimeout = signInErr?.message === '処理がタイムアウトしました。再試行して下さい';
+              window._debugLog((isTimeout ? '3j-TIMEOUT. signInWithCustomToken 15秒タイムアウト' : '3j-ERR. signInWithCustomToken失敗: ') + (signInErr?.message || signInErr), !isTimeout);
+            }
+            throw signInErr;
+          }
+          if (window._debugLog) window._debugLog('3k-done. 認証完了');
+        if (typeof window.updateInitProgress === 'function') window.updateInitProgress(80);
 
           // 利用者情報をwindowにセット
         window.LiffFirebase = {
@@ -102,11 +142,17 @@
             user: auth.currentUser
         };
       } catch (e) {
+          if (window._debugLog) window._debugLog('3-ERR. LIFF認証エラー: ' + (e?.message || String(e)), true);
           // エラーを再スローして呼び出し側で処理できるようにする
           console.error("LIFF認証エラー:", e);
           throw e;
       }
       };
+
+       // storeMeta/config から linePlan を読み込み（非ブロッキングで後続処理に影響しない）
+       if (window._debugLog) window._debugLog('2b. loadLinePlanFromFirestore開始');
+       await window.__CONFIG__.loadLinePlanFromFirestore(db);
+       if (window._debugLog) window._debugLog('2c. loadLinePlanFromFirestore完了');
   </script>
 
   <link rel="stylesheet" href="../css/common.css?v=20251114-01">
@@ -132,10 +178,48 @@
     </style>
 </head>
 <body>
+<!-- ========== DEBUG OVERLAY START ==========
+  config.js の DEBUG_SHOW_LIFF_PROCESS で表示可否を切り替え。
+  詳細: docs/LINEミニアプリ、LIFF/LINEミニアプリ、LIFF処理表示.md -->
+<div id="debug-overlay" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.95);color:#fff;font-size:12px;padding:10px;max-height:50vh;overflow-y:auto;font-family:monospace;display:none;">
+  <strong>【デバッグ】LIFF処理内容表示（時:分:秒形式）</strong>
+  <div id="debug-log"></div>
+</div>
+<script>
+  (function() {
+    var show = window.__CONFIG__ && window.__CONFIG__.DEBUG_SHOW_LIFF_PROCESS;
+    if (!show) {
+      window._debugLog = function() {};
+      return;
+    }
+    var overlay = document.getElementById('debug-overlay');
+    if (overlay) overlay.style.display = 'block';
+    window._debugLog = function(msg, isError) {
+      try {
+        var el = document.getElementById('debug-log');
+        if (!el) return;
+        var d = new Date();
+        var timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0') + ':' + String(d.getSeconds()).padStart(2,'0');
+        var line = document.createElement('div');
+        line.style.color = (isError ? '#ff6b6b' : '#fff');
+        line.textContent = '[' + timeStr + '] ' + msg;
+        el.appendChild(line);
+        el.parentElement.scrollTop = el.parentElement.scrollHeight;
+      } catch (e) {}
+    };
+    window._debugLog('1. ページHTML解析完了');
+  })();
+</script>
+<!-- ========== DEBUG OVERLAY END ========== -->
+
 <div class="container">
   <!-- ローディング画面 -->
   <div id="loading" class="loading">
-    <div class="spinner"></div>
+    <p class="loading-text">読み込み中...</p>
+    <div class="progress-bar-container">
+      <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+    </div>
+    <div id="loading-retry-container" style="display:none;margin-top:15px"></div>
   </div>
   
   <!-- グローバルローディングオーバーレイ（処理中表示用） -->
@@ -559,8 +643,11 @@
   const shiftEditPageEl = document.getElementById('shift-edit-page');
   const shiftConfirmPageEl = document.getElementById('shift-confirm-page');
   const errorEl = document.getElementById('error-message');
-      const successEl = document.getElementById('error-message');
+      const successEl = document.getElementById('success-message');
   const profileInfoEl = document.getElementById('profile-info');
+  const progressFillEl = document.getElementById('progress-fill');
+  window.updateInitProgress = (percent) => { if (progressFillEl) progressFillEl.style.width = Math.min(100, Math.max(0, percent)) + '%'; };
+
   const registrationFormEl = document.getElementById('registration-form');
       const shiftFormEl = document.getElementById('shift-form');
 
@@ -580,6 +667,38 @@
     errorEl.textContent = errorMessage;
     errorEl.style.display = 'block';
     errorEl.style.whiteSpace = 'pre-wrap'; // 改行を保持
+    successEl.style.display = 'none';
+    loadingEl.style.display = 'none';
+  }
+
+  // タイムアウト秒数（後で変更可能）
+  const INIT_TIMEOUT_MS = 15000;           // 15秒
+  const INIT_SLOW_WARN_MS = 5000;          // 5秒
+  const TIMEOUT_MESSAGE = '処理がタイムアウトしました。再試行して下さい';
+  const SLOW_WARN_MESSAGE = '処理に時間がかかっています....';
+
+  // エラー表示＋再試行ボタン（タイムアウト・初期化失敗時）
+  function showErrorWithRetry(message, error, onRetry) {
+    let errorMessage = message;
+    if (error) {
+      errorMessage += '\n\n詳細: ' + (error?.message || String(error));
+    }
+    errorEl.innerHTML = '';
+    const textNode = document.createTextNode(errorMessage);
+    errorEl.appendChild(textNode);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn primary-btn';
+    btn.textContent = '再試行';
+    btn.style.marginTop = '15px';
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof onRetry === 'function') onRetry();
+    });
+    errorEl.appendChild(btn);
+    errorEl.style.display = 'block';
+    errorEl.style.whiteSpace = 'pre-wrap';
     successEl.style.display = 'none';
     loadingEl.style.display = 'none';
   }
@@ -711,6 +830,7 @@
 
   // store登録確認関数（スタッフ用）
   async function checkStaffRegistration() {
+    if (window._debugLog) window._debugLog('5. checkStaffRegistration開始');
     try {
       const { db } = window.Firebase;
           const { doc, getDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -733,6 +853,7 @@
       }
 
       if (staffDoc.exists()) {
+            if (window._debugLog) window._debugLog('5a. スタッフ登録済み→handleHashNavigation');
             // 登録済みの場合
         // スタッフ情報はプロフィール画面で表示するため、ここでは何もしない
         
@@ -748,14 +869,17 @@
           }
         }
       } else {
+            if (window._debugLog) window._debugLog('5b. スタッフ未登録→登録ページ表示');
             // 未登録の場合
         const registrationPageEl = document.getElementById('registration-page');
         if (registrationPageEl) {
         showPage(registrationPageEl);
+        if (window._debugLog) window._debugLog('5c. showPage(registration-page)実行済み');
         }
 
       }
     } catch (error) {
+      if (window._debugLog) window._debugLog('5-ERR. スタッフ登録確認エラー: ' + (error?.message || String(error)), true);
       console.error("[スタッフ登録確認エラー]:", error);
       // エラーが発生した場合でもローディング画面を非表示にする
       const loadingEl = document.getElementById('loading');
@@ -4507,54 +4631,83 @@
 
       // デバッグ用QR生成関数
 
-  // 初期化処理
-  document.addEventListener('DOMContentLoaded', async () => {
-    try {
-          // 誕生日ドロップダウンを生成
-          generateBirthdayOptions();
-          
-          // 初期状態ではローディング画面のみ表示
-          // ホームページは認証完了後に表示
-          
-          // ローディング画面を表示
-          loadingEl.style.display = 'block';
-          
-          // タイムアウト処理（30秒）
-          const timeoutId = setTimeout(() => {
-            loadingEl.style.display = 'none';
-            showError('初期化がタイムアウトしました。ページを更新してください。');
-          }, 30000);
-          
-          // LIFF初期化
-          try {
-          await window.initLiffAndFirebaseAuth();
-          } catch (liffError) {
-            clearTimeout(timeoutId);
-            loadingEl.style.display = 'none';
-            showError('LIFF初期化に失敗しました', liffError);
-            return;
-          }
-          
-          // スタッフ登録確認
-          try {
-      await checkStaffRegistration();
-          } catch (checkError) {
-            clearTimeout(timeoutId);
-            loadingEl.style.display = 'none';
-            showError('スタッフ登録確認に失敗しました', checkError);
-            return;
-          }
-          
-          // タイムアウトをクリア
-          clearTimeout(timeoutId);
-          
-    } catch (error) {
-      console.error("[初期化エラー]:", error);
-      // エラーが発生した場合でもローディング画面を非表示にする
-      loadingEl.style.display = 'none';
-      showError('初期化に失敗しました', error);
+  // 初期化処理（再試行時は isRetry=true で signOut を先に実行）
+  async function runStaffInitialization(isRetry = false) {
+    if (isRetry) {
+      try {
+        const { auth } = window.Firebase || {};
+        if (auth) await auth.signOut();
+      } catch (e) { /* サインアウト失敗は無視 */ }
     }
-  });
+
+    if (window._debugLog) window._debugLog(isRetry ? '4-RETRY. 再試行開始（signOut済み）' : '4. DOMContentLoaded発火');
+    errorEl.style.display = 'none';
+    loadingEl.style.display = 'block';
+    const loadingRetryContainer = document.getElementById('loading-retry-container');
+    if (loadingRetryContainer) { loadingRetryContainer.innerHTML = ''; loadingRetryContainer.style.display = 'none'; }
+    if (typeof window.updateInitProgress === 'function') window.updateInitProgress(0);
+
+    const slowWarnId = setTimeout(() => {
+      const retryContainer = document.getElementById('loading-retry-container');
+      if (retryContainer) {
+        retryContainer.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn primary-btn';
+        btn.textContent = '再試行';
+        btn.onclick = () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); };
+        retryContainer.appendChild(btn);
+        retryContainer.style.display = 'block';
+      }
+    }, INIT_SLOW_WARN_MS);
+    const timeoutId = setTimeout(() => {
+      loadingEl.style.display = 'none';
+      showErrorWithRetry(TIMEOUT_MESSAGE, null, () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); });
+    }, INIT_TIMEOUT_MS);
+
+    const clearInitTimers = () => { clearTimeout(slowWarnId); clearTimeout(timeoutId); };
+
+    try {
+      if (window._debugLog) window._debugLog('4a. generateBirthdayOptions実行');
+      generateBirthdayOptions();
+
+      if (window._debugLog) window._debugLog('4b. initLiffAndFirebaseAuth呼び出し');
+      try {
+        await window.initLiffAndFirebaseAuth();
+        if (window._debugLog) window._debugLog('4c. initLiffAndFirebaseAuth完了');
+      } catch (liffError) {
+        clearInitTimers();
+        loadingEl.style.display = 'none';
+        const isTimeout = liffError?.message === TIMEOUT_MESSAGE;
+        showErrorWithRetry(isTimeout ? TIMEOUT_MESSAGE : 'LIFF初期化に失敗しました', isTimeout ? null : liffError, () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); });
+        return;
+      }
+
+      if (window._debugLog) window._debugLog('4d. checkStaffRegistration呼び出し');
+      try {
+        await checkStaffRegistration();
+        if (window._debugLog) window._debugLog('4e. checkStaffRegistration完了→showPage実行済み');
+      } catch (checkError) {
+        clearInitTimers();
+        loadingEl.style.display = 'none';
+        showErrorWithRetry('スタッフ登録確認に失敗しました', checkError, () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); });
+        return;
+      }
+
+      clearInitTimers();
+      loadingEl.style.display = 'none';
+      errorEl.style.display = 'none';
+      if (typeof window.updateInitProgress === 'function') window.updateInitProgress(100);
+    } catch (error) {
+      clearInitTimers();
+      if (window._debugLog) window._debugLog('4-ERR. 初期化エラー: ' + (error?.message || String(error)), true);
+      console.error("[初期化エラー]:", error);
+      loadingEl.style.display = 'none';
+      showErrorWithRetry('初期化に失敗しました', error, () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); });
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => runStaffInitialization(false));
 </script>
 </body>
 </html>

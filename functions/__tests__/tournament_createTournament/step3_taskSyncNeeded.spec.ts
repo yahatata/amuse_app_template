@@ -36,9 +36,10 @@ describe('Step 3: taskSyncNeeded / version++ 条件付き設定', () => {
 
     testEnv = await initializeTestEnvironment({ projectId: PROJECT_ID });
 
-    if (!admin.apps.length) {
-      admin.initializeApp({ projectId: PROJECT_ID });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map((a) => a?.delete()).filter(Boolean));
     }
+    admin.initializeApp({ projectId: PROJECT_ID });
     db = getFirestore();
 
     const tplMod = await import('../../src/domains/tournament_createTournament/callables/updateTournamentTemplate');

@@ -14,15 +14,16 @@ describe('Analytics Aggregator', () => {
   let testEnv: any;
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
     
     testEnv = await initializeTestEnvironment({
       projectId: 'test-project',
     });
     
-    if (admin.apps.length === 0) {
-      admin.initializeApp({ projectId: 'test-project' });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     }
+    admin.initializeApp({ projectId: 'test-project' });
   });
 
   afterAll(async () => {

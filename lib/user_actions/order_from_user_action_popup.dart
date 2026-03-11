@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../Utils/menuItemsManager.dart';
-import '../globalConstant.dart';
+import '../services/store_config_defaults.dart';
+import '../services/store_config_service.dart';
 
 /// When: 「注文」ブロックから注文フローを開始したい時
 /// Where: userActionHome（別ダイアログ）
 /// What: カテゴリー選択とメニュー一覧、アイテムタップで数量→確定
-/// How: MenuItemsManager と GlobalConstants を参照し、placeOrder を呼び出す
+/// How: MenuItemsManager と StoreConfigService を参照し、placeOrder を呼び出す
 Future<void> showOrderFromUserDialog({
   required BuildContext pageContext,
   required Map<String, dynamic> user,
@@ -114,7 +115,7 @@ Future<void> showOrderFromUserDialog({
                             onSelected: (_) => setState(() => selectedCategory = 'All'),
                           ),
                           const SizedBox(width: 8),
-                          ...GlobalConstants.menuCategories.map((c) => Padding(
+                          ...(StoreConfigService.instance.latestData?.menuCategories ?? kDefaultMenuCategories).map((c) => Padding(
                                 padding: const EdgeInsets.only(right: 8),
                                 child: ChoiceChip(
                                   label: Text(c),

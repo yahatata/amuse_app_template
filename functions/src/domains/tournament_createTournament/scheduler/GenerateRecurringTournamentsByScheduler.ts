@@ -4,20 +4,24 @@
  * 有効な tournamentRecurrences について、最後に生成されたトーナメント以降〜3ヶ月先までを生成する。
  *
  * 実行タイミング:
- * - GlobalConstants.RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON で定義
- * - lib/globalConstant.dart を参照し、同期すること
- * - デフォルト: 日曜 23:00 JST
+ * - 環境変数 RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON で上書き可能
+ * - 未設定時: 日曜 23:00 JST
  */
 
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { logger } from "firebase-functions";
 import { runGenerateRecurringTournaments } from "../services/generateRecurringTournamentsCore";
 
 /**
- * cron式（JST）: lib/globalConstant.dart の RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON と同期すること
+ * cron式（JST）: 環境変数 RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON で上書き可能。
+ * 未設定時は '0 23 * * 0'（日曜 23:00 JST）。
  * フォーマット: 分 時 日 月 曜日
- * - 0 23 * * 0 = 日曜 23:00 JST
  */
-const SCHEDULE_CRON = "0 23 * * 0";
+const SCHEDULE_CRON = process.env.RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON || "0 23 * * 0";
+logger.info("generateRecurringTournamentsByScheduler schedule", {
+  schedule: SCHEDULE_CRON,
+  source: process.env.RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON ? "env" : "default",
+});
 
 export const generateRecurringTournamentsByScheduler = onSchedule(
   {

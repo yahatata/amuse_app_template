@@ -21,22 +21,11 @@ import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBi
 describe('bustAndReentry', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-bust-reentry';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -50,6 +39,16 @@ describe('bustAndReentry', () => {
     await testEnv.clearFirestore();
     delete process.env.WRITE_TODAYS_BILLS_IN_PARALLEL;
   });
+
+  async function createAdminDevice(uid: string) {
+    await db.collection('devices').add({
+      uid,
+      role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
 
   // テスト用のヘルパ関数: scheduledTournaments のセットアップ
   async function setupTournament(tournamentId: string, templateId: string, tableId: string, userId: string, seatNumber: number, pokerName: string, maxReentriesPerPlayer?: number) {
@@ -152,15 +151,19 @@ describe('bustAndReentry', () => {
 
       await setupTournament(tournamentId, templateId, tableId, userId, seatNumber, pokerName);
 
+      const adminId = 'admin_test_reentry_001';
+      await createAdminDevice(adminId);
+
       // bustAndReentry を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: 'op_reentry_001',
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       const result = await (bustAndReentry as any).run(mockRequest);
@@ -190,14 +193,18 @@ describe('bustAndReentry', () => {
 
       await setupTournament(tournamentId, templateId, tableId, userId, seatNumber, 'テスト太郎');
 
+      const adminId = 'admin_test_reentry_002';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: 'op_reentry_002',
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       const result = await (bustAndReentry as any).run(mockRequest);
@@ -222,14 +229,18 @@ describe('bustAndReentry', () => {
         startedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
+      const adminId = 'admin_test_reentry_003';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: 'op_reentry_003',
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       const result = await (bustAndReentry as any).run(mockRequest);
@@ -282,14 +293,18 @@ describe('bustAndReentry', () => {
 
       await setupTournament(tournamentId, templateId, tableId, userId, seatNumber, pokerName, maxReentriesPerPlayer);
 
+      const adminId = 'admin_test_reentry_004';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
+          operationId: 'op_reentry_004',
           tournamentId,
           userId,
           tableId,
           seatNumber,
         },
-        auth: null,
       } as any;
 
       const result = await (bustAndReentry as any).run(mockRequest);

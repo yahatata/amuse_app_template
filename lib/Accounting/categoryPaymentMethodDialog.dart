@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 class CategoryPaymentMethodDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
@@ -256,7 +257,7 @@ class _CategoryPaymentMethodDialogState
 
     for (final category in categories.keys) {
       final availableMethods =
-          GlobalConstants.categoryPaymentMethods[category] ?? [];
+          (StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods)[category] ?? [];
       final methodsSet = availableMethods.toSet();
 
       if (commonMethods == null) {
@@ -382,7 +383,7 @@ class _CategoryPaymentMethodDialogState
                 final category = entry.key;
                 final amount = entry.value;
                 final availablePaymentMethods =
-                    GlobalConstants.categoryPaymentMethods[category] ?? [];
+                    (StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods)[category] ?? [];
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -584,9 +585,9 @@ class _CategoryPaymentMethodDialogState
           case 'sideGameChip':
             balance = _sideGameChipBalance;
             availableValue =
-                balance * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE;
+                balance * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate);
             availableChips =
-                (availableValue / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE)
+                (availableValue / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate))
                     .round();
             break;
         }
@@ -595,7 +596,7 @@ class _CategoryPaymentMethodDialogState
         if (availableValue >= categoryAmount) {
           if (selectedMethod == 'sideGameChip') {
             // サイドゲームチップの場合は、円換算してチップ枚数を計算
-            final chips = (categoryAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
+            final chips = (categoryAmount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round();
             result[category] = selectedMethod; // 文字列のまま（既存互換）
             // 注意: 文字列の場合、_calculatePaymentMethodsByAmountFromCategorySelection で
             // 円換算してチップ枚数に変換されるため、ここでは文字列のまま返す
@@ -645,14 +646,14 @@ class _CategoryPaymentMethodDialogState
     final double availableValue;
     if (originalMethod == 'sideGameChip') {
       availableValue =
-          availableChips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE;
+          availableChips * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate);
     } else {
       availableValue = availableChips.toDouble();
     }
 
     final shortfall = totalAmount - availableValue.toInt();
     final availableMethods =
-        GlobalConstants.categoryPaymentMethods[category] ?? [];
+        (StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods)[category] ?? [];
 
     // 不足分に使える支払い方法（元の方法とポイント系を除外）
     final shortfallOptions = availableMethods
@@ -797,7 +798,7 @@ class _CategoryPaymentMethodDialogState
       case 'sideGameChip':
         balance = _sideGameChipBalance;
         final chipValue =
-            (balance * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+            (balance * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
         return '残高: ${balance.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
       default:
         return '残高: ¥0';
@@ -827,7 +828,7 @@ class _CategoryPaymentMethodDialogState
         break;
       case 'sideGameChip':
         balance = _sideGameChipBalance;
-        availableValue = balance * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE;
+        availableValue = balance * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate);
         break;
       default:
         return Colors.grey.shade600;

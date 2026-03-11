@@ -9,7 +9,8 @@ import 'package:amuse_app_template/Accounting/paymentMethodDialog.dart';
 import 'package:amuse_app_template/Accounting/categoryDetailDialog.dart';
 import 'package:amuse_app_template/Accounting/categoryPaymentMethodDialog.dart';
 import 'package:amuse_app_template/Accounting/payment_split_calculator.dart';
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/utils/sectioned_user_list_page.dart';
 
 class _CategoryAmounts {
@@ -906,8 +907,8 @@ class _AccountingPageState extends State<AccountingPage> {
             // 円換算値を格納（チップ枚数 × 換算率）
             // CategoryPaymentMethodDialog では残高チェック時に円換算しているため、
             // チップ枚数を計算してから円換算値を格納
-            final chips = (categoryAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
-            final yenAmount = (chips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+            final chips = (categoryAmount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round();
+            final yenAmount = (chips * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
             paymentMethodsByAmount[paymentValue] =
                 (paymentMethodsByAmount[paymentValue] ?? 0) + yenAmount;
           } else {
@@ -924,7 +925,7 @@ class _AccountingPageState extends State<AccountingPage> {
 
               // サイドゲームチップの場合は円換算値を格納（amountはチップ枚数）
               if (method == 'sideGameChip') {
-                final yenAmount = (amount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+                final yenAmount = (amount * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
                 paymentMethodsByAmount[method] =
                     (paymentMethodsByAmount[method] ?? 0) + yenAmount;
               } else {
@@ -1019,7 +1020,7 @@ class _AccountingPageState extends State<AccountingPage> {
 
               // サイドゲームチップの場合は円換算値を格納（amountはチップ枚数）
               if (method == 'sideGameChip') {
-                final yenAmount = (amount * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+                final yenAmount = (amount * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
                 paymentMethodsByAmount[method] =
                     (paymentMethodsByAmount[method] ?? 0) + yenAmount;
               } else {
@@ -1332,7 +1333,7 @@ class _AccountingPageState extends State<AccountingPage> {
                         ),
                         _buildBalanceRow(
                           'サイドゲームチップ',
-                          '${userBalances['sideGameChip'] ?? 0}枚 (${_formatCurrency(((userBalances['sideGameChip'] ?? 0) * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt())})',
+                          '${userBalances['sideGameChip'] ?? 0}枚 (${_formatCurrency(((userBalances['sideGameChip'] ?? 0) * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt())})',
                         ),
                         const SizedBox(height: 24),
                         Align(
@@ -1382,10 +1383,10 @@ class _AccountingPageState extends State<AccountingPage> {
 
       final splitResult = calculatePaymentSplit(
         selectedBaseMethod: baseMethod,
-        categoryPaymentMethods: GlobalConstants.categoryPaymentMethods,
+        categoryPaymentMethods: StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods,
         bill: categoryAmounts,
         balances: balancesForCalculator,
-        pointPriority: GlobalConstants.POINT_PRIORITY,
+        pointPriority: StoreConfigService.instance.latestData?.pointPriority ?? kDefaultPointPriority,
       );
 
       final verifyResponse = await _functions
@@ -1394,7 +1395,7 @@ class _AccountingPageState extends State<AccountingPage> {
             'billId': billId,
             'clientResult': splitResult.toMap(),
             'selectedBaseMethod': baseMethod,
-            'pointPriority': GlobalConstants.POINT_PRIORITY,
+            'pointPriority': StoreConfigService.instance.latestData?.pointPriority ?? kDefaultPointPriority,
           });
 
       final responseData = Map<String, dynamic>.from(
@@ -1426,11 +1427,11 @@ class _AccountingPageState extends State<AccountingPage> {
         final amount = (value as num?)?.toInt() ?? 0;
         if (amount <= 0) return;
         if (method == 'sideGameChip') {
-          final chips = (amount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE)
+          final chips = (amount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate))
               .round();
           if (chips > 0) {
             // 円換算値を格納（チップ枚数 × 換算率）
-            paymentMethodsByAmount['sideGameChip'] = (chips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+            paymentMethodsByAmount['sideGameChip'] = (chips * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
           }
         } else {
           paymentMethodsByAmount[method] = amount;
@@ -1499,10 +1500,10 @@ class _AccountingPageState extends State<AccountingPage> {
 
       final splitResult = calculatePaymentSplit(
         selectedBaseMethod: baseMethod,
-        categoryPaymentMethods: GlobalConstants.categoryPaymentMethods,
+        categoryPaymentMethods: StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods,
         bill: categoryAmounts,
         balances: balancesForCalculator,
-        pointPriority: GlobalConstants.POINT_PRIORITY,
+        pointPriority: StoreConfigService.instance.latestData?.pointPriority ?? kDefaultPointPriority,
       );
 
       final verifyResponse = await _functions
@@ -1511,7 +1512,7 @@ class _AccountingPageState extends State<AccountingPage> {
             'billId': billId,
             'clientResult': splitResult.toMap(),
             'selectedBaseMethod': baseMethod,
-            'pointPriority': GlobalConstants.POINT_PRIORITY,
+            'pointPriority': StoreConfigService.instance.latestData?.pointPriority ?? kDefaultPointPriority,
           });
 
       final responseData = Map<String, dynamic>.from(
@@ -1544,11 +1545,11 @@ class _AccountingPageState extends State<AccountingPage> {
         final amount = (value as num?)?.toInt() ?? 0;
         if (amount <= 0) return;
         if (method == 'sideGameChip') {
-          final chips = (amount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE)
+          final chips = (amount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate))
               .round();
           if (chips > 0) {
             // 円換算値を格納（チップ枚数 × 換算率）
-            verifiedPaymentMethodsByAmount['sideGameChip'] = (chips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+            verifiedPaymentMethodsByAmount['sideGameChip'] = (chips * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
           }
         } else {
           verifiedPaymentMethodsByAmount[method] = amount;
@@ -1823,10 +1824,10 @@ class _AccountingPageState extends State<AccountingPage> {
 
         final splitResult = calculatePaymentSplit(
           selectedBaseMethod: baseMethod,
-          categoryPaymentMethods: GlobalConstants.categoryPaymentMethods,
+          categoryPaymentMethods: StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods,
           bill: categoryAmounts.monetaryValues,
           balances: balancesForCalculator,
-          pointPriority: GlobalConstants.POINT_PRIORITY,
+          pointPriority: StoreConfigService.instance.latestData?.pointPriority ?? kDefaultPointPriority,
         );
 
         final cashLikeAmount = splitResult.cashLikeAmount;
@@ -1845,10 +1846,10 @@ class _AccountingPageState extends State<AccountingPage> {
           final amount = value.toInt();
           if (amount <= 0) return;
           if (method == 'sideGameChip') {
-            final chips = (amount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
+            final chips = (amount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round();
             if (chips > 0) {
               // 円換算値を格納（チップ枚数 × 換算率）
-              paymentMethodsByAmount['sideGameChip'] = (chips * GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).toInt();
+              paymentMethodsByAmount['sideGameChip'] = (chips * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
             }
           } else {
             paymentMethodsByAmount[method] = amount;
@@ -2793,7 +2794,7 @@ class _AccountingPageState extends State<AccountingPage> {
     String displayText;
     if (method == 'sideGameChip' && amount != null) {
       final yenAmount = amount; // amountは円換算値
-      final chipCount = (yenAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round(); // チップ枚数に変換
+      final chipCount = (yenAmount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round(); // チップ枚数に変換
       displayText =
           '${_getPaymentMethodName(method)} チップ${chipCount}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
     } else if (amount != null) {
@@ -2939,7 +2940,7 @@ class _AccountingPageState extends State<AccountingPage> {
       if (method == 'sideGameChip') {
         final yenAmount = (bill['sideGameChipPurchaseAmountIncl'] as num?)?.toInt() ?? amount;
         final chipCount = (bill['sideGameChipPurchaseChipQty'] as num?)?.toInt() ??
-            (yenAmount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
+            (yenAmount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round();
         displayText =
             'チップ${chipCount.toString()} (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
       } else {

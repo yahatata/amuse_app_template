@@ -183,7 +183,7 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
     // 9) デュアルライト: todaysBills.status のみ更新（トランザクション外でベストエフォート）
     let dualWriteResult: 'success' | 'failed' | 'skipped' = 'skipped';
     
-    if (shouldDualWrite() && !reused) {
+    if ((await shouldDualWrite()) && !reused) {
       try {
         await legacyStartAccountingUpdate(db, {
           billId,

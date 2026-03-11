@@ -3,8 +3,9 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:amuse_app_template/HomeBackAction.dart';
-import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 
 class UserManualCheckInPage extends StatefulWidget {
@@ -46,9 +47,9 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
         final result = await callable.call({
           'loginId': loginIdInput,
           'pin': pinInput,
-          'entranceFee': GlobalConstants.entranceFee,
-          'entranceFeeDescription': GlobalConstants.entranceFeeDescription,
-          'chargeEntranceFeeOnReentry': GlobalConstants.chargeEntranceFeeOnReentry,
+          'entranceFee': StoreConfigService.instance.latestData?.entranceFee ?? kDefaultEntranceFee,
+          'entranceFeeDescription': StoreConfigService.instance.latestData?.entranceFeeDescription ?? kDefaultEntranceFeeDescription,
+          'chargeEntranceFeeOnReentry': StoreConfigService.instance.latestData?.chargeEntranceFeeOnReentry ?? kDefaultChargeEntranceFeeOnReentry,
         });
 
         final response = result.data;

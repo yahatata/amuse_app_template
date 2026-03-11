@@ -9,7 +9,7 @@
  * 
  * 実行方法:
  * - Firestore Emulator を起動: firebase emulators:start --only firestore
- * - 環境変数 FIRESTORE_EMULATOR_HOST=localhost:8080 を設定（自動設定される場合あり）
+ * - 環境変数 FIRESTORE_EMULATOR_HOST=localhost:8081 を設定（自動設定される場合あり）
  */
 
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
@@ -24,7 +24,7 @@ describe('createBillWithActiveStay', () => {
 
   beforeAll(async () => {
     // Firestore Emulator に接続するための環境変数を設定
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
     
     testEnv = await initializeTestEnvironment({
       projectId,

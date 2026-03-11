@@ -44,10 +44,15 @@
 - 完了条件
   - 各対象 ID に `現SSoT -> To-Be SSoT` が決定される
   - 「重複参照ゼロ」の確認観点が定義される
+  - storeMeta/config 仕様（読み取り優先度・デフォルト値）が定義される
+- スコープ
+  - **実装・検証は Phase2 で実施**。Phase0B は設計・方針の決定に限定する。参照差し替えには Phase1 の storeMeta/config 取得層が必要なため。
+- 後続フェーズでの必須確認
+  - Phase1/2 着手前に `docs/config_migration/PHASE0B_DECISIONS_FOR_LATER_PHASES.md` を確認すること
 - ロールバック
   - deprecate 定義を期限付きで保持
 
-### Phase 1: 基盤整備（Config 基盤）
+### Phase 1: 基盤整備（Config 基盤） ✅ 完了
 
 - 目的
   - `storeMeta/config` 読み取り/更新基盤を整備
@@ -56,12 +61,13 @@
   - Functions 側 `storeMeta/config` 取得層
   - Flutter 側は購読/表示用途に限定（確定ロジックは持たない）
   - 更新経路は管理者 callable 経由に統一
+  - 詳細設定ページ（AdminHomePage→詳細設定）に初期セットアップボタン設置
 - 完了条件
-  - `storeMeta/config` スキーマ・権限・欠損時挙動が実装/記録される
+  - `storeMeta/config` スキーマ・権限・欠損時挙動が実装/記録される ✅
 - ロールバック
-  - 旧 env/定数への fallback を移行期間限定で維持
+  - 未リリースアプリのため、旧パターンは移行完了と同時に削除。fallback 維持は行わない。詳細は [phase1/PHASE1_ROLLBACK.md](./phase1/PHASE1_ROLLBACK.md)
 
-### Phase 2: 全量移行（ID駆動）
+### Phase 2: 全量移行（ID駆動） ✅ 完了
 
 - 対象
   - `store_config_classification.md` の全 ID（B-*/D-*/R-*）
@@ -77,7 +83,33 @@
   - Functions 最終決定の前提が保持される
   - 店舗1店のみ更新 -> 検証 -> 横展開の手順が運用可能
 - ロールバック
-  - キー単位で旧値を参照する互換フラグを残す
+  - 差し替え完了 ID は旧参照を即削除。fallback 維持しない。切り戻しは ID ごとの手順に従い、必要時はコードデプロイで差し替え前の状態へ戻す。詳細は [phase1/PHASE1_ROLLBACK.md](./phase1/PHASE1_ROLLBACK.md)
+
+### Phase 2.1: globalConstant 残存定数の再検討
+
+- 目的
+  - Phase2 完了時点で `lib/globalConstant.dart` に残るとされた定数のうち、Phase3/4 で扱うと明確化されているもの（STORE_CLOSE_HOUR 関連）を除き、本当に残すべきか再検討する
+  - storeMeta/config や環境変数に寄せる場合は、Phase2 内で ts/dart の参照・読み取りを漏れなく修正する
+- 対象
+  - B-01（schemaVersion）、B-02（menuCategories）、B-03（sideGameTypes）、B-04（トーナメント設定）、B-05（pointTypes）、B-07（ADMIN_CREATED_SHIFT_ID）、D-15（CRON 設定）
+- 詳細
+  - [phase2.1/README.md](./phase2.1/README.md)、[phase2.1/TARGET_LIST.md](./phase2.1/TARGET_LIST.md)
+- ロールバック
+  - 寄せ先変更後は旧参照を即削除。切り戻しはコードデプロイで差し替え前の状態へ戻す。
+
+### Phase 5: pointTypes 改修（案）
+
+- 目的
+  - Phase2.1 で繰り延べた B-05（pointTypes）の仕様決定と実装
+- 対象
+  - B-05（pointTypes）
+- 背景
+  - ポイント名称変更を反映すべき URL・TS ファイル等が多数ある
+  - 現状 3 種類固定だが、種類数の可変・増加の必要性が検討対象
+- 詳細
+  - [phase5/README.md](./phase5/README.md)（案ベース。実施時に再検討・確定する）
+- ロールバック
+  - 未定（実施時に定義する）
 
 ### Phase 3: ハードニングと最終整理
 
@@ -94,6 +126,20 @@
 - ロールバック
   - 掃除前定義を deprecate として一時復活可能にする
 
+### Phase 4: 夜間ジョブ・打刻改修（Phase3 完了後に実施）
+
+- 目的
+  - 夜間再計算・夜間整合確認をスケジューラから離脱し、閉店処理/Cloud Task 起動へ移行
+  - `STORE_CLOSE_HOUR` を廃止（D-06 の完全解消）
+  - スタッフ打刻を出勤/退勤に明確に分離し、例外時は管理者認証で解消
+- スコープ
+  - `runNightlyRecalculateBalanceDue`, `runNightlyIntegrityCheck`: 閉店処理または Cloud Task から起動、STORE_CLOSE_HOUR 不使用
+  - `determineAttendanceMode`: STORE_CLOSE_HOUR 廃止、出勤/退勤分離、未退勤ありの出勤・長時間経過後の退勤は管理者認証必須
+- 実装タイミング
+  - Phase3 終了後。詳細は `docs/config_migration/phase4/` を参照
+- ロールバック
+  - 閉店処理からの呼び出しを外す。スケジューラ復帰は非推奨
+
 ## 3. 各フェーズの Done 定義
 
 - 設計: Decision Log が更新されている
@@ -109,13 +155,17 @@
 |---|---|---|
 | 0A | 秘密値切替で webhook 失敗 | Secret を直前値に戻す |
 | 0B | 重複掃除で参照欠落 | deprecate 参照を期限付き復帰 |
-| 1 | config 欠損で判定不能 | 互換 fallback（非秘密のみ） |
+| 1 | config 欠損で判定不能 | 詳細設定で再投入／Firestore 修復。未リリースのため旧 fallback は持たない |
 | 2 | 計算ズレ（Flutter/Functions） | Functions 側を正として戻す |
+| 2.1 | 寄せ先変更後の参照漏れ | コードデプロイで差し替え前へ戻す |
 | 3 | 最終整理で説明不能項目が残る | ID単位でログ/責務表を再補完 |
+| 4 | 閉店処理連携の不備 | 閉店処理の呼び出しを一時外す |
 
 ## 5. 依存関係
 
 - Phase 0A/0B 完了前に Phase 2 へ入らない。
+- Phase 2.1 は Phase 2 完了後に実施する。Phase 3 の前提となる。
+- Phase 4 は Phase 3 完了後に実施する。
 - Phase 1 の取得層/更新層なしで Run-time 移行を開始しない。
 - SSoT 原則（Functions 最終決定）を ADR 合意してから会計・営業日を動かす。
 

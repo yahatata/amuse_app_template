@@ -21,18 +21,26 @@ export const getPayrollData = onCall(async (request: CallableRequest) => {
       );
     }
 
-    // 給与計算期間を計算（globalConstant.dartの設定に基づく）
-    // PAYROLL_START_DAY = 26, PAYROLL_END_DAY = 25
-    // 選択された月の期間を計算（8月選択→8月26日〜9月25日）
-    // Flutter側から送信されるmonthは選択月+1なので、そのまま使用
+    // 給与計算期間を計算（storeMeta/config の payroll.startDay / payroll.endDay に基づく）
+    // Flutter 側から送信される month/year は選択月+1 の給与期間終了月。startDay/endDay は StoreConfigService から取得した値を渡す。
     const selectedMonth = month;
     const selectedYear = year;
     
     const prevMonth = selectedMonth === 1 ? 12 : selectedMonth - 1;
     const prevYear = selectedMonth === 1 ? selectedYear - 1 : selectedYear;
 
-    const periodStart = new Date(prevYear, prevMonth - 1, 26); // 前月26日
-    const periodEnd = new Date(selectedYear, selectedMonth - 1, 25, 23, 59, 59); // 今月25日
+    let periodStart: Date;
+    let periodEnd: Date;
+    if (endDay === 0) {
+      // 月を跨がない: startDay 日〜当月末日
+      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
+      periodStart = new Date(selectedYear, selectedMonth - 1, startDay);
+      periodEnd = new Date(selectedYear, selectedMonth - 1, lastDay, 23, 59, 59);
+    } else {
+      // 月を跨ぐ: 前月 startDay 日〜今月 endDay 日
+      periodStart = new Date(prevYear, prevMonth - 1, startDay);
+      periodEnd = new Date(selectedYear, selectedMonth - 1, endDay, 23, 59, 59);
+    }
     
     const periodStartStr = periodStart.toISOString().split('T')[0];
     const periodEndStr = periodEnd.toISOString().split('T')[0];

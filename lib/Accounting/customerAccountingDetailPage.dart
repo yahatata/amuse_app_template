@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 class CustomerAccountingDetailPage extends StatelessWidget {
   final Map<String, dynamic> customer;
@@ -551,7 +552,7 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     String displayText;
     if (method == 'sideGameChip' && amount != null) {
       final chipCount =
-          (amount / GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE).round();
+          (amount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round();
       displayText =
           '${_getPaymentMethodName(method)} チップ${chipCount}枚 (¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
     } else if (amount != null) {

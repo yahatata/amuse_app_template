@@ -213,7 +213,7 @@ export async function appendSideGameChip(request: AppendSideGameChipRequest): Pr
     let dualWriteResult: 'success' | 'failed' | 'skipped' = 'skipped';
     let dualWriteError: any = null;
     
-    if (shouldDualWrite()) {
+    if (await shouldDualWrite()) {
       try {
         const legacyRef = db.collection('todaysBills').doc(billId);
         const legacySnap = await legacyRef.get();

@@ -10,9 +10,8 @@
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
-
-// サイドゲームチップ換算率（globalConstant.dartと同期）
-const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0; // サイドゲームチップ1 = 10円相当
+import { getStoreConfig } from '../../../shared/config/configLoader';
+import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
 
 const GetBillPreviewTotalsSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
@@ -50,6 +49,8 @@ export interface GetBillPreviewTotalsResponse {
  * 会計開始前のプレビュー情報を取得
  */
 export const getBillPreviewTotals = onCall(async (request) => {
+  const config = await getStoreConfig();
+  const chipRate = config.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
   // 認証チェック（任意 - 必要に応じて有効化）
   // if (!request.auth) {
   //   throw new HttpsError('unauthenticated', '認証が必要です');
@@ -115,11 +116,10 @@ export const getBillPreviewTotals = onCall(async (request) => {
       const amountIncl = (data.amountIncl as number | undefined) ?? 0;
       sideGameChipMonetary += amountIncl;
 
-      // チップ枚数: chipCount があればそれを使い、なければ amountIncl / SIDE_GAME_CHIP_EXCHANGE_RATE から算出
       if (data.chipCount !== undefined) {
         sideGameChipDisplayChips += (data.chipCount as number) ?? 0;
       } else {
-        sideGameChipDisplayChips += Math.round(amountIncl / SIDE_GAME_CHIP_EXCHANGE_RATE);
+        sideGameChipDisplayChips += Math.round(amountIncl / chipRate);
       }
     }
 

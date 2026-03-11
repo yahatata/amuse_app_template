@@ -249,7 +249,7 @@ export async function recordTournamentAction(request: RecordTournamentActionRequ
     // idempotent replay の場合は DualWrite をスキップ（完全 no-op 保証）
     let dualWriteResult: 'success' | 'failed' | 'skipped' = 'skipped';
 
-    if (shouldDualWrite() && !reused) {
+    if ((await shouldDualWrite()) && !reused) {
       try {
         await legacyRecordTournamentActionUpdate(db, {
           billId,

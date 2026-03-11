@@ -17,23 +17,12 @@ import { placeOrder } from '../../src/domains/itemOrder/callables/placeOrder';
 describe('placeOrder.boundary-dates', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = `test-project-bills-${process.pid}-${Date.now()}`;
+  const projectId = 'test-default';
   let prevStoreCloseHour: string | undefined;
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -43,9 +32,20 @@ describe('placeOrder.boundary-dates', () => {
     delete process.env.FIRESTORE_EMULATOR_HOST;
   });
 
+  async function createAdminDevice(uid: string) {
+    await db.collection('devices').add({
+      uid,
+      role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
   beforeEach(async () => {
     await testEnv.clearFirestore();
     prevStoreCloseHour = process.env.STORE_CLOSE_HOUR;
+    await createAdminDevice('admin_placeorder_bd');
   });
 
   afterEach(() => {
@@ -109,17 +109,17 @@ describe('placeOrder.boundary-dates', () => {
 
     // 注文
     const mockRequest = {
+      auth: { uid: 'admin_placeorder_bd' },
       data: {
-        userId,
+        billId,
         item: {
           menuItemId,
           quantity: 1,
         },
         clientNonce: `nonce-${testName}-${storeCloseHour}`,
       },
-      auth: null,
     } as any;
-    const orderResult = await placeOrder.run(mockRequest);
+    const orderResult = await (placeOrder as any).run(mockRequest);
 
     expect(orderResult.success).toBe(true);
 

@@ -3,7 +3,8 @@
 /// 「できる限りポイントで払う」モードの計算ロジックを実装します。
 library;
 
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 /// 計算結果の型定義
 class PaymentSplitResult {
@@ -87,9 +88,10 @@ PaymentSplitResult calculatePaymentSplit({
   required Map<String, int> bill,
   required Map<String, int> balances,
   required List<String> pointPriority,
-  double sideGameChipExchangeRate = GlobalConstants.SIDE_GAME_CHIP_EXCHANGE_RATE,
+  double? sideGameChipExchangeRate,
   List<String>? categoryOrder,
 }) {
+  final rate = sideGameChipExchangeRate ?? StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate;
   // 入力検証
   if (!['cash', 'credit_card', 'electronic_money'].contains(selectedBaseMethod)) {
     throw ArgumentError(
@@ -145,7 +147,7 @@ PaymentSplitResult calculatePaymentSplit({
       
       if (pointType == 'sideGameChip') {
         // sideGameChipはチップ数を円に換算
-        final availableBalanceInYen = availableBalance * sideGameChipExchangeRate;
+        final availableBalanceInYen = availableBalance * rate;
         
         // 使用可能なポイント額を計算（残額と残高の小さい方）
         final maxUsableInYen = (availableBalanceInYen > remainingAmount)
@@ -153,11 +155,12 @@ PaymentSplitResult calculatePaymentSplit({
             : availableBalanceInYen.toInt();
         
         // チップ単位で切り捨て（チップ数として）
-        final maxUsableChips = (maxUsableInYen / sideGameChipExchangeRate).floor();
-        final usableChipsRounded = (maxUsableChips / GlobalConstants.SIDE_GAME_CHIP_ROUNDING_UNIT).floor() * GlobalConstants.SIDE_GAME_CHIP_ROUNDING_UNIT;
+        final maxUsableChips = (maxUsableInYen / rate).floor();
+        final sideGameChipUnit = StoreConfigService.instance.latestData?.sideGameChipRoundingUnit ?? kDefaultSideGameChipRoundingUnit;
+        final usableChipsRounded = (maxUsableChips / sideGameChipUnit).floor() * sideGameChipUnit;
         
         // 円換算
-        pointAmountToUse = (usableChipsRounded * sideGameChipExchangeRate).toInt();
+        pointAmountToUse = (usableChipsRounded * rate).toInt();
       } else {
         // pointA, pointBは円単位
         // 使用可能なポイント額を計算（残額と残高の小さい方）
@@ -166,7 +169,8 @@ PaymentSplitResult calculatePaymentSplit({
             : availableBalance.toInt();
         
         // 指定単位で切り捨て
-        pointAmountToUse = (maxUsable / GlobalConstants.POINT_A_B_ROUNDING_UNIT).floor() * GlobalConstants.POINT_A_B_ROUNDING_UNIT;
+        final pointABUnit = StoreConfigService.instance.latestData?.pointABRoundingUnit ?? kDefaultPointABRoundingUnit;
+        pointAmountToUse = (maxUsable / pointABUnit).floor() * pointABUnit;
       }
 
       if (pointAmountToUse > 0) {
@@ -180,7 +184,7 @@ PaymentSplitResult calculatePaymentSplit({
         if (pointType == 'sideGameChip') {
           // チップ数として減算
           remainingBalances[pointType] =
-              (remainingBalances[pointType] ?? 0.0) - (pointAmountToUse / sideGameChipExchangeRate);
+              (remainingBalances[pointType] ?? 0.0) - (pointAmountToUse / rate);
         } else {
           // 通常のポイントは円単位で減算
           remainingBalances[pointType] =

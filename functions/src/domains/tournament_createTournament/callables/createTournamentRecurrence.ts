@@ -388,8 +388,9 @@ async function createScheduledTournamentFromRecurrence(
       return null;
     }
 
-    // 同一営業日・同一テンプレート重複チェック（TEMPLATE_BUSINESSDATE_CHECK が true の時のみ）
-    const templateBusinessDateCheck = process.env.TEMPLATE_BUSINESSDATE_CHECK === "true";
+    const { getStoreConfig } = await import('../../../shared/config/configLoader');
+    const storeConfig = await getStoreConfig();
+    const templateBusinessDateCheck = storeConfig.features?.templateBusinessDateCheck ?? true;
     if (templateBusinessDateCheck) {
       const sameTemplateSameDayQuery = await db
         .collection("scheduledTournaments")

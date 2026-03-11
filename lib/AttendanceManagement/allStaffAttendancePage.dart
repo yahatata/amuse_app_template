@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/AttendanceManagement/staffAttendanceDetailPage.dart';
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 import 'attendanceService.dart';
 
@@ -59,8 +60,8 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
         result = await AttendanceService.getAllStaffAttendance(
           month: selectedDate.month,
           year: selectedDate.year,
-          startDay: GlobalConstants.PAYROLL_START_DAY,
-          endDay: GlobalConstants.PAYROLL_END_DAY,
+          startDay: StoreConfigService.instance.latestData?.payrollStartDay ?? kDefaultPayrollStartDay,
+          endDay: StoreConfigService.instance.latestData?.payrollEndDay ?? kDefaultPayrollEndDay,
         );
         print('勤怠データ取得成功: ${result['attendances']?.length ?? 0}件');
       } catch (e) {
@@ -73,8 +74,8 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
         final payrollData = await AttendanceService.getPayrollData(
           month: adjustedPayrollMonth,
           year: payrollYear,
-          startDay: GlobalConstants.PAYROLL_START_DAY,
-          endDay: GlobalConstants.PAYROLL_END_DAY,
+          startDay: StoreConfigService.instance.latestData?.payrollStartDay ?? kDefaultPayrollStartDay,
+          endDay: StoreConfigService.instance.latestData?.payrollEndDay ?? kDefaultPayrollEndDay,
         );
         
         // AttendanceServiceで既に正規化済みなので、そのまま使用
@@ -239,25 +240,26 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
 
   // 選択された日付から給与計算期間の開始日を計算
   DateTime _calculatePayrollPeriodStart(DateTime selectedDate) {
+    final startDay = StoreConfigService.instance.latestData?.payrollStartDay ?? kDefaultPayrollStartDay;
     int year = selectedDate.year;
     int month = selectedDate.month;
     int day = selectedDate.day;
     
     // 選択された日付が給与計算期間の開始日より前か後かで判定
-    if (day < GlobalConstants.PAYROLL_START_DAY) {
+    if (day < startDay) {
       // 前月の給与計算期間に含まれる
       DateTime prevMonth = DateTime(year, month - 1);
-      return DateTime(prevMonth.year, prevMonth.month, GlobalConstants.PAYROLL_START_DAY);
+      return DateTime(prevMonth.year, prevMonth.month, startDay);
     } else {
       // 今月の給与計算期間に含まれる
-      return DateTime(year, month, GlobalConstants.PAYROLL_START_DAY);
+      return DateTime(year, month, startDay);
     }
   }
 
   // 給与計算期間の表示テキストを取得
   String _getPayrollPeriodText() {
-    final startDay = GlobalConstants.PAYROLL_START_DAY;
-    final endDay = GlobalConstants.PAYROLL_END_DAY;
+    final startDay = StoreConfigService.instance.latestData?.payrollStartDay ?? kDefaultPayrollStartDay;
+    final endDay = StoreConfigService.instance.latestData?.payrollEndDay ?? kDefaultPayrollEndDay;
     
     // _calculatePayrollPeriodStartを使って正しい期間開始日を取得
     final periodStart = _calculatePayrollPeriodStart(selectedDate);
@@ -297,6 +299,9 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
 
   // 期間設定ダイアログを表示
   void _showPeriodSettings(BuildContext context) {
+    final startDay = StoreConfigService.instance.latestData?.payrollStartDay ?? kDefaultPayrollStartDay;
+    final endDay = StoreConfigService.instance.latestData?.payrollEndDay ?? kDefaultPayrollEndDay;
+    final periodDescription = '給与計算期間は${startDay}日〜翌月${endDay}日です。変更する場合は、このファイルの数値を変更してアプリを再起動してください。';
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -304,9 +309,9 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage> {
           title: const Text('給与計算期間設定'),
           content: Text(
             '現在の設定:\n'
-            '開始日: ${GlobalConstants.PAYROLL_START_DAY}日\n'
-            '終了日: ${GlobalConstants.PAYROLL_END_DAY}日\n\n'
-            '${GlobalConstants.PAYROLL_PERIOD_DESCRIPTION}',
+            '開始日: ${startDay}日\n'
+            '終了日: ${endDay}日\n\n'
+            '$periodDescription',
           ),
           actions: [
             TextButton(

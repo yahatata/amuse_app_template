@@ -1,27 +1,40 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import { DEFAULT_PAYROLL_END_DAY, DEFAULT_PAYROLL_START_DAY } from "../../../shared/config/defaults";
+
 export const monthlyPayrollTrigger = onSchedule({
-  schedule: '59 23 25 * *', // 毎月25日 23:59 (JST)
+  schedule: '59 23 25 * *', // 毎月25日 23:59 (JST)。payroll.endDay=25 の店舗向け。endDay≠25 の場合は CRON の見直しが必要
   timeZone: 'Asia/Tokyo',
 }, async (event) => {
   try {
     console.log('=== 月次給与計算開始 ===');
     
     const db = admin.firestore();
+    const config = await getStoreConfig(db);
+    const startDay = config.payroll?.startDay ?? DEFAULT_PAYROLL_START_DAY;
+    const endDay = config.payroll?.endDay ?? DEFAULT_PAYROLL_END_DAY;
     
-    // 給与計算期間を計算（globalConstant.dartの設定に基づく）
-    // PAYROLL_START_DAY = 26, PAYROLL_END_DAY = 25
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1; // 0-based to 1-based
     
-    // 前月の26日を開始日とする
     const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
     const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear;
     
-    const periodStart = new Date(prevYear, prevMonth - 1, 26); // 前月26日
-    const periodEnd = new Date(currentYear, currentMonth - 1, 25, 23, 59, 59); // 今月25日
+    let periodStart: Date;
+    let periodEnd: Date;
+    if (endDay === 0) {
+      // 月を跨がない: startDay 日〜当月末日
+      const lastDay = new Date(currentYear, currentMonth, 0).getDate();
+      periodStart = new Date(currentYear, currentMonth - 1, startDay);
+      periodEnd = new Date(currentYear, currentMonth - 1, lastDay, 23, 59, 59);
+    } else {
+      // 月を跨ぐ: 前月 startDay 日〜今月 endDay 日
+      periodStart = new Date(prevYear, prevMonth - 1, startDay);
+      periodEnd = new Date(currentYear, currentMonth - 1, endDay, 23, 59, 59);
+    }
     
     const periodStartStr = periodStart.toISOString().split('T')[0];
     const periodEndStr = periodEnd.toISOString().split('T')[0];

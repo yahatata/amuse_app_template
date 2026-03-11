@@ -239,6 +239,97 @@
   - `docs/config_migration/phase0A/PHASE0A_COMPATIBILITY_ROLLBACK_POLICY.md`
   - `docs/config_migration/phase0A/README.md`
 
+## D-0013 Phase4 で D-06（STORE_CLOSE_HOUR）を廃止
+
+- Status: Accepted
+- Date (JST): 2026-03-04
+- Context:
+  - D-06 の STORE_CLOSE_HOUR は determineAttendanceMode、nightly ジョブで利用されている。
+  - 営業日境界・会計履歴では引き続き closeHour が必要だが、打刻・夜間ジョブでは時刻ベースの判定をやめたい。
+- Decision:
+  - **STORE_CLOSE_HOUR を打刻・夜間ジョブから廃止**する。Phase4 で実施。
+  - determineAttendanceMode: 出勤/退勤を分離。`staffId` + `clockOut == null` で未退勤を検索し、あれば退勤・なければ出勤。例外（未退勤ありの出勤・長時間経過後の退勤）は管理者デバイスまたは管理者パスワードで解消。
+  - runNightlyRecalculateBalanceDue / runNightlyIntegrityCheck: スケジューラ廃止。閉店処理または Cloud Task から起動。STORE_CLOSE_HOUR は使用しない。
+- Alternatives:
+  - A: STORE_CLOSE_HOUR を残して時刻ベースで判定（却下）
+- Consequences:
+  - Positive: 閉店時刻の二重管理が不要になる。打刻ロジックが簡潔になる。
+  - Negative: Phase4 実装が必要。営業日境界用の closeHour は storeMeta/config 等で別途保持する。
+- Evidence:
+  - `docs/config_migration/phase4/DETERMINE_ATTENDANCE_MODE.md`
+  - `docs/config_migration/phase4/NIGHTLY_RECALCULATE_BALANCE_DUE.md`
+  - `docs/config_migration/phase4/NIGHTLY_INTEGRITY_CHECK.md`
+
+## D-0015 Phase1 実装方針（defaults.ts 唯一ソース・Flutter 分離・旧パターン削除）
+
+- Status: Accepted
+- Date (JST): 2026-03-05
+- Context:
+  - Phase1 で storeMeta/config 取得層・更新経路を実装。
+  - 管理箇所の増加を避け、移行時の事故を減らしたい。
+  - 対象アプリは未リリース（開発中）。
+- Decision:
+  - **defaults.ts を唯一のソース**: デフォルト値の定義は defaults.ts のみ。initializeStoreConfigCallable は buildFromDefaults() の出力をそのまま書き込む。フィールドを列挙しない。
+  - **Flutter は StoreConfigService と StoreMetaService を分離**: config 購読は StoreConfigService、営業状態は StoreMetaService。統合しない。
+  - **旧パターンは移行完了と同時に削除**: 旧 env/定数への fallback は維持しない。Phase2 で差し替え完了したら即削除。
+  - **取得失敗時・切り戻しは設定（ID）ごとに検討**: Phase2 の ID 単位手順に組み込む。
+- Alternatives:
+  - A: 旧 env/定数への fallback を移行期間限定で維持
+  - B: StoreMetaService に config 購読を統合
+- Consequences:
+  - Positive: 責務が明確。管理箇所が増えない。未リリースのため移行と削除を並行できる
+  - Negative: Phase2 で取得失敗時の挙動を ID ごとに設計・実装する必要がある
+- Evidence:
+  - `docs/config_migration/phase1/PHASE1_UPDATE_PATH_DESIGN.md`
+  - `docs/config_migration/phase1/PHASE1_ROLLBACK.md`
+  - `docs/config_migration/phase2/README.md`
+
+## D-0014 storeMeta/config 単一ドキュメント・読み取り優先度・デフォルト値方針
+
+- Status: Accepted
+- Date (JST): 2026-03-04
+- Context:
+  - Run 設定を storeMeta/config に集約する方針が決定した。
+  - 新規店舗・新規設定の先行投入時に、他店舗でエラーにならない設計が必要。
+- Decision:
+  - **単一ドキュメント**: 共通設定は `storeMeta/config` 1 ドキュメントに集約。
+  - **読み取り優先度**: ① storeMeta/config ② `functions/src/shared/config/defaults.ts` ③ 各 TS 内直書き。未設定時はエラーにせずフォールバック。
+  - **デフォルト値集約**: `defaults.ts` に全設定のデフォルトと「何のための設定か」をコメントで記載。Phase1 で defaults.ts を唯一のソースとする方針を採用（D-0015）。
+  - **更新経路**: Phase1 で整備。主: 詳細設定ページ（AdminHomePage→詳細設定）から initializeStoreConfigCallable 経由。副: 開発者による CLI/Console 投入。詳細は [phase1/PHASE1_UPDATE_PATH_DESIGN.md](./phase1/PHASE1_UPDATE_PATH_DESIGN.md)。
+  - **D-06**: storeMeta/config には入れない（Phase4 で廃止）。R-09 は曜日ごとの可能性があり、実装時に別 doc 分離を検討。
+- Alternatives:
+  - A: 複数ドキュメントに分割（未採用: 50 項目程度なら単一 doc で十分）
+- Consequences:
+  - Positive: 新規設定追加時の他店舗への影響を防げる。管理・確認が容易。defaults.ts 唯一ソースで管理箇所を増やさない。
+  - Negative: Phase2 で各 ID の参照差し替え・取得失敗時挙動を設計する必要がある。
+- Evidence:
+  - `docs/config_migration/phase0B/STOREMETA_CONFIG_SPEC.md`
+  - `functions/src/shared/config/defaults.ts`
+
+---
+
+## D-0020 設定取得失敗時はデフォルトを返す（throw しない）
+
+- Status: Accepted
+- Date (JST): 2026-03-05
+- Context:
+  - Phase2 検証で、storeMeta/config 読み取り失敗時の挙動を設計する必要があった。
+  - 従来方針: 読み取り失敗時は throw し、デフォルトには行かず処理を失敗する（PHASE1_FALLBACK_BEHAVIOR）。
+- Decision:
+  - **読み取り失敗時もデフォルトにフォールバックする**。理由: デフォルトが正である場合が大多数であり、あくまで更新のタイミングが変わるだけで蓄積するデータは同じ。取得失敗時にエラーを出すよりデフォルトを返した方が適切。
+  - 実装: リトライ後も失敗した場合、`config_read_error` をログ出力した上で `buildFromDefaults()` を返す。`config_fallback` も出力。
+- Alternatives:
+  - A: 従来通り throw（却下: 可用性・データ蓄積の観点で不利）
+- Consequences:
+  - Positive: 一時的な Firestore 障害時も処理継続。蓄積データの観点で妥当。
+  - Negative: 障害時のログ確認が重要（config_read_error / config_fallback の監視）。
+- Evidence:
+  - `functions/src/shared/config/configLoader.ts`
+  - `docs/config_migration/phase1/PHASE1_FALLBACK_BEHAVIOR.md`
+  - `docs/運用時資料/設定/storeMeta/configによる設定の詳細/README.md`
+
+---
+
 ## 作業時差分確認メモ
 
 - 本ドキュメントは新規作成のみ。
