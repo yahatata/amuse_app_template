@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'menuListPage.dart';
-import '../../globalConstant.dart';
+import '../../services/store_config_defaults.dart';
+import '../../services/store_config_service.dart';
 import '../../Utils/menuItemsManager.dart';
 
 class CategorySelectPage extends StatefulWidget {
@@ -28,11 +29,12 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
 
   // When: カテゴリー一覧読み込み時
   // Where: categorySelectPage
-  // What: globalConstant.dartからカテゴリー一覧を取得
-  // How: GlobalConstantsクラスから静的リストを取得
+  // What: storeMeta/configからカテゴリー一覧を取得
+  // How: StoreConfigServiceから取得、未取得時はデフォルトを使用
   void _loadCategories() {
     setState(() {
-      _categories = GlobalConstants.menuCategories;
+      _categories =
+          StoreConfigService.instance.latestData?.menuCategories ?? kDefaultMenuCategories;
     });
   }
 

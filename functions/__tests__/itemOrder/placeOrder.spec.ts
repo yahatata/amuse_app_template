@@ -18,22 +18,11 @@ import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBi
 describe('placeOrder', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-bills';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -42,6 +31,16 @@ describe('placeOrder', () => {
     await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     delete process.env.FIRESTORE_EMULATOR_HOST;
   });
+
+  async function createAdminDevice(uid: string) {
+    await db.collection('devices').add({
+      uid,
+      role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
@@ -58,6 +57,9 @@ describe('placeOrder', () => {
     const menuItemsSnapshot = await db.collection('menuItems').get();
     const deleteMenuItemsPromises = menuItemsSnapshot.docs.map(doc => doc.ref.delete());
     await Promise.all(deleteMenuItemsPromises);
+
+    const adminId = 'admin_placeorder';
+    await createAdminDevice(adminId);
   });
 
   // テスト用のヘルパ関数: メニューアイテムを作成
@@ -117,14 +119,14 @@ describe('placeOrder', () => {
       // placeOrder を呼び出し（onCall の run メソッドを使用）
       const mockRequest = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 2,
           },
           clientNonce,
         },
-        auth: null, // placeOrder は認証不要
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
       // onCall 関数の run メソッドを呼び出す
@@ -188,14 +190,14 @@ describe('placeOrder', () => {
 
       const mockRequest = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 1,
           },
           clientNonce,
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
       const result = await (placeOrder as any).run(mockRequest);
@@ -232,14 +234,14 @@ describe('placeOrder', () => {
 
       const mockRequest = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 1,
           },
           clientNonce,
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
       // 1回目実行
@@ -289,14 +291,14 @@ describe('placeOrder', () => {
 
       const mockRequest1 = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 1,
           },
           clientNonce: clientNonce1,
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
       const result1 = await (placeOrder as any).run(mockRequest1);
@@ -316,14 +318,14 @@ describe('placeOrder', () => {
       // 2回目実行（別 clientNonce）
       const mockRequest2 = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 1,
           },
           clientNonce: clientNonce2, // 別 clientNonce
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
       const result2 = await (placeOrder as any).run(mockRequest2);
@@ -369,14 +371,14 @@ describe('placeOrder', () => {
 
       const mockRequest = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 1,
           },
           clientNonce,
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
       const result = await (placeOrder as any).run(mockRequest);
@@ -420,20 +422,17 @@ describe('placeOrder', () => {
 
       const mockRequest = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 1,
           },
           clientNonce,
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
-      const result = await (placeOrder as any).run(mockRequest);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('status');
+      await expect((placeOrder as any).run(mockRequest)).rejects.toThrow(/failed-precondition|伝票の状態/);
     });
 
     it('status=settled で failed-precondition', async () => {
@@ -455,20 +454,17 @@ describe('placeOrder', () => {
 
       const mockRequest = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 1,
           },
           clientNonce,
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
-      const result = await (placeOrder as any).run(mockRequest);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('status');
+      await expect((placeOrder as any).run(mockRequest)).rejects.toThrow(/failed-precondition|伝票の状態/);
     });
 
     it('status=voided で failed-precondition', async () => {
@@ -490,20 +486,17 @@ describe('placeOrder', () => {
 
       const mockRequest = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 1,
           },
           clientNonce,
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
-      const result = await (placeOrder as any).run(mockRequest);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('status');
+      await expect((placeOrder as any).run(mockRequest)).rejects.toThrow(/failed-precondition|伝票の状態/);
     });
   });
 
@@ -527,14 +520,14 @@ describe('placeOrder', () => {
 
       const mockRequest = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 2,
           },
           clientNonce,
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
       const result = await (placeOrder as any).run(mockRequest);
@@ -606,14 +599,14 @@ describe('placeOrder', () => {
 
       const mockRequest = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 1,
           },
           clientNonce,
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
       // 1回目の実行
@@ -681,14 +674,14 @@ describe('placeOrder', () => {
 
       const mockRequest = {
         data: {
-          userId,
+          billId,
           item: {
             menuItemId,
             quantity: 2,
           },
           clientNonce,
         },
-        auth: null,
+        auth: { uid: 'admin_placeorder' },
       } as any;
 
       const result = await (placeOrder as any).run(mockRequest);

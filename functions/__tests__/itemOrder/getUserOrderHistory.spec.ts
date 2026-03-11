@@ -22,22 +22,11 @@ import { calcBusinessDate } from '../../src/domains/bills/repos/calcBusinessDate
 describe('getUserOrderHistory', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-get-user-order-history';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -106,7 +95,8 @@ describe('getUserOrderHistory', () => {
       const billId2 = 'bill_test_happy_002';
       // 現在時刻を使って businessDate を計算（getUserOrderHistory と同じロジック）
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
 
       await createSettledBill(billId1, userId, businessDate, 10000, 'settled', 3);
       await createSettledBill(billId2, userId, businessDate, 20000, 'settled', 5);
@@ -144,7 +134,8 @@ describe('getUserOrderHistory', () => {
       const billId3 = 'bill_test_happy_005';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
 
       // 異なる時刻で作成（降順でソートされることを確認）
       await createSettledBill(billId1, userId, businessDate, 10000, 'settled', 1);
@@ -191,7 +182,8 @@ describe('getUserOrderHistory', () => {
       const billId = 'bill_test_happy_006';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
       const grandTotalRounded = 15000;
 
       await createSettledBill(billId, userId, businessDate, grandTotalRounded, 'settled', 2);
@@ -213,7 +205,8 @@ describe('getUserOrderHistory', () => {
       const billId = 'bill_test_happy_007';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
       const itemCount = 5;
 
       await createSettledBill(billId, userId, businessDate, 10000, 'settled', itemCount);
@@ -253,10 +246,12 @@ describe('getUserOrderHistory', () => {
       const billId2 = 'bill_test_business_date_002';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
       // 前日の営業日を計算（現在時刻から1日前）
       const prevDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const prevBusinessDate = calcBusinessDate(prevDate);
+      const prevCalcResult = await calcBusinessDate(prevDate);
+      const prevBusinessDate = typeof prevCalcResult === 'string' ? prevCalcResult : (prevCalcResult.status === 'OK' ? prevCalcResult.businessDateKey! : '2025-01-01');
 
       // 当日の伝票
       await createSettledBill(billId1, userId, businessDate, 10000, 'settled', 1);
@@ -282,7 +277,8 @@ describe('getUserOrderHistory', () => {
       // 前日の営業日を計算（現在時刻から1日前）
       const now = new Date();
       const prevDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const prevBusinessDate = calcBusinessDate(prevDate);
+      const prevCalcResult = await calcBusinessDate(prevDate);
+      const prevBusinessDate = typeof prevCalcResult === 'string' ? prevCalcResult : (prevCalcResult.status === 'OK' ? prevCalcResult.businessDateKey! : '2025-01-01');
 
       await createSettledBill(billId, userId, prevBusinessDate, 10000, 'settled', 1);
 
@@ -308,7 +304,8 @@ describe('getUserOrderHistory', () => {
       const billId4 = 'bill_test_status_004';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
 
       await createSettledBill(billId1, userId, businessDate, 10000, 'settled', 1);
       await createSettledBill(billId2, userId, businessDate, 20000, 'partially_refunded', 2);
@@ -338,7 +335,8 @@ describe('getUserOrderHistory', () => {
       const billId4 = 'bill_test_status_008';
       // 現在時刻を使って businessDate を計算
       const now = new Date();
-      const businessDate = calcBusinessDate(now);
+      const calcResult = await calcBusinessDate(now);
+      const businessDate = typeof calcResult === 'string' ? calcResult : (calcResult.status === 'OK' ? calcResult.businessDateKey! : '2025-01-01');
 
       // 進行中の伝票（amounts がない）
       await db.collection('bills').doc(billId1).set({

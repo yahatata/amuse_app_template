@@ -1,10 +1,10 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
-import { defineString } from "firebase-functions/params";
 import { isProductionRuntime } from "../../../shared/runtime";
+import { linkStaffRichMenu, linkUserRichMenu } from "../services/lineRichMenu";
 
-// LINE_CHANNEL_ACCESS_TOKEN: コマンド/コンソールで設定。本番で未設定時はエラー（Phase0A D-01）
+// postback リプライ用。リッチメニューリンクは lineRichMenu サービス経由（ensureStaffRichMenu と同一経路）
 function getLineChannelAccessToken(): string {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   if (isProductionRuntime() && (!token || !token.trim())) {
@@ -12,17 +12,6 @@ function getLineChannelAccessToken(): string {
   }
   return token ?? "";
 }
-
-const staffRichMenuId = defineString("STAFF_RICHMENU_ID", {
-  default: "richmenu-36bb594eadf1c8718bd9c12199c87dbb"
-});
-const userRichMenuId = defineString("USER_RICHMENU_ID", {
-  default: "richmenu-31d87049e04ae740ceaa76cf59950f54"
-});
-// LINEプラン設定（globalConstant.dartと同期必須）
-const linePlan = defineString("LINE_PLAN", {
-  default: "communication", // 'communication' | 'light' | 'standard'
-});
 
 /**
  * LINE Webhook - リッチメニュー自動切り替え
@@ -76,11 +65,7 @@ export const lineWebhook = onRequest(async (request, response) => {
       eventTypes: events.map(e => e.type)
     });
 
-    // 環境変数から設定を取得（D-01: LINE_CHANNEL_ACCESS_TOKEN は process.env 経由）
     const channelAccessToken = getLineChannelAccessToken();
-    const staffMenu = staffRichMenuId.value();
-    const userMenu = userRichMenuId.value();
-
     if (!channelAccessToken) {
       logger.error("LINE_CHANNEL_ACCESS_TOKEN is not set");
       response.status(500).json({ error: "Configuration error" });
@@ -116,7 +101,9 @@ export const lineWebhook = onRequest(async (request, response) => {
 
           if (action === "decline" && requestId) {
             // プランチェック: コミュニケーションプランの場合は機能を無効化
-            if (linePlan.value() === 'communication') {
+            const { getStoreConfig } = await import('../../../shared/config/configLoader');
+            const storeConfig = await getStoreConfig();
+            if (storeConfig.linePlan === 'communication') {
               logger.warn("Shift request decline attempted but plan is communication", { lineUserId, requestId });
               // リプライメッセージを送信（機能が無効であることを通知）
               try {
@@ -219,9 +206,10 @@ export const lineWebhook = onRequest(async (request, response) => {
       }
 
       // follow（友だち追加）またはunblock（ブロック解除）イベント
+      // ensureStaffRichMenu と同一の lineRichMenu サービスを使用（トークン・ID取得を統一）
       if (event.type === "follow" || event.type === "unblock") {
         const lineUserId = event.source.userId;
-        
+
         if (!lineUserId) {
           logger.warn("No userId in event", { event });
           continue;
@@ -230,48 +218,18 @@ export const lineWebhook = onRequest(async (request, response) => {
         logger.info(`Processing ${event.type} event`, { lineUserId });
 
         try {
-          // staffsコレクションでuid（LINE User ID）で検索
           const staffDocRef = db.collection("staffs").doc(lineUserId);
           const staffDoc = await staffDocRef.get();
 
-          let richMenuId: string;
-          
-          if (staffDoc.exists) {
-            // スタッフの場合
-            richMenuId = staffMenu;
-            logger.info("Staff detected, setting staff rich menu", { lineUserId, richMenuId });
-          } else {
-            // 顧客の場合
-            richMenuId = userMenu;
-            logger.info("User detected, setting user rich menu", { lineUserId, richMenuId });
-          }
+          const ok = staffDoc.exists
+            ? await linkStaffRichMenu(lineUserId)
+            : await linkUserRichMenu(lineUserId);
 
-          // リッチメニューを設定
-          if (richMenuId) {
-            const linkResponse = await fetch(
-              `https://api.line.me/v2/bot/user/${lineUserId}/richmenu/${richMenuId}`,
-              {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${channelAccessToken}`,
-                },
-              }
-            );
-
-            if (!linkResponse.ok) {
-              const errorText = await linkResponse.text();
-              logger.error("Failed to link rich menu", { 
-                lineUserId, 
-                richMenuId, 
-                status: linkResponse.status,
-                error: errorText 
-              });
-            } else {
-              logger.info("Rich menu linked successfully", { lineUserId, richMenuId });
-            }
+          if (!ok) {
+            logger.warn("Rich menu link failed (non-fatal)", { lineUserId, isStaff: staffDoc.exists });
           }
         } catch (error) {
-          logger.error("Error processing event", { lineUserId, error });
+          logger.error("Error processing follow/unblock", { lineUserId, error });
         }
       }
     }

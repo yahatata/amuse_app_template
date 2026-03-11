@@ -21,9 +21,10 @@ describe('cleanupActiveStaysOnClose', () => {
       projectId: 'test-project-cleanup',
     });
     
-    if (admin.apps.length === 0) {
-      admin.initializeApp({ projectId: 'test-project-cleanup' });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     }
+    admin.initializeApp({ projectId: 'test-project-cleanup' });
     
     db = getFirestore();
     const mod = await import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose');

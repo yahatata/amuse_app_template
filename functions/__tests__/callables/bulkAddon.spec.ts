@@ -21,22 +21,11 @@ import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBi
 describe('bulkAddon', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-bulk-addon';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -50,6 +39,16 @@ describe('bulkAddon', () => {
     await testEnv.clearFirestore();
     delete process.env.WRITE_TODAYS_BILLS_IN_PARALLEL;
   });
+
+  async function createAdminDevice(uid: string) {
+    await db.collection('devices').add({
+      uid,
+      role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
 
   // テスト用のヘルパ関数: scheduledTournaments のセットアップ
   async function setupTournament(tournamentId: string, templateId: string, isAddon: boolean = true) {
@@ -107,13 +106,16 @@ describe('bulkAddon', () => {
 
       await setupTournament(tournamentId, templateId, true);
 
+      const adminId = 'admin_test_bulk_addon_001';
+      await createAdminDevice(adminId);
+
       // bulkAddon を呼び出す
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
           tournamentId,
           users: users.map(u => ({ userId: u.userId, pokerName: u.pokerName })),
         },
-        auth: null,
       } as any;
 
       const result = await (bulkAddon as any).run(mockRequest);
@@ -167,12 +169,15 @@ describe('bulkAddon', () => {
 
       await setupTournament(tournamentId, templateId, true);
 
+      const adminId = 'admin_test_bulk_addon_002';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
           tournamentId,
           users: users.map(u => ({ userId: u.userId, pokerName: u.pokerName })),
         },
-        auth: null,
       } as any;
 
       const result = await (bulkAddon as any).run(mockRequest);
@@ -219,12 +224,15 @@ describe('bulkAddon', () => {
         idempotencyKey: 'idem_addon_already_005',
       });
 
+      const adminId = 'admin_test_bulk_addon_003';
+      await createAdminDevice(adminId);
+
       const mockRequest = {
+        auth: { uid: adminId },
         data: {
           tournamentId,
           users: users.map(u => ({ userId: u.userId, pokerName: u.pokerName })),
         },
-        auth: null,
       } as any;
 
       const result = await (bulkAddon as any).run(mockRequest);

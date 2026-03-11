@@ -21,22 +21,11 @@ import { appendItem } from '../../src/domains/bills/repos/appendItem';
 describe('accounting (startAccounting)', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-accounting';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -56,6 +45,8 @@ describe('accounting (startAccounting)', () => {
     await db.collection('devices').add({
       uid,
       role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   }
@@ -185,6 +176,7 @@ describe('accounting (startAccounting)', () => {
         data: {
           billId,
           clientNonce,
+          paymentMethodsByAmount: { cash: 2000 },
           paymentMethodsByCategory,
         },
       };

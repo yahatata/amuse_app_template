@@ -7,6 +7,7 @@ export { openStoreTerminal } from './callables/openStoreTerminal';
 export { closeStoreTerminal } from './callables/closeStoreTerminal';
 export { continueBusinessTerminal } from './callables/continueBusinessTerminal';
 export { createInitialStateDocCallable } from './callables/createInitialStateDocCallable';
+export { initializeStoreConfigCallable } from './callables/initializeStoreConfigCallable';
 export { closeAssessmentTask } from './callables/closeAssessmentTask';
 export { openAssessmentTask } from './callables/openAssessmentTask';
 export { weeklyPlanner } from './scheduler/weeklyPlanner';

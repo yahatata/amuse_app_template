@@ -4,6 +4,7 @@ import {
   assertAdminDevice,
   getYearMonthFromDateKey,
   calculateIsSufficient,
+  getRequiredStaffByTimeSlot,
 } from "../services/helpers";
 
 const db = admin.firestore();
@@ -14,17 +15,6 @@ interface SetSufficientOverrideRequest {
   installationId: string;
 }
 
-/**
- * 時間帯別の必要人数設定を取得（デフォルト値）
- */
-async function getRequiredStaffByTimeSlot(): Promise<
-  Array<{ startHour: number; endHour: number; requiredCount: number }>
-> {
-  return [
-    { startHour: 19, endHour: 22, requiredCount: 2 },
-    { startHour: 10, endHour: 12, requiredCount: 3 },
-  ];
-}
 
 /**
  * 必要十分フラグを手動設定

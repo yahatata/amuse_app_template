@@ -1,0 +1,96 @@
+/**
+ * storeMeta/config および storeMeta/requiredStaffByTimeSlot 初期セットアップ Callable
+ *
+ * - storeMeta/config: 未存在時は buildFromDefaults() をそのまま作成。既存時は defaults のフィールドのうち
+ *   存在しないもののみデフォルトで追加（既存値は上書きしない）。requiredStaffByTimeSlot 等の別 doc 項目は含めない。
+ * - storeMeta/requiredStaffByTimeSlot: R-09 分離。未存在時のみ作成（DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT）。
+ * 認可: admin デバイスのみ。
+ *
+ * 参照: docs/config_migration/phase1/PHASE1_UPDATE_PATH_DESIGN.md
+ */
+
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { buildFromDefaults, mergeConfigForUpsert } from '../../../shared/config/configLoader';
+import { DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT } from '../../../shared/config/defaults';
+import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
+
+const db = getFirestore();
+
+export const initializeStoreConfigCallable = onCall(
+  {
+    region: 'us-central1',
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', '認証が必要です');
+    }
+
+    const callerUid = request.auth.uid;
+    const device = await getCallerDeviceByUid(callerUid);
+
+    if (!device || !isActive(device.status)) {
+      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+    }
+
+    if (device.role !== 'admin') {
+      throw new HttpsError('permission-denied', '管理者権限が必要です');
+    }
+
+    try {
+      const configRef = db.collection('storeMeta').doc('config');
+      const requiredStaffRef = db.collection('storeMeta').doc('requiredStaffByTimeSlot');
+
+      const [configDoc, requiredStaffDoc] = await Promise.all([
+        configRef.get(),
+        requiredStaffRef.get(),
+      ]);
+
+      const created: string[] = [];
+      const updated: string[] = [];
+
+      if (!configDoc.exists) {
+        const config = buildFromDefaults();
+        await configRef.set({
+          ...config,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        created.push('storeMeta/config');
+      } else {
+        const defaults = buildFromDefaults();
+        const merged = mergeConfigForUpsert(configDoc.data() as Record<string, unknown>, defaults);
+        await configRef.set(
+          { ...merged, updatedAt: FieldValue.serverTimestamp() },
+          { merge: true }
+        );
+        updated.push('storeMeta/config');
+      }
+
+      if (!requiredStaffDoc.exists) {
+        await requiredStaffRef.set({
+          data: [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT],
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        created.push('storeMeta/requiredStaffByTimeSlot');
+      }
+
+      const parts: string[] = [];
+      if (created.length > 0) parts.push(`${created.join(' と ')} を作成しました`);
+      if (updated.length > 0) parts.push(`${updated.join(' と ')} の不足フィールドを補完しました`);
+      const message =
+        parts.length > 0 ? parts.join('。') : 'storeMeta/config と storeMeta/requiredStaffByTimeSlot は既に存在し、不足フィールドもありません';
+
+      return {
+        success: true,
+        message,
+        created,
+        updated: updated.length > 0 ? updated : undefined,
+      };
+    } catch (error) {
+      throw new HttpsError(
+        'internal',
+        `storeMeta の初期化に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+);

@@ -47,8 +47,9 @@
   - Secret Manager（推奨）
   - `TASKS_*`, `*_URL`, `*_SA`, region
 - Run
-  - Firestore `storeMeta/config`
+  - Firestore `storeMeta/config`（単一ドキュメント、店舗 1 つ = 1 プロジェクト）
   - 店舗運用で変更する値のみを保持
+  - 詳細は `docs/config_migration/phase0B/STOREMETA_CONFIG_SPEC.md`
 
 ## 6. identity（storeId / tenantId）の扱い
 
@@ -72,6 +73,10 @@ Phase0A では default 削除を採用済み（D-0009）。**環境変数はコ�
 
 ## 8. `storeMeta/config` スキーマ（運用値）
 
+- **ドキュメント構成**: 単一ドキュメント `storeMeta/config`
+- **パス**: 店舗ごとに Firebase プロジェクトを持つため、`storeMeta/config` で店舗単位
+- **詳細仕様**: `docs/config_migration/phase0B/STOREMETA_CONFIG_SPEC.md`
+
 ```yaml
 storeMeta/config:
   features:
@@ -81,8 +86,7 @@ storeMeta/config:
     settlementAggregatorEnabled: bool
     tableDeviceRegistrationEnabled: bool
   businessDay:
-    closeHour: int
-    calcBufferMinutes: int
+    calcBufferMinutes: int   # 営業日境界バッファ（分）。D-06 closeHour は Phase4 で廃止のため含めない
   autoOpenClose:
     enabled: bool
     taskCloseOffsetMinutes: int
@@ -98,8 +102,10 @@ storeMeta/config:
       roundingUnits:
         pointAB: int
         sideGameChip: int
+  linePlan: string           # 'communication' | 'light' | 'standard'
+  businessHoursStyles: map   # weekday, weekendHoliday, event, allDay, closed
   shift:
-    requiredStaffByTimeSlot: [{startHour:int,endHour:int,requiredCount:int}]
+    # requiredStaffByTimeSlot は storeMeta/requiredStaffByTimeSlot に分離済み
     submissionStartDay: int
     submissionEndDay: int
     schedulingStartDay: int
@@ -108,8 +114,12 @@ storeMeta/config:
     endDay: int
 ```
 
-- 欠損時挙動:
-  - 非秘密値: safe default + 警告ログ
+- **読み取り優先度**（未設定時はエラーにしない）:
+  1. storeMeta/config
+  2. `functions/src/shared/config/defaults.ts`
+  - ※ ③「各 TS ファイル内の直書き」は Phase2 で削除済み。① → ② のみ
+- **欠損時挙動**:
+  - 非秘密値: 未存在時・読み取り失敗時はいずれも ①→② でフォールバック（defaults を使用）。デフォルトが正である場合が大多数であり、取得失敗時にエラーを出すよりデフォルトを返した方が蓄積データの観点で適切。詳細は [phase1/PHASE1_FALLBACK_BEHAVIOR.md](./phase1/PHASE1_FALLBACK_BEHAVIOR.md) および [運用時資料/設定/.../README.md](../運用時資料/設定/storeMeta/configによる設定の詳細/README.md)
   - 秘密値: fallback 禁止、未設定は即エラー
 
 ## 9. 読み取り責務／更新責務マトリクス
@@ -141,6 +151,11 @@ storeMeta/config:
 
 ## 12. 根拠参照
 
+- `docs/config_migration/PHASE0B_DECISIONS_FOR_LATER_PHASES.md`（Phase1/2 着手前に必須確認）
+- `docs/config_migration/phase1/PHASE1_FALLBACK_BEHAVIOR.md`（フォールバック時のログ仕様）
+- `docs/config_migration/phase1/PHASE1_UPDATE_PATH_DESIGN.md`（更新経路・Flutter 参照責務・defaults.ts 唯一ソース）
+- `docs/config_migration/phase1/PHASE1_ROLLBACK.md`（ロールバック観点・旧パターン削除方針）
+- `docs/config_migration/phase0B/STOREMETA_CONFIG_SPEC.md`（storeMeta/config 詳細仕様）
 - `docs/config_audit/store_config_classification.md`
 - `docs/config_audit/store_config_followup_checkpoints.md`
 - `functions/src/domains/bills/repos/calcBusinessDate.ts`

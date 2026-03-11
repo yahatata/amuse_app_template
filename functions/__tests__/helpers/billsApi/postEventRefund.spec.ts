@@ -23,7 +23,7 @@ describe('postEventRefund', () => {
   const projectId = 'test-project-post-event-refund';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
     
     testEnv = await initializeTestEnvironment({
       projectId,
@@ -107,6 +107,7 @@ describe('postEventRefund', () => {
           reason: 'テスト返金',
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result.success).toBe(true);
@@ -145,6 +146,7 @@ describe('postEventRefund', () => {
           reason: '全額返金',
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result.success).toBe(true);
@@ -173,6 +175,7 @@ describe('postEventRefund', () => {
           amountIncl: firstRefund,
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result1.status).toBe('partially_refunded');
@@ -194,6 +197,7 @@ describe('postEventRefund', () => {
           amountIncl: secondRefund,
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result2.status).toBe('partially_refunded');
@@ -269,6 +273,7 @@ describe('postEventRefund', () => {
             amountIncl: 1000,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -292,6 +297,7 @@ describe('postEventRefund', () => {
             amountIncl: 1000,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -313,6 +319,7 @@ describe('postEventRefund', () => {
             amountIncl: 15000, // grandTotalRounded を超える
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -334,6 +341,7 @@ describe('postEventRefund', () => {
             amountIncl: 1000,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -355,6 +363,7 @@ describe('postEventRefund', () => {
             amountIncl: 1000,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -376,6 +385,7 @@ describe('postEventRefund', () => {
             amountIncl: 1000,
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -398,6 +408,7 @@ describe('postEventRefund', () => {
             amountIncl: 6000, // 返金後の balanceDueIncl = 10000 - 5000 - 6000 = -1000 < 0
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -420,6 +431,7 @@ describe('postEventRefund', () => {
             amountIncl: 1000, // 既に全額返金済みなので追加返金は不可
           },
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -447,6 +459,7 @@ describe('postEventRefund', () => {
           amountIncl: 2000,
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result.success).toBe(true);
@@ -500,6 +513,7 @@ describe('postEventRefund', () => {
           amountIncl: 7000, // 残額ちょうど
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result.success).toBe(true);
@@ -529,6 +543,7 @@ describe('postEventRefund', () => {
           amountIncl: refundAmount,
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result1.diagnostics?.reused).toBeUndefined();
@@ -541,6 +556,7 @@ describe('postEventRefund', () => {
           amountIncl: refundAmount,
         },
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result2.diagnostics?.reused).toBe(true);

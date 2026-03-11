@@ -6,6 +6,8 @@ import 'shift_repository.dart';
 import '../Utils/time_converter.dart';
 import '../globalConstant.dart';
 import '../services/device_service.dart';
+import '../services/required_staff_by_time_slot_service.dart';
+import '../services/store_config_defaults.dart';
 
 /// 日付ダイアログ（カレンダーセルの拡大＆編集）
 class ShiftDateDialog extends StatefulWidget {
@@ -774,7 +776,7 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
     final insufficientSlots = <({int start, int end, int required, int current})>[];
 
     // 時間帯別の必要人数設定を取得してチェック
-    final requiredSlots = GlobalConstants.requiredStaffByTimeSlot;
+    final requiredSlots = RequiredStaffByTimeSlotService.instance.latestData ?? kDefaultRequiredStaffByTimeSlot;
     if (requiredSlots.isNotEmpty) {
       // 各設定された時間帯についてチェック
       for (final slot in requiredSlots) {

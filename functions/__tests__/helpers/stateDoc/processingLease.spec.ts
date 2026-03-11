@@ -18,11 +18,12 @@ describe('processingLease (Phase6 Step3)', () => {
   let emulatorAvailable = true;
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
     testEnv = await initializeTestEnvironment({ projectId: PROJECT_ID });
-    if (admin.apps.length === 0) {
-      admin.initializeApp({ projectId: PROJECT_ID });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     }
+    admin.initializeApp({ projectId: PROJECT_ID });
     db = getFirestore();
     const mod = await import('../../../src/domains/storeMeta/services/processingLease');
     acquireProcessing = mod.acquireProcessing;

@@ -1,4 +1,5 @@
 {
+  "exclude": ["node_modules", "src/unused_function_lib"],
   "compilerOptions": {
     "module": "commonjs",
     "esModuleInterop": true,

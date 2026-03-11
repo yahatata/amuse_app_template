@@ -62,7 +62,7 @@
 | R-06 | 入店料設定 (`entranceFee`, `entranceFeeDescription`, `chargeEntranceFeeOnReentry`) | `lib/globalConstant.dart` (Dart const) | `lib/UserRegisterView/userQRCheckInPage.dart`, `lib/UserLogin/UserManualCheckInPage.dart` | 店舗料金ルール差分 | Run | `storeMeta/config.billing.entryFee.*` | Med | 価格変更に再ビルド必要 |
 | R-07 | 給与締め日 (`PAYROLL_START_DAY`, `PAYROLL_END_DAY`, `PAYROLL_PERIOD_DESCRIPTION`) | `lib/globalConstant.dart` | `lib/AttendanceManagement/allStaffAttendancePage.dart` | 店舗契約・締め日差分 | Run | `storeMeta/config.payroll.*` | Med | 締め日誤りで勤怠集計ミス |
 | R-08 | シフトフロー日 (`SHIFT_SUBMISSION_*`, `SHIFT_SCHEDULING_START_DAY`) | `lib/globalConstant.dart` | `lib/StaffDate/shiftHomePage.dart` | 店舗運用スケジュール差分 | Run | `storeMeta/config.shiftFlow.*` | Med | 締切誤案内 |
-| R-09 | 必要人数 (`requiredStaffByTimeSlot`) | `lib/globalConstant.dart` + Functions内ハードコード | `lib/StaffDate/*`, `functions/src/domains/shift/callables/*` | 店舗人員計画差分 | Run | `storeMeta/config.shift.requiredStaffByTimeSlot` | High | Dart/TS不整合の温床 |
+| R-09 | 必要人数 (`requiredStaffByTimeSlot`) | RequiredStaffByTimeSlotService / helpers.getRequiredStaffByTimeSlot | `lib/StaffDate/*`, `functions/src/domains/shift/callables/*` | 店舗人員計画差分 | Run | `storeMeta/requiredStaffByTimeSlot` | High | - |
 | R-10 | 営業時間スタイル (`businessHoursStyle*`, `businessHoursStyles`) | `lib/globalConstant.dart`, `functions/src/shared/businessHours/services/styles.ts` | `lib/StaffDate/businessDayEditPage.dart`, Functions style helper | 店舗営業時間差分 | Run | `businessHoursMonthlyMap` + style master doc | High | 二重定義で開閉店判定ズレ |
 | R-11 | 支払ポリシー (`categoryPaymentMethods`, `POINT_PRIORITY`, 丸め単位) | `lib/globalConstant.dart` + `functions/src/domains/bills/services/paymentSplitCalculator.ts` | `lib/Accounting/*`, `verifyPaymentSplit.ts` | 店舗会計ルール差分 | Run | `storeMeta/config.billing.paymentPolicy` | High | 会計計算不一致 |
 | R-12 | チップ換算 (`SIDE_GAME_CHIP_EXCHANGE_RATE`) | `lib/globalConstant.dart` + TS計算ロジック内定数 | `lib/Accounting/*`, `paymentSplitCalculator.ts` | 店舗レート差分 | Run | `storeMeta/config.billing.sideGameChipRate` | High | 金額誤計算 |
@@ -77,7 +77,7 @@
 - 営業/勤怠系: `PAYROLL_START_DAY`, `PAYROLL_END_DAY`, `STORE_CLOSE_HOUR`, `CALC_BUSINESS_DATE_BUFFER_MINUTES`, `requiredStaffByTimeSlot`, `businessHoursStyles`
 - 自動開閉店系: `ENABLE_AUTO_OPEN_CLOSE`, `TASK_CLOSE_OFFSET_MINUTES`, `TASK_OPEN_OFFSET_MINUTES`
 - シフト運用系: `SHIFT_SUBMISSION_START_DAY`, `SHIFT_SUBMISSION_END_DAY`, `SHIFT_SCHEDULING_START_DAY`, `ADMIN_CREATED_SHIFT_ID`, `isShiftRequestEnabled`（`linePlan`依存getter）
-- トーナメント系: `defaultPrizeRatio`, `prizeReceiverPercentage`, `prizeRoundingMethod`, `prizeDistribution`, `pointTypes`
+- トーナメント系: `defaultPrizeRatio`, `prizeReceiverPercentage`, `prizeRoundingMethod`, `prizeRoundingUnit`, `prizeDistribution`, `pointTypes`
 - スケジューラCRON系: `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON`, `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON`
 - UI/選択肢系: `menuCategories`, `sideGameTypes`
 
@@ -111,10 +111,10 @@
   - Dart: `lib/globalConstant.dart`（`static const`）
   - TS: `functions/src/domains/storeMeta/scheduler/weeklyPlanner.ts`（`process.env`）
   - 判定: Dart側定数とFunctions側環境変数の二重管理。実運用ソースはFunctions env寄り。
-- `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON` / `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON`
-  - Dart: `lib/globalConstant.dart`（`static const`、未使用候補）
-  - TS: Functions側スケジューラ定義内でハードコード
-  - 判定: Dart側は参照用メモ。Functions側の実値との乖離リスク。
+- `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON` / `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` / `WEEKLY_PLANNER_CRON`
+  - Dart: `lib/globalConstant.dart`（`static const`、ドキュメント用）
+  - TS: Functions側で `process.env.XXX` を参照。未設定時は各ファイル内デフォルト値を使用。
+  - 判定: 環境変数化済み。Dart側は参照用メモ。Cloud Logging で source 判別可能。
 
 ### 4-3. 未使用/重複の指摘
 

@@ -7,9 +7,7 @@
 
 import * as crypto from 'crypto';
 import * as admin from 'firebase-admin';
-
-// サイドゲームチップ換算率（globalConstant.dartと同期必須）
-const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0; // サイドゲームチップ1 = 10円相当
+import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
 
 // itemsSnapshot 圧縮閾値（schema_plan.md に記載の「700KB 超は Top50 + その他合算に圧縮」に準拠）
 // テストで差し替え可能にするため export（テスト時のみ使用）
@@ -389,12 +387,13 @@ export interface CalculatePaymentTotalsParams {
   metaPaymentMethodsByCategory?: Record<string, string | Array<{ method: string; amount: number }>>;
   metaPaymentMethodsByAmount?: Record<string, number>;
   categoryBreakdown: CategoryBreakdown;
+  sideGameChipExchangeRate?: number;
 }
 
 export type PaymentTotals = Record<string, number>;
 
 export function calculatePaymentTotals(params: CalculatePaymentTotalsParams): PaymentTotals {
-  const { paymentsDocs, metaPaymentMethodsByCategory, metaPaymentMethodsByAmount, categoryBreakdown } = params;
+  const { paymentsDocs, metaPaymentMethodsByCategory, metaPaymentMethodsByAmount, categoryBreakdown, sideGameChipExchangeRate = DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } = params;
 
   // /payments が存在する場合は優先
   if (paymentsDocs.length > 0) {
@@ -451,7 +450,7 @@ export function calculatePaymentTotals(params: CalculatePaymentTotalsParams): Pa
           
           // sideGameChipの場合、split.amountはチップ枚数なので円換算値に変換
           if (method === 'sideGameChip') {
-            const yenAmount = Math.floor(amount * SIDE_GAME_CHIP_EXCHANGE_RATE);
+            const yenAmount = Math.floor(amount * sideGameChipExchangeRate);
             totals[validMethod] = (totals[validMethod] || 0) + yenAmount;
           } else {
             totals[validMethod] = (totals[validMethod] || 0) + amount;

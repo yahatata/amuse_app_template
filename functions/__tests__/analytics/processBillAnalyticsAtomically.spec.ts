@@ -21,7 +21,7 @@ describe('processBillAnalyticsAtomically', () => {
   const projectId = 'test-project-process-bill-analytics';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
     
     testEnv = await initializeTestEnvironment({
       projectId,

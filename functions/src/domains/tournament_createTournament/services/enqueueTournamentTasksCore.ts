@@ -262,19 +262,15 @@ async function processTournament(
 }
 
 /**
- * Step 5/6: Step 6 未デプロイ時は enqueue をスキップする。
- * ENQUEUE_SCHEDULER_ENABLED が true でない場合は即 return（controlHook が新 payload を受け付けるまで）。
- */
-const ENQUEUE_ENABLED = process.env.ENQUEUE_SCHEDULER_ENABLED === 'true';
-
-/**
  * メイン実行
  */
 export async function runEnqueueTournamentTasks(
   options: RunEnqueueOptions = {}
 ): Promise<RunEnqueueResult> {
-  if (!ENQUEUE_ENABLED) {
-    logger.info('runEnqueueTournamentTasks: Step 6 デプロイ待ちのためスキップ（ENQUEUE_SCHEDULER_ENABLED != true）');
+  const { getStoreConfig } = await import('../../../shared/config/configLoader');
+  const storeConfig = await getStoreConfig();
+  if (!storeConfig.features?.enqueueSchedulerEnabled) {
+    logger.info('runEnqueueTournamentTasks: スキップ（features.enqueueSchedulerEnabled != true）');
     return { success: true, processedCount: 0, enqueuedCount: 0 };
   }
 

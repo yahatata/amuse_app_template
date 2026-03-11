@@ -23,8 +23,9 @@
 
 ### 2.2 `storeMeta/config` 導入
 
-- Run-time 設定の保管先を一本化。
-- `storeMeta/currentBusinessDay` の既存購読基盤を活かしつつ、設定は別ドキュメントで管理。
+- Run-time 設定の保管先を一本化。**単一ドキュメント** `storeMeta/config` に集約。
+- 読み取り優先度: ① storeMeta/config ② `functions/src/shared/config/defaults.ts` ③ 各 TS 内直書き。未設定時はエラーにしない。
+- 詳細: `docs/config_migration/phase0B/STOREMETA_CONFIG_SPEC.md`
 
 ### 2.3 ConfigLoader / FeatureGate 整理
 
@@ -80,8 +81,8 @@
 
 ## 4. 互換性方針
 
-- 移行期間中
-  - 非秘密値は旧 env/旧定数 fallback を限定的に残す。
+- 移行期間中（Phase2）
+  - 未リリースアプリのため、旧 env/旧定数への fallback は持たない。差し替え完了したら即削除。詳細は [phase1/PHASE1_ROLLBACK.md](./phase1/PHASE1_ROLLBACK.md)。
   - 秘密値は fallback を禁止。
 - 欠損時
   - `storeMeta/config` 欠損は安全側 default と警告ログ（秘密値除く）。
@@ -94,8 +95,9 @@
 
 - Gate-1: Secrets 是正完了（平文 default/fallback なし）
 - Gate-2: 対象 ID の重複 SSoT 解消
-- Gate-3: `storeMeta/config` 読み取り/更新基盤が利用可能
-- Gate-4: 回帰観点を満たした ID のみ完了へ遷移
+  - Phase1/2 着手前に `docs/config_migration/PHASE0B_DECISIONS_FOR_LATER_PHASES.md` を確認すること
+- Gate-3: `storeMeta/config` 読み取り/更新基盤が利用可能（Phase1 完了 ✅）
+- Gate-4: 回帰観点を満たした ID のみ完了へ遷移（Phase2 全 ID 完了 ✅ — tsc/flutter analyze パス）
 
 ## 6. テスト方針（高レベル）
 

@@ -7,7 +7,7 @@
  * - cleanupActiveStaysOnClose: terminal+store_management で成功すること
  * - permission-denied 時のメッセージが「営業管理の権限がありません」であること
  *
- * Firestore Emulator 使用（localhost:8080）。
+ * Firestore Emulator 使用（localhost:8081）。
  */
 
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
@@ -31,9 +31,10 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
   beforeAll(async () => {
     process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
     testEnv = await initializeTestEnvironment({ projectId: PROJECT_ID });
-    if (admin.apps.length === 0) {
-      admin.initializeApp({ projectId: PROJECT_ID });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     }
+    admin.initializeApp({ projectId: PROJECT_ID });
     db = getFirestore();
 
     const getMod = await import('../../src/domains/storeMeta/services/getUnsettledBillsForClose');

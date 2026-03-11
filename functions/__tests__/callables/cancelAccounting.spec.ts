@@ -21,22 +21,11 @@ import { startAccounting } from '../../src/domains/bills/repos/startAccounting';
 describe('cancelAccounting (pre-settlement 専用)', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-cancel-accounting';
+  const projectId = 'test-default';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
-    if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
-    }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    testEnv = await initializeTestEnvironment({ projectId });
     db = getFirestore();
   });
 
@@ -55,6 +44,8 @@ describe('cancelAccounting (pre-settlement 専用)', () => {
     await db.collection('devices').add({
       uid,
       role: 'admin',
+      status: 'active',
+      name: 'Test Admin Device',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   }

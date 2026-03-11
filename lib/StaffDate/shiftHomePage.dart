@@ -5,7 +5,9 @@ import 'shiftDateDialog.dart';
 import 'shiftDraftPage.dart';
 import 'shift_repository.dart';
 import '../Utils/time_converter.dart';
-import '../globalConstant.dart';
+import '../services/required_staff_by_time_slot_service.dart';
+import '../services/store_config_defaults.dart';
+import '../services/store_config_service.dart';
 
 /// シフト確定用ホーム画面（カレンダー表示）
 class ShiftHomePage extends StatefulWidget {
@@ -141,8 +143,9 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
     
     // 現在の日付が前月の1日〜15日の間かどうかを判定
     if (now.year == prevMonth.year && now.month == prevMonth.month) {
-      return now.day >= GlobalConstants.SHIFT_SUBMISSION_START_DAY &&
-             now.day <= GlobalConstants.SHIFT_SUBMISSION_END_DAY;
+      final startDay = StoreConfigService.instance.latestData?.shiftSubmissionStartDay ?? kDefaultShiftSubmissionStartDay;
+      final endDay = StoreConfigService.instance.latestData?.shiftSubmissionEndDay ?? kDefaultShiftSubmissionEndDay;
+      return now.day >= startDay && now.day <= endDay;
     }
     
     return false;
@@ -157,7 +160,8 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
     
     // 現在の日付が前月の16日以降かどうかを判定
     if (now.year == prevMonth.year && now.month == prevMonth.month) {
-      return now.day >= GlobalConstants.SHIFT_SCHEDULING_START_DAY;
+      final startDay = StoreConfigService.instance.latestData?.shiftSchedulingStartDay ?? kDefaultShiftSchedulingStartDay;
+      return now.day >= startDay;
     }
     
     return false;
@@ -943,14 +947,14 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                   const SizedBox(height: 12),
                   _buildPeriodItem(
                     '①提出期間',
-                    '前月${GlobalConstants.SHIFT_SUBMISSION_START_DAY}日〜${GlobalConstants.SHIFT_SUBMISSION_END_DAY}日',
+                    '前月${StoreConfigService.instance.latestData?.shiftSubmissionStartDay ?? kDefaultShiftSubmissionStartDay}日〜${StoreConfigService.instance.latestData?.shiftSubmissionEndDay ?? kDefaultShiftSubmissionEndDay}日',
                     'スタッフは無制限でシフトの提出および修正が可能',
                     Colors.green,
                   ),
                   const SizedBox(height: 8),
                   _buildPeriodItem(
                     '②組む期間（不足日再提出期間を含む、管理者の裁量で最終確定可能）',
-                    '前月${GlobalConstants.SHIFT_SCHEDULING_START_DAY}日〜',
+                    '前月${StoreConfigService.instance.latestData?.shiftSchedulingStartDay ?? kDefaultShiftSchedulingStartDay}日〜',
                     '管理者が提出されたものからシフトを組む。スタッフは提出したシフトのみ確認可能で提出や修正は行えない。管理者が不足日・不足時間を送信したタイミングで、不足日・不足時間のみ提出および修正が可能になる。16日以降は管理者の裁量で最終確定可能（全日を最終確定すると、スタッフにシフト確定したものとして送付可能）',
                     Colors.orange,
                   ),
@@ -1332,9 +1336,9 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.orange[200]!),
                 ),
-                child: const Text(
-                  '募集作成は②期間（前月16日〜22日）のみ可能です。',
-                  style: TextStyle(
+                child: Text(
+                  '募集作成は②期間（前月${StoreConfigService.instance.latestData?.shiftSchedulingStartDay ?? kDefaultShiftSchedulingStartDay}日〜）のみ可能です。',
+                  style: const TextStyle(
                     fontSize: 14,
                     color: Colors.orange,
                   ),
@@ -1991,7 +1995,7 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
     final insufficientSlots = <({int start, int end, int required, int current})>[];
 
     // 時間帯別の必要人数設定を取得してチェック
-    final requiredSlots = GlobalConstants.requiredStaffByTimeSlot;
+    final requiredSlots = RequiredStaffByTimeSlotService.instance.latestData ?? kDefaultRequiredStaffByTimeSlot;
     if (requiredSlots.isNotEmpty) {
       // 各設定された時間帯についてチェック
       for (final slot in requiredSlots) {

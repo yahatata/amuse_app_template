@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../globalConstant.dart';
+import '../../services/store_config_defaults.dart';
+import '../../services/store_config_service.dart';
 import '../../Utils/menuItemsManager.dart';
 
 class CreateMenuPage extends StatefulWidget {
@@ -26,8 +27,8 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
   File? _selectedImage;
   String? _existingImageUrl; // 既存の画像URL
 
-  // globalConstant.dartからカテゴリーを取得
-  final List<String> _categories = GlobalConstants.menuCategories;
+  List<String> get _categories =>
+      StoreConfigService.instance.latestData?.menuCategories ?? kDefaultMenuCategories;
 
   final ImagePicker _picker = ImagePicker();
   final FirebaseFunctions _functions = FirebaseFunctions.instance;

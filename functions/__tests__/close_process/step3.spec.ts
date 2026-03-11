@@ -23,9 +23,10 @@ describe('Phase6 Step3: close_process', () => {
   beforeAll(async () => {
     process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
     testEnv = await initializeTestEnvironment({ projectId: PROJECT_ID });
-    if (admin.apps.length === 0) {
-      admin.initializeApp({ projectId: PROJECT_ID });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
     }
+    admin.initializeApp({ projectId: PROJECT_ID });
     db = getFirestore();
     const applyMod = await import('../../src/domains/storeMeta/services/applyCloseSnapshot');
     const getMod = await import('../../src/domains/storeMeta/services/getUnsettledBillsForClose');

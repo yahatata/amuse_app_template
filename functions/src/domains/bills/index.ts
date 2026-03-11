@@ -4,7 +4,7 @@ export { startAccounting, completeAccounting, completeAccountingV2 } from "./cal
 export { verifyPaymentSplit } from "./callables/verifyPaymentSplit";
 export { updateActiveBill } from "./callables/updateActiveBill";
 export { migrateTodaysBillsAccountingFields } from "./callables/migrateTodaysBills";
-export { getAccountingHistory } from "./callables/getAccountingHistory";
+// getAccountingHistory: Phase0B でデプロイ対象から除外（unused_function_lib に移動、STORE_CLOSE_HOUR 使用のため）
 export { updateAccounting } from "./callables/updateAccounting";
 export { cancelAccounting } from "./callables/cancelAccounting";
 export { processRefund, getRefundHistory } from "./callables/refundProcessing";

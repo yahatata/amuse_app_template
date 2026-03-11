@@ -138,6 +138,6 @@
 - [x] 環境変数の設定手順（コマンド/コンソール）を文書化した
 - [ ] 監視・アラート観点を記載した（Phase3 で Runbook 作成時に実施）
 - [x] `CHANGE_LOG.md` を更新した（Task9 完了）
-- [ ] 機密の平文 default がコード上に残っていない
-- [ ] 機密 fallback が残っていない
+- [x] 機密の平文 default がコード上に残っていない（Phase0A 完了、lineWebhook/lineMessaging/qrCodeUtils 確認済み）
+- [x] 機密 fallback が残っていない（Phase0A 完了）
 - [ ] ロールバック手順が 1 ページで説明可能である（Phase3 で Runbook 作成時に実施）

@@ -89,7 +89,7 @@ export const generateBusinessHoursForMonthFromStyles = onCall(
       const styleId = determineStyleId(date);
 
       // スタイルから営業時間を取得
-      const style = getBusinessHoursByStyleId(styleId);
+      const style = await getBusinessHoursByStyleId(styleId);
 
       days.push({
         day,

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 class PrizeSetupPage extends StatefulWidget {
   final String tournamentId;
@@ -204,7 +206,7 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
     
     // デフォルトのプライズ受け取り人数を計算
     final totalParticipants = entries + reentries;
-    _prizeReceiverCount = ((totalParticipants * GlobalConstants.prizeReceiverPercentage) / 100).round();
+    _prizeReceiverCount = ((totalParticipants * (StoreConfigService.instance.latestData?.tournamentPrizeReceiverPercentage ?? kDefaultTournamentPrizeReceiverPercentage)) / 100).round();
     if (_prizeReceiverCount < 1) _prizeReceiverCount = 1;
     if (_prizeReceiverCount > 10) _prizeReceiverCount = 10;
     
@@ -235,7 +237,8 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
     print('_totalPrizePool 計算結果: $_totalPrizePool');
     
     // 配分比率を取得
-    _prizePercentages = List.from(GlobalConstants.prizeDistribution[_prizeReceiverCount] ?? [100.0]);
+    final dist = StoreConfigService.instance.latestData?.tournamentPrizeDistribution ?? kDefaultTournamentPrizeDistribution;
+    _prizePercentages = List.from(dist[_prizeReceiverCount] ?? [100.0]);
     
     // 各順位の金額を計算
     _prizeAmounts.clear();
@@ -244,7 +247,8 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
       double amount = (_totalPrizePool * percentage / 100);
       
       int finalAmount;
-      switch (GlobalConstants.prizeRoundingMethod) {
+      final roundMethod = StoreConfigService.instance.latestData?.tournamentPrizeRoundingMethod ?? kDefaultTournamentPrizeRoundingMethod;
+      switch (roundMethod) {
         case 'ceil':
           finalAmount = amount.ceil();
           break;
@@ -256,9 +260,10 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
           finalAmount = amount.floor();
           break;
       }
-      
-      // 100の位で丸める
-      finalAmount = (finalAmount ~/ 100) * 100;
+
+      final unit = StoreConfigService.instance.latestData?.tournamentPrizeRoundingUnit ?? kDefaultTournamentPrizeRoundingUnit;
+      final safeUnit = [1, 10, 100, 1000].contains(unit) ? unit : kDefaultTournamentPrizeRoundingUnit;
+      finalAmount = (finalAmount ~/ safeUnit) * safeUnit;
       _prizeAmounts.add(finalAmount);
     }
   }

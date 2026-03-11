@@ -168,8 +168,9 @@ export const processVisitByQR = onCall(async (request) => {
       // 再入店判定と入店料設定
       const isReentry = activeStaySnap.exists && activeStaySnap.data()?.isActive === false;
       
-      let finalEntranceFee = entranceFee || 0;
-      let finalEntranceFeeDescription = entranceFeeDescription || '入店料';
+      // R06/Phase2: entranceFee を数値に正規化（クライアントから文字列が渡る場合の対策）
+      let finalEntranceFee = Number(entranceFee) || 0;
+      let finalEntranceFeeDescription = (typeof entranceFeeDescription === 'string' ? entranceFeeDescription : '') || '入店料';
       
       if (isReentry && !chargeEntranceFeeOnReentry) {
         // 再入店で入店料を取らない場合

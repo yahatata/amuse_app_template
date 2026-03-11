@@ -11,9 +11,15 @@
 - 運用手順・監査ログの定着
 - **Phase0A Task8 の成果物**: ロールバック手順・監視観点 Runbook、デプロイ前チェックリスト（D-0012 により Phase3 で実施）
 
+## 前提
+
+- **Phase2 完了済み** ✅: 全移行対象 ID の参照が storeMeta/config → defaults フォールバック構造に切り替わっている。GlobalConstants から移行済み定数は削除済み。
+
 ## 参照必須
 
 - `docs/config_migration/migration_roadmap.md`
+- `docs/config_migration/phase1/PHASE1_ROLLBACK.md`（ロールバック観点）
+- `docs/config_migration/phase4/README.md`（Phase3 完了後に実施する Phase4 の詳細仕様）
 - `docs/config_migration/changeSpec_overview.md`
 - `docs/config_migration/CHANGE_RULES.md`
 - `docs/config_migration/CHANGE_LOG.md`

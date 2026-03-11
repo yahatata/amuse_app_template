@@ -253,7 +253,7 @@ export const updateActiveBill = onCall(async (request) => {
     // DualWrite: todaysBills の items, extraCost, tournaments, sideGameChip 配列/オブジェクトを更新（totalPrice は更新しない）
     let dualWriteResult: 'success' | 'failed' | 'skipped' = 'skipped';
     
-    if (shouldDualWrite()) {
+    if (await shouldDualWrite()) {
       try {
         const legacyRef = db.collection('todaysBills').doc(billId);
         const legacySnap = await legacyRef.get();

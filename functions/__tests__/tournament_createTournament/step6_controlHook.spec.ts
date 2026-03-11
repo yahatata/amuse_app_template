@@ -66,9 +66,10 @@ describe('Step 6: controlHook 新 payload 対応', () => {
     process.env.FIRESTORE_EMULATOR_HOST =
       process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
     testEnv = await initializeTestEnvironment({ projectId: PROJECT_ID });
-    if (!admin.apps.length) {
-      admin.initializeApp({ projectId: PROJECT_ID });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map((a) => a?.delete()).filter(Boolean));
     }
+    admin.initializeApp({ projectId: PROJECT_ID });
     try {
       await (testEnv as { clearFirestore: () => Promise<void> }).clearFirestore();
     } catch (e) {

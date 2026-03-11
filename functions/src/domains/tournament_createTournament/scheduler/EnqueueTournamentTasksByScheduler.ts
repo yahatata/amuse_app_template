@@ -4,15 +4,19 @@
  * 日次で runEnqueueTournamentTasks を実行する。
  * Step 6 デプロイ完了まで ENQUEUE_SCHEDULER_ENABLED が true でないと即 return する。
  *
- * cron: 毎日 5:00 JST（lib/globalConstant.dart の ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON と同期）
+ * cron: 毎日 5:00 JST。環境変数 ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON で上書き可能。
  */
 
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { logger } from 'firebase-functions';
 import { runEnqueueTournamentTasks } from '../services/enqueueTournamentTasksCore';
+import { getStoreConfig } from '../../../shared/config/configLoader';
 
-const SCHEDULE_CRON = '0 5 * * *';
-
-const ENQUEUE_SCHEDULER_ENABLED = process.env.ENQUEUE_SCHEDULER_ENABLED === 'true';
+const SCHEDULE_CRON = process.env.ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON || '0 5 * * *';
+logger.info('enqueueTournamentTasksByScheduler schedule', {
+  schedule: SCHEDULE_CRON,
+  source: process.env.ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON ? 'env' : 'default',
+});
 
 export const enqueueTournamentTasksByScheduler = onSchedule(
   {
@@ -22,9 +26,10 @@ export const enqueueTournamentTasksByScheduler = onSchedule(
     memory: '512MiB',
   },
   async () => {
-    if (!ENQUEUE_SCHEDULER_ENABLED) {
+    const config = await getStoreConfig();
+    if (!config.features?.enqueueSchedulerEnabled) {
       console.log(
-        '=== enqueue バッチ Scheduler: Step 6 デプロイ待ちのためスキップ（ENQUEUE_SCHEDULER_ENABLED != true） ==='
+        '=== enqueue バッチ Scheduler: スキップ（features.enqueueSchedulerEnabled != true） ==='
       );
       return;
     }

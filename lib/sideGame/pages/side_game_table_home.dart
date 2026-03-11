@@ -1,7 +1,8 @@
 import 'dart:math' as Math;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/user_actions/user_action_home.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
@@ -163,7 +164,7 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
               _updateGameName(gameName);
             },
             itemBuilder: (BuildContext context) {
-              return GlobalConstants.sideGameTypes.map((String gameName) {
+              return (StoreConfigService.instance.latestData?.sideGameTypes ?? kDefaultSideGameTypes).map((String gameName) {
                 return PopupMenuItem<String>(
                   value: gameName,
                   child: Text(gameName),

@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../Utils/menuItemsManager.dart';
-import '../../globalConstant.dart';
+import '../../services/store_config_defaults.dart';
+import '../../services/store_config_service.dart';
 import 'createMenuPage.dart';
 
 class MenuEditorListPage extends StatefulWidget {
@@ -87,10 +88,9 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
 
   // When: カテゴリー一覧読み込み時
   // Where: MenuEditorListPage
-  // What: カテゴリー一覧を準備
-  // How: globalConstant.dartからカテゴリーを取得
+  // What: カテゴリー一覧を準備（build で StoreConfigService から取得）
   void _loadCategories() {
-    // カテゴリーは既にglobalConstant.dartで定義済み
+    // カテゴリーは build 内で StoreConfigService.instance.latestData?.menuCategories から取得
   }
 
   // When: メニューアイテム読み込み時
@@ -301,7 +301,7 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
                   _buildCategoryChip('All'),
                   const SizedBox(width: 8),
                   // 各カテゴリー
-                  ...GlobalConstants.menuCategories.map((category) => 
+                  ...(StoreConfigService.instance.latestData?.menuCategories ?? kDefaultMenuCategories).map((category) => 
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: _buildCategoryChip(category),

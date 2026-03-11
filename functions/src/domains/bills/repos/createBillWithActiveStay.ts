@@ -101,7 +101,7 @@ export async function createBillWithActiveStay(
   const expiresAt = Timestamp.fromDate(new Date(now.getTime() + 48 * 60 * 60 * 1000));
 
   // デュアルライトフラグ取得
-  const dualWriteEnabled = shouldDualWrite();
+  const dualWriteEnabled = await shouldDualWrite();
 
   let reused = false;
   let dualWriteResult: 'success' | 'failed' | 'skipped' = 'skipped';

@@ -161,7 +161,7 @@ export async function appendItemCore(
   // 5) デュアルライト: todaysBills の読み取りを書き込みの前に実行（トランザクションの制約）
   let legacyRef: admin.firestore.DocumentReference | null = null;
   let legacySnap: admin.firestore.DocumentSnapshot | null = null;
-  if (shouldDualWrite()) {
+  if (await shouldDualWrite()) {
     legacyRef = db.collection('todaysBills').doc(billId);
     legacySnap = await tx.get(legacyRef);
   }
@@ -196,7 +196,7 @@ export async function appendItemCore(
   let dualWriteResult: 'success' | 'failed' | 'skipped' = 'skipped';
   let dualWriteError: any = null;
   
-  if (shouldDualWrite() && legacyRef && legacySnap && legacySnap.exists) {
+  if ((await shouldDualWrite()) && legacyRef && legacySnap && legacySnap.exists) {
     try {
       // 旧スキーマに合わせた形式で追加（orderId = itemId 必須、金額フィールドは入れない）
       // arrayUnion は完全一致で重複検出するため、最小限 & 安定キーのみにする

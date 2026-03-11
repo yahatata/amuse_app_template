@@ -233,6 +233,7 @@ export async function findBusinessDateCandidates(
 ): Promise<string[]> {
   const candidates: string[] = [];
   const inputTime = jstDate.getTime();
+  const bufferMinutes = await getCalcBusinessDateBufferMinutes();
 
   // 当月の営業日をチェック
   if (currentMonthDoc.exists) {
@@ -248,7 +249,6 @@ export async function findBusinessDateCandidates(
       const dayNum = parseInt(normalizedDayKey, 10);
       if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) continue;
       
-      // 該当日の営業時間ウィンドウを計算
       const baseDate = new Date(jstDate);
       baseDate.setUTCDate(dayNum);
       baseDate.setUTCHours(0, 0, 0, 0);
@@ -256,9 +256,6 @@ export async function findBusinessDateCandidates(
       const openTime = minutesToTime(dayData.openMinute || 0, baseDate);
       const closeTime = minutesToTime(dayData.closeMinute || 1440, baseDate);
       
-      // バッファを適用したウィンドウ内かチェック
-      // 入力時刻が、この営業日のバッファ適用済みウィンドウ（openTime - buffer から closeTime + buffer）内にあるか
-      const bufferMinutes = getCalcBusinessDateBufferMinutes();
       const dayBufferedOpenTime = subtractMinutes(openTime, bufferMinutes);
       const dayBufferedCloseTime = addMinutes(closeTime, bufferMinutes);
       
@@ -291,7 +288,6 @@ export async function findBusinessDateCandidates(
           const openTime = minutesToTime(dayData.openMinute || 0, baseDate);
           const closeTime = minutesToTime(dayData.closeMinute || 1440, baseDate);
           
-          const bufferMinutes = getCalcBusinessDateBufferMinutes();
           const dayBufferedOpenTime = subtractMinutes(openTime, bufferMinutes);
           const dayBufferedCloseTime = addMinutes(closeTime, bufferMinutes);
           
@@ -325,7 +321,6 @@ export async function findBusinessDateCandidates(
         const openTime = minutesToTime(dayData.openMinute || 0, baseDate);
         const closeTime = minutesToTime(dayData.closeMinute || 1440, baseDate);
         
-        const bufferMinutes = getCalcBusinessDateBufferMinutes();
         const dayBufferedOpenTime = subtractMinutes(openTime, bufferMinutes);
         const dayBufferedCloseTime = addMinutes(closeTime, bufferMinutes);
         
@@ -343,13 +338,10 @@ export async function findBusinessDateCandidates(
 }
 
 /**
- * globalConstantからバッファ時間（分）を取得
- * デフォルト: 30分
+ * storeMeta/config から営業日計算バッファ（分）を取得
  */
-export function getCalcBusinessDateBufferMinutes(): number {
-  // TODO: globalConstant.dartから取得する機能を実装
-  // 現時点ではデフォルト値30分を返す
-  // 将来的にはFirestoreのglobalConstantドキュメントから取得するか、
-  // 環境変数から取得する実装を追加
-  return 70;
+export async function getCalcBusinessDateBufferMinutes(): Promise<number> {
+  const { getStoreConfig, getCalcBufferMinutes } = await import('../../../shared/config/configLoader');
+  const config = await getStoreConfig();
+  return getCalcBufferMinutes(config);
 }

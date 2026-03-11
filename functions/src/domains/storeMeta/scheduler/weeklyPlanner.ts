@@ -14,12 +14,20 @@ import { logger } from 'firebase-functions';
 import { CloudTasksClient } from '@google-cloud/tasks';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getEnv } from '../../../shared/firebase';
+import { getStoreConfig } from '../../../shared/config/configLoader';
+import { DEFAULT_TASK_CLOSE_OFFSET_MINUTES, DEFAULT_TASK_OPEN_OFFSET_MINUTES } from '../../../shared/config/defaults';
 
 const tasksClient = new CloudTasksClient();
 
+const WEEKLY_PLANNER_CRON = process.env.WEEKLY_PLANNER_CRON || '0 11 * * 0';  // UTC 11:00 = JST 20:00（日曜）
+logger.info('weeklyPlanner schedule', {
+  schedule: WEEKLY_PLANNER_CRON,
+  source: process.env.WEEKLY_PLANNER_CRON ? 'env' : 'default',
+});
+
 export const weeklyPlanner = onSchedule(
   {
-    schedule: '0 11 * * 0',  // UTC 11:00 = JST 20:00（日曜）
+    schedule: WEEKLY_PLANNER_CRON,
     timeZone: 'UTC',
   },
   async (event) => {
@@ -28,21 +36,19 @@ export const weeklyPlanner = onSchedule(
       const PROJECT_ID =
         process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || process.env.PROJECT_ID || 'amuse-app-template';
 
-      // ENABLE_AUTO_OPEN_CLOSEの確認（環境変数から取得）
-      const enableAutoOpenClose = process.env.ENABLE_AUTO_OPEN_CLOSE === 'true';
-      if (!enableAutoOpenClose) {
+      const config = await getStoreConfig();
+      if (!config.autoOpenClose?.enabled) {
         logger.info('自動開閉店が無効化されています。スキップします。');
         return;
       }
 
-      // 環境変数から取得
       const closeAssessmentUrl = getEnv('CLOSE_ASSESSMENT_URL');
       const openAssessmentUrl = getEnv('OPEN_ASSESSMENT_URL');
       const tasksQueue = getEnv('WEEKLYPLANNER_TASKS_QUEUE');
       const tasksLocation = getEnv('WEEKLYPLANNER_TASKS_LOCATION');
       const tasksInvokerSa = getEnv('TASKS_INVOKER_SA');
-      const taskCloseOffsetMinutes = parseInt(process.env.TASK_CLOSE_OFFSET_MINUTES || '120');
-      const taskOpenOffsetMinutes = parseInt(process.env.TASK_OPEN_OFFSET_MINUTES || '-30');
+      const taskCloseOffsetMinutes = config.autoOpenClose?.taskCloseOffsetMinutes ?? DEFAULT_TASK_CLOSE_OFFSET_MINUTES;
+      const taskOpenOffsetMinutes = config.autoOpenClose?.taskOpenOffsetMinutes ?? DEFAULT_TASK_OPEN_OFFSET_MINUTES;
 
       const db = getFirestore();
       const now = new Date();

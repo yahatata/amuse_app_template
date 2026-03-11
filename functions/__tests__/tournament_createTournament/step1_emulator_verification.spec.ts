@@ -16,7 +16,12 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
 const PROJECT_ID = 'test-project-step1-verify';
 
-describe('Step 1 Emulator 検証: 単発作成・定期生成', () => {
+// エミュレータ起動時のみ実行。通常の npm test ではスキップする。
+// 実行例: RUN_EMULATOR_TESTS=1 npm test -- step1_emulator_verification
+// または: npm run test:phase0A:emulator
+const describeOrSkip = process.env.RUN_EMULATOR_TESTS === '1' ? describe : describe.skip;
+
+describeOrSkip('Step 1 Emulator 検証: 単発作成・定期生成', () => {
   let testEnv: any;
   let db: admin.firestore.Firestore;
   let createScheduledTournament: any;
@@ -38,9 +43,10 @@ describe('Step 1 Emulator 検証: 単発作成・定期生成', () => {
 
     testEnv = await initializeTestEnvironment({ projectId: PROJECT_ID });
 
-    if (!admin.apps.length) {
-      admin.initializeApp({ projectId: PROJECT_ID });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map((a) => a?.delete()).filter(Boolean));
     }
+    admin.initializeApp({ projectId: PROJECT_ID });
     db = getFirestore();
 
     const createMod = await import('../../src/domains/tournament_createTournament/callables/createScheduledTournament');

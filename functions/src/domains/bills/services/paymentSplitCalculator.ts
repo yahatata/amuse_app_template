@@ -1,28 +1,17 @@
 /**
  * 支払い分割計算のpure関数（Cloud Functions側）
- * 
+ *
  * Flutter側の payment_split_calculator.dart と同じロジックを実装します。
- * ソース・オブ・トゥルースとして、クライアント側の計算結果と照合するために使用します。
- * 
- * ⚠️ 重要: 以下の定数は lib/globalConstant.dart と同期必須
- * - SIDE_GAME_CHIP_EXCHANGE_RATE
- * - CATEGORY_PAYMENT_METHODS
- * - DEFAULT_POINT_PRIORITY
+ * SSoT: storeMeta/config 経由の値を呼び出し元から渡す（pure function 維持）。
  */
 
-// サイドゲームチップ換算率（globalConstant.dartと同期必須）
-const SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0;
+import {
+  DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE,
+  DEFAULT_CATEGORY_PAYMENT_METHODS,
+  DEFAULT_POINT_PRIORITY as _DEFAULT_POINT_PRIORITY,
+} from '../../../shared/config/defaults';
 
-// カテゴリ別支払い方法制限（globalConstant.dartと同期必須）
-const CATEGORY_PAYMENT_METHODS: Record<string, string[]> = {
-  extraCost: ['cash', 'credit_card', 'electronic_money'],
-  sideGameChip: ['cash', 'credit_card', 'electronic_money'],
-  items: ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'],
-  tournaments: ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB'],
-};
-
-// ポイント使用優先順位（デフォルト値、globalConstant.dartと同期必須）
-export const DEFAULT_POINT_PRIORITY = ['pointA', 'pointB', 'sideGameChip'];
+export const DEFAULT_POINT_PRIORITY = _DEFAULT_POINT_PRIORITY;
 
 // 計算結果の型定義
 export interface CategoryBreakdown {
@@ -55,8 +44,8 @@ export function calculatePaymentSplit(params: CalculatePaymentSplitParams): Paym
     bill,
     balances,
     pointPriority = DEFAULT_POINT_PRIORITY,
-    categoryPaymentMethods = CATEGORY_PAYMENT_METHODS,
-    sideGameChipExchangeRate = SIDE_GAME_CHIP_EXCHANGE_RATE,
+    categoryPaymentMethods = DEFAULT_CATEGORY_PAYMENT_METHODS,
+    sideGameChipExchangeRate = DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE,
     categoryOrder = ['extraCost', 'sideGameChip', 'tournaments', 'items'],
   } = params;
 

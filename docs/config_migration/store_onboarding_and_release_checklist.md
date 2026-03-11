@@ -9,7 +9,7 @@
 - [ ] iOS `GoogleService-Info.plist` を配置した
 - [ ] アプリ名・アイコン差分を反映した
 - [ ] 店舗の環境変数・Secrets をコマンドまたはコンソールで登録した（env ファイルは使用しない）
-- [ ] `storeMeta/config` 初期値を投入した
+- [ ] `storeMeta/config` 初期値を投入した（管理者画面→詳細設定→storeMeta/config 初期セットアップ、または initializeStoreConfigCallable を呼び出し）
 
 ## 2. Flutter リリース前チェック（店舗単位）
 
@@ -42,6 +42,6 @@
 ## 6. 互換性チェック
 
 - [ ] 追加キーは safe default を持つ（秘密値除く）
-- [ ] 旧参照と新参照の混在期間を定義した
+- [ ] storeMeta/config 移行では旧参照は差し替え完了即削除（fallback 維持しない）。他移行では混在期間を定義する場合は明記する
 - [ ] 秘密値に default/fallback がない
 - [ ] Functions 最終決定原則に反しない

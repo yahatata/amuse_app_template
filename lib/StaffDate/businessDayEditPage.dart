@@ -5,7 +5,8 @@ import 'package:holiday_jp/holiday_jp.dart' as holiday_jp;
 import 'shift_repository.dart';
 import 'shiftHomePage.dart'; // BusinessHours型を使用するため
 import '../Utils/time_converter.dart';
-import '../globalConstant.dart';
+import '../services/store_config_service.dart';
+import '../services/store_config_defaults.dart';
 
 /// 営業日編集ページ
 class BusinessDayEditPage extends StatefulWidget {
@@ -204,7 +205,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
 
         // 休業日の場合はstyleIdを"closed"に設定
         final finalStyleId = data.isClosed
-            ? GlobalConstants.businessHoursStyleClosed
+            ? 'closed'
             : data.styleId;
 
         days.add({
@@ -437,7 +438,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                           int openMinute;
                           int closeMinute;
                           if (data.styleId != null) {
-                            final styleData = GlobalConstants.getBusinessHoursByStyleId(data.styleId!);
+                            final styleData = (StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults()).getBusinessHoursByStyleId(data.styleId!);
                             if (styleData != null) {
                               openMinute = styleData['openMinute'] as int;
                               closeMinute = styleData['closeMinute'] as int;
@@ -488,11 +489,11 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                                       final weekday = date.weekday;
                                       // 月〜金（1-5）は平日、土・日（6-7）は週末
                                       final determinedStyleId = (weekday >= 1 && weekday <= 5)
-                                          ? GlobalConstants.businessHoursStyleWeekday
-                                          : GlobalConstants.businessHoursStyleWeekendHoliday;
+                                          ? 'weekday'
+                                          : 'weekendHoliday';
                                       
                                       // スタイルから営業時間を取得
-                                      final styleData = GlobalConstants.getBusinessHoursByStyleId(determinedStyleId);
+                                      final styleData = (StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults()).getBusinessHoursByStyleId(determinedStyleId);
                                       if (styleData != null) {
                                         startTime = minutesToTimeOfDay(styleData['openMinute'] as int);
                                         endTime = minutesToTimeOfDay(styleData['closeMinute'] as int);
@@ -501,7 +502,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                                     }
                                     // チェックを入れた場合（営業日→休業日）、styleIdを"closed"に設定
                                     else if (isClosed && !data.isClosed) {
-                                      styleId = GlobalConstants.businessHoursStyleClosed;
+                                      styleId = 'closed';
                                     }
                                     
                                     _daysData[day] = DayBusinessHours(
@@ -509,7 +510,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                                       endTime: endTime,
                                       isClosed: isClosed,
                                       styleId: isClosed 
-                                          ? GlobalConstants.businessHoursStyleClosed 
+                                          ? 'closed' 
                                           : styleId,
                                     );
                                   });
@@ -572,23 +573,23 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
     // スタイル選択肢（5つのスタイル）
     final styleOptions = [
       {
-        'id': GlobalConstants.businessHoursStyleWeekday,
+        'id': 'weekday',
         'label': '平日（15:00-25:00）',
       },
       {
-        'id': GlobalConstants.businessHoursStyleWeekendHoliday,
+        'id': 'weekendHoliday',
         'label': '週末・祝日（12:00-25:00）',
       },
       {
-        'id': GlobalConstants.businessHoursStyleEvent,
+        'id': 'event',
         'label': 'イベント（10:00-25:00）',
       },
       {
-        'id': GlobalConstants.businessHoursStyleAllDay,
+        'id': 'allDay',
         'label': '終日（6:00-25:00）',
       },
       {
-        'id': GlobalConstants.businessHoursStyleClosed,
+        'id': 'closed',
         'label': '休業日',
       },
     ];
@@ -604,7 +605,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
           // スタイルが選択されている場合、営業時間を表示用に取得
           String? displayTimeRange;
           if (selectedStyleId != null) {
-            final styleData = GlobalConstants.getBusinessHoursByStyleId(selectedStyleId!);
+            final styleData = (StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults()).getBusinessHoursByStyleId(selectedStyleId!);
             if (styleData != null) {
               final openMinute = styleData['openMinute'] as int;
               final closeMinute = styleData['closeMinute'] as int;
@@ -699,7 +700,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                     ? null
                     : () {
                         if (selectedStyleId == null) return;
-                        final styleData = GlobalConstants.getBusinessHoursByStyleId(selectedStyleId!);
+                        final styleData = (StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults()).getBusinessHoursByStyleId(selectedStyleId!);
                         if (styleData == null) return;
                         final openMinute = styleData['openMinute'] as int;
                         final closeMinute = styleData['closeMinute'] as int;
@@ -710,7 +711,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                             endTime: minutesToTimeOfDay(closeMinute),
                             isClosed: isClosed,
                             styleId: isClosed
-                                ? GlobalConstants.businessHoursStyleClosed
+                                ? 'closed'
                                 : selectedStyleId,
                           );
                         });

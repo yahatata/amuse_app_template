@@ -67,7 +67,7 @@ export const setBusinessHoursManualForDay = onCall(
     }
 
     // スタイルから営業時間を取得
-    const style = getBusinessHoursByStyleId(payload.styleId);
+    const style = await getBusinessHoursByStyleId(payload.styleId);
 
     // payloadで指定された値があれば上書き
     const openMinute = payload.openMinute ?? style.openMinute;

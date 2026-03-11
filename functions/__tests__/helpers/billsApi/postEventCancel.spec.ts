@@ -23,7 +23,7 @@ describe('postEventCancel', () => {
   const projectId = 'test-project-post-event-cancel';
 
   beforeAll(async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
     
     testEnv = await initializeTestEnvironment({
       projectId,
@@ -99,6 +99,7 @@ describe('postEventCancel', () => {
         idempotencyKey,
         reason: 'テストキャンセル',
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result.success).toBe(true);
@@ -151,6 +152,7 @@ describe('postEventCancel', () => {
           billId: 'bill_not_exist',
           idempotencyKey: 'idem_test_001',
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -171,6 +173,7 @@ describe('postEventCancel', () => {
           billId,
           idempotencyKey: 'idem_test_001',
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -189,6 +192,7 @@ describe('postEventCancel', () => {
           billId,
           idempotencyKey: 'idem_test_001',
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -207,6 +211,7 @@ describe('postEventCancel', () => {
           billId,
           idempotencyKey: 'idem_test_001',
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -225,6 +230,7 @@ describe('postEventCancel', () => {
           billId,
           idempotencyKey: 'idem_test_001',
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -243,6 +249,7 @@ describe('postEventCancel', () => {
           billId,
           idempotencyKey: 'idem_test_001',
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -261,6 +268,7 @@ describe('postEventCancel', () => {
           billId,
           idempotencyKey: 'idem_test_001',
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -279,6 +287,7 @@ describe('postEventCancel', () => {
           billId,
           idempotencyKey: 'idem_test_001',
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -297,6 +306,7 @@ describe('postEventCancel', () => {
           billId,
           idempotencyKey: 'idem_test_001',
           createdBy: 'admin_test_001',
+          eventBusinessDate: '2025-11-15',
         });
         fail('Should have thrown an error');
       } catch (error: any) {
@@ -319,6 +329,7 @@ describe('postEventCancel', () => {
         billId,
         idempotencyKey,
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result1.diagnostics?.reused).toBeUndefined();
@@ -328,6 +339,7 @@ describe('postEventCancel', () => {
         billId,
         idempotencyKey,
         createdBy,
+        eventBusinessDate: '2025-11-15',
       });
 
       expect(result2.diagnostics?.reused).toBe(true);

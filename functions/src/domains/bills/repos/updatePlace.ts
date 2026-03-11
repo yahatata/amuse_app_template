@@ -102,7 +102,7 @@ export async function updatePlace(request: UpdatePlaceRequest): Promise<UpdatePl
     let dualWriteResult: 'success' | 'failed' | 'skipped' = 'skipped';
     let dualWriteError: any = null;
 
-    const dualWriteEnabled = options?.dualWrite !== undefined ? options.dualWrite : shouldDualWrite();
+    const dualWriteEnabled = options?.dualWrite !== undefined ? options.dualWrite : await shouldDualWrite();
     
     if (dualWriteEnabled) {
       try {

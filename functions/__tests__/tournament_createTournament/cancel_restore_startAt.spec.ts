@@ -28,8 +28,8 @@ describe('cancel / restore / startAt編集 検証', () => {
   const TPL_ID = 'tpl-cancel-restore';
   const BLIND_ID = 'blind-cancel-restore';
   const REC_ID = 'rec-cancel-restore';
-  const STORE_ID = 'default-store';
-  const TENANT_ID = 'default-tenant';
+  const STORE_ID = 'test-store-cancel-restore';
+  const TENANT_ID = 'test-tenant-cancel-restore';
 
   // 2026-04-01 19:00 JST = 2026-04-01T10:00:00Z
   // 営業日: 2026-04-01
@@ -46,9 +46,10 @@ describe('cancel / restore / startAt編集 検証', () => {
 
     testEnv = await initializeTestEnvironment({ projectId: PROJECT_ID });
 
-    if (!admin.apps.length) {
-      admin.initializeApp({ projectId: PROJECT_ID });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map((a) => a?.delete()).filter(Boolean));
     }
+    admin.initializeApp({ projectId: PROJECT_ID });
     db = getFirestore();
 
     const statusMod = await import(
@@ -99,6 +100,7 @@ describe('cancel / restore / startAt編集 検証', () => {
       uid: TEST_UID,
       role: 'admin',
       status: 'active',
+      name: 'Test Admin Device',
       updatedAt: now,
     });
 

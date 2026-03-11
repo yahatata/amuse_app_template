@@ -1,5 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import { DEFAULT_SHIFT_SCHEDULING_START_DAY } from "../../../shared/config/defaults";
 import { assertStaffExists, assertHourStep, getYearMonthFromDateKey, isInShiftSchedulingPeriod, isInsufficientDaysNotificationSent, isInsufficientDayOrTimeSlot } from "../../shift/services/helpers";
 
 const db = admin.firestore();
@@ -73,6 +75,9 @@ export const createMultipleShifts = onCall(
     }
 
     try {
+      const config = await getStoreConfig();
+      const schedulingStartDay = config.shift?.schedulingStartDay ?? DEFAULT_SHIFT_SCHEDULING_START_DAY;
+
       // スタッフ存在確認
       await assertStaffExists(staffId);
 
@@ -124,7 +129,7 @@ export const createMultipleShifts = onCall(
 
         // ②期間（シフトを組む期間）チェック
         const yearMonth = getYearMonthFromDateKey(date);
-        const isInSchedulingPeriod = isInShiftSchedulingPeriod(date);
+        const isInSchedulingPeriod = isInShiftSchedulingPeriod(date, schedulingStartDay);
         
         if (isInSchedulingPeriod) {
           // ②期間中: 管理者が不足日・不足時間を送信したかどうかを確認
@@ -270,7 +275,7 @@ export const createMultipleShifts = onCall(
           if (existingRequest.exists) {
             // 既存の申請がある場合
             // 提出期間中（期間①）の場合は上書き可能、期間②以降はエラー
-            const isInSchedulingPeriod = isInShiftSchedulingPeriod(dateKey);
+            const isInSchedulingPeriod = isInShiftSchedulingPeriod(dateKey, schedulingStartDay);
             
             if (isInSchedulingPeriod) {
               // 期間②以降: 既存の申請がある場合はエラー

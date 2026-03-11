@@ -1,24 +1,18 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { assertAdminDevice, getYearMonthFromDateKey, calculateIsSufficient, checkAndSetAllDaysFinalized } from "../services/helpers";
+import {
+  assertAdminDevice,
+  getYearMonthFromDateKey,
+  calculateIsSufficient,
+  checkAndSetAllDaysFinalized,
+  getRequiredStaffByTimeSlot,
+} from "../services/helpers";
 
 const db = admin.firestore();
 
 interface FinalizeDayRequest {
   dateKey: string; // YYYY-MM-DD
   installationId: string;
-}
-
-/**
- * 時間帯別の必要人数設定を取得（デフォルト値）
- */
-async function getRequiredStaffByTimeSlot(): Promise<
-  Array<{ startHour: number; endHour: number; requiredCount: number }>
-> {
-  return [
-    { startHour: 19, endHour: 22, requiredCount: 2 },
-    { startHour: 10, endHour: 12, requiredCount: 3 },
-  ];
 }
 
 /**
