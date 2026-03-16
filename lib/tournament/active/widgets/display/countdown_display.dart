@@ -124,7 +124,7 @@ class CountdownDisplay extends StatelessWidget {
     }
     
     // 終了判定は簡略化（実際の判定はTimerWidget内で行う）
-    if (status == 'ended') {
+    if (status == 'ended' || status == 'force_ended') {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
@@ -162,7 +162,7 @@ class CountdownDisplay extends StatelessWidget {
 
 
   LinearGradient _getBackgroundGradient() {
-    if (status == 'ended') {
+    if (status == 'ended' || status == 'force_ended') {
       return LinearGradient(
         colors: [Colors.grey[300]!, Colors.grey[400]!],
         begin: Alignment.topLeft,

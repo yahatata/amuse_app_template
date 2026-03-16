@@ -121,7 +121,7 @@ class BlindTimerTournamentSelectPage extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: () {
-          if (status == 'ended') {
+          if (status == 'ended' || status == 'force_ended') {
             showDialog<void>(
               context: context,
               builder: (dialogContext) => AlertDialog(
@@ -214,6 +214,7 @@ class BlindTimerTournamentSelectPage extends StatelessWidget {
       case 'paused':
         return Colors.amber.shade700;
       case 'ended':
+      case 'force_ended':
         return Colors.grey;
       default:
         return Colors.blueGrey;
@@ -231,6 +232,7 @@ class BlindTimerTournamentSelectPage extends StatelessWidget {
       case 'paused':
         return '一時停止';
       case 'ended':
+      case 'force_ended':
         return '終了';
       default:
         return status;

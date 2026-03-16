@@ -37,6 +37,8 @@ class ManualAttendancePage extends StatefulWidget {
 class _ManualAttendancePageState extends State<ManualAttendancePage> {
   final AttendanceService _attendanceService = AttendanceService();
   List<StaffData> _staffList = [];
+  List<StaffData> _separateSectionStaff = []; // CHANGESPEC 6-4: 別枠（closedStoreWithoutClockOut=false && clockOut=null）
+  String _displayDate = '';
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -54,10 +56,12 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
         _errorMessage = null;
       });
 
-      final staffList = await _attendanceService.getStaffList(widget.isClockInMode);
-      
+      final result = await _attendanceService.getStaffList(widget.isClockInMode);
+
       setState(() {
-        _staffList = staffList;
+        _staffList = result.staffList;
+        _separateSectionStaff = result.separateSectionStaff;
+        _displayDate = result.date;
         _isLoading = false;
       });
     } catch (e) {
@@ -89,6 +93,11 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
             Expanded(
               child: _buildStaffList(),
             ),
+            // CHANGESPEC 6-4: 別枠（退勤モード時のみ、closedStoreWithoutClockOut=false かつ clockOut=null）
+            if (!widget.isClockInMode && _separateSectionStaff.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildSeparateSection(),
+            ],
           ],
         ),
       ),
@@ -128,14 +137,25 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  widget.isClockInMode 
-                    ? '出勤可能なスタッフを選択してください'
-                    : '退勤可能なスタッフを選択してください',
+                  widget.isClockInMode
+                      ? '出勤可能なスタッフを選択してください'
+                      : '退勤可能なスタッフを選択してください',
                   style: TextStyle(
                     fontSize: 14,
                     color: widget.isClockInMode ? Colors.green[600] : Colors.red[600],
                   ),
                 ),
+                if (_displayDate.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '対象日: $_displayDate',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -320,6 +340,82 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
     return _staffList.length;
   }
 
+  /// CHANGESPEC 6-4: 別枠（closedStoreWithoutClockOut=false かつ clockOut=null の退勤前データ）
+  Widget _buildSeparateSection() {
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 200),
+      decoration: BoxDecoration(
+        color: Colors.amber[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber[300]!),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.amber[100],
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.amber[800], size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  '退勤前のデータ（別枠）',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.amber[900],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.all(8),
+              itemCount: _separateSectionStaff.length,
+              itemBuilder: (context, index) {
+                final staff = _separateSectionStaff[index];
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 2),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.amber[100],
+                      radius: 20,
+                      child: Text(
+                        staff.fullName.isNotEmpty ? staff.fullName[0] : '?',
+                        style: TextStyle(color: Colors.amber[800], fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    title: Text(staff.fullName, style: const TextStyle(fontSize: 14)),
+                    subtitle: Text(
+                      '出勤: ${staff.clockIn ?? "—"}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    trailing: ElevatedButton(
+                      onPressed: () => _selectStaff(staff),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      ),
+                      child: const Text('退勤'),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // スタッフ選択処理
   void _selectStaff(StaffData staff) {
     // 確認ダイアログを表示
@@ -374,46 +470,69 @@ class _ManualAttendancePageState extends State<ManualAttendancePage> {
     );
   }
 
-      // 勤怠処理の実行
+      // 勤怠処理の実行（Phase4 01: clockIn/clockOut 経由に統一）
     Future<void> _processAttendance(StaffData staff) async {
       try {
         if (widget.isClockInMode) {
-          // 出勤処理
-          final result = await _attendanceService.createManualClockInRecord(
+          // 出勤処理（clockIn Callable）
+          final result = await _attendanceService.clockIn(
             staff.uid,
-            staff.fullName,
+            staffName: staff.fullName,
           );
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result.message),
-              backgroundColor: Colors.green,
-            ),
-          );
+
+          if (result.warning != null && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${result.message}\n（${result.warning}）'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          } else if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(result.message),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
         } else {
-          // 退勤処理
-          final result = await _attendanceService.updateManualClockOutRecord(
-            staff.attendanceDocId!,
+          // 退勤処理（clockOut Callable、docId 優先）
+          final docId = staff.attendanceDocId;
+          final result = await _attendanceService.clockOut(
+            staff.uid,
+            docId: docId,
           );
-          
+
+          if (result.warning != null && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${result.message}\n（${result.warning}）'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          } else if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(result.message),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+
+        // 処理完了後、スタッフリストを更新
+        if (mounted) await _loadStaffList();
+      } catch (e) {
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(result.message),
+              content: Text('エラーが発生しました: ${e.toString().replaceFirst('Exception: ', '')}'),
               backgroundColor: Colors.red,
             ),
           );
         }
-        
-        // 処理完了後、スタッフリストを更新
-        await _loadStaffList();
-        
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
       }
     }
 }

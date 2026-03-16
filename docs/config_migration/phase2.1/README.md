@@ -34,7 +34,7 @@ Phase2 完了時点で `lib/globalConstant.dart` に残るとされた定数に�
 | B-04 | `defaultPrizeRatio`, `prizeReceiverPercentage`, `prizeRoundingMethod`, `prizeRoundingUnit`, `prizeDistribution` | Build 維持（トーナメント設定） | storeMeta/config に寄せるか |
 | B-05 | `pointTypes` | Phase5 へ繰り延べ | 改修 scope が大きく、種類数可変化等の検討が必要。phase5/README.md 参照 |
 | B-07 | `ADMIN_CREATED_SHIFT_ID` | 残す（globalConstant） | Flutter/Functions 間で同期必須の識別子。globalConstant に残し、B07/README に変更時修正箇所を記載 |
-| D-15 | `WEEKLY_PLANNER_CRON`, `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON`, `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_RUN_AT_DESCRIPTION`, `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON`, `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_RUN_AT_DESCRIPTION` | 完了（TS 環境変数化） | TS は process.env で上書き可能。Dart はドキュメント用。D15_cron/README.md 参照 |
+| D-15 | `WEEKLY_PLANNER_CRON`, `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON`, `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` | 完了（TS 環境変数化） | TS は process.env で上書き可能。Dart から削除済み。D15_cron/README.md 参照 |
 
 ---
 

@@ -1,15 +1,24 @@
+/**
+ * [UNUSED - Phase4 01] determineAttendanceMode
+ *
+ * 締め時間前後で出勤/退勤を自動判定する旧ロジック。
+ * Phase4 01 で clockIn / clockOut への明示的分離に伴い廃止。
+ *
+ * 復元手順: domains/attendance/callables に戻し、attendance/index.ts から export を復活させる。
+ * 注意: getStoreCloseHour / normalizeStoreCloseHour に依存。configOps が unused の場合は同梱の configOps を参照すること。
+ */
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
-import { getStoreCloseHour, normalizeStoreCloseHour } from '../../../shared/time';
+import { getStoreCloseHour, normalizeStoreCloseHour } from './configOps';
 
 export const determineAttendanceMode = onCall(async (request: CallableRequest) => {
   try {
     const { data } = request;
-    
+
     // リクエストデータの検証
     const { staffId } = data as { staffId: string };
-    
+
     if (!staffId) {
       throw new HttpsError(
         'invalid-argument',
@@ -23,7 +32,7 @@ export const determineAttendanceMode = onCall(async (request: CallableRequest) =
     const jstDate = new Date(now.getTime() + jstOffset * 60000);
     const today = jstDate.toISOString().split('T')[0]; // YYYY-MM-DD形式
     const currentHour = jstDate.getHours(); // 現在時刻（0-23）
-    
+
     // 店舗締め時間設定（globalConstant.dartの値と同期）
     const STORE_CLOSE_HOUR = getStoreCloseHour(); // 0-48の整数（24以上は翌日繰り上がり）
     const normalizedHour = normalizeStoreCloseHour(STORE_CLOSE_HOUR); // 0-23の整数
@@ -52,7 +61,7 @@ export const determineAttendanceMode = onCall(async (request: CallableRequest) =
       const yesterday = new Date(jstDate);
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayStr = yesterday.toISOString().split('T')[0];
-      
+
       // 前日の未完了勤務を確認
       const yesterdayAttendanceQuery = await admin.firestore()
         .collection('attendances')
@@ -81,7 +90,7 @@ export const determineAttendanceMode = onCall(async (request: CallableRequest) =
       if (!attendanceQuery.empty) {
         const attendanceDoc = attendanceQuery.docs[0];
         const attendanceData = attendanceDoc.data();
-        
+
         // 出勤記録はあるが退勤記録がない場合
         if (attendanceData.clockIn && !attendanceData.clockOut) {
           isClockIn = false; // 退勤
@@ -95,25 +104,6 @@ export const determineAttendanceMode = onCall(async (request: CallableRequest) =
           );
         }
       }
-      
-      // TODO: 前日の未完了勤務がある場合の通知機能
-      // if (currentHour >= STORE_CLOSE_HOUR) {
-      //   const yesterday = new Date(jstDate);
-      //   yesterday.setDate(yesterday.getDate() - 1);
-      //   const yesterdayStr = yesterday.toISOString().split('T')[0];
-      //   
-      //   const yesterdayIncompleteQuery = await admin.firestore()
-      //     .collection('attendances')
-      //     .where('staffId', '==', staffId)
-      //     .where('date', '==', yesterdayStr)
-      //     .where('clockOut', '==', null)
-      //     .get();
-      //   
-      //   if (!yesterdayIncompleteQuery.empty) {
-      //     // 前日の未完了勤務がある場合の通知
-      //     await sendNotification(staffId, "前日の勤務が未完了です");
-      //   }
-      // }
     }
 
     return {
@@ -122,18 +112,18 @@ export const determineAttendanceMode = onCall(async (request: CallableRequest) =
       staffName,
       existingDocId,
       date: today,
-      message: isClockIn 
+      message: isClockIn
         ? `${staffName}さんの出勤処理を行います`
         : `${staffName}さんの退勤処理を行います`
     };
 
   } catch (error) {
     console.error('Error in determineAttendanceMode:', error);
-    
+
     if (error instanceof HttpsError) {
       throw error;
     }
-    
+
     throw new HttpsError(
       'internal',
       'Internal server error'

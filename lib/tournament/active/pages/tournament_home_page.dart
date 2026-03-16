@@ -264,7 +264,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
       final tournamentData = tournamentDoc.data();
       final status = tournamentData?['status'] ?? '';
       
-      if (status == 'ended') {
+      if (status == 'ended' || status == 'force_ended') {
         // 既に終了済み
         await showDialog(
           context: context,
@@ -722,6 +722,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
       case 'registered':
         return 'レジスト後';
       case 'ended':
+      case 'force_ended':
         return '終了済';
       default:
         return status;

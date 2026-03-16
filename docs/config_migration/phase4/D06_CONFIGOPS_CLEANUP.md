@@ -6,14 +6,13 @@ Phase2 横断検証（Z_crossCutting）で、`functions/src/shared/time/configOp
 
 Z-4（defaults.ts 唯一ソース）の観点では、デフォルト値の直書きは望ましくないが、D-06（STORE_CLOSE_HOUR）は **Phase4 で廃止**するため、Phase2 では触らない方針とする。
 
-## Phase4 スコープ
-
-Phase4 において **STORE_CLOSE_HOUR を廃止**する際、以下を実施する。
+## Phase4 実施内容【完了】
 
 | 対象 | 内容 |
 |------|------|
-| `functions/src/shared/time/configOps.ts` | `getStoreCloseHour()` の `return 27` 直書きを廃止。当該関数および `normalizeStoreCloseHour()` は、STORE_CLOSE_HOUR 廃止に伴い呼び出し元の改修とともに削除または置き換える |
-| 呼び出し元 | 夜間ジョブ（nightlyRecalculateBalanceDue, nightlyIntegrityCheck）は閉店処理/Cloud Task 起動に移行し、getStoreCloseHour を参照しない。determineAttendanceMode は STORE_CLOSE_HOUR 廃止に伴い出勤/退勤分離に改修 |
+| `configOps.ts` | `unused_function_lib/configOps.ts` に移動。shared/time からの export を削除 |
+| `determineAttendanceMode` | `unused_function_lib/determineAttendanceMode.ts` に移動。configOps を同梱の unused から参照 |
+| analytics `helpers.ts` | `normalizeStoreCloseHour` 依存を解消。`resolveBusinessDate` 内で `storeCloseHour % 24` をインライン使用 |
 
 ## 参照
 

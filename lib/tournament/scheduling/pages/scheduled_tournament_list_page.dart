@@ -1228,6 +1228,7 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
       case 'registered':
         return Colors.green;
       case 'ended':
+      case 'force_ended':
         return Colors.grey;
       case 'cancelled':
       case 'canceled':
@@ -1246,6 +1247,7 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
       case 'registered':
         return '実施中（レジスト済み）';
       case 'ended':
+      case 'force_ended':
         return '終了';
       case 'cancelled':
       case 'canceled':

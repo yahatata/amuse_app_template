@@ -4,8 +4,7 @@
  * 旧 accountingHistory コレクションを参照する Callable。
  * Dart は bills コレクションを直接参照するため未使用。accountingHistory は廃止予定。
  * STORE_CLOSE_HOUR を使用しているため Phase0B でデプロイ対象から除外。
- *
- * 復元手順: 下記 UNUSED_BLOCK の /* と */ を削除し、domains/bills/callables に戻して export を復活させる。
+ 
  */
 // ========== UNUSED_BLOCK_START ==========
 /*

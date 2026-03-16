@@ -1,5 +1,7 @@
 // Attendance domain: callables and scheduler
-export { determineAttendanceMode } from "./callables/determineAttendanceMode";
+// determineAttendanceMode: Phase4 01 で unused_function_lib に移動（clockIn/clockOut に分離）
+export { clockIn } from "./callables/clockIn";
+export { clockOut } from "./callables/clockOut";
 export { createClockInRecord } from "./callables/createClockInRecord";
 export { updateClockOutRecord } from "./callables/updateClockOutRecord";
 export { getStaffListForAttendance } from "./callables/getStaffListForAttendance";
@@ -13,4 +15,5 @@ export { getAttendanceCorrectionRequests } from "./callables/getAttendanceCorrec
 export { approveAttendanceCorrectionRequest } from "./callables/approveAttendanceCorrectionRequest";
 export { rejectAttendanceCorrectionRequest } from "./callables/rejectAttendanceCorrectionRequest";
 export { getPayrollData } from "./callables/getPayrollData";
+export { seedAttendancesDemo } from "./callables/seedAttendancesDemo";
 export { monthlyPayrollTrigger } from "./scheduler/monthlyPayrollTrigger";

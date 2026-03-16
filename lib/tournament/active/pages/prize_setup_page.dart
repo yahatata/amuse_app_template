@@ -208,7 +208,7 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
     final totalParticipants = entries + reentries;
     _prizeReceiverCount = ((totalParticipants * (StoreConfigService.instance.latestData?.tournamentPrizeReceiverPercentage ?? kDefaultTournamentPrizeReceiverPercentage)) / 100).round();
     if (_prizeReceiverCount < 1) _prizeReceiverCount = 1;
-    if (_prizeReceiverCount > 10) _prizeReceiverCount = 10;
+    if (_prizeReceiverCount > 100) _prizeReceiverCount = 100;
     
     _updatePrizeDistribution();
   }
@@ -218,7 +218,7 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
     _existingPrizes = {};
     
     if (_mainViewData != null) {
-      for (int i = 1; i <= 10; i++) {
+      for (int i = 1; i <= 100; i++) {
         final prizeKey = '${i}stPrize';
         final prizeValue = _mainViewData![prizeKey];
         if (prizeValue != null && prizeValue is num) {
@@ -238,7 +238,7 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
     
     // 配分比率を取得
     final dist = StoreConfigService.instance.latestData?.tournamentPrizeDistribution ?? kDefaultTournamentPrizeDistribution;
-    _prizePercentages = List.from(dist[_prizeReceiverCount] ?? [100.0]);
+    _prizePercentages = List.from(dist[_prizeReceiverCount] ?? getDefaultPrizeDistributionForCount(_prizeReceiverCount));
     
     // 各順位の金額を計算
     _prizeAmounts.clear();
@@ -532,8 +532,8 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
                   child: Slider(
                     value: _prizeReceiverCount.toDouble(),
                     min: 1.0,
-                    max: 10.0,
-                    divisions: 9,
+                    max: 100.0,
+                    divisions: 99,
                     label: '$_prizeReceiverCount人',
                     onChanged: (value) {
                       setState(() {

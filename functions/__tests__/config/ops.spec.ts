@@ -1,10 +1,11 @@
 /**
- * ops.ts の単体テスト
- * 
+ * configOps の単体テスト
+ *
  * STORE_CLOSE_HOUR の取得と cron 生成のテスト
+ * Phase4 01 で configOps は unused_function_lib に移動
  */
 
-import { getStoreCloseHour, cronFromHourAndMinuteJst, getNightlyCronTriplet } from '../../src/shared/time';
+import { getStoreCloseHour, cronFromHourAndMinuteJst, getNightlyCronTriplet } from '../../src/unused_function_lib/configOps';
 
 describe('ops.ts', () => {
   const originalEnv = process.env;

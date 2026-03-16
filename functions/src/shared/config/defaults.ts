@@ -32,6 +32,22 @@ export const DEFAULT_SETTLEMENT_AGGREGATOR_ENABLED = true;
 /** 卓端末登録機能の有効化。トーナメント/SG 登録を卓デバイスから行えるか */
 export const DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED = true;
 
+/** 手動打刻（勤怠記録タブの退勤処理 / シフト一覧タブの出勤登録）の有効化 */
+export const DEFAULT_CREATE_ATTENDANCE_BY_MANUAL = false;
+
+// =============================================================================
+// 手動打刻時刻調整
+// =============================================================================
+
+/** 時刻調整 UI の有効化（QR/手動の出退勤共通） */
+export const DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_ENABLED = false;
+
+/** 現在時刻から未来方向への調整許可範囲（分）。null の場合は現在時刻のみ */
+export const DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_FUTURE_MINUTES: number | null = null;
+
+/** 現在時刻から過去方向への調整許可範囲（分）。null の場合は現在時刻のみ */
+export const DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_PAST_MINUTES: number | null = null;
+
 // =============================================================================
 // D-10: 自動開閉店
 // =============================================================================

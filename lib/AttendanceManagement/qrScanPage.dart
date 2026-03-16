@@ -1,25 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:amuse_app_template/AttendanceManagement/manualAttendancePage.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/AttendanceManagement/attendanceService.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
+/// QRコードスキャンによる出勤・退勤打刻ページ
+///
+/// [initialMode] を指定すると、出勤/退勤のいずれかに事前選択して表示。
+/// null の場合はスキャン後に出勤・退勤を選択する従来フロー。
 class QRScanPage extends StatefulWidget {
-  const QRScanPage({super.key});
+  /// 出勤(true) または 退勤(false) を事前選択。null の場合は両方表示
+  final bool? initialMode;
+
+  const QRScanPage({super.key, this.initialMode});
 
   @override
   State<QRScanPage> createState() => _QRScanPageState();
 }
 
 class _QRScanPageState extends State<QRScanPage> {
-  MobileScannerController cameraController = MobileScannerController();
+  MobileScannerController cameraController =
+      MobileScannerController(facing: CameraFacing.front);
   bool _isScanning = true;
   String? _scannedData;
   bool _isProcessing = false;
-  bool? _isClockInMode; // null: 未判定, true: 出勤, false: 退勤
-  String? _staffName; // スタッフ名
-  String? _existingDocId; // 既存のドキュメントID（退勤時）
-  String? _extractedStaffId; // 抽出されたスタッフID
-  
+  String? _extractedStaffId; // 抽出されたスタッフID（Phase4 01: determineAttendanceMode 廃止）
+  String _staffFullName = '取得中...';
+  String? _extractionError; // staffId 抽出時のエラーメッセージ
+  int _selectedAdjustmentOffsetMinutes = 0;
+
   final AttendanceService _attendanceService = AttendanceService();
 
   @override
@@ -30,9 +39,12 @@ class _QRScanPageState extends State<QRScanPage> {
 
   @override
   Widget build(BuildContext context) {
+    final modeLabel = widget.initialMode == true
+        ? '出勤'
+        : (widget.initialMode == false ? '退勤' : '出勤・退勤');
     return Scaffold(
       appBar: AppBar(
-        title: const Text('QRコードスキャン - 自動判定'),
+        title: Text('QRコードスキャン - $modeLabel'),
         centerTitle: true,
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
@@ -67,9 +79,6 @@ class _QRScanPageState extends State<QRScanPage> {
           
           // スキャン結果表示エリア
           if (_scannedData != null) _buildScanResult(),
-          
-          // 手動打刻ボタン
-          _buildManualButton(),
         ],
       ),
     );
@@ -79,18 +88,21 @@ class _QRScanPageState extends State<QRScanPage> {
   Widget _buildCameraView() {
     return Stack(
       children: [
-        // カメラビュー
-        MobileScanner(
-          controller: cameraController,
-          onDetect: (capture) {
-            final List<Barcode> barcodes = capture.barcodes;
-            for (final barcode in barcodes) {
-              if (barcode.rawValue != null) {
-                _onQRCodeDetected(barcode.rawValue!);
-                break;
+        // カメラビュー（インカメラ + 270度回転）
+        Transform.rotate(
+          angle: 4.71238898, // 約270度（時計回り）
+          child: MobileScanner(
+            controller: cameraController,
+            onDetect: (capture) {
+              final List<Barcode> barcodes = capture.barcodes;
+              for (final barcode in barcodes) {
+                if (barcode.rawValue != null) {
+                  _onQRCodeDetected(barcode.rawValue!);
+                  break;
+                }
               }
-            }
-          },
+            },
+          ),
         ),
         
         // スキャンエリアのオーバーレイ
@@ -228,7 +240,7 @@ class _QRScanPageState extends State<QRScanPage> {
             children: [
               Icon(
                 Icons.qr_code,
-                color: _isClockInMode == null ? Colors.blue : (_isClockInMode! ? Colors.green : Colors.red),
+                color: _extractedStaffId != null ? Colors.blue : (_extractionError != null ? Colors.red : Colors.blue),
                 size: 24,
               ),
               const SizedBox(width: 8),
@@ -243,85 +255,70 @@ class _QRScanPageState extends State<QRScanPage> {
             ],
           ),
           const SizedBox(height: 12),
-          
-          // 判定結果表示
-          if (_isClockInMode != null) _buildJudgmentResult(),
-          
-          Text(
-            'QRコードデータ:',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey[600],
-            ),
-          ),
-          const SizedBox(height: 4),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey[300]!),
-            ),
-            child: Text(
-              _scannedData!,
-              style: const TextStyle(
-                fontSize: 14,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          // 処理ボタン
-          if (_isClockInMode != null) _buildProcessButtons(),
+          if (_extractionError != null) _buildExtractionError(),
+          if (_extractedStaffId != null) _buildStaffInfo(),
+          if (_extractedStaffId != null) _buildAdjustmentSelector(),
+          const SizedBox(height: 8),
+          if (_extractedStaffId != null) _buildProcessButtons(),
         ],
       ),
     );
   }
 
-  // 判定結果表示
-  Widget _buildJudgmentResult() {
+  // staffId 抽出エラー表示
+  Widget _buildExtractionError() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: _isClockInMode! ? Colors.green[50] : Colors.red[50],
+        color: Colors.red[50],
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: _isClockInMode! ? Colors.green[300]! : Colors.red[300]!,
-        ),
+        border: Border.all(color: Colors.red[300]!),
       ),
       child: Row(
         children: [
-          Icon(
-            _isClockInMode! ? Icons.login : Icons.logout,
-            color: _isClockInMode! ? Colors.green[700] : Colors.red[700],
-            size: 24,
+          const Icon(Icons.error_outline, color: Colors.red, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _extractionError ?? 'QRコードの解析に失敗しました',
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.red,
+              ),
+            ),
           ),
+        ],
+      ),
+    );
+  }
+
+  // スタッフ情報表示（簡易表示）
+  Widget _buildStaffInfo() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.blue[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue[300]!),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.person, color: Colors.blue, size: 24),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _isClockInMode! ? '出勤判定' : '退勤判定',
+                  'staff氏名: $_staffFullName',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: _isClockInMode! ? Colors.green[700] : Colors.red[700],
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _isClockInMode! 
-                    ? 'スタッフ: ${_staffName ?? '不明'}'
-                    : 'スタッフ: ${_staffName ?? '不明'}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: _isClockInMode! ? Colors.green[600] : Colors.red[600],
+                    color: Colors.blue[700],
                   ),
                 ),
               ],
@@ -332,159 +329,169 @@ class _QRScanPageState extends State<QRScanPage> {
     );
   }
 
-  // 処理ボタン
-  Widget _buildProcessButtons() {
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton(
-            onPressed: _isProcessing ? null : () {
-              _processAttendance();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _isClockInMode! ? Colors.green : Colors.red,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-            child: Text(
-              _isClockInMode! ? '出勤処理' : '退勤処理',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
+  Widget _buildAdjustmentSelector() {
+    final config =
+        StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults();
+    if (!config.attendanceTimeAdjustmentEnabled ||
+        config.attendanceTimeAdjustmentMaxFutureMinutes == null ||
+        config.attendanceTimeAdjustmentMaxPastMinutes == null) {
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade400),
+          borderRadius: BorderRadius.circular(4),
+          color: Colors.white,
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: OutlinedButton(
-            onPressed: _isProcessing ? null : () {
-              setState(() {
-                _scannedData = null;
-                _isClockInMode = null;
-                _staffName = null;
-                _existingDocId = null;
-                _extractedStaffId = null;
-              });
-              cameraController.start();
-            },
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-            child: const Text('再スキャン'),
+        child: const Text('登録時刻: 現在時刻で登録'),
+      );
+    }
+
+    final options = _buildAdjustmentOptions(config);
+    if (!options.contains(_selectedAdjustmentOffsetMinutes)) {
+      _selectedAdjustmentOffsetMinutes = 0;
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      child: DropdownButtonFormField<int>(
+        value: _selectedAdjustmentOffsetMinutes,
+        decoration: const InputDecoration(
+          labelText: '登録時刻',
+          border: OutlineInputBorder(),
+        ),
+        items: options
+            .map(
+              (offset) => DropdownMenuItem<int>(
+                value: offset,
+                child: Text(_adjustmentLabel(offset)),
+              ),
+            )
+            .toList(),
+        onChanged: _isProcessing
+            ? null
+            : (v) {
+                if (v == null) return;
+                setState(() {
+                  _selectedAdjustmentOffsetMinutes = v;
+                });
+              },
+      ),
+    );
+  }
+
+  // 処理ボタン（出勤・退勤を明示表示、initialMode で一方のみ表示可能）
+  Widget _buildProcessButtons() {
+    final showClockIn = widget.initialMode != false;
+    final showClockOut = widget.initialMode != true;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            if (showClockIn)
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isProcessing
+                      ? null
+                      : () => _processClockIn(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  icon: const Icon(Icons.login, size: 20),
+                  label: const Text(
+                    '出勤',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            if (showClockIn && showClockOut) const SizedBox(width: 12),
+            if (showClockOut)
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isProcessing
+                      ? null
+                      : () => _processClockOut(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  icon: const Icon(Icons.logout, size: 20),
+                  label: const Text(
+                    '退勤',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton(
+          onPressed: _isProcessing
+              ? null
+              : () {
+                  setState(() {
+                    _scannedData = null;
+                    _extractedStaffId = null;
+                    _staffFullName = '取得中...';
+                    _extractionError = null;
+                    _selectedAdjustmentOffsetMinutes = 0;
+                  });
+                  cameraController.start();
+                },
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 12),
           ),
+          child: const Text('再スキャン'),
         ),
       ],
     );
   }
 
-  // 手動打刻ボタン
-  Widget _buildManualButton() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      child: ElevatedButton.icon(
-        onPressed: () {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const ManualAttendancePage(
-                isClockInMode: true, // デフォルトで出勤モード
-              ),
-            ),
-          );
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.orange[600],
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        icon: const Icon(Icons.people, size: 24),
-        label: const Text(
-          '手動打刻に切り替え',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
-  }
-
-  // QRコード検出時の処理
+  // QRコード検出時の処理（Phase4 01: determineAttendanceMode 廃止、staffId 抽出のみ）
   void _onQRCodeDetected(String data) {
     if (_isProcessing) return;
-    
+
     setState(() {
       _scannedData = data;
       _isScanning = false;
+      _extractionError = null;
+      _extractedStaffId = null;
+      _staffFullName = '取得中...';
+      _selectedAdjustmentOffsetMinutes = 0;
     });
-    
-    cameraController.stop();
-    
-    // 自動判定処理
-    _determineAttendanceMode(data);
-    
-    // 成功音やバイブレーション（必要に応じて）
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('QRコードを検出しました: ${data.substring(0, data.length > 20 ? 20 : data.length)}...'),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
 
-  // 出勤・退勤モードの自動判定
-  void _determineAttendanceMode(String qrData) async {
-    setState(() {
-      _isProcessing = true;
-    });
-    
+    cameraController.stop();
+
     try {
-      // QRコードからスタッフIDを抽出
-      final staffId = _attendanceService.extractStaffIdFromQR(qrData);
-      
-      // Cloud Functionsで出勤・退勤を判定
-      final result = await _attendanceService.determineAttendanceMode(qrData);
-      
+      final staffId = _attendanceService.extractStaffIdFromQR(data);
       setState(() {
-        _isClockInMode = result.isClockIn;
-        _staffName = result.staffName;
-        _existingDocId = result.existingDocId;
-        _extractedStaffId = staffId; // 抽出されたスタッフIDを保存
-        _isProcessing = false;
+        _extractedStaffId = staffId;
       });
-      
-      // 成功メッセージを表示
+      _loadStaffFullName(staffId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result.message),
+            content: const Text('QRコードを検出しました'),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 2),
           ),
         );
       }
-      
     } catch (e) {
-      // エラー時の処理
+      final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() {
-        _isProcessing = false;
+        _extractionError = msg;
       });
-      
       if (mounted) {
-        String errorMessage = '判定処理でエラーが発生しました';
-        
-        // QRコード関連のエラーの場合は、より分かりやすいメッセージを表示
-        if (e.toString().contains('QRコード')) {
-          errorMessage = e.toString();
-        } else if (e.toString().contains('スタッフ')) {
-          errorMessage = e.toString();
-        } else if (e.toString().contains('期限')) {
-          errorMessage = e.toString();
-        }
-        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(errorMessage),
+            content: Text(msg),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 4),
           ),
@@ -493,68 +500,84 @@ class _QRScanPageState extends State<QRScanPage> {
     }
   }
 
-  // 勤怠処理の実行
-  void _processAttendance() async {
-    if (_isClockInMode == null || _scannedData == null) return;
-    
+  Future<void> _loadStaffFullName(String staffId) async {
+    try {
+      final staffDoc = await FirebaseFirestore.instance
+          .collection('staffs')
+          .doc(staffId)
+          .get();
+      if (!mounted) return;
+      final fullName = staffDoc.data()?['fullName']?.toString();
+      setState(() {
+        _staffFullName = (fullName != null && fullName.isNotEmpty) ? fullName : '不明';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _staffFullName = '不明';
+      });
+    }
+  }
+
+  // 出勤打刻（clockIn Callable）
+  Future<void> _processClockIn() async {
+    if (_extractedStaffId == null) return;
+
     setState(() {
       _isProcessing = true;
     });
-    
+
     try {
-      if (_isClockInMode!) {
-        // 出勤処理
-        
-        if (_extractedStaffId == null) {
-          throw Exception('スタッフIDが取得できません');
-        }
-        
-        final result = await _attendanceService.createClockInRecord(
-          _extractedStaffId!,
-          _staffName ?? 'Unknown Staff',
-        );
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result.message),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 2),
-            ),
-          );
-          
-          // 前の画面に戻る
-          Navigator.pop(context);
-        }
-      } else {
-        // 退勤処理
-        if (_existingDocId != null) {
-          final result = await _attendanceService.updateClockOutRecord(_existingDocId!);
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(result.message),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 2),
+      final config =
+          StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults();
+      final result = await _attendanceService.clockIn(
+        _extractedStaffId!,
+        staffName: null, // バックエンドで staffs から取得
+        adjustmentOffsetMinutes: config.attendanceTimeAdjustmentEnabled
+            ? _selectedAdjustmentOffsetMinutes
+            : null,
+      );
+
+      if (!mounted) return;
+
+      if (result.warning != null) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('出勤処理（注意）'),
+            content: Text('${result.message}\n\n${result.warning}'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'),
               ),
-            );
-            
-            // 前の画面に戻る
-            Navigator.pop(context);
-          }
-        } else {
-          throw Exception('退勤処理に必要なドキュメントIDが見つかりません');
-        }
-      }
-    } catch (e) {
-      // エラー時の処理
-      if (mounted) {
+            ],
+          ),
+        );
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('エラーが発生しました: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
+            content: Text(result.message),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      Navigator.pop(context);
+    } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      if (mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('出勤処理エラー'),
+            content: Text(msg),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
       }
@@ -565,5 +588,96 @@ class _QRScanPageState extends State<QRScanPage> {
         });
       }
     }
+  }
+
+  // 退勤打刻（clockOut Callable）
+  Future<void> _processClockOut() async {
+    if (_extractedStaffId == null) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      final config =
+          StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults();
+      final result = await _attendanceService.clockOut(
+        _extractedStaffId!,
+        adjustmentOffsetMinutes: config.attendanceTimeAdjustmentEnabled
+            ? _selectedAdjustmentOffsetMinutes
+            : null,
+      );
+
+      if (!mounted) return;
+
+      if (result.warning != null) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('退勤処理（注意）'),
+            content: Text('${result.message}\n\n${result.warning}'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.message),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      Navigator.pop(context);
+    } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      if (mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('退勤処理エラー'),
+            content: Text(msg),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
+  List<int> _buildAdjustmentOptions(StoreConfigData config) {
+    if (!config.attendanceTimeAdjustmentEnabled) {
+      return const [0];
+    }
+    final maxFuture = config.attendanceTimeAdjustmentMaxFutureMinutes;
+    final maxPast = config.attendanceTimeAdjustmentMaxPastMinutes;
+    if (maxFuture == null || maxPast == null) {
+      return const [0];
+    }
+    return List<int>.generate(
+      maxFuture + maxPast + 1,
+      (index) => index - maxPast,
+    );
+  }
+
+  String _adjustmentLabel(int offset) {
+    if (offset == 0) return '現在時刻で登録';
+    if (offset > 0) return '現在時刻から +$offset 分';
+    return '現在時刻から -${offset.abs()} 分';
   }
 }

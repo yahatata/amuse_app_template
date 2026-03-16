@@ -1,5 +1,4 @@
 // import * as admin from "firebase-admin";
-import { normalizeStoreCloseHour } from '../../../shared/time';
 
 /**
  * 営業日を計算する
@@ -8,7 +7,7 @@ import { normalizeStoreCloseHour } from '../../../shared/time';
  *   - 0-23: 「当日の何時まで」を指定（例: 9 → 当日の9:00まで）
  *   - 24-48: 「翌日の何時まで」を指定（例: 25 → 翌日の1:00まで、27 → 翌日の3:00まで）
  * @returns YYYY-MM-DD形式の営業日
- * 
+ *
  * 例: STORE_CLOSE_HOUR=9 → 当日の9:00まで（9:00以降は当日の営業日）
  * 例: STORE_CLOSE_HOUR=25 → 翌日の1:00まで（当日の1:00以降は当日の営業日）
  * 例: STORE_CLOSE_HOUR=27 → 翌日の3:00まで（当日の3:00以降は当日の営業日）
@@ -18,9 +17,9 @@ export function resolveBusinessDate(createdAt: Date, storeCloseHour: number): st
   const jstOffset = 9 * 60; // 9時間を分に変換
   const jstTime = createdAt.getTime() + jstOffset * 60000;
   const jstDate = new Date(jstTime);
-  
-  // STORE_CLOSE_HOUR を正規化（24以上は翌日繰り上がり）
-  const normalizedHour = normalizeStoreCloseHour(storeCloseHour);
+
+  // storeCloseHour を正規化（24以上は翌日繰り上がり、24で割った余りを使用）
+  const normalizedHour = storeCloseHour % 24;
   
   // 現在時刻が店舗締め時間より前の場合は前日の営業日
   if (jstDate.getUTCHours() < normalizedHour) {

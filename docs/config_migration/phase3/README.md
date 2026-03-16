@@ -1,5 +1,9 @@
 # Phase3 README
 
+**実施順序**: Phase4 と Phase5 を完了した後に実施する。機能改修を優先し、運用・整理は最後に行う。
+
+---
+
 ## 目的
 
 移行後のハードニングと整理を行い、運用を安定化する。
@@ -14,12 +18,14 @@
 ## 前提
 
 - **Phase2 完了済み** ✅: 全移行対象 ID の参照が storeMeta/config → defaults フォールバック構造に切り替わっている。GlobalConstants から移行済み定数は削除済み。
+- **Phase4・Phase5 完了済み**: 夜間ジョブ・打刻改修、pointTypes 改修が完了していること。
 
 ## 参照必須
 
 - `docs/config_migration/migration_roadmap.md`
 - `docs/config_migration/phase1/PHASE1_ROLLBACK.md`（ロールバック観点）
-- `docs/config_migration/phase4/README.md`（Phase3 完了後に実施する Phase4 の詳細仕様）
+- `docs/config_migration/phase4/README.md`（Phase4 詳細仕様）
+- `docs/config_migration/phase5/README.md`（Phase5 詳細仕様）
 - `docs/config_migration/changeSpec_overview.md`
 - `docs/config_migration/CHANGE_RULES.md`
 - `docs/config_migration/CHANGE_LOG.md`
