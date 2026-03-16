@@ -22,7 +22,7 @@
 | 廃止側 | Dart、Functions とも廃止 |
 | 実施内容 | Phase4 で完全廃止。determineAttendanceMode は出勤/退勤分離、nightly ジョブは閉店処理/Cloud Task 起動 |
 | 互換期間 | Phase4 実装完了まで現状の getStoreCloseHour を維持 |
-| 実施タイミング | Phase4（Phase3 完了後） |
+| 実施タイミング | Phase4（Phase2.1 完了後に実施可能） |
 | 参照 | `docs/config_migration/phase4/` |
 
 ---

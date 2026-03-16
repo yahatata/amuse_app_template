@@ -209,6 +209,7 @@ class _AdminControlsState extends State<AdminControls> {
       case 'registered':
         return 'レジスト確定済み';
       case 'ended':
+      case 'force_ended':
         return '終了';
       default:
         return status;
@@ -226,6 +227,7 @@ class _AdminControlsState extends State<AdminControls> {
       case 'registered':
         return Colors.purple;
       case 'ended':
+      case 'force_ended':
         return Colors.grey;
       default:
         return Colors.black;

@@ -1,14 +1,37 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import {
+  getDisplayBusinessDateKeyForNonRunning,
+  getShiftDateKeyForNonRunning,
+} from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
+
+async function getAttendanceAndShiftDates(): Promise<{
+  status: string;
+  attendanceDate: string;
+  shiftDate: string;
+}> {
+  const docRef = admin.firestore().collection('storeMeta').doc('currentBusinessDay');
+  const doc = await docRef.get();
+  const data = doc.exists ? doc.data() : null;
+  const status = (data?.status as string) ?? '';
+
+  if (status === 'running' && data?.currentBusinessDateKey != null) {
+    const key = String(data.currentBusinessDateKey).trim();
+    return { status: 'running', attendanceDate: key, shiftDate: key };
+  }
+  const attendanceDate = await getDisplayBusinessDateKeyForNonRunning();
+  const shiftDate = await getShiftDateKeyForNonRunning();
+  return { status: 'non-running', attendanceDate, shiftDate };
+}
 
 export const getStaffListForAttendance = onCall(async (request: CallableRequest) => {
   try {
     const { data } = request;
-    
+
     // リクエストデータの検証
     const { isClockInMode } = data as { isClockInMode: boolean };
-    
+
     if (typeof isClockInMode !== 'boolean') {
       throw new HttpsError(
         'invalid-argument',
@@ -16,11 +39,9 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
       );
     }
 
-    // 今日の日付を取得（JST）
-    const today = new Date();
-    const jstOffset = 9 * 60 * 60 * 1000; // 9時間をミリ秒で
-    const todayJST = new Date(today.getTime() + jstOffset);
-    const todayString = todayJST.toISOString().split('T')[0]; // YYYY-MM-DD
+    // 営業日を取得（CHANGESPEC 6-4: status=running なら currentBusinessDateKey、
+    // status≠running なら 勤怠=lastClosedBusinessDateKey、シフト=その翌日）
+    const { attendanceDate, shiftDate } = await getAttendanceAndShiftDates();
 
     let staffList: any[] = [];
 
@@ -40,10 +61,10 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
         };
       });
 
-      // 当日のシフト情報を取得
+      // シフト情報を取得（CHANGESPEC 6-4: status≠running 時は翌日）
       const shiftsSnapshot = await admin.firestore()
         .collection('shifts')
-        .where('date', '==', todayString)
+        .where('date', '==', shiftDate)
         .where('status', '==', 'approved')
         .get();
 
@@ -55,10 +76,10 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
         };
       });
 
-      // 当日出勤済みのスタッフを取得
+      // 出勤済みのスタッフを取得（CHANGESPEC 6-4: status≠running 時は lastClosedBusinessDateKey）
       const attendancesSnapshot = await admin.firestore()
         .collection('attendances')
-        .where('date', '==', todayString)
+        .where('date', '==', attendanceDate)
         .where('clockOut', '==', null)
         .get();
 
@@ -98,19 +119,20 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
       });
 
     } else {
-      // 退勤モード：出勤済みで退勤していないスタッフを取得
+      // 退勤モード：出勤済みで退勤していないスタッフを取得（CHANGESPEC 6-4）
       const attendancesSnapshot = await admin.firestore()
         .collection('attendances')
-        .where('date', '==', todayString)
+        .where('date', '==', attendanceDate)
         .where('clockOut', '==', null)
         .get();
 
       const attendances = attendancesSnapshot.docs.map(doc => {
-        const data = doc.data();
+        const docData = doc.data();
         return {
           docId: doc.id,
-          staffId: data.staffId || '',
-          clockIn: data.clockIn,
+          staffId: docData.staffId || '',
+          clockIn: docData.clockIn,
+          closedStoreWithoutClockOut: docData.closedStoreWithoutClockOut === true,
         };
       });
 
@@ -132,6 +154,7 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
             shiftStart: null,
             clockIn: attendance.clockIn?.toDate().toLocaleTimeString('ja-JP', { hour: 'numeric', minute: 'numeric' }), // HH:MM形式
             attendanceDocId: attendance.docId,
+            closedStoreWithoutClockOut: attendance.closedStoreWithoutClockOut,
           });
         }
       }
@@ -140,13 +163,47 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
       staffList.sort((a, b) => a.fullNameKana.localeCompare(b.fullNameKana));
     }
 
+    // 別枠用: closedStoreWithoutClockOut=false かつ clockOut=null（CHANGESPEC 6-4・退勤モード時のみ）
+    let separateSectionStaff: Array<Record<string, unknown>> = [];
+    if (!isClockInMode) {
+      const separateSectionSnapshot = await admin.firestore()
+        .collection('attendances')
+        .where('closedStoreWithoutClockOut', '==', false)
+        .where('clockOut', '==', null)
+        .get();
 
+      const mainDocIds = new Set(
+        staffList.map((s: { attendanceDocId?: string }) => s.attendanceDocId).filter(Boolean) as string[]
+      );
+      for (const doc of separateSectionSnapshot.docs) {
+        if (mainDocIds.has(doc.id)) continue; // 本リストと重複する場合はスキップ
+        const d = doc.data();
+        if (d.clockIn == null) continue;
+        const staffDoc = await admin.firestore().collection('staffs').doc(d.staffId as string).get();
+        if (!staffDoc.exists) continue;
+        const staffData = staffDoc.data()!;
+        separateSectionStaff.push({
+          uid: d.staffId,
+          fullName: staffData.fullName || '',
+          fullNameKana: staffData.fullNameKana || '',
+          position: staffData.position || 'スタッフ',
+          attendanceDocId: doc.id,
+          clockIn: (d.clockIn as admin.firestore.Timestamp)?.toDate?.()?.toLocaleTimeString?.('ja-JP', { hour: 'numeric', minute: 'numeric' }) ?? '—',
+          date: d.date,
+          closedStoreWithoutClockOut: false,
+        });
+      }
+      separateSectionStaff.sort((a, b) => (a.fullNameKana as string).localeCompare(b.fullNameKana as string));
+    }
 
     return {
       success: true,
       staffList: staffList as Array<{[key: string]: any}>,
       count: staffList.length,
-      date: todayString,
+      date: attendanceDate,
+      attendanceDate,
+      shiftDate,
+      separateSectionStaff: separateSectionStaff as Array<{[key: string]: any}>,
     };
 
   } catch (error) {

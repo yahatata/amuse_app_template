@@ -109,7 +109,7 @@ export const scheduledCleanup = onSchedule(
 
 **ファイル**: `functions/src/domains/tournament_createTournament/scheduler/EnqueueTournamentTasksByScheduler.ts`
 
-- **スケジュール**: 毎日 5:00 JST。環境変数 `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` で上書き可能（未設定時は `'0 5 * * *'`）。`lib/globalConstant.dart` の同定数はドキュメント用。
+- **スケジュール**: 毎日 5:00 JST。環境変数 `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` で上書き可能（未設定時は `'0 5 * * *'`）。
 - **処理内容**: `runEnqueueTournamentTasks` を実行し、対象期間内の scheduledTournament について taskIndex 突合・Cloud Tasks 投入
 - **有効化**: `ENQUEUE_SCHEDULER_ENABLED === 'true'` であること。Step 6 デプロイ完了まで無効化推奨
 - **詳細**: `docs/cloud_tasks_tournament_enqueue/step8.5/scheduler_enable_procedure.md`

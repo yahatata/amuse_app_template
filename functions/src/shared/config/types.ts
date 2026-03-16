@@ -24,6 +24,12 @@ export interface StoreConfig {
     templateBusinessDateCheck?: boolean;
     settlementAggregatorEnabled?: boolean;
     tableDeviceRegistrationEnabled?: boolean;
+    createAttendanceByManual?: boolean;
+  };
+  attendanceTimeAdjustment?: {
+    enabled?: boolean;
+    maxFutureMinutes?: number | null;
+    maxPastMinutes?: number | null;
   };
   autoOpenClose?: {
     enabled?: boolean;

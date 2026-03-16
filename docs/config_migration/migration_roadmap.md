@@ -11,6 +11,8 @@
 
 ## 2. フェーズ構成
 
+**実施順序（Phase2.1 以降）**: Phase2.1 完了 → Phase4 / Phase5（並行可）→ Phase3（最後に実施）
+
 ### Phase 0A: 先行是正（Secrets/危険fallback）
 
 - 目的
@@ -97,6 +99,20 @@
 - ロールバック
   - 寄せ先変更後は旧参照を即削除。切り戻しはコードデプロイで差し替え前の状態へ戻す。
 
+### Phase 4: 夜間ジョブ・打刻改修
+
+- 目的
+  - 夜間再計算・夜間整合確認をスケジューラから離脱し、閉店処理/Cloud Task 起動へ移行
+  - `STORE_CLOSE_HOUR` を廃止（D-06 の完全解消）
+  - スタッフ打刻を出勤/退勤に明確に分離し、例外時は管理者認証で解消
+- スコープ
+  - `runNightlyRecalculateBalanceDue`, `runNightlyIntegrityCheck`: 閉店処理または Cloud Task から起動、STORE_CLOSE_HOUR 不使用
+  - `determineAttendanceMode`: STORE_CLOSE_HOUR 廃止、出勤/退勤分離、未退勤ありの出勤・長時間経過後の退勤は管理者認証必須
+- 実装タイミング
+  - Phase2.1 完了後に実施可能。詳細は `docs/config_migration/phase4/` を参照
+- ロールバック
+  - 閉店処理からの呼び出しを外す。スケジューラ復帰は非推奨
+
 ### Phase 5: pointTypes 改修（案）
 
 - 目的
@@ -106,13 +122,17 @@
 - 背景
   - ポイント名称変更を反映すべき URL・TS ファイル等が多数ある
   - 現状 3 種類固定だが、種類数の可変・増加の必要性が検討対象
+- 実装タイミング
+  - Phase2.1 完了後に実施可能。Phase4 との実施順序は任意。
 - 詳細
   - [phase5/README.md](./phase5/README.md)（案ベース。実施時に再検討・確定する）
 - ロールバック
   - 未定（実施時に定義する）
 
-### Phase 3: ハードニングと最終整理
+### Phase 3: ハードニングと最終整理（Phase4・5 完了後に実施）
 
+- 実施順序
+  - **Phase4 と Phase5 を完了した後に実施**。機能改修を優先し、運用・整理は最後に行う。
 - 目的
   - `globalConstant` の「設定」を縮退し、UI定数/表示定数へ役割整理
   - docs-only 設定（`--dart-define` 記載のみ）を実装済み扱いしない
@@ -125,20 +145,6 @@
   - **Phase0A Task8**: ロールバック手順・監視観点の Runbook を完成させる
 - ロールバック
   - 掃除前定義を deprecate として一時復活可能にする
-
-### Phase 4: 夜間ジョブ・打刻改修（Phase3 完了後に実施）
-
-- 目的
-  - 夜間再計算・夜間整合確認をスケジューラから離脱し、閉店処理/Cloud Task 起動へ移行
-  - `STORE_CLOSE_HOUR` を廃止（D-06 の完全解消）
-  - スタッフ打刻を出勤/退勤に明確に分離し、例外時は管理者認証で解消
-- スコープ
-  - `runNightlyRecalculateBalanceDue`, `runNightlyIntegrityCheck`: 閉店処理または Cloud Task から起動、STORE_CLOSE_HOUR 不使用
-  - `determineAttendanceMode`: STORE_CLOSE_HOUR 廃止、出勤/退勤分離、未退勤ありの出勤・長時間経過後の退勤は管理者認証必須
-- 実装タイミング
-  - Phase3 終了後。詳細は `docs/config_migration/phase4/` を参照
-- ロールバック
-  - 閉店処理からの呼び出しを外す。スケジューラ復帰は非推奨
 
 ## 3. 各フェーズの Done 定義
 
@@ -161,13 +167,20 @@
 | 3 | 最終整理で説明不能項目が残る | ID単位でログ/責務表を再補完 |
 | 4 | 閉店処理連携の不備 | 閉店処理の呼び出しを一時外す |
 
-## 5. 依存関係
+## 5. 依存関係・実施順序
 
 - Phase 0A/0B 完了前に Phase 2 へ入らない。
-- Phase 2.1 は Phase 2 完了後に実施する。Phase 3 の前提となる。
-- Phase 4 は Phase 3 完了後に実施する。
+- Phase 2.1 は Phase 2 完了後に実施する。
+- **Phase4 と Phase5**: Phase2.1 完了後に実施可能。互いの完了を待たずに着手可。
+- **Phase3**: Phase4 と Phase5 完了後に実施。運用・整理は機能改修の後に行う。
 - Phase 1 の取得層/更新層なしで Run-time 移行を開始しない。
 - SSoT 原則（Functions 最終決定）を ADR 合意してから会計・営業日を動かす。
+
+### 実施順序の要約
+
+```
+Phase2.1 完了 → Phase4 / Phase5（並行可）→ Phase3（最後）
+```
 
 ## 6. 検証観点（最低限）
 

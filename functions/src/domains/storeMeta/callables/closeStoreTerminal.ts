@@ -14,9 +14,11 @@ import { runResetAllSideGames } from '../services/resetAllSideGames';
 import { runResetAllTables } from '../services/resetAllTables';
 import { runCleanupActiveStays } from '../services/cleanupActiveStaysOnClose';
 import { runMigrateSettledBillsForBusinessDay } from '../../analytics/callables/migrateSettledBillsForBusinessDay';
+import { getUnclosedTournamentsForCloseCore } from '../services/getUnclosedTournamentsForClose';
 
 const CLOSE_STEPS = [
   'UNSETTLED_MARK',
+  'markUnclockedAndForceEnd',
   'resetSideGames',
   'resetTables',
   'cleanupActiveStays',
@@ -62,10 +64,9 @@ export const closeStoreTerminal = onCall(
     }
 
     const closedBusinessDate = currentBusinessDateKey.trim();
-    const requestRunId =
-      request.data != null && typeof request.data === 'object' && typeof (request.data as { runId?: unknown }).runId === 'string'
-        ? (request.data as { runId: string }).runId.trim()
-        : undefined;
+    const reqData = request.data != null && typeof request.data === 'object' ? (request.data as { runId?: string; forceClose?: boolean }) : {};
+    const requestRunId = typeof reqData.runId === 'string' ? reqData.runId.trim() : undefined;
+    const forceClose = reqData.forceClose === true;
     const runId =
       requestRunId && requestRunId.length > 0
         ? requestRunId
@@ -85,6 +86,7 @@ export const closeStoreTerminal = onCall(
       await closeRunsRef.set({
         status: 'running',
         closedBusinessDate,
+        forceClose,
         startedAt: Timestamp.now(),
         lastCompletedStep: null,
         failedStep: null,
@@ -98,6 +100,9 @@ export const closeStoreTerminal = onCall(
         updatedAt: FieldValue.serverTimestamp(),
       });
     }
+
+    const runDocData = (await closeRunsRef.get()).data();
+    const effectiveForceClose = runDocData?.forceClose === true || forceClose;
 
     const runDocAfter = await closeRunsRef.get();
     const lastCompleted = (runDocAfter.data()?.lastCompletedStep as string | null) ?? null;
@@ -178,6 +183,62 @@ export const closeStoreTerminal = onCall(
             pokerNames.push(name.trim() || '—');
           }
           displaySummary.unsettledMark = { count: coreResult.writtenBillIds.length, pokerNames };
+        } else if (stepName === 'markUnclockedAndForceEnd') {
+          // Phase4 03/01: 未退勤 attendance に closedStoreWithoutClockOut + closedAt を付与（営業日フィルタなし・決定4,5）
+          const attendancesSnap = await db
+            .collection('attendances')
+            .where('clockOut', '==', null)
+            .get();
+
+          const batch = db.batch();
+          for (const doc of attendancesSnap.docs) {
+            const d = doc.data();
+            if (d.clockIn != null) {
+              batch.update(doc.ref, {
+                closedStoreWithoutClockOut: true,
+                closedAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
+              });
+            }
+          }
+          if (!attendancesSnap.empty) await batch.commit();
+
+          // Phase4 03: 強制閉店時は未 close トーナメントを force_ended に更新
+          if (effectiveForceClose) {
+            const unclosed = await getUnclosedTournamentsForCloseCore(db, closedBusinessDate);
+            for (const t of unclosed) {
+              const tournamentRef = db.collection('scheduledTournaments').doc(t.tournamentId);
+              const tablesSeatSnap = await db
+                .collection('scheduledTournaments')
+                .doc(t.tournamentId)
+                .collection('tablesSeat')
+                .get();
+
+              const tableNames: string[] = [];
+              tablesSeatSnap.forEach((doc) => {
+                if (doc.id !== 'waiting' && doc.id !== 'busted') tableNames.push(doc.id);
+              });
+
+              await tournamentRef.update({
+                status: 'force_ended',
+                endedAt: new Date(),
+                updatedAt: FieldValue.serverTimestamp(),
+              });
+
+              for (const tableName of tableNames) {
+                const tableRef = db.collection('tables').doc(tableName);
+                const tableDoc = await tableRef.get();
+                if (tableDoc.exists) {
+                  await tableRef.update({ status: 'open' });
+                }
+              }
+            }
+          }
+
+          await closeRunsRef.update({
+            lastCompletedStep: stepName,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
         } else if (stepName === 'resetSideGames') {
           await runResetAllSideGames(db);
           await closeRunsRef.update({

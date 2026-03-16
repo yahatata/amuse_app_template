@@ -16,27 +16,6 @@ class GlobalConstants {
   static const int STORE_CLOSE_HOUR = 9; // 9:00まで（日付跨ぎ勤務可能）
   static const String STORE_CLOSE_DESCRIPTION = "$STORE_CLOSE_HOUR:00までの打刻は日付跨ぎ勤務として記録されます";
   
-  // 週次Plannerのcron式（Cloud Scheduler用）
-  // 【ドキュメント用】実際の実行タイミングは TS 側で環境変数 WEEKLY_PLANNER_CRON を参照。
-  // 未設定時は '0 11 * * 0'（UTC）= 日曜 20:00 JST。JST表記の参考値: '0 20 * * 0'
-  static const String WEEKLY_PLANNER_CRON = '0 20 * * 0';  // 日曜20:00 JST（TS は UTC 形式で '0 11 * * 0'）
-
-  // 定期開催トーナメント自動生成スケジューラの実行タイミング
-  // 【ドキュメント用】実際の実行タイミングは TS 側で環境変数 RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON を参照。
-  // 未設定時は '0 23 * * 0'（日曜 23:00 JST）
-  static const String RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON = '0 23 * * 0';
-  /// 定期開催トーナメント自動生成の実行日時（人間が読める形式）
-  /// GlobalConstants で実行タイミングを定義していることを明示するための説明
-  static const String RECURRING_TOURNAMENT_GENERATION_SCHEDULER_RUN_AT_DESCRIPTION =
-      '定期開催トーナメント自動生成: 日曜 23:00 (JST) に実行。実行タイミングは TS 環境変数 RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON で上書き可能。';
-
-  // enqueue バッチ Scheduler の実行タイミング（Step 4）
-  // 【ドキュメント用】実際の実行タイミングは TS 側で環境変数 ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON を参照。
-  // 未設定時は '0 5 * * *'（毎日 5:00 JST）
-  static const String ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON = '0 5 * * *';
-  static const String ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_RUN_AT_DESCRIPTION =
-      'enqueue バッチ: 毎日 5:00 (JST) に実行。実行タイミングは TS 環境変数 ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON で上書き可能。';
-  
   /// STORE_CLOSE_HOUR を正規化（24以上は翌日繰り上がりとして扱う）
   /// @param hour 0-48 の整数
   ///   - 0-23: 当日の時刻としてそのまま使用

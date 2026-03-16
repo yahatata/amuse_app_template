@@ -125,6 +125,9 @@ jest.mock('../../src/domains/bills/repos/calcBusinessDate', () => {
  * テスト環境では STORE_CLOSE_HOUR ベースの旧ロジックで代替する。
  */
 jest.mock('../../src/domains/storeMeta/repos/getCurrentBusinessDateKeyOrThrow', () => {
+  const actual = jest.requireActual<typeof import('../../src/domains/storeMeta/repos/getCurrentBusinessDateKeyOrThrow')>(
+    '../../src/domains/storeMeta/repos/getCurrentBusinessDateKeyOrThrow'
+  );
   function legacyCalcBusinessDate(): string {
     const closeHour = parseInt(process.env.STORE_CLOSE_HOUR || '27', 10);
     const d = new Date();
@@ -152,6 +155,7 @@ jest.mock('../../src/domains/storeMeta/repos/getCurrentBusinessDateKeyOrThrow', 
   }
 
   return {
+    ...actual,
     getCurrentBusinessDateKeyOrThrow: jest.fn(async () => legacyCalcBusinessDate()),
   };
 });

@@ -112,9 +112,9 @@
   - TS: `functions/src/domains/storeMeta/scheduler/weeklyPlanner.ts`（`process.env`）
   - 判定: Dart側定数とFunctions側環境変数の二重管理。実運用ソースはFunctions env寄り。
 - `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON` / `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` / `WEEKLY_PLANNER_CRON`
-  - Dart: `lib/globalConstant.dart`（`static const`、ドキュメント用）
+  - Dart: 削除済み（旧 `lib/globalConstant.dart`）
   - TS: Functions側で `process.env.XXX` を参照。未設定時は各ファイル内デフォルト値を使用。
-  - 判定: 環境変数化済み。Dart側は参照用メモ。Cloud Logging で source 判別可能。
+  - 判定: 環境変数化済み。Cloud Logging で source 判別可能。
 
 ### 4-3. 未使用/重複の指摘
 
@@ -122,11 +122,9 @@
   - `schemaVersion`
   - `STORE_CLOSE_DESCRIPTION`
   - `CALC_BUSINESS_DATE_BUFFER_DESCRIPTION`
-  - `WEEKLY_PLANNER_CRON`
-  - `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_RUN_AT_DESCRIPTION`
-  - `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_RUN_AT_DESCRIPTION`
   - `SIDE_GAME_CHIP_DESCRIPTION`
   - `linePlanName`
+- 削除済み（D-15 CRON 系: `WEEKLY_PLANNER_CRON`, `RECURRING_TOURNAMENT_*_CRON`, `*_RUN_AT_DESCRIPTION` は globalConstant から削除済み）
 - 重複（実装同期コメントあり）:
   - 営業時間スタイル、シフト必要人数、支払計算ポリシー、営業日境界値。
 

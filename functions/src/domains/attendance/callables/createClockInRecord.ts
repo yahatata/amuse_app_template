@@ -2,6 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { getBusinessDateForAttendance } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
 
 export const createClockInRecord = onCall(async (request: CallableRequest) => {
   // 認証チェック
@@ -35,17 +36,14 @@ export const createClockInRecord = onCall(async (request: CallableRequest) => {
       );
     }
 
-    // 今日の日付を取得（JST）
-    const now = new Date();
-    const jstOffset = 9 * 60; // JST = UTC+9
-    const jstDate = new Date(now.getTime() + jstOffset * 60000);
-    const today = jstDate.toISOString().split('T')[0]; // YYYY-MM-DD形式
+    // 営業日を取得（status=running なら currentBusinessDateKey、そうでなければ JST 当日）
+    const businessDate = await getBusinessDateForAttendance();
 
     // 既に当日の出勤記録がないかチェック
     const existingQuery = await admin.firestore()
       .collection('attendances')
       .where('staffId', '==', staffId)
-      .where('date', '==', today)
+      .where('date', '==', businessDate)
       .get();
 
     if (!existingQuery.empty) {
@@ -55,12 +53,13 @@ export const createClockInRecord = onCall(async (request: CallableRequest) => {
       );
     }
 
-    // 出勤記録を作成
+    // 出勤記録を作成（date に営業日を格納）
     const attendanceData = {
       staffId,
-      date: today,
+      date: businessDate,
       clockIn: admin.firestore.FieldValue.serverTimestamp(),
       clockOut: null,
+      closedStoreWithoutClockOut: false,
       isManual: false,
       nightMinutes: 0,
       totalMinutes: 0,

@@ -131,6 +131,23 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
             ),
             const SizedBox(height: 16),
             
+            // 勤怠デモデータ投入（一時・後で削除）
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.person_add, color: Colors.deepOrange),
+                title: const Text('勤怠デモデータ投入（開発用）'),
+                subtitle: const Text('2026/03/15の勤怠データを7件追加（勤務中4件・退勤済み3件）'),
+                trailing: _isProcessing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.arrow_forward_ios),
+                onTap: _isProcessing ? null : _showSeedAttendancesDemoDialog,
+              ),
+            ),
+            const SizedBox(height: 16),
             // 閉店クリーンアップ機能
             Card(
               child: ListTile(
@@ -605,6 +622,90 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       setState(() {
         _isProcessing = false;
       });
+    }
+  }
+
+  void _showSeedAttendancesDemoDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('勤怠デモデータ投入'),
+          content: const Text(
+            '2026/03/15 の勤怠データを7件追加します。\n\n'
+            '• 勤務中: 4件（clockOut: null）\n'
+            '• 退勤済み: 3件（clockOut・totalMinutes あり）\n\n'
+            '氏名・ID・時刻はランダムです。開発用です。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: _executeSeedAttendancesDemo,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepOrange,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('投入'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _executeSeedAttendancesDemo() async {
+    Navigator.of(context).pop();
+    final user = _auth.currentUser;
+    if (user == null) {
+      _showErrorDialog('認証が必要です。ログインしてから再度お試しください。');
+      return;
+    }
+    setState(() => _isProcessing = true);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('勤怠デモデータ投入中...'),
+          ],
+        ),
+      ),
+    );
+    try {
+      final callable = _functions.httpsCallable('seedAttendancesDemo');
+      final result = await callable.call();
+      if (!mounted) return;
+      if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+      if (result.data['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result.data['message'] ?? '投入完了'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        _showErrorDialog(result.data['error'] ?? '投入に失敗しました');
+      }
+    } catch (e) {
+      debugPrint('seedAttendancesDemo error: $e');
+      if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
+      if (e is FirebaseFunctionsException) {
+        if (e.code == 'unauthenticated' || e.code == 'permission-denied') {
+          _showErrorDialog('認証エラー: 管理者でログインしてから再度お試しください。');
+          return;
+        }
+      }
+      _showErrorDialog('投入に失敗しました: $e');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 

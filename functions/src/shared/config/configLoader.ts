@@ -58,6 +58,10 @@ import {
   DEFAULT_TEMPLATE_BUSINESSDATE_CHECK,
   DEFAULT_SETTLEMENT_AGGREGATOR_ENABLED,
   DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED,
+  DEFAULT_CREATE_ATTENDANCE_BY_MANUAL,
+  DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_ENABLED,
+  DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_FUTURE_MINUTES,
+  DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_PAST_MINUTES,
 } from './defaults';
 
 import type { StoreConfig, StoreConfigRaw } from './types';
@@ -118,6 +122,12 @@ export function buildFromDefaults(): StoreConfig {
       templateBusinessDateCheck: DEFAULT_TEMPLATE_BUSINESSDATE_CHECK,
       settlementAggregatorEnabled: DEFAULT_SETTLEMENT_AGGREGATOR_ENABLED,
       tableDeviceRegistrationEnabled: DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED,
+      createAttendanceByManual: DEFAULT_CREATE_ATTENDANCE_BY_MANUAL,
+    },
+    attendanceTimeAdjustment: {
+      enabled: DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_ENABLED,
+      maxFutureMinutes: DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_FUTURE_MINUTES,
+      maxPastMinutes: DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_PAST_MINUTES,
     },
     autoOpenClose: {
       enabled: DEFAULT_AUTO_OPEN_CLOSE_ENABLED,
@@ -182,8 +192,50 @@ function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
     else logFallback('features.settlementAggregatorEnabled', 'field_missing', result.features!.settlementAggregatorEnabled);
     if (typeof features.tableDeviceRegistrationEnabled === 'boolean') result.features!.tableDeviceRegistrationEnabled = features.tableDeviceRegistrationEnabled;
     else logFallback('features.tableDeviceRegistrationEnabled', 'field_missing', result.features!.tableDeviceRegistrationEnabled);
+    if (typeof features.createAttendanceByManual === 'boolean') result.features!.createAttendanceByManual = features.createAttendanceByManual;
+    else logFallback('features.createAttendanceByManual', 'field_missing', result.features!.createAttendanceByManual);
   } else {
     logFallback('features', 'field_missing', result.features);
+  }
+
+  // attendanceTimeAdjustment
+  const attendanceTimeAdjustment = raw.attendanceTimeAdjustment as Record<string, unknown> | undefined;
+  if (attendanceTimeAdjustment && typeof attendanceTimeAdjustment === 'object') {
+    if (typeof attendanceTimeAdjustment.enabled === 'boolean') {
+      result.attendanceTimeAdjustment!.enabled = attendanceTimeAdjustment.enabled;
+    } else {
+      logFallback('attendanceTimeAdjustment.enabled', 'field_missing', result.attendanceTimeAdjustment!.enabled);
+    }
+
+    if (
+      typeof attendanceTimeAdjustment.maxFutureMinutes === 'number' ||
+      attendanceTimeAdjustment.maxFutureMinutes === null
+    ) {
+      result.attendanceTimeAdjustment!.maxFutureMinutes =
+        (attendanceTimeAdjustment.maxFutureMinutes as number | null);
+    } else {
+      logFallback(
+        'attendanceTimeAdjustment.maxFutureMinutes',
+        'field_missing',
+        result.attendanceTimeAdjustment!.maxFutureMinutes
+      );
+    }
+
+    if (
+      typeof attendanceTimeAdjustment.maxPastMinutes === 'number' ||
+      attendanceTimeAdjustment.maxPastMinutes === null
+    ) {
+      result.attendanceTimeAdjustment!.maxPastMinutes =
+        (attendanceTimeAdjustment.maxPastMinutes as number | null);
+    } else {
+      logFallback(
+        'attendanceTimeAdjustment.maxPastMinutes',
+        'field_missing',
+        result.attendanceTimeAdjustment!.maxPastMinutes
+      );
+    }
+  } else {
+    logFallback('attendanceTimeAdjustment', 'field_missing', result.attendanceTimeAdjustment);
   }
 
   // autoOpenClose
@@ -362,6 +414,22 @@ export function mergeConfigForUpsert(
     templateBusinessDateCheck: typeof featEx?.templateBusinessDateCheck === 'boolean' ? featEx.templateBusinessDateCheck : featDef.templateBusinessDateCheck,
     settlementAggregatorEnabled: typeof featEx?.settlementAggregatorEnabled === 'boolean' ? featEx.settlementAggregatorEnabled : featDef.settlementAggregatorEnabled,
     tableDeviceRegistrationEnabled: typeof featEx?.tableDeviceRegistrationEnabled === 'boolean' ? featEx.tableDeviceRegistrationEnabled : featDef.tableDeviceRegistrationEnabled,
+    createAttendanceByManual: typeof featEx?.createAttendanceByManual === 'boolean' ? featEx.createAttendanceByManual : featDef.createAttendanceByManual,
+  };
+
+  // attendanceTimeAdjustment
+  const ataDef = defaults.attendanceTimeAdjustment!;
+  const ataEx = ex.attendanceTimeAdjustment as Record<string, unknown> | undefined;
+  out.attendanceTimeAdjustment = {
+    enabled: typeof ataEx?.enabled === 'boolean' ? ataEx.enabled : ataDef.enabled,
+    maxFutureMinutes:
+      typeof ataEx?.maxFutureMinutes === 'number' || ataEx?.maxFutureMinutes === null
+        ? (ataEx.maxFutureMinutes as number | null)
+        : ataDef.maxFutureMinutes,
+    maxPastMinutes:
+      typeof ataEx?.maxPastMinutes === 'number' || ataEx?.maxPastMinutes === null
+        ? (ataEx.maxPastMinutes as number | null)
+        : ataDef.maxPastMinutes,
   };
 
   // autoOpenClose

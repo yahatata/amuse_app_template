@@ -25,45 +25,77 @@ String formatToJST(String? timeString) {
 class AttendanceService {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
 
-  /// 出勤・退勤モードを自動判定
-  Future<AttendanceJudgmentResult> determineAttendanceMode(String qrData) async {
+  /// 出勤打刻（Phase4 01: clockIn Callable）
+  Future<ClockInResult> clockIn(
+    String staffId, {
+    String? staffName,
+    int? adjustmentOffsetMinutes,
+  }) async {
     try {
-      // QRコードデータの検証
-      final staffId = extractStaffIdFromQR(qrData);
-      
-      // Cloud Functionsで出勤・退勤を判定
-      final result = await _functions
-          .httpsCallable('determineAttendanceMode')
-          .call({'staffId': staffId});
+      final params = <String, dynamic>{'staffId': staffId};
+      if (staffName != null) params['staffName'] = staffName;
+      if (adjustmentOffsetMinutes != null) {
+        params['adjustmentOffsetMinutes'] = adjustmentOffsetMinutes;
+      }
 
-      // より安全な型変換
+      final result = await _functions.httpsCallable('clockIn').call(params);
+
       final responseData = result.data;
       if (responseData is! Map) {
         throw Exception('予期しないレスポンス形式です: ${responseData.runtimeType}');
       }
-      
+
       final data = Map<String, dynamic>.from(responseData);
-      
+
       if (data['success'] == true) {
-        // dataフィールドの安全な型変換
-        final resultData = data['data'];
-        
-        Map<String, dynamic> safeData;
-        if (resultData is Map) {
-          safeData = Map<String, dynamic>.from(resultData);
-        } else {
-          safeData = <String, dynamic>{};
-        }
-        
-        return AttendanceJudgmentResult(
-          isClockIn: data['isClockIn'],
-          staffName: data['staffName'],
-          existingDocId: data['existingDocId'],
-          date: data['date'],
-          message: data['message'],
+        return ClockInResult(
+          docId: data['docId'] as String? ?? '',
+          message: data['message'] as String? ?? '',
+          data: data,
+          warning: data['warning'] as String?,
         );
       } else {
-        throw Exception('判定処理に失敗しました');
+        throw Exception(data['message'] as String? ?? '出勤登録に失敗しました');
+      }
+    } on FirebaseFunctionsException catch (e) {
+      throw _handleFirebaseFunctionsException(e);
+    } catch (e) {
+      throw Exception('予期しないエラーが発生しました: $e');
+    }
+  }
+
+  /// 退勤打刻（Phase4 01: clockOut Callable）
+  /// staffId または docId のいずれかを指定。docId がある場合は docId を優先。
+  Future<ClockOutResult> clockOut(
+    String staffId, {
+    String? docId,
+    int? adjustmentOffsetMinutes,
+  }) async {
+    try {
+      final params = <String, dynamic>{
+        if (docId != null && docId.isNotEmpty) 'docId': docId else 'staffId': staffId,
+        if (adjustmentOffsetMinutes != null)
+          'adjustmentOffsetMinutes': adjustmentOffsetMinutes,
+      };
+      final result =
+          await _functions.httpsCallable('clockOut').call(params);
+
+      final responseData = result.data;
+      if (responseData is! Map) {
+        throw Exception('予期しないレスポンス形式です: ${responseData.runtimeType}');
+      }
+
+      final data = Map<String, dynamic>.from(responseData);
+
+      if (data['success'] == true) {
+        return ClockOutResult(
+          docId: data['docId'] as String? ?? '',
+          message: data['message'] as String? ?? '',
+          data: data,
+          warning: data['warning'] as String?,
+        );
+      } else {
+        throw Exception(data['message'] as String? ?? '退勤登録に失敗しました');
       }
     } on FirebaseFunctionsException catch (e) {
       throw _handleFirebaseFunctionsException(e);
@@ -158,13 +190,19 @@ class AttendanceService {
   }
 
   /// 手動出勤記録を作成
-  Future<ClockInResult> createManualClockInRecord(String staffId, String staffName) async {
+  Future<ClockInResult> createManualClockInRecord(
+    String staffId,
+    String staffName, {
+    int? adjustmentOffsetMinutes,
+  }) async {
     try {
       final result = await _functions
           .httpsCallable('createManualClockInRecord')
           .call({
             'staffId': staffId,
             'staffName': staffName,
+            if (adjustmentOffsetMinutes != null)
+              'adjustmentOffsetMinutes': adjustmentOffsetMinutes,
           });
 
       final responseData = result.data;
@@ -186,8 +224,9 @@ class AttendanceService {
         
         return ClockInResult(
           docId: data['docId'],
-          message: data['docId'],
+          message: data['message'],
           data: safeData,
+          warning: data['warning'] as String?,
         );
       } else {
         throw Exception('手動出勤記録の作成に失敗しました');
@@ -200,11 +239,18 @@ class AttendanceService {
   }
 
   /// 手動退勤記録を更新
-  Future<ClockOutResult> updateManualClockOutRecord(String docId) async {
+  Future<ClockOutResult> updateManualClockOutRecord(
+    String docId, {
+    int? adjustmentOffsetMinutes,
+  }) async {
     try {
       final result = await _functions
           .httpsCallable('updateManualClockOutRecord')
-          .call({'docId': docId});
+          .call({
+            'docId': docId,
+            if (adjustmentOffsetMinutes != null)
+              'adjustmentOffsetMinutes': adjustmentOffsetMinutes,
+          });
 
       final responseData = result.data;
       if (responseData is! Map) {
@@ -227,6 +273,7 @@ class AttendanceService {
           docId: data['docId'],
           message: data['message'],
           data: safeData,
+          warning: data['warning'] as String?,
         );
       } else {
         throw Exception('手動退勤記録の更新に失敗しました');
@@ -239,28 +286,48 @@ class AttendanceService {
   }
 
   /// スタッフ一覧を取得（出勤・退勤モード別）
-  Future<List<StaffData>> getStaffList(bool isClockInMode) async {
+  /// CHANGESPEC 6-4: 退勤モード時は separateSectionStaff（別枠）も返す
+  Future<GetStaffListResult> getStaffList(bool isClockInMode) async {
     try {
       final result = await _functions
           .httpsCallable('getStaffListForAttendance')
           .call({'isClockInMode': isClockInMode});
 
       final responseData = result.data;
-      
+
       if (responseData is! Map) {
         throw Exception('予期しないレスポンス形式です: ${responseData.runtimeType}');
       }
-      
+
       final data = Map<String, dynamic>.from(responseData);
-      
+
       if (data['success'] == true) {
         final staffList = data['staffList'] as List;
-        
-        return staffList.map((staff) {
-          // 型を明示的にキャスト
-          final staffMap = Map<String, dynamic>.from(staff as Map);
-          return StaffData.fromMap(staffMap);
-        }).toList();
+        final mainList = staffList
+            .map((staff) {
+              final staffMap = Map<String, dynamic>.from(staff as Map);
+              return StaffData.fromMap(staffMap);
+            })
+            .toList();
+
+        List<StaffData> separateSection = [];
+        final raw = data['separateSectionStaff'];
+        if (raw is List && raw.isNotEmpty) {
+          separateSection = raw
+              .map((staff) {
+                final staffMap = Map<String, dynamic>.from(staff as Map);
+                return StaffData.fromMap(staffMap);
+              })
+              .toList();
+        }
+
+        return GetStaffListResult(
+          staffList: mainList,
+          separateSectionStaff: separateSection,
+          date: data['date'] as String? ?? '',
+          attendanceDate: data['attendanceDate'] as String? ?? data['date'] as String? ?? '',
+          shiftDate: data['shiftDate'] as String? ?? data['date'] as String? ?? '',
+        );
       } else {
         throw Exception('スタッフ一覧の取得に失敗しました');
       }
@@ -447,33 +514,18 @@ class AttendanceService {
   }
 }
 
-/// 出勤・退勤判定結果
-class AttendanceJudgmentResult {
-  final bool isClockIn;
-  final String staffName;
-  final String? existingDocId;
-  final String date;
-  final String message;
-
-  AttendanceJudgmentResult({
-    required this.isClockIn,
-    required this.staffName,
-    this.existingDocId,
-    required this.date,
-    required this.message,
-  });
-}
-
 /// 出勤記録作成結果
 class ClockInResult {
   final String docId;
   final String message;
   final Map<String, dynamic> data;
+  final String? warning;
 
   ClockInResult({
     required this.docId,
     required this.message,
     required this.data,
+    this.warning,
   });
 }
 
@@ -482,11 +534,30 @@ class ClockOutResult {
   final String docId;
   final String message;
   final Map<String, dynamic> data;
+  final String? warning;
 
   ClockOutResult({
     required this.docId,
     required this.message,
     required this.data,
+    this.warning,
+  });
+}
+
+/// getStaffList の戻り値（CHANGESPEC 6-4 別枠対応）
+class GetStaffListResult {
+  final List<StaffData> staffList;
+  final List<StaffData> separateSectionStaff;
+  final String date;
+  final String attendanceDate;
+  final String shiftDate;
+
+  GetStaffListResult({
+    required this.staffList,
+    required this.separateSectionStaff,
+    required this.date,
+    required this.attendanceDate,
+    required this.shiftDate,
   });
 }
 

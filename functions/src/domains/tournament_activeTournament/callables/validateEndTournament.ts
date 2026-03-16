@@ -51,8 +51,8 @@ export const validateEndTournament = onCall(async (request) => {
       errorType: '' as 'ended' | 'not_registered' | 'no_prize' | 'no_ranking' | 'complete',
     };
     
-    // ステータスチェック
-    if (status === 'ended') {
+    // ステータスチェック（ended / force_ended は終了済み）
+    if (status === 'ended' || status === 'force_ended') {
       validationResult.errorType = 'ended';
       validationResult.message = 'このトーナメントは既に終了済みです';
       return { success: false, ...validationResult };

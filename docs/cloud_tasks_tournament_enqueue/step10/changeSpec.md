@@ -27,7 +27,7 @@ modification_list 10.1 に基づき、新 enqueue フロー完了後に**関連�
 
 - **1.6** として `enqueueTournamentTasksByScheduler` を追加
 - ファイル: `functions/src/domains/tournament_createTournament/scheduler/EnqueueTournamentTasksByScheduler.ts`
-- スケジュール: 毎日 5:00 JST。TS 側は環境変数 `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` を参照（未設定時は `'0 5 * * *'`）。Dart の同定数はドキュメント用。
+- スケジュール: 毎日 5:00 JST。TS 側は環境変数 `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` を参照（未設定時は `'0 5 * * *'`）。Dart からは削除済み。
 - 処理内容: `runEnqueueTournamentTasks` を実行し、対象期間内の scheduledTournament について taskIndex 突合・Cloud Tasks 投入
 - 有効化: `ENQUEUE_SCHEDULER_ENABLED === 'true'` であること。Step 6 デプロイ完了まで無効化推奨
 

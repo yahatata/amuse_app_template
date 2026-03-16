@@ -5,6 +5,24 @@
 
 ---
 
+## Phase3/4/5 実施順序の変更
+
+- Date (JST): 2026-03-05
+- Change ID: `CM-PhaseOrder-001`
+- Category: `docs`
+- Classification IDs: N/A
+- SSoT Before/After:
+  - Before: Phase2.1 → Phase3 → Phase4。Phase5 は Phase2.1 の次。
+  - After: Phase2.1 → Phase4 / Phase5（並行可）→ Phase3（最後）
+- Summary:
+  - Phase3（ハードニング・運用整理）を Phase4・5 の後に実施するよう変更
+  - Phase4・5 は Phase2.1 完了後に実施可能。Phase3 の完了は不要
+  - migration_roadmap.md、phase3/4/5 README、phase0B/PHASE0B_DEPRECATION_PLAN.md を更新
+- Scope: `Docs`
+- Compatibility: Non-breaking
+
+---
+
 ## Entry Template
 
 - Date (JST):

@@ -15,7 +15,7 @@ Phase3/4 で扱うと明確化されているもの（STORE_CLOSE_HOUR 関連）
 | 4 | B-04 | defaultPrizeRatio, prizeReceiverPercentage, prizeRoundingMethod, prizeRoundingUnit, prizeDistribution | storeMeta/config へ移管 | 完了。運用時資料更新済み |
 | 5 | B-05 | pointTypes | Phase5 へ繰り延べ | 仕様決定・実装は phase5 で実施。phase5/README.md 参照 |
 | 6 | B-07 | ADMIN_CREATED_SHIFT_ID | 残す（globalConstant） | 決定。globalConstant にコメント追記済み。B07/README を Done 化 |
-| 7 | D-15 | WEEKLY_PLANNER_CRON, RECURRING_TOURNAMENT_*_CRON, RECURRING_TOURNAMENT_*_RUN_AT_DESCRIPTION, ENQUEUE_TOURNAMENT_TASKS_*_CRON, ENQUEUE_TOURNAMENT_TASKS_*_RUN_AT_DESCRIPTION | 完了（TS 環境変数化） | Dart はドキュメント用。TS は process.env で上書き可能。Cloud Logging で source 判別可。 |
+| 7 | D-15 | WEEKLY_PLANNER_CRON, RECURRING_TOURNAMENT_*_CRON, ENQUEUE_TOURNAMENT_TASKS_*_CRON | 完了（TS 環境変数化） | Dart から削除済み。TS は process.env で上書き可能。Cloud Logging で source 判別可。詳細は docs に記載予定。 |
 
 ---
 
@@ -31,6 +31,6 @@ Phase3/4 で扱うと明確化されているもの（STORE_CLOSE_HOUR 関連）
 | トーナメント設定 | tournament 関連ページ | tournament 関連 callables |
 | pointTypes | edit_tournament_template_page, create_tournament_template_page, prize_setup_page | createUserAccount.ts, createUserByApp.ts |
 | ADMIN_CREATED_SHIFT_ID | shiftDateDialog.dart | helpers.ts, updateDayAssignments.ts |
-| CRON 設定 | 未使用（参照用メモ） | weeklyPlanner.ts, GenerateRecurringTournamentsByScheduler.ts, EnqueueTournamentTasksByScheduler.ts |
+| CRON 設定 | 削除済み | weeklyPlanner.ts, GenerateRecurringTournamentsByScheduler.ts, EnqueueTournamentTasksByScheduler.ts |
 
 ※ 実施時に grep で全参照箇所を再確認すること。

@@ -8,7 +8,7 @@ Cloud Scheduler で実行されるバッチ処理のスケジュールを表す 
 - 定期開催トーナメント自動生成
 - enqueue バッチ（トーナメントタスク投入）
 
-**注意**: CRON の実際の実行は TypeScript 側の Scheduler で行われる。`lib/globalConstant.dart` には定義と説明が置かれているが、実際のスケジュール値は TS 側の環境変数（未設定時は各ファイル内のデフォルト値）で決まる。Dart の定数は参照されていない（同期用のドキュメントとしての役割）。
+**注意**: CRON の実際の実行は TypeScript 側の Scheduler で行われる。SSoT は TS 環境変数のみ。`lib/globalConstant.dart` からは削除済み（詳細は docs に記載予定）。
 
 **Phase2.1 対応状況**: CRON 3項目を環境変数化済み。TS 各ファイルで `process.env.XXX || 'default'` により未設定時はデフォルトを使用。Cloud Logging で `source: 'env' | 'default'` をログ出力し、コンソールから判別可能。
 
@@ -16,13 +16,14 @@ Cloud Scheduler で実行されるバッチ処理のスケジュールを表す 
 
 ## 2. 設定（定数）一覧
 
-| 定数名 | 型 | 現状の値 | 定義場所 |
+| 定数名 | 型 | デフォルト値 | 定義場所 |
 |--------|------|----------|----------|
-| WEEKLY_PLANNER_CRON | String | '0 20 * * 0' | lib/globalConstant.dart |
-| RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON | String | '0 23 * * 0' | lib/globalConstant.dart |
-| RECURRING_TOURNAMENT_GENERATION_SCHEDULER_RUN_AT_DESCRIPTION | String | （日曜23:00 JST の説明文） | lib/globalConstant.dart |
-| ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON | String | '0 5 * * *' | lib/globalConstant.dart |
-| ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_RUN_AT_DESCRIPTION | String | （毎日5:00 JST の説明文） | lib/globalConstant.dart |
+| WEEKLY_PLANNER_CRON | String | '0 11 * * 0' (UTC) = 日曜 20:00 JST | TS 環境変数（weeklyPlanner.ts） |
+| RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON | String | '0 23 * * 0' | TS 環境変数（GenerateRecurringTournamentsByScheduler.ts） |
+| ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON | String | '0 5 * * *' | TS 環境変数（EnqueueTournamentTasksByScheduler.ts） |
+| RUN_AT_DESCRIPTION 系 | String | - | 削除済み。docs 作成時に記載予定 |
+
+※ 旧 Dart 定義（lib/globalConstant.dart）は削除済み。
 
 ---
 
@@ -54,8 +55,7 @@ Cloud Scheduler で実行されるバッチ処理のスケジュールを表す 
 
 | 定数 | 値 | 動作への影響 |
 |------|-----|--------------|
-| CRON 系 | 変更 | 実行タイミングは TS の環境変数（未設定時は各ファイル内デフォルト）で決まる。Dart の定数は「どの時刻に動くか」のドキュメントとして参照用。TS 側は `functions/.env.*` または Secret Manager で上書き可能。 |
-| RUN_AT_DESCRIPTION | 変更 | 説明文のみ変わる。実行ロジックへの影響はない。 |
+| CRON 系 | 変更 | 実行タイミングは TS の環境変数（未設定時は各ファイル内デフォルト）で決まる。`functions/.env.*` または Secret Manager で上書き可能。 |
 
 ---
 
@@ -65,7 +65,7 @@ Cloud Scheduler で実行されるバッチ処理のスケジュールを表す 
 
 | ファイル | 参照内容 |
 |----------|----------|
-| lib/globalConstant.dart | 5定数の定義。**他にこれらを参照している Dart ファイルはなし**（現状、UI 等での利用も未確認） |
+| - | CRON 関連定数は削除済み。Dart からの参照なし。詳細は docs に記載予定。 |
 
 ### TypeScript（functions）
 

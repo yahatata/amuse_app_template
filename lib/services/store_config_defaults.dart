@@ -10,6 +10,12 @@ const bool kDefaultEnqueueSchedulerEnabled = true;
 const bool kDefaultTemplateBusinessDateCheck = true;
 const bool kDefaultSettlementAggregatorEnabled = true;
 const bool kDefaultTableDeviceRegistrationEnabled = true;
+const bool kDefaultCreateAttendanceByManual = false;
+
+// attendance time adjustment
+const bool kDefaultAttendanceTimeAdjustmentEnabled = false;
+const int? kDefaultAttendanceTimeAdjustmentMaxFutureMinutes = null;
+const int? kDefaultAttendanceTimeAdjustmentMaxPastMinutes = null;
 
 // autoOpenClose
 const bool kDefaultAutoOpenCloseEnabled = true;
@@ -125,3 +131,15 @@ const Map<int, List<double>> kDefaultTournamentPrizeDistribution = {
   9: [34.0, 20.0, 12.0, 8.0, 7.0, 6.0, 5.0, 4.0, 4.0],
   10: [32.0, 19.0, 12.0, 8.0, 7.0, 6.0, 5.0, 4.0, 4.0, 3.0],
 };
+
+/// 人数 N に対するデフォルトのプライズ配分比率を返す。
+/// 1〜10 は kDefaultTournamentPrizeDistribution、11〜100 は均等配分。
+List<double> getDefaultPrizeDistributionForCount(int n) {
+  if (kDefaultTournamentPrizeDistribution.containsKey(n)) {
+    return List<double>.from(kDefaultTournamentPrizeDistribution[n]!);
+  }
+  if (n >= 1 && n <= 100) {
+    return List.filled(n, 100.0 / n);
+  }
+  return [100.0];
+}

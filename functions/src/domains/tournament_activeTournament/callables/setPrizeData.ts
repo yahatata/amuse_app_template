@@ -7,7 +7,7 @@ const setPrizeDataSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId is required'),
   prizeData: z.object({
     prizePool: z.number().min(0, 'prizePool must be non-negative'),
-    prizeReceiverCount: z.number().min(1, 'prizeReceiverCount must be at least 1').max(10, 'prizeReceiverCount cannot exceed 10'),
+    prizeReceiverCount: z.number().min(1, 'prizeReceiverCount must be at least 1').max(100, 'prizeReceiverCount cannot exceed 100'),
     pointType: z.string().optional(), // ポイントタイプ（オプション）
   }).and(z.record(z.string(), z.union([z.string(), z.number(), z.null()]))), // 追加のプライズフィールドを許可（nullも許可）
 });

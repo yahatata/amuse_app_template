@@ -1,17 +1,76 @@
+/**
+ * 注意:
+ * - clockOut.ts とデータ更新・チェックロジックを揃えること。
+ * - 片方を変更した場合、もう片方にも同等変更が必要な可能性がある。
+ */
+
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { getStoreConfig } from '../../../shared/config/configLoader';
+
+const GRACE_HOURS = 1;
+
+function calculateMinutes(
+  clockIn: admin.firestore.Timestamp,
+  clockOut: admin.firestore.Timestamp
+): { totalMinutes: number; nightMinutes: number } {
+  const jstOffset = 9 * 60 * 60 * 1000;
+  const clockInJST = new Date(clockIn.toDate().getTime() + jstOffset);
+  const clockOutJST = new Date(clockOut.toDate().getTime() + jstOffset);
+  const totalMinutes = Math.floor((clockOutJST.getTime() - clockInJST.getTime()) / (1000 * 60));
+
+  const nightStartHour = 22;
+  const nightEndHour = 5;
+  let nightMinutes = 0;
+  let currentTime = new Date(clockInJST);
+  while (currentTime < clockOutJST) {
+    const hour = currentTime.getHours();
+    if (hour >= nightStartHour || hour < nightEndHour) nightMinutes++;
+    currentTime.setMinutes(currentTime.getMinutes() + 1);
+  }
+  return { totalMinutes, nightMinutes };
+}
+
+function resolveAdjustedClockOutTimestamp(
+  adjustmentOffsetMinutes: unknown,
+  config: Awaited<ReturnType<typeof getStoreConfig>>,
+  clockIn: admin.firestore.Timestamp
+): admin.firestore.Timestamp {
+  const now = admin.firestore.Timestamp.now();
+  const adjustment = config.attendanceTimeAdjustment;
+  let adjusted = now;
+
+  if (adjustment?.enabled) {
+    const offset = adjustmentOffsetMinutes == null ? 0 : Number(adjustmentOffsetMinutes);
+    if (!Number.isInteger(offset)) {
+      throw new HttpsError('invalid-argument', 'adjustmentOffsetMinutes must be an integer');
+    }
+
+    if (adjustment.maxFutureMinutes == null || adjustment.maxPastMinutes == null) {
+      if (offset !== 0) {
+        throw new HttpsError('failed-precondition', '時間調整は現在時刻での登録のみ許可されています');
+      }
+    } else if (offset > adjustment.maxFutureMinutes || offset < -adjustment.maxPastMinutes) {
+      throw new HttpsError('failed-precondition', '選択した時刻は許可範囲外です');
+    } else {
+      adjusted = admin.firestore.Timestamp.fromMillis(now.toMillis() + offset * 60 * 1000);
+    }
+  }
+
+  if (adjusted.toMillis() < clockIn.toMillis()) {
+    throw new HttpsError('failed-precondition', '出勤時刻より過去の退勤時間は登録できません');
+  }
+  return adjusted;
+}
 
 export const updateManualClockOutRecord = onCall(async (request: CallableRequest) => {
-  // 認証チェック
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
   const callerUid = request.auth.uid;
-
-  // デバイス権限の確認（role: admin または options.staff_entry_exit: true）
   const device = await getCallerDeviceByUid(callerUid);
   if (!device || !isActive(device.status)) {
     throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
@@ -23,115 +82,86 @@ export const updateManualClockOutRecord = onCall(async (request: CallableRequest
   }
 
   try {
-    const { data } = request;
-    
-    // リクエストデータの検証
-    const { docId } = data as { docId: string };
-    
+    const {
+      docId,
+      adjustmentOffsetMinutes,
+    } = (request.data ?? {}) as { docId?: string; adjustmentOffsetMinutes?: unknown };
     if (!docId) {
-      throw new HttpsError(
-        'invalid-argument',
-        'docId is required'
-      );
+      throw new HttpsError('invalid-argument', 'docId is required');
     }
 
-    // 出勤記録を取得
-    const attendanceDoc = await admin.firestore()
-      .collection('attendances')
-      .doc(docId)
-      .get();
+    const config = await getStoreConfig();
+    if (config.features?.createAttendanceByManual !== true) {
+      throw new HttpsError('failed-precondition', '手動打刻は現在無効です');
+    }
 
+    const db = admin.firestore();
+    const attendanceDoc = await db.collection('attendances').doc(docId).get();
     if (!attendanceDoc.exists) {
-      throw new HttpsError(
-        'not-found',
-        'Attendance record not found'
-      );
+      return { success: false, code: 'no-unclocked-attendance', message: '勤務中のデータがありません' };
     }
-
+    const attendanceRef = attendanceDoc.ref;
     const attendanceData = attendanceDoc.data()!;
-    
-    // 既に退勤済みかチェック
-    if (attendanceData.clockOut != null) {
-      throw new HttpsError(
-        'already-exists',
-        'Already clocked out'
-      );
+
+    if (attendanceData.clockOut || !attendanceData.clockIn) {
+      return { success: false, code: 'no-unclocked-attendance', message: '勤務中のデータがありません' };
     }
 
-    // 退勤時刻を設定
-    const clockOut = admin.firestore.FieldValue.serverTimestamp();
-    
-    // 勤務時間を計算（現在時刻を使用）
-    const now = new Date();
-    const clockIn = attendanceData.clockIn as admin.firestore.Timestamp;
-    const { totalMinutes, nightMinutes } = calculateMinutes(clockIn, admin.firestore.Timestamp.fromDate(now));
-
-    // 退勤記録を更新
-    await admin.firestore()
-      .collection('attendances')
-      .doc(docId)
-      .update({
-        clockOut: clockOut,
-        totalMinutes: totalMinutes,
-        nightMinutes: nightMinutes,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-    return {
-      success: true,
-      docId: docId,
-      message: `${attendanceData.staffsFullName}さんの手動退勤記録を更新しました`,
-      data: {
-        clockOut: new Date().toISOString(), // 仮の値（実際はサーバータイムスタンプ）
-        totalMinutes: totalMinutes,
-        nightMinutes: nightMinutes,
+    const closedAt = attendanceData.closedAt as admin.firestore.Timestamp | undefined;
+    if (attendanceData.closedStoreWithoutClockOut === true && closedAt) {
+      const closedAtMs = closedAt.toDate().getTime();
+      const nowMs = Date.now();
+      const elapsedHours = (nowMs - closedAtMs) / (1000 * 60 * 60);
+      if (elapsedHours >= GRACE_HOURS) {
+        return {
+          success: false,
+          code: 'grace-period-expired',
+          message: '閉店から1時間を経過しています。未退勤一覧からパスワードを入力して退勤してください。',
+        };
       }
-    };
+    }
 
+    const staffIdVal = attendanceData.staffId as string;
+    const otherClosedSnap = await db
+      .collection('attendances')
+      .where('staffId', '==', staffIdVal)
+      .where('closedStoreWithoutClockOut', '==', true)
+      .get();
+    const hasWarning = otherClosedSnap.docs.some((d) => d.id !== attendanceRef.id);
+
+    const adjustedClockOut = resolveAdjustedClockOutTimestamp(
+      adjustmentOffsetMinutes,
+      config,
+      attendanceData.clockIn as admin.firestore.Timestamp
+    );
+    await attendanceRef.update({
+      clockOut: adjustedClockOut,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const updatedDoc = await attendanceRef.get();
+    const updatedData = updatedDoc.data()!;
+    const { totalMinutes, nightMinutes } = calculateMinutes(
+      attendanceData.clockIn as admin.firestore.Timestamp,
+      updatedData.clockOut as admin.firestore.Timestamp
+    );
+    await attendanceRef.update({ totalMinutes, nightMinutes });
+
+    const staffName = (attendanceData.staffsFullName as string) ?? '';
+    const result: Record<string, unknown> = {
+      success: true,
+      docId: attendanceRef.id,
+      message: `${staffName}さんの退勤記録を更新しました`,
+    };
+    if (hasWarning) {
+      result.warning = '管理者に確認して、以前の出勤について正しいデータを入力して下さい。';
+    }
+    return result;
   } catch (error) {
-    console.error('Error in updateManualClockOutRecord:', error);
-    
     if (error instanceof HttpsError) {
       throw error;
     }
-    
-    throw new HttpsError(
-      'internal',
-      'Internal server error'
-    );
+    console.error('Error in updateManualClockOutRecord:', error);
+    throw new HttpsError('internal', 'Internal server error');
   }
 });
-
-// 勤務時間計算関数（updateClockOutRecord.tsと同じ）
-const calculateMinutes = (clockIn: admin.firestore.Timestamp, clockOut: admin.firestore.Timestamp) => {
-  const clockInTime = clockIn.toDate();
-  const clockOutTime = clockOut.toDate();
-  
-  // 日本時間（JST）に変換（UTC+9）
-  const jstOffset = 9 * 60 * 60 * 1000; // 9時間をミリ秒で
-  const clockInJST = new Date(clockInTime.getTime() + jstOffset);
-  const clockOutJST = new Date(clockOutTime.getTime() + jstOffset);
-  
-  // 総勤務時間（分）
-  const totalMinutes = Math.floor((clockOutJST.getTime() - clockInJST.getTime()) / (1000 * 60));
-  
-  // 深夜時間帯の定義（22:00-05:00）
-  const nightStartHour = 22;
-  const nightEndHour = 5;
-  
-  let nightMinutes = 0;
-  let currentTime = new Date(clockInJST);
-  
-  // 1分ずつ進めて深夜時間帯をカウント
-  while (currentTime < clockOutJST) {
-    const hour = currentTime.getHours();
-    // 深夜時間帯の判定（22:00-05:00）
-    // 22時以上 または 5時未満
-    if (hour >= nightStartHour || hour < nightEndHour) {
-      nightMinutes++;
-    }
-    currentTime.setMinutes(currentTime.getMinutes() + 1);
-  }
-  
-  return { totalMinutes, nightMinutes };
-};

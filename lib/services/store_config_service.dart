@@ -23,6 +23,10 @@ class StoreConfigData {
   final bool templateBusinessDateCheck;
   final bool settlementAggregatorEnabled;
   final bool tableDeviceRegistrationEnabled;
+  final bool createAttendanceByManual;
+  final bool attendanceTimeAdjustmentEnabled;
+  final int? attendanceTimeAdjustmentMaxFutureMinutes;
+  final int? attendanceTimeAdjustmentMaxPastMinutes;
   final bool autoOpenCloseEnabled;
   final int taskCloseOffsetMinutes;
   final int taskOpenOffsetMinutes;
@@ -56,6 +60,13 @@ class StoreConfigData {
     this.templateBusinessDateCheck = kDefaultTemplateBusinessDateCheck,
     this.settlementAggregatorEnabled = kDefaultSettlementAggregatorEnabled,
     this.tableDeviceRegistrationEnabled = kDefaultTableDeviceRegistrationEnabled,
+    this.createAttendanceByManual = kDefaultCreateAttendanceByManual,
+    this.attendanceTimeAdjustmentEnabled =
+        kDefaultAttendanceTimeAdjustmentEnabled,
+    this.attendanceTimeAdjustmentMaxFutureMinutes =
+        kDefaultAttendanceTimeAdjustmentMaxFutureMinutes,
+    this.attendanceTimeAdjustmentMaxPastMinutes =
+        kDefaultAttendanceTimeAdjustmentMaxPastMinutes,
     this.autoOpenCloseEnabled = kDefaultAutoOpenCloseEnabled,
     this.taskCloseOffsetMinutes = kDefaultTaskCloseOffsetMinutes,
     this.taskOpenOffsetMinutes = kDefaultTaskOpenOffsetMinutes,
@@ -110,6 +121,8 @@ class StoreConfigData {
     if (data == null || data.isEmpty) return StoreConfigData.fromDefaults();
 
     final features = data['features'] as Map<String, dynamic>?;
+    final attendanceTimeAdjustment =
+        data['attendanceTimeAdjustment'] as Map<String, dynamic>?;
     final autoOpenClose = data['autoOpenClose'] as Map<String, dynamic>?;
     final businessDay = data['businessDay'] as Map<String, dynamic>?;
     final billing = data['billing'] as Map<String, dynamic>?;
@@ -192,6 +205,20 @@ class StoreConfigData {
       tableDeviceRegistrationEnabled:
           parseBool(features?['tableDeviceRegistrationEnabled']) ??
               kDefaultTableDeviceRegistrationEnabled,
+      createAttendanceByManual:
+          parseBool(features?['createAttendanceByManual']) ??
+              kDefaultCreateAttendanceByManual,
+      attendanceTimeAdjustmentEnabled:
+          parseBool(attendanceTimeAdjustment?['enabled']) ??
+              kDefaultAttendanceTimeAdjustmentEnabled,
+      attendanceTimeAdjustmentMaxFutureMinutes:
+          attendanceTimeAdjustment?['maxFutureMinutes'] == null
+              ? null
+              : parseInt(attendanceTimeAdjustment?['maxFutureMinutes']),
+      attendanceTimeAdjustmentMaxPastMinutes:
+          attendanceTimeAdjustment?['maxPastMinutes'] == null
+              ? null
+              : parseInt(attendanceTimeAdjustment?['maxPastMinutes']),
       autoOpenCloseEnabled:
           parseBool(autoOpenClose?['enabled']) ?? kDefaultAutoOpenCloseEnabled,
       taskCloseOffsetMinutes:
