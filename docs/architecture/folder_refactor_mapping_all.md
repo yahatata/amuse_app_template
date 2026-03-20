@@ -140,14 +140,13 @@
 
 | 現状パス | 提案先パス | 分類理由 |
 |---------|-----------|---------|
-| `AttendanceManagement/staffAttendancePage.dart` | `features/attendance/pages/staffAttendancePage.dart` | 勤怠機能の画面 |
-| `AttendanceManagement/allStaffAttendancePage.dart` | `features/attendance/pages/allStaffAttendancePage.dart` | 勤怠機能の画面 |
-| `AttendanceManagement/attendanceDetailPage.dart` | `features/attendance/pages/attendanceDetailPage.dart` | 勤怠機能の画面 |
-| `AttendanceManagement/staffAttendanceDetailPage.dart` | `features/attendance/pages/staffAttendanceDetailPage.dart` | 勤怠機能の画面 |
+| `AttendanceManagement/staff_attendance_page_from_terminalHome.dart` | `features/attendance/pages/staff_attendance_page_from_terminalHome.dart` | 勤怠機能の画面 |
+| `AttendanceManagement/all_staff_attendance_page_from_adminHome.dart` | `features/attendance/pages/all_staff_attendance_page_from_adminHome.dart` | 勤怠機能の画面 |
+| `AttendanceManagement/daily_attendance_detail_page_from_staffAttendanceDetail.dart` | `features/attendance/pages/daily_attendance_detail_page_from_staffAttendanceDetail.dart` | 勤怠機能の画面 |
+| `AttendanceManagement/staff_attendance_detail_page_from_allStaffAttendance.dart` | `features/attendance/pages/staff_attendance_detail_page_from_allStaffAttendance.dart` | 勤怠機能の画面 |
 | `AttendanceManagement/attendanceCorrectionRequestsPage.dart` | `features/attendance/pages/attendanceCorrectionRequestsPage.dart` | 勤怠機能の画面 |
-| `AttendanceManagement/manualAttendancePage.dart` | `features/attendance/pages/manualAttendancePage.dart` | 勤怠機能の画面 |
 | `AttendanceManagement/qrScanPage.dart` | `features/attendance/pages/qrScanPage.dart` | 勤怠機能の画面 |
-| `AttendanceManagement/shiftDetailPage.dart` | `features/attendance/pages/shiftDetailPage.dart` | 勤怠機能の画面 |
+| `AttendanceManagement/shift_detail_page_from_staffAttendanceDetail.dart` | `features/attendance/pages/shift_detail_page_from_staffAttendanceDetail.dart` | 勤怠機能の画面 |
 | `AttendanceManagement/attendanceService.dart` | `features/attendance/services/attendanceService.dart` | 勤怠機能のサービス |
 
 ### features/shift/ (シフト機能)

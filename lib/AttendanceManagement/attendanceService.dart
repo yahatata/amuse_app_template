@@ -104,91 +104,6 @@ class AttendanceService {
     }
   }
 
-  /// 出勤記録を作成
-  Future<ClockInResult> createClockInRecord(String staffId, String staffName) async {
-    try {
-      final result = await _functions
-          .httpsCallable('createClockInRecord')
-          .call({
-            'staffId': staffId,
-            'staffName': staffName,
-          });
-
-      // より安全な型変換
-      final responseData = result.data;
-      if (responseData is! Map) {
-        throw Exception('予期しないレスポンス形式です: ${responseData.runtimeType}');
-      }
-      
-      final data = Map<String, dynamic>.from(responseData);
-      
-      if (data['success'] == true) {
-        // dataフィールドの安全な型変換
-        final resultData = data['data'];
-        
-        Map<String, dynamic> safeData;
-        if (resultData is Map) {
-          safeData = Map<String, dynamic>.from(resultData);
-        } else {
-          safeData = <String, dynamic>{};
-        }
-        
-        return ClockInResult(
-          docId: data['docId'],
-          message: data['message'],
-          data: safeData,
-        );
-      } else {
-        throw Exception('出勤記録の作成に失敗しました');
-      }
-    } on FirebaseFunctionsException catch (e) {
-      throw _handleFirebaseFunctionsException(e);
-    } catch (e) {
-      throw Exception('予期しないエラーが発生しました: $e');
-    }
-  }
-
-  /// 退勤記録を更新
-  Future<ClockOutResult> updateClockOutRecord(String docId) async {
-    try {
-      final result = await _functions
-          .httpsCallable('updateClockOutRecord')
-          .call({'docId': docId});
-
-      // より安全な型変換
-      final responseData = result.data;
-      if (responseData is! Map) {
-        throw Exception('予期しないレスポンス形式です: ${responseData.runtimeType}');
-      }
-      
-      final data = Map<String, dynamic>.from(responseData);
-      
-      if (data['success'] == true) {
-        // dataフィールドの安全な型変換
-        final resultData = data['data'];
-        
-        Map<String, dynamic> safeData;
-        if (resultData is Map) {
-          safeData = Map<String, dynamic>.from(resultData);
-        } else {
-          safeData = <String, dynamic>{};
-        }
-        
-        return ClockOutResult(
-          docId: data['docId'],
-          message: data['message'],
-          data: safeData,
-        );
-      } else {
-        throw Exception('退勤記録の更新に失敗しました');
-      }
-    } on FirebaseFunctionsException catch (e) {
-      throw _handleFirebaseFunctionsException(e);
-    } catch (e) {
-      throw Exception('予期しないエラーが発生しました: $e');
-    }
-  }
-
   /// 手動出勤記録を作成
   Future<ClockInResult> createManualClockInRecord(
     String staffId,
@@ -282,6 +197,149 @@ class AttendanceService {
       throw _handleFirebaseFunctionsException(e);
     } catch (e) {
       throw Exception('予期しないエラーが発生しました: $e');
+    }
+  }
+
+  /// Phase4.1-F: 休憩開始（startBreak Callable）
+  Future<Map<String, dynamic>> startBreak(
+    String attendanceId, {
+    int? adjustmentOffsetMinutes,
+  }) async {
+    try {
+      final params = <String, dynamic>{'attendanceId': attendanceId};
+      if (adjustmentOffsetMinutes != null) {
+        params['adjustmentOffsetMinutes'] = adjustmentOffsetMinutes;
+      }
+      final result = await _functions
+          .httpsCallable('startBreak')
+          .call(params);
+      final data = result.data;
+      if (data is Map && data['success'] == true) {
+        return Map<String, dynamic>.from(data);
+      }
+      throw Exception(data['message'] as String? ?? '休憩開始に失敗しました');
+    } on FirebaseFunctionsException catch (e) {
+      throw _handleFirebaseFunctionsException(e);
+    } catch (e) {
+      throw Exception('休憩開始に失敗しました: $e');
+    }
+  }
+
+  /// Phase4.1-F: 休憩終了（endBreak Callable）
+  /// breakId が null の場合はサーバー側で endedAt==null の break を検索して終了する。
+  Future<Map<String, dynamic>> endBreak(
+    String attendanceId, {
+    String? breakId,
+    int? adjustmentOffsetMinutes,
+  }) async {
+    try {
+      final params = <String, dynamic>{'attendanceId': attendanceId};
+      if (breakId != null) params['breakId'] = breakId;
+      if (adjustmentOffsetMinutes != null) {
+        params['adjustmentOffsetMinutes'] = adjustmentOffsetMinutes;
+      }
+      final result = await _functions
+          .httpsCallable('endBreak')
+          .call(params);
+      final data = result.data;
+      if (data is Map && data['success'] == true) {
+        return Map<String, dynamic>.from(data);
+      }
+      throw Exception(data['message'] as String? ?? '休憩終了に失敗しました');
+    } on FirebaseFunctionsException catch (e) {
+      throw _handleFirebaseFunctionsException(e);
+    } catch (e) {
+      throw Exception('休憩終了に失敗しました: $e');
+    }
+  }
+
+  /// Phase4.1-F: 休憩中の attendance を終了する（breakId はサーバー側で検索）
+  Future<Map<String, dynamic>> endBreakForAttendance(
+    String attendanceId, {
+    int? adjustmentOffsetMinutes,
+  }) async {
+    return endBreak(
+      attendanceId,
+      adjustmentOffsetMinutes: adjustmentOffsetMinutes,
+    );
+  }
+
+  /// Phase4.1-E: 管理者用勤怠作成
+  Future<Map<String, dynamic>> createAttendance({
+    required String staffId,
+    required String staffName,
+    required String date,
+    required DateTime clockIn,
+    DateTime? clockOut,
+  }) async {
+    try {
+      final result = await _functions.httpsCallable('createAttendance').call({
+        'staffId': staffId,
+        'staffName': staffName,
+        'date': date,
+        'clockIn': clockIn.toIso8601String(),
+        if (clockOut != null) 'clockOut': clockOut.toIso8601String(),
+      });
+      final data = result.data;
+      if (data is Map && data['success'] == true) {
+        return Map<String, dynamic>.from(data);
+      }
+      throw Exception('勤怠の作成に失敗しました');
+    } on FirebaseFunctionsException catch (e) {
+      throw _handleFirebaseFunctionsException(e);
+    } catch (e) {
+      throw Exception('勤怠の作成に失敗しました: $e');
+    }
+  }
+
+  /// Phase4.1-E: 管理者用勤怠更新
+  /// updateBreaks: 休憩の startedAt/endedAt を編集する場合 [{ breakId, startedAt, endedAt }, ...]
+  /// deleteBreakIds: 論理削除する休憩IDのリスト
+  /// restoreBreakIds: 論理削除を復元する休憩IDのリスト（isDeleted: false に戻す）
+  Future<Map<String, dynamic>> updateAttendance({
+    required String attendanceId,
+    DateTime? clockIn,
+    DateTime? clockOut,
+    List<Map<String, dynamic>>? updateBreaks,
+    List<String>? deleteBreakIds,
+    List<String>? restoreBreakIds,
+    bool markDeleted = false,
+  }) async {
+    try {
+      final params = <String, dynamic>{'attendanceId': attendanceId};
+      if (markDeleted) {
+        params['markDeleted'] = true;
+      } else {
+        // clockIn/clockOut は勤怠概要の更新時のみ送信（休憩削除のみの場合は既存値を保持）
+        final hasOverviewUpdate = clockIn != null || (updateBreaks != null && updateBreaks!.isNotEmpty);
+        if (hasOverviewUpdate) {
+          if (clockIn != null) params['clockIn'] = clockIn.toIso8601String();
+          params['clockOut'] = clockOut != null ? clockOut.toIso8601String() : null;
+        }
+        if (updateBreaks != null && updateBreaks.isNotEmpty) {
+          params['updateBreaks'] = updateBreaks.map((b) => {
+            'breakId': b['breakId'],
+            'startedAt': (b['startedAt'] as DateTime).toIso8601String(),
+            'endedAt': (b['endedAt'] as DateTime).toIso8601String(),
+          }).toList();
+        }
+        if (deleteBreakIds != null && deleteBreakIds.isNotEmpty) {
+          params['deleteBreakIds'] = deleteBreakIds;
+        }
+        if (restoreBreakIds != null && restoreBreakIds.isNotEmpty) {
+          params['restoreBreakIds'] = restoreBreakIds;
+        }
+      }
+      final result = await _functions.httpsCallable('updateAttendance').call(params);
+      final data = result.data;
+      if (data is Map && data['success'] == true) {
+        return Map<String, dynamic>.from(data);
+      }
+      throw Exception('勤怠の更新に失敗しました');
+    } on FirebaseFunctionsException catch (e) {
+      throw _handleFirebaseFunctionsException(e);
+    } catch (e) {
+      throw Exception('勤怠の更新に失敗しました: $e');
     }
   }
 

@@ -147,6 +147,12 @@ service cloud.firestore {
     match /attendances/{attendanceId} {
       allow read: if true; // 開発用：全許可
       allow write: if false; // 書き込みはCloud Functions経由のみ
+
+      // 休憩サブコレクション（endBreakForAttendance で endedAt==null の break を取得するため読み取り許可）
+      match /breaks/{breakId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
     }
 
     // 勤怠修正申請コレクション（開発用：読み取り全許可）
@@ -286,6 +292,18 @@ service cloud.firestore {
         // 書き込み: Functions のみ許可
         allow write: if false;
       }
+    }
+
+    // storeMeta/config ドキュメント（店舗設定。StoreConfigService が購読）
+    match /storeMeta/config {
+      allow read: if true; // 開発用：全許可。必要に応じて request.auth != null に変更
+      allow write: if false; // 書き込みは initializeStoreConfigCallable 等 Functions 経由のみ
+    }
+
+    // storeMeta/requiredStaffByTimeSlot ドキュメント（R-09 時間帯別必要人数。RequiredStaffByTimeSlotService が購読）
+    match /storeMeta/requiredStaffByTimeSlot {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みは Functions 経由のみ
     }
 
     // storeMeta/currentBusinessDay コレクション

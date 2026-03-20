@@ -119,6 +119,25 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
     return '—';
   }
 
+  /// clockIn から日付・時刻を "MM/DD HH:MM" 形式で返す
+  static String _formatClockInDateAndTime(dynamic clockIn) {
+    if (clockIn == null) return '—';
+    DateTime? dt;
+    if (clockIn is Timestamp) {
+      dt = clockIn.toDate();
+    } else if (clockIn is String) {
+      try {
+        dt = DateTime.parse(clockIn);
+      } catch (_) {
+        return '—';
+      }
+    } else {
+      return '—';
+    }
+    return '${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')} '
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
   Map<String, dynamic> _docToItem(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? {};
     final clockIn = d['clockIn'];
@@ -327,6 +346,15 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
                 }
 
                 if (!ctx.mounted) return;
+                final confirmed = await _showClockOutConfirmDialog(
+                  staffName: staffName,
+                  dateStr: dateStr,
+                  clockIn: clockIn,
+                  clockOutAt: clockOutAt,
+                );
+                if (confirmed != true) return;
+
+                if (!ctx.mounted) return;
                 await _performClockOut(
                   ctx,
                   item,
@@ -338,6 +366,40 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<bool?> _showClockOutConfirmDialog({
+    required String staffName,
+    required String dateStr,
+    required String clockIn,
+    required DateTime clockOutAt,
+  }) async {
+    final clockOutStr =
+        '${clockOutAt.month.toString().padLeft(2, '0')}/${clockOutAt.day.toString().padLeft(2, '0')} '
+        '${clockOutAt.hour.toString().padLeft(2, '0')}:${clockOutAt.minute.toString().padLeft(2, '0')}';
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('退勤打刻の確認'),
+        content: Text(
+          '以下の内容で退勤情報を追加してよろしいですか？\n\n'
+          'スタッフ: $staffName\n'
+          '日付: ${_formatDate(dateStr)}\n'
+          '出勤: ${_formatClockInDateAndTime(clockIn)}\n'
+          '退勤: $clockOutStr',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('確認'),
+          ),
+        ],
       ),
     );
   }
@@ -373,6 +435,22 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
       return;
     }
 
+    if (!mounted || !dialogContext.mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('処理中...'),
+          ],
+        ),
+      ),
+    );
+
     try {
       final callable = FirebaseFunctions.instance
           .httpsCallable('updateUnclockedAttendanceWithAuth');
@@ -380,13 +458,14 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
         'docId': docId,
         'adminPassword': password,
         'clockOutAt': clockOutAt.toUtc().toIso8601String(),
-      }).timeout(
+      }      ).timeout(
         const Duration(seconds: 15),
         onTimeout: () => throw TimeoutException('タイムアウトしました'),
       );
 
       if (!mounted || !dialogContext.mounted) return;
-      Navigator.of(dialogContext).pop();
+      Navigator.of(context).pop(); // ローディングダイアログを閉じる
+      Navigator.of(dialogContext).pop(); // 退勤打刻ダイアログを閉じる
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('退勤打刻が完了しました'),
@@ -396,7 +475,8 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
       // snapshot が自動更新するため _fetch 不要
     } on FirebaseFunctionsException catch (e) {
       if (!mounted || !dialogContext.mounted) return;
-      Navigator.of(dialogContext).pop();
+      Navigator.of(context).pop(); // ローディングダイアログを閉じる
+      Navigator.of(dialogContext).pop(); // 退勤打刻ダイアログを閉じる
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.message ?? e.code),
@@ -405,7 +485,8 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
       );
     } catch (e) {
       if (!mounted || !dialogContext.mounted) return;
-      Navigator.of(dialogContext).pop();
+      Navigator.of(context).pop(); // ローディングダイアログを閉じる
+      Navigator.of(dialogContext).pop(); // 退勤打刻ダイアログを閉じる
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('エラー: ${e.toString()}'),
@@ -588,7 +669,7 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${_formatDate(dateStr)}  出勤 ${_formatClockIn(clockIn)}',
+                        '出勤：${_formatClockInDateAndTime(clockIn)}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade700,

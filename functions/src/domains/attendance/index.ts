@@ -1,11 +1,14 @@
 // Attendance domain: callables and scheduler
 // determineAttendanceMode: Phase4 01 で unused_function_lib に移動（clockIn/clockOut に分離）
+// createClockInRecord, updateClockOutRecord: Phase4.1 で unused_function_lib に移動（clockIn/clockOut に統合済み）
 export { clockIn } from "./callables/clockIn";
 export { clockOut } from "./callables/clockOut";
-export { createClockInRecord } from "./callables/createClockInRecord";
-export { updateClockOutRecord } from "./callables/updateClockOutRecord";
+export { startBreak } from "./callables/startBreak";
+export { endBreak } from "./callables/endBreak";
 export { getStaffListForAttendance } from "./callables/getStaffListForAttendance";
 export { createManualClockInRecord } from "./callables/createManualClockInRecord";
+export { createAttendance } from "./callables/createAttendance";
+export { updateAttendance } from "./callables/updateAttendance";
 export { updateManualClockOutRecord } from "./callables/updateManualClockOutRecord";
 export { getAllStaffAttendance } from "./callables/getAllStaffAttendance";
 export { getStaffAttendance } from "./callables/getStaffAttendance";

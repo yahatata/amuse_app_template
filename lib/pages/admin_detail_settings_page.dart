@@ -90,7 +90,7 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
                 leading: const Icon(Icons.settings, color: Colors.deepPurple),
                 title: const Text('storeMeta/config 初期セットアップ'),
                 subtitle: const Text(
-                  'storeMeta/config と storeMeta/requiredStaffByTimeSlot を作成します。未存在時のみ作成。',
+                  'storeMeta/config、storeMeta/requiredStaffByTimeSlot、storeMeta/schedulerConfig を作成します。未存在時のみ作成。',
                 ),
                 trailing: _isProcessing
                     ? const SizedBox(

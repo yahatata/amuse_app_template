@@ -486,14 +486,15 @@ class AttendanceDetailPage extends StatelessWidget {
     }
   }
 
-  // 勤務時間を計算
+  // 勤務時間を計算（Phase4.1-F: actualWorkMinutes 優先）
   String _getWorkHours() {
-    if (attendanceData == null || attendanceData!['totalMinutes'] == null) {
+    final workMin = attendanceData?['actualWorkMinutes'] ?? attendanceData?['totalMinutes'];
+    if (attendanceData == null || workMin == null) {
       return '計算不可';
     }
-    
+
     try {
-      final totalMinutes = attendanceData!['totalMinutes'] as int;
+      final totalMinutes = workMin is int ? workMin : (workMin as num).toInt();
       final hours = totalMinutes ~/ 60;
       final minutes = totalMinutes % 60;
       
@@ -509,14 +510,15 @@ class AttendanceDetailPage extends StatelessWidget {
     }
   }
 
-  // 深夜時間を計算
+  // 深夜時間を計算（Phase4.1-F: nightWorkMinutes 優先）
   String _getNightTimeHours() {
-    if (attendanceData == null || attendanceData!['nightMinutes'] == null) {
+    final nightMin = attendanceData?['nightWorkMinutes'] ?? attendanceData?['nightMinutes'];
+    if (attendanceData == null || nightMin == null) {
       return '0時間0分';
     }
-    
+
     try {
-      final nightMinutes = attendanceData!['nightMinutes'] as int;
+      final nightMinutes = nightMin is int ? nightMin : (nightMin as num).toInt();
       final hours = nightMinutes ~/ 60;
       final minutes = nightMinutes % 60;
       

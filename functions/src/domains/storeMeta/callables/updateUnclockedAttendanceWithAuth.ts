@@ -10,6 +10,12 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { getStoreConfig } from '../../../shared/config/configLoader';
+import { writeAttendanceLog } from '../../attendance/helpers/attendanceLogs';
+import {
+  endActiveBreaksForClockOut,
+  recalculateAttendanceFromBreaks,
+} from '../../attendance/helpers/recalculateAttendanceFromBreaks';
 
 const ENV_PASSWORD_KEY = 'UNCLOCKED_ATTENDANCE_EDIT_PASSWORD';
 
@@ -65,24 +71,44 @@ export const updateUnclockedAttendanceWithAuth = onCall(async (request: Callable
       throw new HttpsError('failed-precondition', '出勤時刻より過去の退勤時間は登録できません');
     }
 
+    await endActiveBreaksForClockOut(docRef, resolvedClockOut);
+
+    const nowTs = FieldValue.serverTimestamp();
     await docRef.update({
       clockOut: resolvedClockOut,
       closedStoreWithoutClockOut: false,
-      updatedAt: FieldValue.serverTimestamp(),
+      updatedAt: nowTs,
     });
 
-    const updatedDoc = await docRef.get();
-    const updatedData = updatedDoc.data()!;
-    const clockOutVal = updatedData.clockOut as Timestamp;
+    const config = await getStoreConfig();
+    const recalcResult = await recalculateAttendanceFromBreaks({
+      attendanceRef: docRef,
+      attendanceData: {
+        clockIn,
+        clockOut: resolvedClockOut,
+        staffId: attendanceData.staffId,
+        date: attendanceData.date,
+      },
+      config,
+    });
 
-    const { totalMinutes, nightMinutes } = calculateMinutes(
-      { toDate: () => new Date(clockIn.toDate()) },
-      { toDate: () => new Date(clockOutVal.toDate()) }
+    const totalMinutes = Math.floor(
+      (resolvedClockOut.toDate().getTime() - clockIn.toDate().getTime()) / (1000 * 60)
     );
-
     await docRef.update({
       totalMinutes,
-      nightMinutes,
+      nightMinutes: recalcResult.nightWorkMinutes,
+      lastActionType: 'clock_out',
+      lastActionAt: nowTs,
+      lastActionByDeviceId: null,
+    });
+
+    await writeAttendanceLog({
+      db,
+      attendanceId: docId,
+      actionType: 'password_clock_out',
+      performedByUid: request.auth?.uid ?? null,
+      performedByDeviceId: null,
     });
 
     const staffName = (attendanceData.staffsFullName as string) ?? '';
@@ -100,37 +126,6 @@ export const updateUnclockedAttendanceWithAuth = onCall(async (request: Callable
     );
   }
 });
-
-function calculateMinutes(
-  clockIn: { toDate: () => Date },
-  clockOut: { toDate: () => Date }
-): { totalMinutes: number; nightMinutes: number } {
-  const clockInTime = clockIn.toDate();
-  const clockOutTime = clockOut.toDate();
-
-  const jstOffset = 9 * 60 * 60 * 1000;
-  const clockInJST = new Date(clockInTime.getTime() + jstOffset);
-  const clockOutJST = new Date(clockOutTime.getTime() + jstOffset);
-
-  const totalMinutes = Math.floor(
-    (clockOutJST.getTime() - clockInJST.getTime()) / (1000 * 60)
-  );
-
-  const nightStartHour = 22;
-  const nightEndHour = 5;
-  let nightMinutes = 0;
-  let currentTime = new Date(clockInJST);
-
-  while (currentTime < clockOutJST) {
-    const hour = currentTime.getHours();
-    if (hour >= nightStartHour || hour < nightEndHour) {
-      nightMinutes++;
-    }
-    currentTime.setMinutes(currentTime.getMinutes() + 1);
-  }
-
-  return { totalMinutes, nightMinutes };
-}
 
 function resolveClockOutTimestamp(clockOutAt?: string): Timestamp {
   if (!clockOutAt) {

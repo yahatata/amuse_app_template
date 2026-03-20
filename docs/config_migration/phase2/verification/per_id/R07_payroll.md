@@ -45,7 +45,7 @@
 
 ### 実装確認結果
 
-**§1 確認**: 実装済み。`defaults.ts` に `DEFAULT_PAYROLL_START_DAY=26`, `DEFAULT_PAYROLL_END_DAY=25`。`types.ts` に `payroll?: { startDay?, endDay? }`。`globalConstant.dart` に `PAYROLL_START_DAY`/`PAYROLL_END_DAY` は存在せず（削除済み）。`allStaffAttendancePage.dart` が `StoreConfigService.instance.latestData?.payrollStartDay` / `payrollEndDay` と `kDefaultPayrollStartDay` / `kDefaultPayrollEndDay` を使用。手続き 5〜7 は GAP-2-1, 2-2 のため ⑦-a 完了後に運用時資料へ記載予定。
+**§1 確認**: 実装済み。`defaults.ts` に `DEFAULT_PAYROLL_START_DAY=26`, `DEFAULT_PAYROLL_END_DAY=25`。`types.ts` に `payroll?: { startDay?, endDay? }`。`globalConstant.dart` に `PAYROLL_START_DAY`/`PAYROLL_END_DAY` は存在せず（削除済み）。`all_staff_attendance_page_from_adminHome.dart` が `StoreConfigService.instance.latestData?.payrollStartDay` / `payrollEndDay` と `kDefaultPayrollStartDay` / `kDefaultPayrollEndDay` を使用。手続き 5〜7 は GAP-2-1, 2-2 のため ⑦-a 完了後に運用時資料へ記載予定。
 
 **§2 確認**: 確定した漏れ（GAP-2-1, GAP-2-2）の通り。要調査事項なし。② を飛ばして③ に進む。
 

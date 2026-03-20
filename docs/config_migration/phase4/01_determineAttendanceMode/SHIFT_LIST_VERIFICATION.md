@@ -35,7 +35,7 @@ shifts (コレクション)
 
 ## 3. シフト一覧タブのクエリ（現状の実装）
 
-`lib/AttendanceManagement/staffAttendancePage.dart` の `_ShiftListContent`:
+`lib/AttendanceManagement/staff_attendance_page_from_terminalHome.dart` の `_ShiftListContent`:
 
 ```dart
 FirebaseFirestore.instance

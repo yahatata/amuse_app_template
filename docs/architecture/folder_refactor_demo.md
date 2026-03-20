@@ -114,9 +114,9 @@ lib/
 │   │
 │   ├── attendance/               # 勤怠機能
 │   │   ├── pages/
-│   │   │   ├── staffAttendancePage.dart
-│   │   │   ├── allStaffAttendancePage.dart
-│   │   │   ├── attendanceDetailPage.dart
+│   │   │   ├── staff_attendance_page_from_terminalHome.dart
+│   │   │   ├── all_staff_attendance_page_from_adminHome.dart
+│   │   │   ├── daily_attendance_detail_page_from_staffAttendanceDetail.dart
 │   │   │   └── ...
 │   │   └── services/
 │   │       └── attendanceService.dart

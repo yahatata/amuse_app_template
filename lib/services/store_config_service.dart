@@ -117,8 +117,25 @@ class StoreConfigData {
     return businessHoursStyles[styleId];
   }
 
-  factory StoreConfigData.fromMap(Map<String, dynamic>? data) {
-    if (data == null || data.isEmpty) return StoreConfigData.fromDefaults();
+  /// [onParseComplete] が指定された場合、パース完了時に fromConfig/fromDefaults を渡す。
+  factory StoreConfigData.fromMap(
+    Map<String, dynamic>? data, {
+    void Function(List<String> fromConfig, List<String> fromDefaults)? onParseComplete,
+  }) {
+    if (data == null || data.isEmpty) {
+      if (onParseComplete != null) onParseComplete([], ['*']);
+      return StoreConfigData.fromDefaults();
+    }
+
+    final fromConfig = <String>[];
+    final fromDefaults = <String>[];
+    void track(String key, bool fromCfg) {
+      if (fromCfg) {
+        fromConfig.add(key);
+      } else {
+        fromDefaults.add(key);
+      }
+    }
 
     final features = data['features'] as Map<String, dynamic>?;
     final attendanceTimeAdjustment =
@@ -191,7 +208,7 @@ class StoreConfigData {
     final prMethod = parseString(tournament?['prizeRoundingMethod']);
     final prUnit = parseInt(tournament?['prizeRoundingUnit']);
 
-    return StoreConfigData(
+    final result = StoreConfigData(
       dualWriteEnabled:
           parseBool(features?['dualWriteEnabled']) ?? kDefaultDualWriteEnabled,
       enqueueSchedulerEnabled: parseBool(features?['enqueueSchedulerEnabled']) ??
@@ -219,8 +236,12 @@ class StoreConfigData {
           attendanceTimeAdjustment?['maxPastMinutes'] == null
               ? null
               : parseInt(attendanceTimeAdjustment?['maxPastMinutes']),
-      autoOpenCloseEnabled:
-          parseBool(autoOpenClose?['enabled']) ?? kDefaultAutoOpenCloseEnabled,
+      autoOpenCloseEnabled: () {
+        final v = parseBool(autoOpenClose?['enabled']);
+        final r = v ?? kDefaultAutoOpenCloseEnabled;
+        track('autoOpenClose.enabled', v != null);
+        return r;
+      }(),
       taskCloseOffsetMinutes:
           parseInt(autoOpenClose?['taskCloseOffsetMinutes']) ??
               kDefaultTaskCloseOffsetMinutes,
@@ -263,34 +284,50 @@ class StoreConfigData {
           parseInt(shift?['schedulingStartDay']) ?? kDefaultShiftSchedulingStartDay,
       payrollStartDay: parseInt(payroll?['startDay']) ?? kDefaultPayrollStartDay,
       payrollEndDay: parseInt(payroll?['endDay']) ?? kDefaultPayrollEndDay,
-      menuCategories: (data['menuCategories'] as List<dynamic>?) != null &&
-              (data['menuCategories'] as List).isNotEmpty
-          ? (data['menuCategories'] as List).map((e) => e.toString()).toList()
-          : kDefaultMenuCategories,
-      sideGameTypes: (data['sideGameTypes'] as List<dynamic>?) != null &&
-              (data['sideGameTypes'] as List).isNotEmpty
-          ? (data['sideGameTypes'] as List).map((e) => e.toString()).toList()
-          : kDefaultSideGameTypes,
-      tournamentDefaultPrizeRatio: (prRatio != null &&
-              prRatio >= 0.0 &&
-              prRatio <= 1.0)
-          ? prRatio
-          : kDefaultTournamentPrizeRatio,
-      tournamentPrizeReceiverPercentage: (prPct != null &&
-              prPct >= 1 &&
-              prPct <= 100)
-          ? prPct
-          : kDefaultTournamentPrizeReceiverPercentage,
-      tournamentPrizeRoundingMethod: (prMethod != null &&
-              ['floor', 'ceil', 'round'].contains(prMethod))
-          ? prMethod
-          : kDefaultTournamentPrizeRoundingMethod,
-      tournamentPrizeRoundingUnit: (prUnit != null &&
-              [1, 10, 100, 1000].contains(prUnit))
-          ? prUnit
-          : kDefaultTournamentPrizeRoundingUnit,
-      tournamentPrizeDistribution: pd ?? kDefaultTournamentPrizeDistribution,
+      menuCategories: () {
+        final raw = data['menuCategories'] as List<dynamic>?;
+        final ok = raw != null && (raw as List).isNotEmpty;
+        track('menuCategories', ok);
+        return ok ? (raw as List).map((e) => e.toString()).toList() : kDefaultMenuCategories;
+      }(),
+      sideGameTypes: () {
+        final raw = data['sideGameTypes'] as List<dynamic>?;
+        final ok = raw != null && (raw as List).isNotEmpty;
+        track('sideGameTypes', ok);
+        return ok ? (raw as List).map((e) => e.toString()).toList() : kDefaultSideGameTypes;
+      }(),
+      tournamentDefaultPrizeRatio: () {
+        final ok = prRatio != null && prRatio >= 0.0 && prRatio <= 1.0;
+        track('tournament.defaultPrizeRatio', ok);
+        return ok ? prRatio! : kDefaultTournamentPrizeRatio;
+      }(),
+      tournamentPrizeReceiverPercentage: () {
+        final ok = prPct != null && prPct >= 1 && prPct <= 100;
+        track('tournament.prizeReceiverPercentage', ok);
+        return ok ? prPct! : kDefaultTournamentPrizeReceiverPercentage;
+      }(),
+      tournamentPrizeRoundingMethod: () {
+        final ok = prMethod != null && ['floor', 'ceil', 'round'].contains(prMethod);
+        track('tournament.prizeRoundingMethod', ok);
+        return ok ? prMethod! : kDefaultTournamentPrizeRoundingMethod;
+      }(),
+      tournamentPrizeRoundingUnit: () {
+        final ok = prUnit != null && [1, 10, 100, 1000].contains(prUnit);
+        track('tournament.prizeRoundingUnit', ok);
+        return ok ? prUnit! : kDefaultTournamentPrizeRoundingUnit;
+      }(),
+      tournamentPrizeDistribution: () {
+        final ok = pd != null;
+        track('tournament.prizeDistribution', ok);
+        return pd ?? kDefaultTournamentPrizeDistribution;
+      }(),
     );
+    if (onParseComplete != null) {
+      fromConfig.sort();
+      fromDefaults.sort();
+      onParseComplete(fromConfig, fromDefaults);
+    }
+    return result;
   }
 }
 
@@ -326,6 +363,7 @@ class StoreConfigService {
   }
 
   void _initializeListener() {
+    debugPrint('[storeMeta/config] 購読開始（アプリ起動時）');
     _subscription = _firestore
         .collection('storeMeta')
         .doc('config')
@@ -338,15 +376,24 @@ class StoreConfigService {
             reason: 'document_missing',
             fallbackValue: 'defaults',
           );
+          debugPrint('[config_load_summary] fromConfig=[] | fromDefaults=[*]');
           final data = StoreConfigData.fromDefaults();
           _latestData = data;
           _streamController.add(data);
           return;
         }
         final raw = snapshot.data();
-        final data = StoreConfigData.fromMap(raw);
+        final data = StoreConfigData.fromMap(
+          raw,
+          onParseComplete: (fromConfig, fromDefaults) {
+            debugPrint(
+              '[config_load_summary] fromConfig=$fromConfig | fromDefaults=$fromDefaults',
+            );
+          },
+        );
         _latestData = data;
         _streamController.add(data);
+        debugPrint('[storeMeta/config] 取得完了（初回/更新）');
       },
       onError: (error) {
         _logConfigReadError(error.toString());
@@ -360,6 +407,7 @@ class StoreConfigService {
             reason: 'read_error_no_cache',
             fallbackValue: 'defaults',
           );
+          debugPrint('[config_load_summary] fromConfig=[] | fromDefaults=[*]');
           final data = StoreConfigData.fromDefaults();
           _latestData = data;
           _streamController.add(data);

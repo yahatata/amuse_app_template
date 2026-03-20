@@ -4,7 +4,7 @@
  * デュアルライト差分チェック（STORE_CLOSE_HOUR 使用のため廃止）。
  * 閉店処理または Cloud Task で起動する方針のため、スケジューラは廃止。
  *
- * 復元手順: 下記 UNUSED_BLOCK の /* と */ を削除し、domains/analytics/scheduler に戻して export を復活させる。
+ * 復元手順: 下記 UNUSED_BLOCK のコメントアウトを削除し、domains/analytics/scheduler に戻して export を復活させる。
  */
 // ========== UNUSED_BLOCK_START ==========
 /*

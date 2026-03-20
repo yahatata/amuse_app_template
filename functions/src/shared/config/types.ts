@@ -64,6 +64,10 @@ export interface StoreConfig {
     startDay?: number;
     endDay?: number;
   };
+  attendance?: {
+    nightWorkStartHour?: number;
+    nightWorkEndHour?: number;
+  };
   menuCategories?: string[];
   sideGameTypes?: string[];
   tournament?: TournamentConfig;

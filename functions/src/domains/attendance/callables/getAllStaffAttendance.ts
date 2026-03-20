@@ -75,20 +75,25 @@ export const getAllStaffAttendance = onCall(
       
       for (const doc of attendanceSnapshot.docs) {
         const attendanceData = doc.data();
-        
+        const actualWorkMinutes = attendanceData.actualWorkMinutes ?? attendanceData.totalMinutes;
+        const nightWorkMinutes = attendanceData.nightWorkMinutes ?? attendanceData.nightMinutes ?? 0;
+
         attendances.push({
           id: doc.id,
           staffId: attendanceData.staffId,
-          staffName: attendanceData.staffsFullName || "不明", // staffsFullNameを使用
-          date: attendanceData.date, // 文字列のまま保持
+          staffName: attendanceData.staffsFullName || "不明",
+          date: attendanceData.date,
           clockIn: attendanceData.clockIn?.toDate(),
           clockOut: attendanceData.clockOut?.toDate(),
           shiftStart: attendanceData.shiftStart?.toDate(),
           shiftEnd: attendanceData.shiftEnd?.toDate(),
           isManual: attendanceData.isManual || false,
-          nightTimeHours: (attendanceData.nightMinutes || 0) / 60, // 分を時間に変換
-          totalWorkHours: (attendanceData.totalMinutes || 0) / 60, // 分を時間に変換
-          // 元のデータも保持
+          breakMinutes: attendanceData.breakMinutes ?? 0,
+          actualWorkMinutes,
+          nightWorkMinutes,
+          nightTimeHours: nightWorkMinutes / 60,
+          totalWorkHours: (actualWorkMinutes ?? 0) / 60,
+          isDeleted: attendanceData.isDeleted ?? false,
           ...attendanceData,
         });
       }

@@ -54,13 +54,16 @@ export const getStaffAttendance = onCall(
         .get();
 
       const attendances: any[] = [];
-      
+
       attendanceSnapshot.forEach((doc) => {
         const data = doc.data();
+        if (data.isDeleted === true) return;
         attendances.push({
           id: doc.id,
           ...data,
-          // Firestore TimestampをISO文字列に変換
+          breakMinutes: data.breakMinutes ?? 0,
+          actualWorkMinutes: data.actualWorkMinutes ?? data.totalMinutes ?? null,
+          nightWorkMinutes: data.nightWorkMinutes ?? data.nightMinutes ?? 0,
           clockIn: data.clockIn ? data.clockIn.toDate().toISOString() : null,
           clockOut: data.clockOut ? data.clockOut.toDate().toISOString() : null,
           createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,

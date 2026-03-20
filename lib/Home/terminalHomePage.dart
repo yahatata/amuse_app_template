@@ -1,7 +1,7 @@
 import 'package:amuse_app_template/Home/close_pre_confirmation_page.dart';
 import 'package:amuse_app_template/Home/unclocked_attendance_list_page.dart';
 import 'package:amuse_app_template/Home/stayingUsersListPage.dart';
-import 'package:amuse_app_template/AttendanceManagement/staffAttendancePage.dart';
+import 'package:amuse_app_template/AttendanceManagement/staff_attendance_page_from_terminalHome.dart';
 import 'package:amuse_app_template/OrderView/MenuView/categorySelectPage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/menuEditorListPage.dart';
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';

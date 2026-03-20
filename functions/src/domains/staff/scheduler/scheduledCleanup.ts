@@ -1,19 +1,35 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
+import { logger } from "firebase-functions";
+
+import { getSchedulerConfig } from "../../../shared/config/schedulerConfigLoader";
 
 /**
  * 毎日午前2時に却下されたシフトを自動削除するスケジュール関数
- * 
- * スケジュール: 毎日午前2時（JST）
+ *
+ * スケジュール: 環境変数 SCHEDULED_CLEANUP_CRON で上書き可能。未設定時は毎日 2:00 JST。
  * 保持期間: 却下後7日
  */
+const SCHEDULED_CLEANUP_CRON = process.env.SCHEDULED_CLEANUP_CRON || "0 2 * * *";
+logger.info("scheduledCleanup schedule", {
+  schedule: SCHEDULED_CLEANUP_CRON,
+  source: process.env.SCHEDULED_CLEANUP_CRON ? "env" : "default",
+});
+
 export const scheduledCleanup = onSchedule(
   {
-    schedule: "0 17 * * *", // UTC 17:00 = JST 02:00
+    schedule: SCHEDULED_CLEANUP_CRON,
     timeZone: "Asia/Tokyo",
     retryCount: 3,
   },
   async (event) => {
+    const db = admin.firestore();
+    const schedulerConfig = await getSchedulerConfig(db);
+    if (!schedulerConfig.scheduledCleanupEnabled) {
+      logger.info("scheduledCleanup: スキップ（schedulerConfig.scheduledCleanupEnabled != true）");
+      return;
+    }
+
     console.log("スケジュール削除開始:", new Date().toISOString());
 
     try {

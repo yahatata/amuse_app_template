@@ -15,6 +15,11 @@ import * as admin from 'firebase-admin';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { getBusinessDateForAttendance } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
 import { getStoreConfig } from '../../../shared/config/configLoader';
+import { writeAttendanceLog } from '../helpers/attendanceLogs';
+import {
+  endActiveBreaksForClockOut,
+  recalculateAttendanceFromBreaks,
+} from '../helpers/recalculateAttendanceFromBreaks';
 
 const GRACE_HOURS = 1;
 
@@ -48,27 +53,6 @@ function resolveAdjustedClockOutTimestamp(
     throw new HttpsError('failed-precondition', '出勤時刻より過去の退勤時間は登録できません');
   }
   return adjusted;
-}
-
-function calculateMinutes(
-  clockIn: admin.firestore.Timestamp,
-  clockOut: admin.firestore.Timestamp
-): { totalMinutes: number; nightMinutes: number } {
-  const jstOffset = 9 * 60 * 60 * 1000;
-  const clockInJST = new Date(clockIn.toDate().getTime() + jstOffset);
-  const clockOutJST = new Date(clockOut.toDate().getTime() + jstOffset);
-  const totalMinutes = Math.floor((clockOutJST.getTime() - clockInJST.getTime()) / (1000 * 60));
-
-  const nightStartHour = 22;
-  const nightEndHour = 5;
-  let nightMinutes = 0;
-  let currentTime = new Date(clockInJST);
-  while (currentTime < clockOutJST) {
-    const hour = currentTime.getHours();
-    if (hour >= nightStartHour || hour < nightEndHour) nightMinutes++;
-    currentTime.setMinutes(currentTime.getMinutes() + 1);
-  }
-  return { totalMinutes, nightMinutes };
 }
 
 export const clockOut = onCall(async (request: CallableRequest) => {
@@ -150,6 +134,16 @@ export const clockOut = onCall(async (request: CallableRequest) => {
       }
     }
 
+    const config = await getStoreConfig();
+    const adjustedClockOut = resolveAdjustedClockOutTimestamp(
+      adjustmentOffsetMinutes,
+      config,
+      attendanceData.clockIn as admin.firestore.Timestamp
+    );
+
+    // 【4.1-D】休憩中退勤時: 休憩自動終了 → breaks 反映 → 親再集計
+    await endActiveBreaksForClockOut(attendanceRef, adjustedClockOut);
+
     // 警告: 同じスタッフに他に closedStoreWithoutClockOut の attendance があるか
     const staffIdVal = attendanceData.staffId as string;
     const otherClosedSnap = await db
@@ -159,27 +153,43 @@ export const clockOut = onCall(async (request: CallableRequest) => {
       .get();
     const hasWarning = otherClosedSnap.docs.some((d) => d.id !== attendanceRef.id);
 
-    // 退勤時刻を更新
-    const config = await getStoreConfig();
-    const adjustedClockOut = resolveAdjustedClockOutTimestamp(
-      adjustmentOffsetMinutes,
-      config,
-      attendanceData.clockIn as admin.firestore.Timestamp
-    );
-
+    const nowTs = admin.firestore.FieldValue.serverTimestamp();
     await attendanceRef.update({
       clockOut: adjustedClockOut,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: nowTs,
     });
 
-    const updatedDoc = await attendanceRef.get();
-    const updatedData = updatedDoc.data()!;
-    const { totalMinutes, nightMinutes } = calculateMinutes(
-      attendanceData.clockIn as admin.firestore.Timestamp,
-      updatedData.clockOut as admin.firestore.Timestamp
-    );
+    const recalcResult = await recalculateAttendanceFromBreaks({
+      attendanceRef,
+      attendanceData: {
+        clockIn: attendanceData.clockIn as admin.firestore.Timestamp,
+        clockOut: adjustedClockOut,
+        staffId: attendanceData.staffId,
+        date: attendanceData.date,
+      },
+      config,
+    });
 
-    await attendanceRef.update({ totalMinutes, nightMinutes });
+    const totalMinutes = Math.floor(
+      (adjustedClockOut.toDate().getTime() -
+        (attendanceData.clockIn as admin.firestore.Timestamp).toDate().getTime()) /
+        (1000 * 60)
+    );
+    await attendanceRef.update({
+      totalMinutes,
+      nightMinutes: recalcResult.nightWorkMinutes,
+      lastActionType: 'clock_out',
+      lastActionAt: nowTs,
+      lastActionByDeviceId: device.id,
+    });
+
+    await writeAttendanceLog({
+      db,
+      attendanceId: attendanceRef.id,
+      actionType: 'clock_out',
+      performedByUid: null,
+      performedByDeviceId: device.id,
+    });
 
     const staffName = (attendanceData.staffsFullName as string) ?? '';
     const result: Record<string, unknown> = {

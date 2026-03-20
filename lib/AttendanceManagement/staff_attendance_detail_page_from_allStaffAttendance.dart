@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/AttendanceManagement/shiftDetailPage.dart';
-import 'package:amuse_app_template/AttendanceManagement/attendanceDetailPage.dart';
+import 'package:amuse_app_template/AttendanceManagement/shift_detail_page_from_staffAttendanceDetail.dart';
+import 'package:amuse_app_template/AttendanceManagement/daily_attendance_detail_page_from_staffAttendanceDetail.dart';
 
 class StaffAttendanceDetailPage extends StatefulWidget {
   final String staffId;
@@ -354,8 +354,10 @@ class _StaffAttendanceDetailPageState extends State<StaffAttendanceDetailPage>
         final clockIn = attendance['clockIn'] as DateTime?;
         final clockOut = attendance['clockOut'] as DateTime?;
         final isManual = attendance['isManual'] as bool? ?? false;
-        final totalMinutes = attendance['totalMinutes'] as int? ?? 0;
-        final nightMinutes = attendance['nightMinutes'] as int? ?? 0;
+        final totalMinutes = attendance['actualWorkMinutes'] as int? ??
+            attendance['totalMinutes'] as int? ?? 0;
+        final nightMinutes = attendance['nightWorkMinutes'] as int? ??
+            attendance['nightMinutes'] as int? ?? 0;
 
         if (date == null) return const SizedBox.shrink();
 
@@ -688,28 +690,30 @@ class _StaffAttendanceDetailPageState extends State<StaffAttendanceDetailPage>
   }
 
   double _calculateTotalHours() {
-    // 期間中の全ての勤怠記録から計算
+    // 期間中の全ての勤怠記録から計算（Phase4.1-F: actualWorkMinutes 優先）
     final staffAttendances = _getStaffAttendances();
     int totalMinutes = 0;
-    
+
     for (final attendance in staffAttendances) {
-      final minutes = attendance['totalMinutes'] as int? ?? 0;
+      final minutes = attendance['actualWorkMinutes'] as int? ??
+          attendance['totalMinutes'] as int? ?? 0;
       totalMinutes += minutes;
     }
-    
+
     return totalMinutes / 60.0;
   }
 
   double _calculateTotalNightHours() {
-    // 期間中の全ての勤怠記録から計算
+    // 期間中の全ての勤怠記録から計算（Phase4.1-F: nightWorkMinutes 優先）
     final staffAttendances = _getStaffAttendances();
     int totalNightMinutes = 0;
-    
+
     for (final attendance in staffAttendances) {
-      final nightMinutes = attendance['nightMinutes'] as int? ?? 0;
+      final nightMinutes = attendance['nightWorkMinutes'] as int? ??
+          attendance['nightMinutes'] as int? ?? 0;
       totalNightMinutes += nightMinutes;
     }
-    
+
     return totalNightMinutes / 60.0;
   }
 

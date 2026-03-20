@@ -1,18 +1,37 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
+import { logger } from "firebase-functions";
 
 import { getStoreConfig } from "../../../shared/config/configLoader";
+import { getSchedulerConfig } from "../../../shared/config/schedulerConfigLoader";
 import { DEFAULT_PAYROLL_END_DAY, DEFAULT_PAYROLL_START_DAY } from "../../../shared/config/defaults";
+import { writeAttendanceLog } from "../helpers/attendanceLogs";
 
-export const monthlyPayrollTrigger = onSchedule({
-  schedule: '59 23 25 * *', // 毎月25日 23:59 (JST)。payroll.endDay=25 の店舗向け。endDay≠25 の場合は CRON の見直しが必要
-  timeZone: 'Asia/Tokyo',
-}, async (event) => {
-  try {
-    console.log('=== 月次給与計算開始 ===');
-    
-    const db = admin.firestore();
-    const config = await getStoreConfig(db);
+const MONTHLY_PAYROLL_TRIGGER_CRON =
+  process.env.MONTHLY_PAYROLL_TRIGGER_CRON || "59 23 25 * *"; // 毎月25日 23:59 (JST)
+logger.info("monthlyPayrollTrigger schedule", {
+  schedule: MONTHLY_PAYROLL_TRIGGER_CRON,
+  source: process.env.MONTHLY_PAYROLL_TRIGGER_CRON ? "env" : "default",
+});
+
+export const monthlyPayrollTrigger = onSchedule(
+  {
+    schedule: MONTHLY_PAYROLL_TRIGGER_CRON,
+    timeZone: "Asia/Tokyo",
+  },
+  async (event) => {
+    try {
+      const db = admin.firestore();
+      const schedulerConfig = await getSchedulerConfig(db);
+      if (!schedulerConfig.monthlyPayrollTriggerEnabled) {
+        logger.info("monthlyPayrollTrigger: スキップ（schedulerConfig.monthlyPayrollTriggerEnabled != true）");
+        return;
+      }
+
+      console.log("=== 月次給与計算開始 ===");
+
+      const config = await getStoreConfig(db);
     const startDay = config.payroll?.startDay ?? DEFAULT_PAYROLL_START_DAY;
     const endDay = config.payroll?.endDay ?? DEFAULT_PAYROLL_END_DAY;
     
@@ -66,24 +85,31 @@ export const monthlyPayrollTrigger = onSchedule({
         .where('clockOut', '<=', periodEndTimestamp)
         .get();
       
-      console.log(`勤怠記録数: ${attendanceSnapshot.size}`);
-      
+      // Phase4.1-F: 論理削除を除外
+      const validAttendances = attendanceSnapshot.docs.filter(
+        (doc) => doc.data().isDeleted !== true
+      );
+      console.log(`勤怠記録数: ${attendanceSnapshot.size}（論理削除除外後: ${validAttendances.length}）`);
+
       let totalWorkHours = 0;
       let nightTimeHours = 0;
-      
-      // 勤務時間を合計
-      for (const attendanceDoc of attendanceSnapshot.docs) {
+      const payrollReflectedAtValue = `${periodStartStr}-${periodEndStr}`;
+      const attendanceIdsToReflect: string[] = [];
+
+      // 勤務時間を合計（新規は actualWorkMinutes/nightWorkMinutes、既存は totalMinutes/nightMinutes）
+      for (const attendanceDoc of validAttendances) {
         const attendanceData = attendanceDoc.data();
-        
-        // 実働時間（分を時間に変換）
-        const workMinutes = attendanceData.totalMinutes || 0;
+
+        const workMinutes =
+          attendanceData.actualWorkMinutes ?? attendanceData.totalMinutes ?? 0;
+        const nightMinutes =
+          attendanceData.nightWorkMinutes ?? attendanceData.nightMinutes ?? 0;
+
         totalWorkHours += workMinutes / 60;
-        
-        // 深夜時間（分を時間に変換）
-        const nightMinutes = attendanceData.nightMinutes || 0;
         nightTimeHours += nightMinutes / 60;
+        attendanceIdsToReflect.push(attendanceDoc.id);
       }
-      
+
       // 給与計算
       const basicPay = Math.round(totalWorkHours * hourlyWage);
       const nightTimePay = Math.round(nightTimeHours * hourlyWage);
@@ -109,14 +135,29 @@ export const monthlyPayrollTrigger = onSchedule({
       
       // monthlyPayrollコレクションに保存
       await db.collection('monthlyPayroll').add(payrollData);
-      
+
+      // Phase4.1-F: 給与計算対象の attendance に payrollReflectedAt を付与し、attendanceLogs に書き込み
+      for (const attendanceId of attendanceIdsToReflect) {
+        await db.collection('attendances').doc(attendanceId).update({
+          payrollReflectedAt: payrollReflectedAtValue,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        await writeAttendanceLog({
+          db,
+          attendanceId,
+          actionType: 'monthly_payroll_reflect',
+          performedByUid: null,
+          performedByDeviceId: null,
+        });
+      }
+
       results.push({
         staffId,
         staffName,
         totalPay,
-        success: true
+        success: true,
       });
-      
+
       console.log(`スタッフ ${staffName} の給与計算完了`);
     }
     

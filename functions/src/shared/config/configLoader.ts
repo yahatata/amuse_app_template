@@ -46,6 +46,8 @@ import {
   DEFAULT_SHIFT_SCHEDULING_START_DAY,
   DEFAULT_PAYROLL_START_DAY,
   DEFAULT_PAYROLL_END_DAY,
+  DEFAULT_NIGHT_WORK_START_HOUR,
+  DEFAULT_NIGHT_WORK_END_HOUR,
   DEFAULT_MENU_CATEGORIES,
   DEFAULT_SIDE_GAME_TYPES,
   DEFAULT_TOURNAMENT_PRIZE_RATIO,
@@ -73,6 +75,7 @@ const MAX_RETRIES = 2;
  * 未存在時・読み取り失敗時は defaults にフォールバック（リトライ後も失敗時は defaults を返す）。
  */
 export async function getStoreConfig(db?: Firestore): Promise<StoreConfig> {
+  logger.info('getStoreConfig: storeMeta/config の取得を開始');
   const firestore = db ?? getFirestore();
   const docRef = firestore.collection('storeMeta').doc('config');
 
@@ -87,6 +90,7 @@ export async function getStoreConfig(db?: Firestore): Promise<StoreConfig> {
           fallbackSource: 'defaults.ts',
           reason: 'document_missing',
         });
+        logger.info('config_load_summary', { fromConfig: [], fromDefaults: ['*'] });
         return buildFromDefaults();
       }
       const data = doc.data() as StoreConfigRaw | undefined;
@@ -108,6 +112,7 @@ export async function getStoreConfig(db?: Firestore): Promise<StoreConfig> {
         fallbackSource: 'defaults.ts',
         reason: 'read_error_after_retries',
       });
+      logger.info('config_load_summary', { fromConfig: [], fromDefaults: ['*'] });
       return buildFromDefaults();
     }
   }
@@ -162,6 +167,10 @@ export function buildFromDefaults(): StoreConfig {
       startDay: DEFAULT_PAYROLL_START_DAY,
       endDay: DEFAULT_PAYROLL_END_DAY,
     },
+    attendance: {
+      nightWorkStartHour: DEFAULT_NIGHT_WORK_START_HOUR,
+      nightWorkEndHour: DEFAULT_NIGHT_WORK_END_HOUR,
+    },
     menuCategories: [...DEFAULT_MENU_CATEGORIES],
     sideGameTypes: [...DEFAULT_SIDE_GAME_TYPES],
     tournament: {
@@ -178,24 +187,42 @@ export function buildFromDefaults(): StoreConfig {
 
 function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
   const result = buildFromDefaults();
+  const fromConfig: string[] = [];
+  const fromDefaults: string[] = [];
+  const fb = (key: string, reason: string, val?: unknown) => {
+    fromDefaults.push(key);
+    logFallback(key, reason, val);
+  };
 
   // features
   const features = raw.features as Record<string, unknown> | undefined;
   if (features && typeof features === 'object') {
-    if (typeof features.dualWriteEnabled === 'boolean') result.features!.dualWriteEnabled = features.dualWriteEnabled;
-    else logFallback('features.dualWriteEnabled', 'field_missing', result.features!.dualWriteEnabled);
-    if (typeof features.enqueueSchedulerEnabled === 'boolean') result.features!.enqueueSchedulerEnabled = features.enqueueSchedulerEnabled;
-    else logFallback('features.enqueueSchedulerEnabled', 'field_missing', result.features!.enqueueSchedulerEnabled);
-    if (typeof features.templateBusinessDateCheck === 'boolean') result.features!.templateBusinessDateCheck = features.templateBusinessDateCheck;
-    else logFallback('features.templateBusinessDateCheck', 'field_missing', result.features!.templateBusinessDateCheck);
-    if (typeof features.settlementAggregatorEnabled === 'boolean') result.features!.settlementAggregatorEnabled = features.settlementAggregatorEnabled;
-    else logFallback('features.settlementAggregatorEnabled', 'field_missing', result.features!.settlementAggregatorEnabled);
-    if (typeof features.tableDeviceRegistrationEnabled === 'boolean') result.features!.tableDeviceRegistrationEnabled = features.tableDeviceRegistrationEnabled;
-    else logFallback('features.tableDeviceRegistrationEnabled', 'field_missing', result.features!.tableDeviceRegistrationEnabled);
-    if (typeof features.createAttendanceByManual === 'boolean') result.features!.createAttendanceByManual = features.createAttendanceByManual;
-    else logFallback('features.createAttendanceByManual', 'field_missing', result.features!.createAttendanceByManual);
+    if (typeof features.dualWriteEnabled === 'boolean') {
+      result.features!.dualWriteEnabled = features.dualWriteEnabled;
+      fromConfig.push('features.dualWriteEnabled');
+    } else fb('features.dualWriteEnabled', 'field_missing', result.features!.dualWriteEnabled);
+    if (typeof features.enqueueSchedulerEnabled === 'boolean') {
+      result.features!.enqueueSchedulerEnabled = features.enqueueSchedulerEnabled;
+      fromConfig.push('features.enqueueSchedulerEnabled');
+    } else fb('features.enqueueSchedulerEnabled', 'field_missing', result.features!.enqueueSchedulerEnabled);
+    if (typeof features.templateBusinessDateCheck === 'boolean') {
+      result.features!.templateBusinessDateCheck = features.templateBusinessDateCheck;
+      fromConfig.push('features.templateBusinessDateCheck');
+    } else fb('features.templateBusinessDateCheck', 'field_missing', result.features!.templateBusinessDateCheck);
+    if (typeof features.settlementAggregatorEnabled === 'boolean') {
+      result.features!.settlementAggregatorEnabled = features.settlementAggregatorEnabled;
+      fromConfig.push('features.settlementAggregatorEnabled');
+    } else fb('features.settlementAggregatorEnabled', 'field_missing', result.features!.settlementAggregatorEnabled);
+    if (typeof features.tableDeviceRegistrationEnabled === 'boolean') {
+      result.features!.tableDeviceRegistrationEnabled = features.tableDeviceRegistrationEnabled;
+      fromConfig.push('features.tableDeviceRegistrationEnabled');
+    } else fb('features.tableDeviceRegistrationEnabled', 'field_missing', result.features!.tableDeviceRegistrationEnabled);
+    if (typeof features.createAttendanceByManual === 'boolean') {
+      result.features!.createAttendanceByManual = features.createAttendanceByManual;
+      fromConfig.push('features.createAttendanceByManual');
+    } else fb('features.createAttendanceByManual', 'field_missing', result.features!.createAttendanceByManual);
   } else {
-    logFallback('features', 'field_missing', result.features);
+    fb('features', 'field_missing', result.features);
   }
 
   // attendanceTimeAdjustment
@@ -203,9 +230,8 @@ function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
   if (attendanceTimeAdjustment && typeof attendanceTimeAdjustment === 'object') {
     if (typeof attendanceTimeAdjustment.enabled === 'boolean') {
       result.attendanceTimeAdjustment!.enabled = attendanceTimeAdjustment.enabled;
-    } else {
-      logFallback('attendanceTimeAdjustment.enabled', 'field_missing', result.attendanceTimeAdjustment!.enabled);
-    }
+      fromConfig.push('attendanceTimeAdjustment.enabled');
+    } else fb('attendanceTimeAdjustment.enabled', 'field_missing', result.attendanceTimeAdjustment!.enabled);
 
     if (
       typeof attendanceTimeAdjustment.maxFutureMinutes === 'number' ||
@@ -213,12 +239,9 @@ function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
     ) {
       result.attendanceTimeAdjustment!.maxFutureMinutes =
         (attendanceTimeAdjustment.maxFutureMinutes as number | null);
+      fromConfig.push('attendanceTimeAdjustment.maxFutureMinutes');
     } else {
-      logFallback(
-        'attendanceTimeAdjustment.maxFutureMinutes',
-        'field_missing',
-        result.attendanceTimeAdjustment!.maxFutureMinutes
-      );
+      fb('attendanceTimeAdjustment.maxFutureMinutes', 'field_missing', result.attendanceTimeAdjustment!.maxFutureMinutes);
     }
 
     if (
@@ -227,36 +250,40 @@ function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
     ) {
       result.attendanceTimeAdjustment!.maxPastMinutes =
         (attendanceTimeAdjustment.maxPastMinutes as number | null);
+      fromConfig.push('attendanceTimeAdjustment.maxPastMinutes');
     } else {
-      logFallback(
-        'attendanceTimeAdjustment.maxPastMinutes',
-        'field_missing',
-        result.attendanceTimeAdjustment!.maxPastMinutes
-      );
+      fb('attendanceTimeAdjustment.maxPastMinutes', 'field_missing', result.attendanceTimeAdjustment!.maxPastMinutes);
     }
   } else {
-    logFallback('attendanceTimeAdjustment', 'field_missing', result.attendanceTimeAdjustment);
+    fb('attendanceTimeAdjustment', 'field_missing', result.attendanceTimeAdjustment);
   }
 
   // autoOpenClose
   const autoOpenClose = raw.autoOpenClose as Record<string, unknown> | undefined;
   if (autoOpenClose && typeof autoOpenClose === 'object') {
-    if (typeof autoOpenClose.enabled === 'boolean') result.autoOpenClose!.enabled = autoOpenClose.enabled;
-    else logFallback('autoOpenClose.enabled', 'field_missing', result.autoOpenClose!.enabled);
-    if (typeof autoOpenClose.taskCloseOffsetMinutes === 'number') result.autoOpenClose!.taskCloseOffsetMinutes = autoOpenClose.taskCloseOffsetMinutes;
-    else logFallback('autoOpenClose.taskCloseOffsetMinutes', 'field_missing', result.autoOpenClose!.taskCloseOffsetMinutes);
-    if (typeof autoOpenClose.taskOpenOffsetMinutes === 'number') result.autoOpenClose!.taskOpenOffsetMinutes = autoOpenClose.taskOpenOffsetMinutes;
-    else logFallback('autoOpenClose.taskOpenOffsetMinutes', 'field_missing', result.autoOpenClose!.taskOpenOffsetMinutes);
+    if (typeof autoOpenClose.enabled === 'boolean') {
+      result.autoOpenClose!.enabled = autoOpenClose.enabled;
+      fromConfig.push('autoOpenClose.enabled');
+    } else fb('autoOpenClose.enabled', 'field_missing', result.autoOpenClose!.enabled);
+    if (typeof autoOpenClose.taskCloseOffsetMinutes === 'number') {
+      result.autoOpenClose!.taskCloseOffsetMinutes = autoOpenClose.taskCloseOffsetMinutes;
+      fromConfig.push('autoOpenClose.taskCloseOffsetMinutes');
+    } else fb('autoOpenClose.taskCloseOffsetMinutes', 'field_missing', result.autoOpenClose!.taskCloseOffsetMinutes);
+    if (typeof autoOpenClose.taskOpenOffsetMinutes === 'number') {
+      result.autoOpenClose!.taskOpenOffsetMinutes = autoOpenClose.taskOpenOffsetMinutes;
+      fromConfig.push('autoOpenClose.taskOpenOffsetMinutes');
+    } else fb('autoOpenClose.taskOpenOffsetMinutes', 'field_missing', result.autoOpenClose!.taskOpenOffsetMinutes);
   } else {
-    logFallback('autoOpenClose', 'field_missing', result.autoOpenClose);
+    fb('autoOpenClose', 'field_missing', result.autoOpenClose);
   }
 
   // businessDay
   const businessDay = raw.businessDay as Record<string, unknown> | undefined;
   if (businessDay && typeof businessDay === 'object' && typeof businessDay.calcBufferMinutes === 'number') {
     result.businessDay!.calcBufferMinutes = businessDay.calcBufferMinutes;
+    fromConfig.push('businessDay.calcBufferMinutes');
   } else if (!businessDay || typeof businessDay?.calcBufferMinutes !== 'number') {
-    logFallback('businessDay.calcBufferMinutes', 'field_missing', result.businessDay!.calcBufferMinutes);
+    fb('businessDay.calcBufferMinutes', 'field_missing', result.businessDay!.calcBufferMinutes);
   }
 
   // businessHoursStyles - 複雑なため一旦デフォルトを優先（部分マージは省略）
@@ -270,81 +297,127 @@ function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
       }
     }
     result.businessHoursStyles = merged;
+    fromConfig.push('businessHoursStyles');
   }
 
   // billing
   const billing = raw.billing as Record<string, unknown> | undefined;
   if (billing && typeof billing === 'object') {
-    if (typeof billing.entranceFee === 'number') result.billing!.entranceFee = billing.entranceFee;
-    else logFallback('billing.entranceFee', 'field_missing', result.billing!.entranceFee);
-    if (typeof billing.entranceFeeDescription === 'string') result.billing!.entranceFeeDescription = billing.entranceFeeDescription;
-    else logFallback('billing.entranceFeeDescription', 'field_missing', result.billing!.entranceFeeDescription);
-    if (typeof billing.chargeEntranceFeeOnReentry === 'boolean') result.billing!.chargeEntranceFeeOnReentry = billing.chargeEntranceFeeOnReentry;
-    else logFallback('billing.chargeEntranceFeeOnReentry', 'field_missing', result.billing!.chargeEntranceFeeOnReentry);
-    if (typeof billing.sideGameChipRate === 'number') result.billing!.sideGameChipRate = billing.sideGameChipRate;
-    else logFallback('billing.sideGameChipRate', 'field_missing', result.billing!.sideGameChipRate);
+    if (typeof billing.entranceFee === 'number') {
+      result.billing!.entranceFee = billing.entranceFee;
+      fromConfig.push('billing.entranceFee');
+    } else fb('billing.entranceFee', 'field_missing', result.billing!.entranceFee);
+    if (typeof billing.entranceFeeDescription === 'string') {
+      result.billing!.entranceFeeDescription = billing.entranceFeeDescription;
+      fromConfig.push('billing.entranceFeeDescription');
+    } else fb('billing.entranceFeeDescription', 'field_missing', result.billing!.entranceFeeDescription);
+    if (typeof billing.chargeEntranceFeeOnReentry === 'boolean') {
+      result.billing!.chargeEntranceFeeOnReentry = billing.chargeEntranceFeeOnReentry;
+      fromConfig.push('billing.chargeEntranceFeeOnReentry');
+    } else fb('billing.chargeEntranceFeeOnReentry', 'field_missing', result.billing!.chargeEntranceFeeOnReentry);
+    if (typeof billing.sideGameChipRate === 'number') {
+      result.billing!.sideGameChipRate = billing.sideGameChipRate;
+      fromConfig.push('billing.sideGameChipRate');
+    } else fb('billing.sideGameChipRate', 'field_missing', result.billing!.sideGameChipRate);
     const pp = billing.paymentPolicy as Record<string, unknown> | undefined;
     if (pp && typeof pp === 'object') {
       if (pp.categoryPaymentMethods && typeof pp.categoryPaymentMethods === 'object') {
         result.billing!.paymentPolicy!.categoryPaymentMethods = pp.categoryPaymentMethods as Record<string, string[]>;
-      } else logFallback('billing.paymentPolicy.categoryPaymentMethods', 'field_missing', result.billing!.paymentPolicy!.categoryPaymentMethods);
-      if (Array.isArray(pp.pointPriority)) result.billing!.paymentPolicy!.pointPriority = pp.pointPriority as string[];
-      else logFallback('billing.paymentPolicy.pointPriority', 'field_missing', result.billing!.paymentPolicy!.pointPriority);
+        fromConfig.push('billing.paymentPolicy.categoryPaymentMethods');
+      } else fb('billing.paymentPolicy.categoryPaymentMethods', 'field_missing', result.billing!.paymentPolicy!.categoryPaymentMethods);
+      if (Array.isArray(pp.pointPriority)) {
+        result.billing!.paymentPolicy!.pointPriority = pp.pointPriority as string[];
+        fromConfig.push('billing.paymentPolicy.pointPriority');
+      } else fb('billing.paymentPolicy.pointPriority', 'field_missing', result.billing!.paymentPolicy!.pointPriority);
       const ru = pp.roundingUnits as Record<string, unknown> | undefined;
       if (ru && typeof ru === 'object') {
-        if (typeof ru.pointAB === 'number') result.billing!.paymentPolicy!.roundingUnits!.pointAB = ru.pointAB;
-        if (typeof ru.sideGameChip === 'number') result.billing!.paymentPolicy!.roundingUnits!.sideGameChip = ru.sideGameChip;
+        if (typeof ru.pointAB === 'number') {
+          result.billing!.paymentPolicy!.roundingUnits!.pointAB = ru.pointAB;
+          fromConfig.push('billing.paymentPolicy.roundingUnits.pointAB');
+        }
+        if (typeof ru.sideGameChip === 'number') {
+          result.billing!.paymentPolicy!.roundingUnits!.sideGameChip = ru.sideGameChip;
+          fromConfig.push('billing.paymentPolicy.roundingUnits.sideGameChip');
+        }
       }
     }
   } else {
-    logFallback('billing', 'field_missing', result.billing);
+    fb('billing', 'field_missing', result.billing);
   }
 
   // linePlan
   if (typeof raw.linePlan === 'string' && ['communication', 'light', 'standard'].includes(raw.linePlan)) {
     result.linePlan = raw.linePlan;
+    fromConfig.push('linePlan');
   } else if (raw.linePlan !== undefined && raw.linePlan !== null) {
-    logFallback('linePlan', 'invalid_value', result.linePlan);
+    fb('linePlan', 'invalid_value', result.linePlan);
   } else {
-    logFallback('linePlan', 'field_missing', result.linePlan);
+    fb('linePlan', 'field_missing', result.linePlan);
   }
 
   // shift
   const shift = raw.shift as Record<string, unknown> | undefined;
   if (shift && typeof shift === 'object') {
-    if (typeof shift.submissionStartDay === 'number') result.shift!.submissionStartDay = shift.submissionStartDay;
-    else logFallback('shift.submissionStartDay', 'field_missing', result.shift!.submissionStartDay);
-    if (typeof shift.submissionEndDay === 'number') result.shift!.submissionEndDay = shift.submissionEndDay;
-    else logFallback('shift.submissionEndDay', 'field_missing', result.shift!.submissionEndDay);
-    if (typeof shift.schedulingStartDay === 'number') result.shift!.schedulingStartDay = shift.schedulingStartDay;
-    else logFallback('shift.schedulingStartDay', 'field_missing', result.shift!.schedulingStartDay);
+    if (typeof shift.submissionStartDay === 'number') {
+      result.shift!.submissionStartDay = shift.submissionStartDay;
+      fromConfig.push('shift.submissionStartDay');
+    } else fb('shift.submissionStartDay', 'field_missing', result.shift!.submissionStartDay);
+    if (typeof shift.submissionEndDay === 'number') {
+      result.shift!.submissionEndDay = shift.submissionEndDay;
+      fromConfig.push('shift.submissionEndDay');
+    } else fb('shift.submissionEndDay', 'field_missing', result.shift!.submissionEndDay);
+    if (typeof shift.schedulingStartDay === 'number') {
+      result.shift!.schedulingStartDay = shift.schedulingStartDay;
+      fromConfig.push('shift.schedulingStartDay');
+    } else fb('shift.schedulingStartDay', 'field_missing', result.shift!.schedulingStartDay);
   } else {
-    logFallback('shift', 'field_missing', result.shift);
+    fb('shift', 'field_missing', result.shift);
   }
 
   // payroll
   const payroll = raw.payroll as Record<string, unknown> | undefined;
   if (payroll && typeof payroll === 'object') {
-    if (typeof payroll.startDay === 'number') result.payroll!.startDay = payroll.startDay;
-    else logFallback('payroll.startDay', 'field_missing', result.payroll!.startDay);
-    if (typeof payroll.endDay === 'number') result.payroll!.endDay = payroll.endDay;
-    else logFallback('payroll.endDay', 'field_missing', result.payroll!.endDay);
+    if (typeof payroll.startDay === 'number') {
+      result.payroll!.startDay = payroll.startDay;
+      fromConfig.push('payroll.startDay');
+    } else fb('payroll.startDay', 'field_missing', result.payroll!.startDay);
+    if (typeof payroll.endDay === 'number') {
+      result.payroll!.endDay = payroll.endDay;
+      fromConfig.push('payroll.endDay');
+    } else fb('payroll.endDay', 'field_missing', result.payroll!.endDay);
   } else {
-    logFallback('payroll', 'field_missing', result.payroll);
+    fb('payroll', 'field_missing', result.payroll);
+  }
+
+  // attendance
+  const attendance = raw.attendance as Record<string, unknown> | undefined;
+  if (attendance && typeof attendance === 'object') {
+    if (typeof attendance.nightWorkStartHour === 'number') {
+      result.attendance!.nightWorkStartHour = attendance.nightWorkStartHour;
+      fromConfig.push('attendance.nightWorkStartHour');
+    } else fb('attendance.nightWorkStartHour', 'field_missing', result.attendance!.nightWorkStartHour);
+    if (typeof attendance.nightWorkEndHour === 'number') {
+      result.attendance!.nightWorkEndHour = attendance.nightWorkEndHour;
+      fromConfig.push('attendance.nightWorkEndHour');
+    } else fb('attendance.nightWorkEndHour', 'field_missing', result.attendance!.nightWorkEndHour);
+  } else {
+    fb('attendance', 'field_missing', result.attendance);
   }
 
   // menuCategories
   if (Array.isArray(raw.menuCategories) && raw.menuCategories.length > 0) {
     result.menuCategories = raw.menuCategories.filter((x): x is string => typeof x === 'string');
+    fromConfig.push('menuCategories');
   } else {
-    logFallback('menuCategories', 'field_missing', result.menuCategories);
+    fb('menuCategories', 'field_missing', result.menuCategories);
   }
 
   // sideGameTypes
   if (Array.isArray(raw.sideGameTypes) && raw.sideGameTypes.length > 0) {
     result.sideGameTypes = raw.sideGameTypes.filter((x): x is string => typeof x === 'string');
+    fromConfig.push('sideGameTypes');
   } else {
-    logFallback('sideGameTypes', 'field_missing', result.sideGameTypes);
+    fb('sideGameTypes', 'field_missing', result.sideGameTypes);
   }
 
   // tournament
@@ -352,25 +425,21 @@ function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
   if (tRaw && typeof tRaw === 'object') {
     if (typeof tRaw.defaultPrizeRatio === 'number' && tRaw.defaultPrizeRatio >= 0 && tRaw.defaultPrizeRatio <= 1) {
       result.tournament!.defaultPrizeRatio = tRaw.defaultPrizeRatio;
-    } else {
-      logFallback('tournament.defaultPrizeRatio', 'field_missing', result.tournament!.defaultPrizeRatio);
-    }
+      fromConfig.push('tournament.defaultPrizeRatio');
+    } else fb('tournament.defaultPrizeRatio', 'field_missing', result.tournament!.defaultPrizeRatio);
     if (typeof tRaw.prizeReceiverPercentage === 'number' && tRaw.prizeReceiverPercentage >= 1 && tRaw.prizeReceiverPercentage <= 100) {
       result.tournament!.prizeReceiverPercentage = tRaw.prizeReceiverPercentage;
-    } else {
-      logFallback('tournament.prizeReceiverPercentage', 'field_missing', result.tournament!.prizeReceiverPercentage);
-    }
+      fromConfig.push('tournament.prizeReceiverPercentage');
+    } else fb('tournament.prizeReceiverPercentage', 'field_missing', result.tournament!.prizeReceiverPercentage);
     if (typeof tRaw.prizeRoundingMethod === 'string' && ['floor', 'ceil', 'round'].includes(tRaw.prizeRoundingMethod)) {
       result.tournament!.prizeRoundingMethod = tRaw.prizeRoundingMethod;
-    } else {
-      logFallback('tournament.prizeRoundingMethod', 'field_missing', result.tournament!.prizeRoundingMethod);
-    }
+      fromConfig.push('tournament.prizeRoundingMethod');
+    } else fb('tournament.prizeRoundingMethod', 'field_missing', result.tournament!.prizeRoundingMethod);
     const validRoundingUnits = [1, 10, 100, 1000];
     if (typeof tRaw.prizeRoundingUnit === 'number' && validRoundingUnits.includes(tRaw.prizeRoundingUnit)) {
       result.tournament!.prizeRoundingUnit = tRaw.prizeRoundingUnit;
-    } else {
-      logFallback('tournament.prizeRoundingUnit', 'field_missing', result.tournament!.prizeRoundingUnit);
-    }
+      fromConfig.push('tournament.prizeRoundingUnit');
+    } else fb('tournament.prizeRoundingUnit', 'field_missing', result.tournament!.prizeRoundingUnit);
     const pd = tRaw.prizeDistribution as Record<string, unknown> | undefined;
     if (pd && typeof pd === 'object' && Object.keys(pd).length > 0) {
       const parsed: Record<string, number[]> = {};
@@ -381,16 +450,21 @@ function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
       }
       if (Object.keys(parsed).length > 0) {
         result.tournament!.prizeDistribution = parsed;
+        fromConfig.push('tournament.prizeDistribution');
       } else {
-        logFallback('tournament.prizeDistribution', 'field_missing', result.tournament!.prizeDistribution);
+        fb('tournament.prizeDistribution', 'field_missing', result.tournament!.prizeDistribution);
       }
     } else {
-      logFallback('tournament.prizeDistribution', 'field_missing', result.tournament!.prizeDistribution);
+      fb('tournament.prizeDistribution', 'field_missing', result.tournament!.prizeDistribution);
     }
   } else {
-    logFallback('tournament', 'field_missing', result.tournament);
+    fb('tournament', 'field_missing', result.tournament);
   }
 
+  logger.info('config_load_summary', {
+    fromConfig: fromConfig.sort(),
+    fromDefaults: fromDefaults.sort(),
+  });
   return result;
 }
 
@@ -507,6 +581,14 @@ export function mergeConfigForUpsert(
   out.payroll = {
     startDay: typeof prEx?.startDay === 'number' ? prEx.startDay : prDef.startDay,
     endDay: typeof prEx?.endDay === 'number' ? prEx.endDay : prDef.endDay,
+  };
+
+  // attendance
+  const attDef = defaults.attendance!;
+  const attEx = ex.attendance as Record<string, unknown> | undefined;
+  out.attendance = {
+    nightWorkStartHour: typeof attEx?.nightWorkStartHour === 'number' ? attEx.nightWorkStartHour : attDef.nightWorkStartHour,
+    nightWorkEndHour: typeof attEx?.nightWorkEndHour === 'number' ? attEx.nightWorkEndHour : attDef.nightWorkEndHour,
   };
 
   // menuCategories

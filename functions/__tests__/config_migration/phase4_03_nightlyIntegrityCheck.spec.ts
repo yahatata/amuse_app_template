@@ -278,5 +278,54 @@ describe('Phase4 03: nightlyIntegrityCheck 改修', () => {
       expect(attSnap.data()?.closedStoreWithoutClockOut).toBe(true);
       expect(attSnap.data()?.closedAt).toBeDefined();
     });
+
+    it('Phase4.1-E2: 休憩中未退勤の attendance で break が自動終了する', async () => {
+      if (!emulatorAvailable) return;
+      const attRef = db.collection('attendances').doc('att-onbreak');
+      await attRef.set({
+        date: businessDate,
+        clockIn: Timestamp.now(),
+        clockOut: null,
+        isOnBreak: true,
+        staffsFullName: '休憩中スタッフ',
+      });
+      const breakRef = await attRef.collection('breaks').add({
+        startedAt: Timestamp.now(),
+        endedAt: null,
+      });
+
+      await closeStoreTerminal.run({
+        auth: { uid: 'admin-uid-1' },
+        data: {},
+      } as any);
+
+      const breakSnap = await breakRef.get();
+      expect(breakSnap.data()?.endedAt).toBeDefined();
+      const attSnap = await attRef.get();
+      expect(attSnap.data()?.isOnBreak).toBe(false);
+      expect(attSnap.data()?.closedStoreWithoutClockOut).toBe(true);
+    });
+
+    it('Phase4.1-E2: 閉店時 attendanceLogs に close_store_unclocked が書き込まれる', async () => {
+      if (!emulatorAvailable) return;
+      await db.collection('attendances').doc('att-for-log').set({
+        date: businessDate,
+        clockIn: Timestamp.now(),
+        clockOut: null,
+        staffsFullName: 'ログ対象スタッフ',
+      });
+
+      await closeStoreTerminal.run({
+        auth: { uid: 'admin-uid-1' },
+        data: {},
+      } as any);
+
+      const logsSnap = await db
+        .collection('attendanceLogs')
+        .where('attendanceId', '==', 'att-for-log')
+        .where('actionType', '==', 'close_store_unclocked')
+        .get();
+      expect(logsSnap.size).toBeGreaterThanOrEqual(1);
+    });
   });
 });
