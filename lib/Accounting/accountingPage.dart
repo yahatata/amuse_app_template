@@ -2398,6 +2398,18 @@ class _AccountingPageState extends State<AccountingPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
+                      // TODO: 会計開始「後で」選択後の再開用。後で実装する
+                      // ElevatedButton.icon(
+                      //   onPressed: () => _completeAccounting(bill['id']),
+                      //   icon: const Icon(Icons.check_circle, size: 16),
+                      //   label: const Text('会計完了', style: TextStyle(fontSize: 11)),
+                      //   style: ElevatedButton.styleFrom(
+                      //     backgroundColor: Colors.green,
+                      //     foregroundColor: Colors.white,
+                      //     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      //   ),
+                      // ),
+                      // const SizedBox(width: 8),
                       OutlinedButton.icon(
                         onPressed: () async {
                           final ok = await _revertAccountingStart(bill['id']);
