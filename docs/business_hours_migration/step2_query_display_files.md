@@ -165,9 +165,9 @@ Step1で更新対象としたコレクションを取得・表示しているフ
 
 | ファイル | 行番号 | 取得方法 | 修正の必要性 | 備考 |
 |---------|--------|---------|-------------|------|
-| `lib/AttendanceManagement/allStaffAttendancePage.dart` | 59-64 | `AttendanceService.getAllStaffAttendance()`経由 | ✅ **必要** | Cloud Functions経由で取得。Functions側の修正が必要 |
-| `lib/AttendanceManagement/staffAttendanceDetailPage.dart` | - | `AttendanceService.getAllStaffAttendance()`経由 | ✅ **必要** | Cloud Functions経由で取得。Functions側の修正が必要 |
-| `lib/AttendanceManagement/attendanceDetailPage.dart` | - | データを直接表示 | ❌ **不要** | `date`はコンストラクタのパラメータとしてのみ使用、表示には使用していない |
+| `lib/AttendanceManagement/all_staff_attendance_page_from_adminHome.dart` | 59-64 | `AttendanceService.getAllStaffAttendance()`経由 | ✅ **必要** | Cloud Functions経由で取得。Functions側の修正が必要 |
+| `lib/AttendanceManagement/staff_attendance_detail_page_from_allStaffAttendance.dart` | - | `AttendanceService.getAllStaffAttendance()`経由 | ✅ **必要** | Cloud Functions経由で取得。Functions側の修正が必要 |
+| `lib/AttendanceManagement/daily_attendance_detail_page_from_staffAttendanceDetail.dart` | - | データを直接表示 | ❌ **不要** | `date`はコンストラクタのパラメータとしてのみ使用、表示には使用していない |
 
 #### TypeScriptファイル（取得）
 

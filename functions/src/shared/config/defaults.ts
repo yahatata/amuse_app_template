@@ -152,6 +152,16 @@ export const DEFAULT_PAYROLL_START_DAY = 26;
 export const DEFAULT_PAYROLL_END_DAY = 25;
 
 // =============================================================================
+// Phase4.1: 勤怠 夜間労働時間
+// =============================================================================
+
+/** 夜間労働の開始時刻（時、0-23）。22 = 22:00 から深夜割増 */
+export const DEFAULT_NIGHT_WORK_START_HOUR = 22;
+
+/** 夜間労働の終了時刻（時、0-23）。5 = 翌日 05:00 まで */
+export const DEFAULT_NIGHT_WORK_END_HOUR = 5;
+
+// =============================================================================
 // B-02: メニューカテゴリ
 // =============================================================================
 
@@ -208,3 +218,16 @@ export const DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT: Array<{
   { startHour: 19, endHour: 22, requiredCount: 2 },
   { startHour: 10, endHour: 12, requiredCount: 3 },
 ];
+
+// =============================================================================
+// storeMeta/schedulerConfig: スケジューラー ON/OFF
+// =============================================================================
+
+/** 月次給与計算スケジューラーの有効化 */
+export const DEFAULT_MONTHLY_PAYROLL_TRIGGER_ENABLED = true;
+
+/** 却下シフト自動削除スケジューラーの有効化 */
+export const DEFAULT_SCHEDULED_CLEANUP_ENABLED = true;
+
+/** 翌年営業時間自動生成スケジューラーの有効化 */
+export const DEFAULT_SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_ENABLED = true;

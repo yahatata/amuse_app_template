@@ -1,8 +1,8 @@
 /**
  * デモ用: attendances に 2026/03/15 の勤怠データを投入
  *
- * 勤務中 4件 + 退勤済み 3件 を追加する。
- * 後で削除する一時的な機能。
+ * Phase4.1-F: 勤務中 4件 + 退勤済み 3件（うち1件休憩あり）+ 論理削除 1件 を追加。
+ * 新フィールド（breakMinutes, actualWorkMinutes, nightWorkMinutes 等）を設定。
  */
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
@@ -39,8 +39,9 @@ export const seedAttendancesDemo = onCall(async (request) => {
 
   const { Timestamp } = admin.firestore;
   const batch = db.batch();
+  const now = Timestamp.now();
 
-  // 勤務中 4件
+  // 勤務中 4件（Phase4.1-F: 新フィールド追加）
   for (let i = 0; i < 4; i++) {
     const staffId = randomId();
     const staffName = randomName();
@@ -62,12 +63,27 @@ export const seedAttendancesDemo = onCall(async (request) => {
       isManual: false,
       nightMinutes: 0,
       totalMinutes: 0,
+      breakMinutes: 0,
+      actualWorkMinutes: null,
+      nightWorkMinutes: 0,
+      isOnBreak: false,
+      currentBreakStartedAt: null,
+      breakCount: 0,
+      lastActionType: "clock_in",
+      lastActionAt: Timestamp.fromDate(clockIn),
+      lastActionByDeviceId: null,
+      manualReason: null,
+      payrollReflectedAt: null,
+      isDeleted: false,
+      deletedAt: null,
+      deletedBy: null,
       createdAt: Timestamp.fromDate(clockIn),
       updatedAt: Timestamp.fromDate(clockIn),
     });
   }
 
-  // 退勤済み 3件
+  // 退勤済み 3件（Phase4.1-F: 新フィールド追加。actualWorkMinutes, nightWorkMinutes を設定）
+  const clockedOutRefs: admin.firestore.DocumentReference[] = [];
   for (let i = 0; i < 3; i++) {
     const staffId = randomId();
     const staffName = randomName();
@@ -91,6 +107,8 @@ export const seedAttendancesDemo = onCall(async (request) => {
     const nightMinutes = outHour >= 22
       ? Math.max(0, (outHour - 22) * 60 + outMin)
       : 0;
+    const breakMinutes = i === 0 ? 60 : 0; // 1件目に休憩60分
+    const actualWorkMinutes = Math.max(0, totalMinutes - breakMinutes);
 
     const ref = db.collection("attendances").doc();
     batch.set(ref, {
@@ -103,16 +121,82 @@ export const seedAttendancesDemo = onCall(async (request) => {
       isManual: false,
       nightMinutes,
       totalMinutes,
+      breakMinutes,
+      actualWorkMinutes,
+      nightWorkMinutes: nightMinutes,
+      isOnBreak: false,
+      currentBreakStartedAt: null,
+      breakCount: i === 0 ? 1 : 0,
+      lastActionType: "clock_out",
+      lastActionAt: Timestamp.fromDate(clockOut),
+      lastActionByDeviceId: null,
+      manualReason: null,
+      payrollReflectedAt: null,
+      isDeleted: false,
+      deletedAt: null,
+      deletedBy: null,
       createdAt: Timestamp.fromDate(clockIn),
       updatedAt: Timestamp.fromDate(clockOut),
     });
+    if (i === 0) clockedOutRefs.push(ref);
   }
+
+  // 論理削除 1件（Phase4.1-F）
+  const staffIdDeleted = randomId();
+  const staffNameDeleted = randomName();
+  const clockInDeleted = jstToDate(DATE_KEY, "09:00");
+  const clockOutDeleted = jstToDate(DATE_KEY, "18:00");
+  const totalMinutesDeleted = 540;
+  const nightMinutesDeleted = 0;
+
+  const refDeleted = db.collection("attendances").doc();
+  batch.set(refDeleted, {
+    staffId: staffIdDeleted,
+    staffsFullName: staffNameDeleted,
+    date: DATE_KEY,
+    clockIn: Timestamp.fromDate(clockInDeleted),
+    clockOut: Timestamp.fromDate(clockOutDeleted),
+    closedStoreWithoutClockOut: false,
+    isManual: false,
+    nightMinutes: nightMinutesDeleted,
+    totalMinutes: totalMinutesDeleted,
+    breakMinutes: 0,
+    actualWorkMinutes: totalMinutesDeleted,
+    nightWorkMinutes: nightMinutesDeleted,
+    isOnBreak: false,
+    currentBreakStartedAt: null,
+    breakCount: 0,
+    lastActionType: "clock_out",
+    lastActionAt: Timestamp.fromDate(clockOutDeleted),
+    lastActionByDeviceId: null,
+    manualReason: null,
+    payrollReflectedAt: null,
+    isDeleted: true,
+    deletedAt: now,
+    deletedBy: "admin",
+    createdAt: Timestamp.fromDate(clockInDeleted),
+    updatedAt: now,
+  });
 
   await batch.commit();
 
+  // 休憩サンプル: 退勤済み1件目に breaks サブコレを追加
+  if (clockedOutRefs.length > 0) {
+    const breakStart = jstToDate(DATE_KEY, "12:00");
+    const breakEnd = jstToDate(DATE_KEY, "13:00");
+    await clockedOutRefs[0].collection("breaks").add({
+      startedAt: Timestamp.fromDate(breakStart),
+      endedAt: Timestamp.fromDate(breakEnd),
+      isDeleted: false,
+      deletedAt: null,
+      createdAt: Timestamp.fromDate(breakStart),
+      updatedAt: Timestamp.fromDate(breakEnd),
+    });
+  }
+
   return {
     success: true,
-    message: `${DATE_KEY} の勤怠デモデータを7件投入しました（勤務中4件・退勤済み3件）`,
-    count: 7,
+    message: `${DATE_KEY} の勤怠デモデータを8件投入しました（勤務中4件・退勤済み3件・論理削除1件。退勤済み1件に休憩サンプルあり）`,
+    count: 8,
   };
 });

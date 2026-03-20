@@ -15,6 +15,7 @@ import * as admin from 'firebase-admin';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { getBusinessDateForAttendance } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
 import { getStoreConfig } from '../../../shared/config/configLoader';
+import { writeAttendanceLog } from '../helpers/attendanceLogs';
 
 function resolveAdjustedClockInTimestamp(
   adjustmentOffsetMinutes: unknown,
@@ -116,6 +117,7 @@ export const clockIn = onCall(async (request: CallableRequest) => {
     }
 
     // 出勤記録を作成（date に営業日を格納）
+    const nowTs = admin.firestore.FieldValue.serverTimestamp();
     const attendanceData = {
       staffId,
       date: businessDate,
@@ -126,11 +128,34 @@ export const clockIn = onCall(async (request: CallableRequest) => {
       nightMinutes: 0,
       totalMinutes: 0,
       staffsFullName: staffName,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: nowTs,
+      updatedAt: nowTs,
+      // Phase4.1-B: 新フィールド
+      breakMinutes: 0,
+      actualWorkMinutes: null,
+      nightWorkMinutes: 0,
+      isOnBreak: false,
+      currentBreakStartedAt: null,
+      breakCount: 0,
+      lastActionType: 'clock_in',
+      lastActionAt: nowTs,
+      lastActionByDeviceId: device.id,
+      manualReason: null,
+      payrollReflectedAt: null,
+      isDeleted: false,
+      deletedAt: null,
+      deletedBy: null,
     };
 
     const docRef = await db.collection('attendances').add(attendanceData);
+
+    await writeAttendanceLog({
+      db,
+      attendanceId: docRef.id,
+      actionType: 'clock_in',
+      performedByUid: null,
+      performedByDeviceId: device.id,
+    });
 
     const result: Record<string, unknown> = {
       success: true,

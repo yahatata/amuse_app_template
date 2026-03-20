@@ -24,7 +24,8 @@ export const createAttendanceCorrectionRequest = onCall(
         staffId,
         staffName,
         status,
-        createdAt
+        createdAt,
+        attendanceId,
       } = request.data as {
         date: string;
         type: string;
@@ -37,6 +38,7 @@ export const createAttendanceCorrectionRequest = onCall(
         staffName: string;
         status: string;
         createdAt: string;
+        attendanceId?: string;
       };
 
       // 必須フィールドの検証
@@ -58,7 +60,7 @@ export const createAttendanceCorrectionRequest = onCall(
       const db = admin.firestore();
 
       // 修正申請データを作成
-      const correctionRequestData = {
+      const correctionRequestData: Record<string, unknown> = {
         date,                    // 修正を行った勤怠の日付
         type,                    // 修正種別
         currentClockIn: currentClockIn || null,  // 修正前の出勤時刻
@@ -75,8 +77,11 @@ export const createAttendanceCorrectionRequest = onCall(
         rejectedAt: null,        // 却下日時
         approvedBy: null,        // 承認者
         rejectedBy: null,        // 却下者
-        rejectionReason: null    // 却下理由
+        rejectionReason: null,   // 却下理由
       };
+      if (attendanceId != null && typeof attendanceId === 'string' && attendanceId.trim() !== '') {
+        correctionRequestData.attendanceId = attendanceId.trim();
+      }
 
       // Firestoreに保存
       const docRef = await db.collection("attendanceCorrectionRequests").add(correctionRequestData);

@@ -2,7 +2,7 @@ import 'package:amuse_app_template/StaffDate/createStaffAccountPage.dart';
 import 'package:amuse_app_template/StaffDate/shiftMenuPage.dart';
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
-import 'package:amuse_app_template/AttendanceManagement/allStaffAttendancePage.dart';
+import 'package:amuse_app_template/AttendanceManagement/all_staff_attendance_page_from_adminHome.dart';
 import 'package:amuse_app_template/AttendanceManagement/attendanceCorrectionRequestsPage.dart';
 import 'package:amuse_app_template/pages/device_management_page.dart';
 import 'package:amuse_app_template/pages/admin_detail_settings_page.dart';

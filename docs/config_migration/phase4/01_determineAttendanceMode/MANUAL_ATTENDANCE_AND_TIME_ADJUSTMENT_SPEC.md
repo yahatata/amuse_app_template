@@ -190,7 +190,7 @@ attendanceTimeAdjustment:
 | ts | `functions/src/domains/attendance/callables/updateManualClockOutRecord.ts` | 手動退勤。clockOut と処理内容を揃える。時刻パラメータ対応。先頭コメント追加 |
 | dart | `lib/services/store_config_service.dart` | StoreConfigData に features.createAttendanceByManual, attendanceTimeAdjustment を追加 |
 | dart | `lib/services/store_config_defaults.dart` | 上記のデフォルト値 |
-| dart | `lib/AttendanceManagement/staffAttendancePage.dart` | 勤怠記録の退勤処理列の表示/非表示、退勤ダイアログ（誕生日＋時間調整）。シフト一覧の出勤登録ボタン表示/非表示、出勤ダイアログ |
+| dart | `lib/AttendanceManagement/staff_attendance_page_from_terminalHome.dart` | 勤怠記録の退勤処理列の表示/非表示、退勤ダイアログ（誕生日＋時間調整）。シフト一覧の出勤登録ボタン表示/非表示、出勤ダイアログ |
 | dart | QR スキャン後の確認画面 | 設定に応じた時間調整 UI の追加（該当画面を特定して実装） |
 
 ※ 勤怠記録の「退勤処理」列非表示は、一旦純粋に非表示で実装する。のちに列幅の再計算に変更する可能性あり。

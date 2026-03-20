@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-import 'admin_attendance_form_page.dart';
+import 'admin_attendance_editAndCreate_page.dart';
 
 class AdminAttendanceListPage extends StatefulWidget {
   const AdminAttendanceListPage({super.key});
@@ -87,9 +87,17 @@ class _AdminAttendanceListPageState extends State<AdminAttendanceListPage> {
                     final closedWithout = d['closedStoreWithoutClockOut'] == true;
                     final bool isUnclocked = clockOut == null && closedWithout;
                     final bool isWorking = clockOut == null && !closedWithout;
+                    final bool isDeleted = d['isDeleted'] == true;
+                    final bool isOnBreak = d['isOnBreak'] == true;
                     final String status;
                     Color tileColor;
-                    if (isUnclocked) {
+                    if (isDeleted) {
+                      status = '削除済み';
+                      tileColor = Colors.grey[300]!;
+                    } else if (isOnBreak && isWorking) {
+                      status = '休憩中';
+                      tileColor = Colors.orange[50]!;
+                    } else if (isUnclocked) {
                       status = '未退勤データ';
                       tileColor = Colors.red[100]!;
                     } else if (isWorking) {
@@ -99,6 +107,16 @@ class _AdminAttendanceListPageState extends State<AdminAttendanceListPage> {
                       status = '退勤済み';
                       tileColor = Colors.grey[200]!;
                     }
+                    final showWorkTimes = status == '退勤済み';
+                    final workMin = d['actualWorkMinutes'] ?? d['totalMinutes'];
+                    final nightMin = d['nightWorkMinutes'] ?? d['nightMinutes'];
+                    final workStr = showWorkTimes && workMin != null
+                        ? '実働:${workMin}分(うち深夜:${nightMin ?? 0}分)'
+                        : '実働:-(うち深夜:-)';
+                    final breakMin = d['breakMinutes'];
+                    final breakStr = showWorkTimes
+                        ? (breakMin != null ? '${breakMin}分' : '-')
+                        : '-';
                     return ListTile(
                       tileColor: tileColor,
                       shape: RoundedRectangleBorder(
@@ -108,10 +126,12 @@ class _AdminAttendanceListPageState extends State<AdminAttendanceListPage> {
                       title: Text(d['staffsFullName']?.toString() ?? '—'),
                       subtitle: Text(
                         '勤務状況: $status\n'
-                        '出勤: ${_fmtTs(d['clockIn'])}  退勤: ${_fmtTs(d['clockOut'])}',
+                        '出勤: ${_fmtTs(d['clockIn'])}  退勤: ${_fmtTs(d['clockOut'])}\n'
+                        '$workStr 休憩: $breakStr'
+                        '${isDeleted ? '\n（論理削除済み）' : ''}',
                       ),
                       trailing: TextButton.icon(
-                        onPressed: () => _openEditPage(doc.id, d),
+                        onPressed: isDeleted ? null : () => _openEditPage(doc.id, d),
                         icon: const Icon(Icons.edit),
                         label: const Text('編集'),
                       ),

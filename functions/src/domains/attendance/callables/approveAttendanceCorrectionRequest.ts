@@ -1,5 +1,8 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import { writeAttendanceLog } from "../helpers/attendanceLogs";
+import { recalculateAttendanceFromBreaks } from "../helpers/recalculateAttendanceFromBreaks";
 
 export const approveAttendanceCorrectionRequest = onCall(
   { region: "us-central1", maxInstances: 10 },
@@ -12,64 +15,7 @@ export const approveAttendanceCorrectionRequest = onCall(
         // 日付と時刻を結合してUTC+9として直接解釈
         const dateTimeString = `${dateString}T${timeString}:00+09:00`;
         const date = new Date(dateTimeString);
-        
         return admin.firestore.Timestamp.fromDate(date);
-      }
-
-      // 総勤務時間（分）を計算する関数
-      function calculateTotalMinutes(clockIn: string, clockOut: string): number {
-        if (!clockIn || !clockOut) return 0;
-        
-        const [inHours, inMinutes] = clockIn.split(':').map(Number);
-        const [outHours, outMinutes] = clockOut.split(':').map(Number);
-        
-        let totalMinutes = (outHours * 60 + outMinutes) - (inHours * 60 + inMinutes);
-        
-        // 日をまたぐ場合の処理
-        if (totalMinutes < 0) {
-          totalMinutes += 24 * 60; // 24時間分を加算
-        }
-        
-        return totalMinutes;
-      }
-
-      // 夜勤時間（分）を計算する関数
-      function calculateNightMinutes(clockIn: string, clockOut: string): number {
-        if (!clockIn || !clockOut) return 0;
-        
-        const [inHours, inMinutes] = clockIn.split(':').map(Number);
-        const [outHours, outMinutes] = clockOut.split(':').map(Number);
-        
-        let nightMinutes = 0;
-        
-        // 22:00-05:00の夜勤時間を計算
-        for (let hour = inHours; hour <= outHours; hour++) {
-          if (hour >= 22 || hour < 5) {
-            if (hour === inHours) {
-              // 開始時刻の分を計算
-              nightMinutes += Math.min(60 - inMinutes, hour >= 22 ? 60 - inMinutes : 5 * 60);
-            } else if (hour === outHours) {
-              // 終了時刻の分を計算
-              nightMinutes += Math.min(outMinutes, hour >= 22 ? outMinutes : 0);
-            } else {
-              // 完全な時間
-              nightMinutes += 60;
-            }
-          }
-        }
-        
-        // 日をまたぐ場合の処理
-        if (outHours < inHours) {
-          // 22:00-05:00の夜勤時間を追加
-          for (let hour = 22; hour < 24; hour++) {
-            nightMinutes += 60;
-          }
-          for (let hour = 0; hour < 5; hour++) {
-            nightMinutes += 60;
-          }
-        }
-        
-        return nightMinutes;
       }
 
       const { requestId, adminUserId } = request.data as {
@@ -121,31 +67,55 @@ export const approveAttendanceCorrectionRequest = onCall(
           };
 
           // 修正種別に応じて時刻を更新（文字列をTimestampに変換）
-          let newClockIn = requestData.currentClockIn;
-          let newClockOut = requestData.currentClockOut;
-          
           if (requestData.type === "clockIn" || requestData.type === "both") {
             if (requestData.newClockIn && requestData.date) {
-              newClockIn = requestData.newClockIn;
               updateData.clockIn = convertTimeStringToTimestamp(requestData.newClockIn, requestData.date);
             }
           }
           if (requestData.type === "clockOut" || requestData.type === "both") {
             if (requestData.newClockOut && requestData.date) {
-              newClockOut = requestData.newClockOut;
               updateData.clockOut = convertTimeStringToTimestamp(requestData.newClockOut, requestData.date);
             }
           }
 
           await attendanceDoc.ref.update(updateData);
 
-          // totalMinutesとnightMinutesを再計算して更新
-          const updatedTotalMinutes = calculateTotalMinutes(newClockIn, newClockOut);
-          const updatedNightMinutes = calculateNightMinutes(newClockIn, newClockOut);
-          
+          // recalculateAttendanceFromBreaks で breakMinutes, actualWorkMinutes, nightWorkMinutes を再集計
+          const updatedData = await attendanceDoc.ref.get();
+          const attData = updatedData.data();
+          const clockInTs = attData?.clockIn as admin.firestore.Timestamp | null | undefined;
+          const clockOutTs = attData?.clockOut as admin.firestore.Timestamp | null | undefined;
+          const config = await getStoreConfig();
+          const recalcResult = await recalculateAttendanceFromBreaks({
+            attendanceRef: attendanceDoc.ref,
+            attendanceData: {
+              clockIn: clockInTs,
+              clockOut: clockOutTs,
+              staffId: attData?.staffId,
+              date: attData?.date,
+            },
+            config,
+          });
+
+          // totalMinutes は clockOut - clockIn で算出（recalculate では更新しない）
+          let totalMinutes = 0;
+          if (clockInTs && clockOutTs) {
+            totalMinutes = Math.floor(
+              (clockOutTs.toDate().getTime() - clockInTs.toDate().getTime()) / (1000 * 60)
+            );
+          }
           await attendanceDoc.ref.update({
-            totalMinutes: updatedTotalMinutes,
-            nightMinutes: updatedNightMinutes
+            totalMinutes,
+            nightMinutes: recalcResult.nightWorkMinutes,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          await writeAttendanceLog({
+            db,
+            attendanceId: attendanceDoc.id,
+            actionType: "approve_correction_request",
+            performedByUid: adminUserId,
+            performedByDeviceId: null,
           });
         } else {
           console.warn(`勤怠記録が見つかりません: staffId=${requestData.staffId}, date=${requestData.date}`);

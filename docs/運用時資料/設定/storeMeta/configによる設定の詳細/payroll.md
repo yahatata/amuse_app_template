@@ -66,4 +66,4 @@
 | ts | `functions/src/domains/attendance/scheduler/monthlyPayrollTrigger.ts` | 月次給与計算ジョブ（config から startDay/endDay を取得して期間計算） |
 | dart | `lib/services/store_config_service.dart` | config パース・StoreConfigData |
 | dart | `lib/services/store_config_defaults.dart` | デフォルト値（kDefaultPayrollStartDay, kDefaultPayrollEndDay） |
-| dart | `lib/AttendanceManagement/allStaffAttendancePage.dart` | 給与計算期間表示・期間選択・勤怠・給与データ取得 |
+| dart | `lib/AttendanceManagement/all_staff_attendance_page_from_adminHome.dart` | 給与計算期間表示・期間選択・勤怠・給与データ取得 |

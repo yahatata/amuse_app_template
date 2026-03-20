@@ -15,6 +15,8 @@ import { runResetAllTables } from '../services/resetAllTables';
 import { runCleanupActiveStays } from '../services/cleanupActiveStaysOnClose';
 import { runMigrateSettledBillsForBusinessDay } from '../../analytics/callables/migrateSettledBillsForBusinessDay';
 import { getUnclosedTournamentsForCloseCore } from '../services/getUnclosedTournamentsForClose';
+import { endActiveBreaksForClockOut } from '../../attendance/helpers/recalculateAttendanceFromBreaks';
+import { writeAttendanceLog } from '../../attendance/helpers/attendanceLogs';
 
 const CLOSE_STEPS = [
   'UNSETTLED_MARK',
@@ -190,7 +192,17 @@ export const closeStoreTerminal = onCall(
             .where('clockOut', '==', null)
             .get();
 
+          // Phase4.1-E2: 休憩中（isOnBreak: true）の attendance に endActiveBreaksForClockOut 相当の処理を追加
+          const closedAtTs = Timestamp.now();
+          for (const doc of attendancesSnap.docs) {
+            const d = doc.data();
+            if (d.isOnBreak === true) {
+              await endActiveBreaksForClockOut(doc.ref, closedAtTs);
+            }
+          }
+
           const batch = db.batch();
+          const updatedAttendanceIds: string[] = [];
           for (const doc of attendancesSnap.docs) {
             const d = doc.data();
             if (d.clockIn != null) {
@@ -199,9 +211,21 @@ export const closeStoreTerminal = onCall(
                 closedAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
               });
+              updatedAttendanceIds.push(doc.id);
             }
           }
           if (!attendancesSnap.empty) await batch.commit();
+
+          // Phase4.1-E2: attendanceLogs に close_store_unclocked を書き込み
+          for (const attendanceId of updatedAttendanceIds) {
+            await writeAttendanceLog({
+              db,
+              attendanceId,
+              actionType: 'close_store_unclocked',
+              performedByUid: adminId,
+              performedByDeviceId: null,
+            });
+          }
 
           // Phase4 03: 強制閉店時は未 close トーナメントを force_ended に更新
           if (effectiveForceClose) {

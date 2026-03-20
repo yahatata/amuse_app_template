@@ -154,25 +154,26 @@ class _StaffAttendancePageState extends State<StaffAttendancePage>
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('管理者用編集'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              '編集操作を行うにはパスワードを入力してください。',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'パスワード',
-                border: OutlineInputBorder(),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '編集操作を行うにはパスワードを入力してください。',
+                style: TextStyle(fontSize: 13),
               ),
-              onSubmitted: (_) => _onAdminEditPasswordSubmitted(ctx, controller.text),
-            ),
-          ],
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'パスワード',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -365,6 +366,7 @@ class _TodayAttendanceList extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         var docs = snapshot.data!.docs;
+        docs = docs.where((d) => d.data()['isDeleted'] != true).toList();
         docs = List.from(docs)
           ..sort((a, b) {
             final dA = a.data();
@@ -424,15 +426,14 @@ class _TodayAttendanceList extends StatelessWidget {
     );
   }
 
-  /// 画面幅に応じてカラム幅を計算。仕様: 氏名7文字、勤務状況4文字、合計分3桁を最低保証。
-  /// 重みで按分し、合計が利用可能幅を超えないようにする。
+  /// 画面幅に応じてカラム幅を計算。
+  /// カラム: 氏名, 勤務状況, 休憩処理, 休憩時間(分), 営業日, 出勤, 退勤, 実働時間(分), [退勤処理]
   List<double> _computeColumnWidths(double availableWidth, bool showManual) {
     const horizontalPadding = 32.0;
-    final w = (availableWidth - horizontalPadding).clamp(360.0, double.infinity);
-    // 重み（氏名18, 勤務10, date10, 出勤5, 退勤5, 合計5, 作成6, 更新6, 退勤処理5）
+    final w = (availableWidth - horizontalPadding).clamp(400.0, double.infinity);
     final weights = showManual
-        ? [18.0, 10.0, 10.0, 5.0, 5.0, 5.0, 6.0, 6.0, 5.0]
-        : [20.0, 12.0, 12.0, 7.0, 7.0, 6.0, 8.0, 8.0];
+        ? [16.0, 7.0, 7.0, 6.0, 8.0, 5.0, 5.0, 6.0, 7.0]
+        : [18.0, 9.0, 9.0, 7.0, 9.0, 6.0, 6.0, 9.0];
     final total = weights.reduce((a, b) => a + b);
     return weights.map((v) => (v / total) * w).toList();
   }
@@ -454,12 +455,12 @@ class _TodayAttendanceList extends StatelessWidget {
           children: [
             _headerCell('氏名', widths[0]),
             _headerCell('勤務状況', widths[1]),
-            _headerCell('date', widths[2]),
-            _headerCell('出勤', widths[3]),
-            _headerCell('退勤', widths[4]),
-            _headerCell('合計分', widths[5]),
-            _headerCell('作成日時', widths[6]),
-            _headerCell('更新日時', widths[7]),
+            _headerCell('休憩処理', widths[2]),
+            _headerCell('休憩時間(分)', widths[3]),
+            _headerCell('営業日', widths[4]),
+            _headerCell('出勤', widths[5]),
+            _headerCell('退勤', widths[6]),
+            _headerCell('実働時間(分)', widths[7]),
             if (showManual) _headerCell('退勤処理', widths[8]),
           ],
         ),
@@ -535,25 +536,31 @@ class _TodayAttendanceList extends StatelessWidget {
   ) {
     final d = doc.data() ?? {};
     final clockOut = d['clockOut'];
+    final isOnBreak = d['isOnBreak'] == true;
     final isWorking = clockOut == null;
-    final statusColor = isWorking ? Colors.red[100]! : Colors.green[100]!;
-    final statusText = isWorking ? '勤務中' : '退勤済み';
+    final statusColor = isOnBreak
+        ? Colors.orange[100]!
+        : (isWorking ? Colors.red[100]! : Colors.green[100]!);
+    final statusText = isOnBreak ? '休憩中' : (isWorking ? '勤務中' : '退勤済み');
 
     return TableRow(
       children: [
         _dataCell(d['staffsFullName']?.toString() ?? '—', widths[0]),
         _dataCellWithBg(statusText, widths[1], statusColor),
-        _dataCell(d['date']?.toString() ?? '—', widths[2]),
-        _dataCell(_formatTimestamp(d['clockIn']), widths[3]),
+        _breakActionCell(context, doc, isWorking, isOnBreak, widths[2]),
+        _breakMinutesDetailCell(context, doc, widths[3]),
+        _dataCell(d['date']?.toString() ?? '—', widths[4]),
+        _dataCell(_formatTimestamp(d['clockIn']), widths[5]),
         _dataCellWithBg(
           _formatTimestamp(clockOut),
-          widths[4],
+          widths[6],
           isWorking ? Colors.red[100]! : Colors.green[100]!,
         ),
-        _dataCell((d['totalMinutes'] ?? '').toString(), widths[5]),
-        _dataCell(_formatTimestampFull(d['createdAt']), widths[6]),
-        _dataCell(_formatTimestampFull(d['updatedAt']), widths[7]),
-        if (showManual) _actionCell(context, doc, isWorking, widths[8]),
+        _dataCell(
+          (d['actualWorkMinutes'] ?? d['totalMinutes'] ?? '—').toString(),
+          widths[7],
+        ),
+        if (showManual) _clockOutActionCell(context, doc, isWorking, widths[8]),
       ],
     );
   }
@@ -587,28 +594,415 @@ class _TodayAttendanceList extends StatelessWidget {
     );
   }
 
-  Widget _actionCell(
+  /// 休憩時間(分)カラム: 分数 + 詳細ボタン（閲覧のみ）
+  Widget _breakMinutesDetailCell(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    double w,
+  ) {
+    final d = doc.data() ?? {};
+    final breakMinutes = (d['breakMinutes'] is num) ? (d['breakMinutes'] as num).toInt() : 0;
+
+    return SizedBox(
+      width: w,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              breakMinutes.toString(),
+              style: const TextStyle(fontSize: _bodyFontSize),
+            ),
+            ElevatedButton(
+              onPressed: () => _showBreakDetailDialog(context, doc),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.grey[200],
+                foregroundColor: Colors.blue,
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                minimumSize: Size.zero,
+              ),
+              child: const Text('詳細', style: TextStyle(fontSize: 10)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showBreakDetailDialog(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final staffName = doc.data()?['staffsFullName']?.toString() ?? '—';
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('休憩詳細 — $staffName'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('attendances')
+                .doc(doc.id)
+                .collection('breaks')
+                .orderBy('startedAt', descending: false)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Text('エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red));
+              }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final docs = snapshot.data!.docs;
+              if (docs.isEmpty) {
+                return const Text('休憩データがありません');
+              }
+              return SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: docs.map((breakDoc) {
+                    final b = breakDoc.data();
+                    final startedAt = b['startedAt'];
+                    final endedAt = b['endedAt'];
+                    final isDeleted = b['isDeleted'] == true;
+
+                    String startStr = '—';
+                    String endStr = '—';
+                    int minutes = 0;
+
+                    if (startedAt is Timestamp) {
+                      final dt = startedAt.toDate();
+                      startStr = '${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                    }
+                    if (endedAt is Timestamp) {
+                      final dt = endedAt.toDate();
+                      endStr = '${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                      if (startedAt is Timestamp) {
+                        minutes = (endedAt.toDate().difference(startedAt.toDate()).inMinutes).abs();
+                      }
+                    } else if (startedAt is Timestamp) {
+                      endStr = '（休憩中）';
+                    }
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isDeleted ? Colors.grey[200] : Colors.white,
+                        border: Border.all(color: Colors.grey.shade400),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (isDeleted)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 4),
+                              child: Text(
+                                '削除済み',
+                                style: TextStyle(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          Text('開始: $startStr  終了: $endStr', style: const TextStyle(fontSize: 13)),
+                          Text('休憩時間: ${minutes}分', style: const TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 休憩処理カラム: 休憩開始・休憩終了ボタン
+  Widget _breakActionCell(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    bool isWorking,
+    bool isOnBreak,
+    double w,
+  ) {
+    final buttons = <Widget>[
+      if (isWorking && !isOnBreak)
+        ElevatedButton(
+          onPressed: () => _onStartBreakTap(context, doc),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.orange,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            minimumSize: Size.zero,
+          ),
+          child: const Text('休憩開始', style: TextStyle(fontSize: 10)),
+        ),
+      if (isOnBreak)
+        ElevatedButton(
+          onPressed: () => _onEndBreakTap(context, doc),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.teal,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            minimumSize: Size.zero,
+          ),
+          child: const Text('休憩終了', style: TextStyle(fontSize: 10)),
+        ),
+    ];
+    return SizedBox(
+      width: w,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: buttons.isEmpty
+            ? const Text('—', style: TextStyle(fontSize: 12))
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: buttons,
+              ),
+      ),
+    );
+  }
+
+  /// 退勤処理カラム: 退勤ボタンのみ
+  Widget _clockOutActionCell(
     BuildContext context,
     DocumentSnapshot<Map<String, dynamic>> doc,
     bool isWorking,
     double w,
   ) {
+    if (!isWorking) {
+      return SizedBox(
+        width: w,
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Text('—', style: TextStyle(fontSize: 12)),
+        ),
+      );
+    }
     return SizedBox(
       width: w,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: ElevatedButton(
-          onPressed: isWorking ? () => _onClockOutTap(context, doc) : null,
+          onPressed: () => _onClockOutTap(context, doc),
           style: ElevatedButton.styleFrom(
-            backgroundColor: isWorking ? Colors.blue : Colors.grey,
+            backgroundColor: Colors.blue,
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
             minimumSize: Size.zero,
           ),
-          child: const Text('退勤処理', style: TextStyle(fontSize: _bodyFontSize)),
+          child: const Text('退勤', style: TextStyle(fontSize: 10)),
         ),
       ),
     );
+  }
+
+  void _onStartBreakTap(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    _showBreakDialog(
+      context,
+      doc,
+      isStart: true,
+      onConfirm: (offset) => attendanceService.startBreak(doc.id, adjustmentOffsetMinutes: offset),
+      successMessage: '休憩を開始しました',
+      errorPrefix: '休憩開始',
+    );
+  }
+
+  void _onEndBreakTap(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    _showBreakDialog(
+      context,
+      doc,
+      isStart: false,
+      onConfirm: (offset) => attendanceService.endBreakForAttendance(doc.id, adjustmentOffsetMinutes: offset),
+      successMessage: '休憩を終了しました',
+      errorPrefix: '休憩終了',
+    );
+  }
+
+  /// 休憩開始/終了の共通ダイアログ（生年月日確認・時刻調整）
+  void _showBreakDialog(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc, {
+    required bool isStart,
+    required Future<void> Function(int? offset) onConfirm,
+    required String successMessage,
+    required String errorPrefix,
+  }) {
+    final data = doc.data() ?? {};
+    final staffId = data['staffId']?.toString() ?? '';
+    final staffName = data['staffsFullName']?.toString() ?? '—';
+    if (staffId.isEmpty) {
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('${errorPrefix}エラー'),
+          content: const Text('スタッフIDが取得できないため処理できません'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final options = _buildAdjustmentOptions(config);
+    int selectedOffset = 0;
+    final birthController = TextEditingController();
+    bool isSubmitting = false;
+    String? errorText;
+    final actionLabel = isStart ? '休憩開始' : '休憩終了';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocalState) => AlertDialog(
+          title: Text(actionLabel),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('氏名: $staffName'),
+                const SizedBox(height: 6),
+                if (isStart)
+                  Text('出勤時刻: ${_formatTimestamp(data['clockIn'])}')
+                else
+                  Text('休憩開始時刻: ${_formatTimestamp(data['currentBreakStartedAt'])}'),
+                const SizedBox(height: 10),
+                const Text(
+                  '上記の処理を行う場合は誕生日を4桁で入力して下さい(例：4月3日→0403)',
+                  style: TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: birthController,
+                  keyboardType: TextInputType.number,
+                  maxLength: 4,
+                  decoration: const InputDecoration(
+                    labelText: '誕生日 (MMDD)',
+                    counterText: '',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                if (config.attendanceTimeAdjustmentEnabled) ...[
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<int>(
+                    value: selectedOffset,
+                    decoration: const InputDecoration(
+                      labelText: '登録時刻',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: options
+                        .map(
+                          (offset) => DropdownMenuItem<int>(
+                            value: offset,
+                            child: Text(_adjustmentLabel(offset)),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: isSubmitting
+                        ? null
+                        : (v) {
+                            if (v == null) return;
+                            setLocalState(() {
+                              selectedOffset = v;
+                            });
+                          },
+                  ),
+                ],
+                if (errorText != null) ...[
+                  const SizedBox(height: 10),
+                  Text(errorText!, style: const TextStyle(color: Colors.red)),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: isSubmitting
+                  ? null
+                  : () async {
+                      setLocalState(() {
+                        isSubmitting = true;
+                        errorText = null;
+                      });
+                      try {
+                        final staffDoc = await FirebaseFirestore.instance
+                            .collection('staffs')
+                            .doc(staffId)
+                            .get();
+                        final birthMonthDay =
+                            staffDoc.data()?['birthMonthDay']?.toString() ?? '';
+                        if (birthMonthDay.isEmpty) {
+                          setLocalState(() {
+                            errorText =
+                                'スタッフに誕生日が登録されていません。先行して誕生日の登録を行って下さい。';
+                            isSubmitting = false;
+                          });
+                          return;
+                        }
+                        final entered = birthController.text.trim();
+                        if (entered != birthMonthDay) {
+                          setLocalState(() {
+                            errorText =
+                                '選択されたユーザーの誕生日が適切に入力されていません。選択したユーザーが正しいか、また入力した誕生日が正しいかを確認して下さい。';
+                            isSubmitting = false;
+                          });
+                          return;
+                        }
+                        final offset = config.attendanceTimeAdjustmentEnabled
+                            ? selectedOffset
+                            : null;
+                        await onConfirm(offset);
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(successMessage)),
+                        );
+                      } catch (e) {
+                        setLocalState(() {
+                          errorText = e.toString().replaceFirst('Exception: ', '');
+                          isSubmitting = false;
+                        });
+                      }
+                    },
+              child: const Text('確定'),
+            ),
+          ],
+        ),
+      ),
+    ).then((_) {
+      birthController.dispose();
+    });
   }
 
   void _onClockOutTap(

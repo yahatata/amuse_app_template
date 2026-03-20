@@ -87,7 +87,7 @@
 - Summary:
   - **Batch B（機能フラグ）**: D-05 settlementAggregator, D-07 dualWrite, D-08 enqueueScheduler, D-09 templateBusinessDateCheck を defineString/process.env → getStoreConfig() に差し替え。shouldDualWrite を async 化し全呼び出し元を await 対応。B-06 はスキーマ定義済み・実コード参照なしで完了
   - **Batch A1（Functions コア）**: CALC_BUFFER_MINUTES → getStoreConfig().businessDay.calcBufferMinutes。D-10 autoOpenClose 3 env → config。R-10 BUSINESS_HOURS_STYLES 定数廃止 → getStoreConfig().businessHoursStyles。D-04 linePlan defineString 2 箇所 → config.linePlan。R-09 requiredStaffByTimeSlot ハードコード配列 6 箇所 → config.shift.requiredStaffByTimeSlot。R-11/R-12 SIDE_GAME_CHIP_EXCHANGE_RATE/CATEGORY_PAYMENT_METHODS/DEFAULT_POINT_PRIORITY 5 ファイル → defaults.ts import + config 引数渡し（pure function 維持）
-  - **Batch A2（Flutter）**: GlobalConstants → StoreConfigService 差し替え。accountingPage/categoryPaymentMethodDialog/customerAccountingDetailPage/payment_split_calculator/payment_split_test_page/businessDayEditPage/shiftHomePage/shiftDateDialog/UserManualCheckInPage/userQRCheckInPage/allStaffAttendancePage
+  - **Batch A2（Flutter）**: GlobalConstants → StoreConfigService 差し替え。accountingPage/categoryPaymentMethodDialog/customerAccountingDetailPage/payment_split_calculator/payment_split_test_page/businessDayEditPage/shiftHomePage/shiftDateDialog/UserManualCheckInPage/userQRCheckInPage/all_staff_attendance_page_from_adminHome
   - **Batch A3（Web + cleanup）**: public/staff/config.js に Firestore 読み取り追加。globalConstant.dart から移行済み定数を一括削除（残存: STORE_CLOSE_HOUR, menuCategories, sideGameTypes, tournament 設定, CRON 設定, ADMIN_CREATED_SHIFT_ID 等）
   - **Batch C/D**: Deploy 項目（D-02/D-03/D-11/D-14/D-15）・Build 項目（B-01〜B-05/B-07）・既存 Run 項目（R-01〜R-05）の状態を「完了」として記録
 - Scope: `Functions` / `Flutter` / `Web` / `Docs`

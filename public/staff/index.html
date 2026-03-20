@@ -4145,18 +4145,22 @@
           }
           cardHTML += `</div>`;
           
-          // 勤務時間情報
+          // 勤務時間情報（Phase4.1-F: actualWorkMinutes, nightWorkMinutes 優先）
           cardHTML += `<div class="attendance-summary">`;
-          if (attendance.totalMinutes) {
-            const hours = Math.floor(attendance.totalMinutes / 60);
-            const minutes = attendance.totalMinutes % 60;
+          const workMin = attendance.actualWorkMinutes ?? attendance.totalMinutes;
+          if (workMin) {
+            const hours = Math.floor(workMin / 60);
+            const minutes = workMin % 60;
             cardHTML += `<div class="summary-row"><span class="summary-label">勤務時間:</span> <span class="summary-value">${hours}時間${minutes}分</span></div>`;
           }
-          
-          if (attendance.nightMinutes) {
-            const hours = Math.floor(attendance.nightMinutes / 60);
-            const minutes = attendance.nightMinutes % 60;
+          const nightMin = attendance.nightWorkMinutes ?? attendance.nightMinutes;
+          if (nightMin) {
+            const hours = Math.floor(nightMin / 60);
+            const minutes = nightMin % 60;
             cardHTML += `<div class="summary-row"><span class="summary-label">深夜時間:</span> <span class="summary-value">${hours}時間${minutes}分</span></div>`;
+          }
+          if (attendance.isDeleted) {
+            cardHTML += `<div class="summary-row"><span class="summary-label">状態:</span> <span class="summary-value" style="color:gray;">削除済み</span></div>`;
           }
           cardHTML += `</div>`;
           
@@ -4360,6 +4364,9 @@
           status: 'pending',
           createdAt: new Date().toISOString()
         };
+        if (currentAttendance && currentAttendance.id) {
+          formData.attendanceId = currentAttendance.id;
+        }
         
         
         try {

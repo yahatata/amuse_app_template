@@ -1,17 +1,27 @@
 /**
  * 年次自動生成: 毎年1月に翌年分の営業時間を自動生成
- * - トリガー: 毎年1月28日 23:25 JST
+ * - トリガー: 環境変数 SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON で上書き可能。未設定時は毎年1月28日 23:25 JST。
  * - 処理: 翌年12ヶ月分の営業時間をスタイルから自動生成
  * - manual保護: source=="manual"の日は上書きしない（forceManualOverwrite=false）
  */
 
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
+import { logger } from "firebase-functions";
+
+import { getSchedulerConfig } from "../../config/schedulerConfigLoader";
 import { upsertBusinessHoursForMonth, syncBusinessHoursToShifts } from "../services/businessHoursCore";
 import { determineStyleId } from "../services/holidayHelper";
 import { getBusinessHoursByStyleId } from "../services/styles";
 
 const db = admin.firestore();
+
+const SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON =
+  process.env.SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON || "25 23 28 1 *";
+logger.info("scheduleGenerateNextYearBusinessHours schedule", {
+  schedule: SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON,
+  source: process.env.SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON ? "env" : "default",
+});
 
 /**
  * 年次自動生成: 毎年1月に翌年分の営業時間を自動生成
@@ -20,14 +30,22 @@ const db = admin.firestore();
  */
 export const scheduleGenerateNextYearBusinessHours = onSchedule(
   {
-    schedule: '25 23 28 1 *', // 毎年1月28日 23:25 JST
-    timeZone: 'Asia/Tokyo',
+    schedule: SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON,
+    timeZone: "Asia/Tokyo",
     timeoutSeconds: 540, // v2の最大値（12ヶ月分の処理に対応）
-    memory: '512MiB', // メモリも調整（必要に応じて）
+    memory: "512MiB", // メモリも調整（必要に応じて）
   },
   async (event) => {
     try {
-      console.log('=== 翌年分の営業時間自動生成開始 ===');
+      const schedulerConfig = await getSchedulerConfig(db);
+      if (!schedulerConfig.scheduleGenerateNextYearBusinessHoursEnabled) {
+        logger.info(
+          "scheduleGenerateNextYearBusinessHours: スキップ（schedulerConfig.scheduleGenerateNextYearBusinessHoursEnabled != true）"
+        );
+        return;
+      }
+
+      console.log("=== 翌年分の営業時間自動生成開始 ===");
 
       // 「翌年」を計算（実行年の次の年）
       const now = new Date();

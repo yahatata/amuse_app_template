@@ -9,28 +9,22 @@ import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { getStoreConfig } from '../../../shared/config/configLoader';
+import { writeAttendanceLog } from '../helpers/attendanceLogs';
+import {
+  endActiveBreaksForClockOut,
+  recalculateAttendanceFromBreaks,
+} from '../helpers/recalculateAttendanceFromBreaks';
 
 const GRACE_HOURS = 1;
 
-function calculateMinutes(
+function calculateTotalMinutes(
   clockIn: admin.firestore.Timestamp,
   clockOut: admin.firestore.Timestamp
-): { totalMinutes: number; nightMinutes: number } {
+): number {
   const jstOffset = 9 * 60 * 60 * 1000;
   const clockInJST = new Date(clockIn.toDate().getTime() + jstOffset);
   const clockOutJST = new Date(clockOut.toDate().getTime() + jstOffset);
-  const totalMinutes = Math.floor((clockOutJST.getTime() - clockInJST.getTime()) / (1000 * 60));
-
-  const nightStartHour = 22;
-  const nightEndHour = 5;
-  let nightMinutes = 0;
-  let currentTime = new Date(clockInJST);
-  while (currentTime < clockOutJST) {
-    const hour = currentTime.getHours();
-    if (hour >= nightStartHour || hour < nightEndHour) nightMinutes++;
-    currentTime.setMinutes(currentTime.getMinutes() + 1);
-  }
-  return { totalMinutes, nightMinutes };
+  return Math.floor((clockOutJST.getTime() - clockInJST.getTime()) / (1000 * 60));
 }
 
 function resolveAdjustedClockOutTimestamp(
@@ -134,18 +128,45 @@ export const updateManualClockOutRecord = onCall(async (request: CallableRequest
       config,
       attendanceData.clockIn as admin.firestore.Timestamp
     );
+
+    await endActiveBreaksForClockOut(attendanceRef, adjustedClockOut);
+
+    const nowTs = admin.firestore.FieldValue.serverTimestamp();
     await attendanceRef.update({
       clockOut: adjustedClockOut,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: nowTs,
     });
 
-    const updatedDoc = await attendanceRef.get();
-    const updatedData = updatedDoc.data()!;
-    const { totalMinutes, nightMinutes } = calculateMinutes(
+    const recalcResult = await recalculateAttendanceFromBreaks({
+      attendanceRef,
+      attendanceData: {
+        clockIn: attendanceData.clockIn as admin.firestore.Timestamp,
+        clockOut: adjustedClockOut,
+        staffId: attendanceData.staffId,
+        date: attendanceData.date,
+      },
+      config,
+    });
+
+    const totalMinutes = calculateTotalMinutes(
       attendanceData.clockIn as admin.firestore.Timestamp,
-      updatedData.clockOut as admin.firestore.Timestamp
+      adjustedClockOut
     );
-    await attendanceRef.update({ totalMinutes, nightMinutes });
+    await attendanceRef.update({
+      totalMinutes,
+      nightMinutes: recalcResult.nightWorkMinutes,
+      lastActionType: 'clock_out',
+      lastActionAt: nowTs,
+      lastActionByDeviceId: device.id,
+    });
+
+    await writeAttendanceLog({
+      db,
+      attendanceId: attendanceRef.id,
+      actionType: 'update_manual_clock_out',
+      performedByUid: null,
+      performedByDeviceId: device.id,
+    });
 
     const staffName = (attendanceData.staffsFullName as string) ?? '';
     const result: Record<string, unknown> = {

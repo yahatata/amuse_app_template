@@ -1,9 +1,11 @@
 /**
- * storeMeta/config および storeMeta/requiredStaffByTimeSlot 初期セットアップ Callable
+ * storeMeta/config、storeMeta/requiredStaffByTimeSlot、storeMeta/schedulerConfig 初期セットアップ Callable
  *
  * - storeMeta/config: 未存在時は buildFromDefaults() をそのまま作成。既存時は defaults のフィールドのうち
  *   存在しないもののみデフォルトで追加（既存値は上書きしない）。requiredStaffByTimeSlot 等の別 doc 項目は含めない。
  * - storeMeta/requiredStaffByTimeSlot: R-09 分離。未存在時のみ作成（DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT）。
+ * - storeMeta/schedulerConfig: スケジューラー ON/OFF。未存在時は buildSchedulerConfigFromDefaults() で作成。
+ *   既存時は不足フィールドのみデフォルトで追加。
  * 認可: admin デバイスのみ。
  *
  * 参照: docs/config_migration/phase1/PHASE1_UPDATE_PATH_DESIGN.md
@@ -12,10 +14,37 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { buildFromDefaults, mergeConfigForUpsert } from '../../../shared/config/configLoader';
-import { DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT } from '../../../shared/config/defaults';
+import { buildSchedulerConfigFromDefaults } from '../../../shared/config/schedulerConfigLoader';
+import {
+  DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT,
+  DEFAULT_MONTHLY_PAYROLL_TRIGGER_ENABLED,
+  DEFAULT_SCHEDULED_CLEANUP_ENABLED,
+  DEFAULT_SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_ENABLED,
+} from '../../../shared/config/defaults';
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 
 const db = getFirestore();
+
+function mergeSchedulerConfigForUpsert(
+  existing: Record<string, unknown> | undefined,
+  defaults: ReturnType<typeof buildSchedulerConfigFromDefaults>
+): Record<string, unknown> {
+  const ex = existing ?? {};
+  return {
+    monthlyPayrollTriggerEnabled:
+      typeof ex.monthlyPayrollTriggerEnabled === 'boolean'
+        ? ex.monthlyPayrollTriggerEnabled
+        : DEFAULT_MONTHLY_PAYROLL_TRIGGER_ENABLED,
+    scheduledCleanupEnabled:
+      typeof ex.scheduledCleanupEnabled === 'boolean'
+        ? ex.scheduledCleanupEnabled
+        : DEFAULT_SCHEDULED_CLEANUP_ENABLED,
+    scheduleGenerateNextYearBusinessHoursEnabled:
+      typeof ex.scheduleGenerateNextYearBusinessHoursEnabled === 'boolean'
+        ? ex.scheduleGenerateNextYearBusinessHoursEnabled
+        : DEFAULT_SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_ENABLED,
+  };
+}
 
 export const initializeStoreConfigCallable = onCall(
   {
@@ -40,10 +69,12 @@ export const initializeStoreConfigCallable = onCall(
     try {
       const configRef = db.collection('storeMeta').doc('config');
       const requiredStaffRef = db.collection('storeMeta').doc('requiredStaffByTimeSlot');
+      const schedulerConfigRef = db.collection('storeMeta').doc('schedulerConfig');
 
-      const [configDoc, requiredStaffDoc] = await Promise.all([
+      const [configDoc, requiredStaffDoc, schedulerConfigDoc] = await Promise.all([
         configRef.get(),
         requiredStaffRef.get(),
+        schedulerConfigRef.get(),
       ]);
 
       const created: string[] = [];
@@ -74,11 +105,33 @@ export const initializeStoreConfigCallable = onCall(
         created.push('storeMeta/requiredStaffByTimeSlot');
       }
 
+      if (!schedulerConfigDoc.exists) {
+        const schedulerConfig = buildSchedulerConfigFromDefaults();
+        await schedulerConfigRef.set({
+          ...schedulerConfig,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        created.push('storeMeta/schedulerConfig');
+      } else {
+        const defaults = buildSchedulerConfigFromDefaults();
+        const merged = mergeSchedulerConfigForUpsert(
+          schedulerConfigDoc.data() as Record<string, unknown>,
+          defaults
+        );
+        await schedulerConfigRef.set(
+          { ...merged, updatedAt: FieldValue.serverTimestamp() },
+          { merge: true }
+        );
+        updated.push('storeMeta/schedulerConfig');
+      }
+
       const parts: string[] = [];
       if (created.length > 0) parts.push(`${created.join(' と ')} を作成しました`);
       if (updated.length > 0) parts.push(`${updated.join(' と ')} の不足フィールドを補完しました`);
       const message =
-        parts.length > 0 ? parts.join('。') : 'storeMeta/config と storeMeta/requiredStaffByTimeSlot は既に存在し、不足フィールドもありません';
+        parts.length > 0
+          ? parts.join('。')
+          : 'storeMeta/config、storeMeta/requiredStaffByTimeSlot、storeMeta/schedulerConfig は既に存在し、不足フィールドもありません';
 
       return {
         success: true,
