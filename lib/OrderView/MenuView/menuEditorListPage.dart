@@ -17,6 +17,8 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
   String _selectedCategory = 'All';
   List<MenuItem> _displayedItems = [];
   bool _isLoading = false;
+  /// 売り切れスイッチ操作時（主領域オーバーレイ＋UIロック）
+  bool _isSoldOutToggleLoading = false;
   String? _errorMessage;
   final ScrollController _scrollController = ScrollController();
   bool _showFloatingButton = true;
@@ -103,23 +105,22 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
       _errorMessage = null;
     });
 
-    // When: データ取得時
-    // Where: MenuEditorListPage
-    // What: 選択されたカテゴリーのメニューアイテムを取得
-    // How: MenuItemsManagerからカテゴリー別データを取得
+    setState(() {
+      _updateDisplayedItemsFromManager();
+      _isLoading = false;
+    });
+  }
+
+  /// MenuItemsManager の現在値から一覧表示用リストだけ更新（全画面スピナーは出さない）
+  void _updateDisplayedItemsFromManager() {
     final allItems = MenuItemsManager.allMenuItems;
-    
     if (_selectedCategory == 'All') {
       _displayedItems = allItems;
     } else {
-      _displayedItems = allItems.where((item) => 
-        item.category == _selectedCategory
-      ).toList();
+      _displayedItems = allItems
+          .where((item) => item.category == _selectedCategory)
+          .toList();
     }
-    
-    setState(() {
-      _isLoading = false;
-    });
   }
 
   // When: カテゴリー選択時
@@ -160,6 +161,9 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
   // What: Cloud Functionsを呼び出して売り切れ状態を更新
   // How: toggleSoldOutForMenuItem関数を呼び出し
   Future<void> _toggleSoldOut(String menuItemId, bool isSoldOut) async {
+    setState(() {
+      _isSoldOutToggleLoading = true;
+    });
     try {
       final callable = _functions.httpsCallable('toggleSoldOutForMenuItem');
       final result = await callable.call({
@@ -171,10 +175,10 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
       if (response['success'] == true) {
         // MenuItemsManagerを更新（アーカイブされたアイテムも含める）
         await MenuItemsManager.fetchMenuItems(includeArchived: true);
-        
-        // ローカルデータも更新
-        _loadMenuItems();
-        
+        if (!mounted) return;
+        setState(() {
+          _updateDisplayedItemsFromManager();
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(isSoldOut ? '売り切れに設定しました' : '販売中に設定しました'),
@@ -182,14 +186,22 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
         );
       } else {
         final error = response['error'] ?? '売り切れ状態の切り替えに失敗しました';
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(error)),
         );
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('売り切れ状態の切り替えに失敗しました: $e')),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSoldOutToggleLoading = false;
+        });
+      }
     }
   }
 
@@ -267,9 +279,11 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
             // 売り切れ状態切り替えスイッチ
             Switch(
               value: item.isSoldOut,
-              onChanged: (value) {
-                _toggleSoldOut(item.id, value);
-              },
+              onChanged: _isSoldOutToggleLoading
+                  ? null
+                  : (value) {
+                      _toggleSoldOut(item.id, value);
+                    },
             ),
           ],
         ),
@@ -279,12 +293,16 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('メニュー管理用リスト'),
-      ),
-      body: Column(
+    return PopScope(
+      canPop: !_isSoldOutToggleLoading,
+      child: Stack(
         children: [
+          Scaffold(
+            appBar: AppBar(
+              title: const Text('メニュー管理用リスト'),
+            ),
+            body: Column(
+              children: [
           // When: カテゴリー選択UI表示時
           // Where: MenuEditorListPage
           // What: カテゴリー選択用のUIを表示
@@ -352,40 +370,58 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
                             },
                           ),
           ),
-        ],
-      ),
-      // When: フローティングアクションボタン表示時
-      // Where: MenuEditorListPage
-      // What: スクロール中は消える更新ボタンとメニュー追加ボタンを表示
-      // How: AnimatedOpacityでボタンの表示/非表示を制御
-      floatingActionButton: AnimatedOpacity(
-        opacity: _showFloatingButton ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 300),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FloatingActionButton.extended(
-              heroTag: 'refresh_button',
-              onPressed: _isLoading ? null : _refreshData,
-              icon: const Icon(Icons.refresh),
-              label: const Text('更新'),
+              ],
             ),
-            const SizedBox(width: 16),
-            FloatingActionButton.extended(
-              heroTag: 'add_button',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const CreateMenuPage(),
+            // When: フローティングアクションボタン表示時
+            // Where: MenuEditorListPage
+            // What: スクロール中は消える更新ボタンとメニュー追加ボタンを表示
+            // How: AnimatedOpacityでボタンの表示/非表示を制御
+            floatingActionButton: AnimatedOpacity(
+              opacity: _showFloatingButton ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 300),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FloatingActionButton.extended(
+                    heroTag: 'refresh_button',
+                    onPressed: (_isLoading || _isSoldOutToggleLoading)
+                        ? null
+                        : _refreshData,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('更新'),
                   ),
-                );
-              },
-              icon: const Icon(Icons.add),
-              label: const Text('メニューの追加'),
+                  const SizedBox(width: 16),
+                  FloatingActionButton.extended(
+                    heroTag: 'add_button',
+                    onPressed: _isSoldOutToggleLoading
+                        ? null
+                        : () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const CreateMenuPage(),
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.add),
+                    label: const Text('メニューの追加'),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+          if (_isSoldOutToggleLoading)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -399,11 +435,13 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
     return FilterChip(
       label: Text(category),
       selected: isSelected,
-      onSelected: (selected) {
-        if (selected) {
-          _onCategorySelected(category);
-        }
-      },
+      onSelected: _isSoldOutToggleLoading
+          ? null
+          : (selected) {
+              if (selected) {
+                _onCategorySelected(category);
+              }
+            },
       selectedColor: Theme.of(context).primaryColor.withOpacity(0.3),
       checkmarkColor: Theme.of(context).primaryColor,
     );

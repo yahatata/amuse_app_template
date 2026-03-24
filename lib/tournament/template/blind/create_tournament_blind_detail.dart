@@ -323,27 +323,15 @@ class _CreateTournamentBlindDetailState extends State<CreateTournamentBlindDetai
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return Stack(
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: Text(widget.existingBlindTemplate != null 
           ? 'ブラインドテンプレート編集 - 詳細設定' 
           : 'ブラインドテンプレート作成 - 詳細設定'),
         backgroundColor: Colors.purple,
         foregroundColor: Colors.white,
-        actions: [
-          if (_isSaving)
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              ),
-            ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -650,6 +638,19 @@ class _CreateTournamentBlindDetailState extends State<CreateTournamentBlindDetai
                 ],
               ),
             ),
+        ),
+        if (_isSaving)
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: ColoredBox(
+                color: Colors.black.withValues(alpha: 0.35),
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

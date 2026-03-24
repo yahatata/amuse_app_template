@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
 
@@ -59,20 +58,30 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('参加者登録'),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: 400,
-        child: Column(
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isRegistering,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            const Text(
-              '登録する参加者を選択してください',
-              style: TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
+            Center(
+              child: AlertDialog(
+                title: const Text('参加者登録'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  height: 400,
+                  child: Column(
+                    children: [
+                      const Text(
+                        '登録する参加者を選択してください',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: StreamBuilder<QuerySnapshot>(
                 stream: ActiveStaysService.instance.stream,
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
@@ -167,15 +176,17 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
                             margin: const EdgeInsets.only(bottom: 8),
                             child: CheckboxListTile(
                               value: isSelected,
-                              onChanged: (bool? value) {
-                                setState(() {
-                                  if (value == true) {
-                                    _selectedUserIds.add(userId);
-                                  } else {
-                                    _selectedUserIds.remove(userId);
-                                  }
-                                });
-                              },
+                              onChanged: _isRegistering
+                                  ? null
+                                  : (bool? value) {
+                                      setState(() {
+                                        if (value == true) {
+                                          _selectedUserIds.add(userId);
+                                        } else {
+                                          _selectedUserIds.remove(userId);
+                                        }
+                                      });
+                                    },
                               title: Text(
                                 pokerName,
                                 style: TextStyle(
@@ -201,31 +212,41 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
                 },
               ),
             ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: _isRegistering ? null : () => Navigator.of(context).pop(),
+                    child: const Text('キャンセル'),
+                  ),
+                  ElevatedButton(
+                    onPressed: _isRegistering || _selectedUserIds.isEmpty
+                        ? null
+                        : _registerParticipants,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[700],
+                      foregroundColor: Colors.white,
+                    ),
+                    child: Text('参加登録 (${_selectedUserIds.length}人)'),
+                  ),
+                ],
+              ),
+            ),
+            if (_isRegistering)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isRegistering ? null : () => Navigator.of(context).pop(),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _isRegistering || _selectedUserIds.isEmpty
-              ? null
-              : _registerParticipants,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green[700],
-            foregroundColor: Colors.white,
-          ),
-          child: _isRegistering
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : Text('参加登録 (${_selectedUserIds.length}人)'),
-        ),
-      ],
     );
   }
 

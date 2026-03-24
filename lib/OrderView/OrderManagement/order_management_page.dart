@@ -31,6 +31,9 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   List<Map<String, dynamic>> _todayOrders = [];
   List<Map<String, dynamic>> _yesterdayOrders = [];
 
+  /// 提供済みマーク処理中の注文 ID（changeSpec 103）
+  String? _servingOrderId;
+
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _businessDaySub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _todayOrdersSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _yesterdayOrdersSub;
@@ -428,6 +431,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
       itemCount: orders.length,
       itemBuilder: (context, index) {
         final order = orders[index];
+        final orderIdStr = order['id']?.toString();
         return OrderCard(
           order: order,
           onStatusChanged: (orderId, newStatus) {
@@ -438,6 +442,18 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
           },
           localStatus: _localOrderStatus[order['id']],
           isActiveTab: _selectedTabIndex == 0,
+          isMarkingServed:
+              orderIdStr != null && _servingOrderId == orderIdStr,
+          onMarkServeStart: () {
+            if (orderIdStr != null) {
+              setState(() => _servingOrderId = orderIdStr);
+            }
+          },
+          onMarkServeEnd: () {
+            if (mounted) {
+              setState(() => _servingOrderId = null);
+            }
+          },
         );
       },
     );
@@ -483,6 +499,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   void _showEditDialog(String orderId, String? billId) {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => OrderEditDialog(
         orderId: orderId,
         billId: billId,

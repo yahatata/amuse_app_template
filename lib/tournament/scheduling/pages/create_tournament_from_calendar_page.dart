@@ -867,22 +867,13 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
           foregroundColor: Colors.white,
         ),
       ),
-      floatingActionButton: _selectedDate != null
+      floatingActionButton: _selectedDate != null && !_isLoading
           ? FloatingActionButton.extended(
-              onPressed: _isLoading ? null : _showCreateTournamentDialog,
+              onPressed: _showCreateTournamentDialog,
               backgroundColor: Colors.blue,
               foregroundColor: Colors.white,
-              icon: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Icon(Icons.add),
-              label: Text(_isLoading ? '作成中...' : 'トーナメント作成'),
+              icon: const Icon(Icons.add),
+              label: const Text('トーナメント作成'),
             )
           : null,
       body: _isLoading

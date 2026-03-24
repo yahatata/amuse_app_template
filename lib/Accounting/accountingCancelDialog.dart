@@ -21,6 +21,7 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
   final _functions = FirebaseFunctions.instance;
   bool _includeRefund = false;
   int _refundAmount = 0;
+  bool _isProcessing = false;
 
   @override
   void initState() {
@@ -69,6 +70,7 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
 
     if (confirmed != true) return;
 
+    setState(() => _isProcessing = true);
     try {
       final result = await _functions.httpsCallable('cancelAccounting').call({
         'billId': widget.bill['id'],
@@ -93,13 +95,22 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('キャンセルに失敗しました: $e')),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
+    return PopScope(
+      canPop: !_isProcessing,
+      child: Dialog(
+        child: Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            Container(
         width: MediaQuery.of(context).size.width * 0.8,
         height: MediaQuery.of(context).size.height * 0.7,
         padding: const EdgeInsets.all(16),
@@ -117,7 +128,9 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _isProcessing
+                        ? null
+                        : () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close),
                   ),
                 ],
@@ -159,6 +172,7 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
               // キャンセル理由
               TextFormField(
                 controller: _reasonController,
+                readOnly: _isProcessing,
                 decoration: const InputDecoration(
                   labelText: 'キャンセル理由',
                   border: OutlineInputBorder(),
@@ -195,11 +209,13 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
                         title: const Text('返金処理も同時に実行する'),
                         subtitle: const Text('キャンセルと同時に返金処理を行います'),
                         value: _includeRefund,
-                        onChanged: (value) {
-                          setState(() {
-                            _includeRefund = value ?? false;
-                          });
-                        },
+                        onChanged: _isProcessing
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  _includeRefund = value ?? false;
+                                });
+                              },
                         controlAffinity: ListTileControlAffinity.leading,
                       ),
                       if (_includeRefund) ...[
@@ -268,10 +284,6 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
                     ),
                   ],
                 ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
               
               const SizedBox(height: 16),
@@ -281,12 +293,14 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _isProcessing
+                        ? null
+                        : () => Navigator.of(context).pop(),
                     child: const Text('キャンセル'),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: _cancelAccounting,
+                    onPressed: _isProcessing ? null : _cancelAccounting,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
@@ -297,6 +311,37 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
               ),
             ],
           ),
+        ),
+      ),
+            ],
+          ),
+        ),
+      ),
+            if (_isProcessing)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: Material(
+                    color: Colors.black54,
+                    child: const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(height: 12),
+                          Text(
+                            '処理中…',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

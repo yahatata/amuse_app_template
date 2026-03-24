@@ -34,7 +34,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
   
   bool _isLoading = false;
   bool _isSaving = false;
-  /// 保存中に立てる。snapshot で該当月の更新を検知したらローディング解除・成功メッセージ表示
+  /// 保存処理中に立てる。snapshot で該当月の更新を検知したらローディング解除・成功メッセージ表示
   String? _pendingSaveYearMonth;
   
   StreamSubscription<Map<String, BusinessHours>>? _businessHoursSubscription;
@@ -337,7 +337,11 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
   Widget build(BuildContext context) {
     final daysInMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0).day;
     
-    return Scaffold(
+    return PopScope(
+      canPop: !_isSaving,
+      child: Stack(
+        children: [
+          Scaffold(
       appBar: AppBar(
         title: const Text('営業日編集'),
         backgroundColor: Colors.blue,
@@ -537,16 +541,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                       // 保存ボタン（保存時に自動的にシフト日も初期化される）
                       ElevatedButton.icon(
                         onPressed: _isSaving ? null : () => _saveBusinessHours(),
-                        icon: _isSaving
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.save),
+                        icon: const Icon(Icons.save),
                         label: const Text(
                           '営業時間を保存',
                           style: TextStyle(fontSize: 16),
@@ -562,6 +557,20 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                 ),
               ],
             ),
+          ),
+          if (_isSaving)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
   

@@ -51,7 +51,6 @@ class _CreateStaffAccountState extends State<CreateStaffAccount> {
       });
 
       if (!mounted) return;
-      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("アカウントが作成されました")),
       );
@@ -59,61 +58,88 @@ class _CreateStaffAccountState extends State<CreateStaffAccount> {
         if (mounted) _resetForm();
       });
     } on FirebaseFunctionsException catch (e) {
-      setState(() => _isLoading = false);
       if (!mounted) return;
       final message = e.message ?? e.code;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
     } catch (e) {
-      setState(() => _isLoading = false);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("登録に失敗しました: $e")),
       );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("新規スタッフアカウント作成"),
-        actions: [
-          buildHomeButton(context), // ← 追加
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Center(
-          child: SingleChildScrollView(
-            child: Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  const Icon(Icons.person_add, size: 80, color: Colors.blue),
-                  const SizedBox(height: 20),
-                  _buildTextField(_fullNameController, "姓＋名(漢字)", Icons.person),
-                  const SizedBox(height: 15),
-                  _buildTextField(_fullNameKanaController, "姓のみカタカナ", Icons.person),
-                  const SizedBox(height: 15),
-                  _buildTextField(_emailController, "MailAddress", Icons.email, isEmail: true),
-                  const SizedBox(height: 15),
-                  _buildTextField(_phoneNumberController, "電話番号(スペース/ハイフンなし)", Icons.phone, isPhoneNumber: true),
-                  const SizedBox(height: 15),
-                  _buildTextField(_birthMonthDayController, "BirthDay (MMDD)", Icons.calendar_today, isBirthMonthDay: true),
-                  const SizedBox(height: 20),
-                  _isLoading
-                      ? const CircularProgressIndicator()
-                      : ElevatedButton(
-                    onPressed: _signUp,
-                    style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
-                    child: const Text("新規登録"),
+    return PopScope(
+      canPop: !_isLoading,
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: const Text("新規スタッフアカウント作成"),
+              actions: [
+                buildHomeButton(context, enabled: !_isLoading),
+              ],
+            ),
+            body: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Center(
+                child: SingleChildScrollView(
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        children: [
+                          const Icon(Icons.person_add, size: 80, color: Colors.blue),
+                          const SizedBox(height: 20),
+                          _buildTextField(_fullNameController, "姓＋名(漢字)", Icons.person),
+                          const SizedBox(height: 15),
+                          _buildTextField(_fullNameKanaController, "姓のみカタカナ", Icons.person),
+                          const SizedBox(height: 15),
+                          _buildTextField(_emailController, "MailAddress", Icons.email, isEmail: true),
+                          const SizedBox(height: 15),
+                          _buildTextField(_phoneNumberController, "電話番号(スペース/ハイフンなし)", Icons.phone, isPhoneNumber: true),
+                          const SizedBox(height: 15),
+                          _buildTextField(_birthMonthDayController, "BirthDay (MMDD)", Icons.calendar_today, isBirthMonthDay: true),
+                          const SizedBox(height: 20),
+                          ElevatedButton(
+                            onPressed: _isLoading ? null : _signUp,
+                            style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                            child: const Text("新規登録"),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+          if (_isLoading)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 12),
+                        Text(
+                          '登録処理中…',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -271,25 +271,13 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return Stack(
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: const Text('トーナメントテンプレート編集'),
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
-        actions: [
-          if (_isSaving)
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              ),
-            ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -805,25 +793,29 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                         ),
-                        child: _isSaving
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
-                            : const Text(
-                                '変更を保存',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                              ),
+                        child: const Text(
+                          '変更を保存',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
+        ),
+        if (_isSaving)
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: ColoredBox(
+                color: Colors.black.withValues(alpha: 0.35),
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

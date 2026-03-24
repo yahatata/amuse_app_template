@@ -66,6 +66,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   void _showAssignSeatDialog() {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return AssignSeatDialog(
           tournamentId: widget.tournamentId,
@@ -87,6 +88,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   void _showAssignSeatDialogForPlayer(String userId) {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return AssignSeatDialog(
           tournamentId: widget.tournamentId,
@@ -154,6 +156,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   void _showAddTableDialog() {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return AddTableDialog(
           tournamentId: widget.tournamentId,
@@ -179,6 +182,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   void _showRemoveTableDialog() {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return RemoveTableDialog(
           tournamentId: widget.tournamentId,
@@ -204,6 +208,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   void _showReseatAllDialog() {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return ReseatAllDialog(
           tournamentId: widget.tournamentId,
@@ -229,6 +234,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   void _showRegisterParticipantsDialog() {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return RegisterParticipantsDialog(
           tournamentId: widget.tournamentId,

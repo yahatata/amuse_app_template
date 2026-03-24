@@ -33,69 +33,89 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('卓を削除'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isLoading,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            const Text('削除する卓を選択してください（空いている卓のみ表示）'),
-            const SizedBox(height: 16),
-            if (_isLoadingTables)
-              const Center(child: CircularProgressIndicator())
-            else if (_emptyTables.isEmpty)
-              const Text(
-                '削除可能な卓がありません',
-                style: TextStyle(color: Colors.grey),
-              )
-            else ...[
-              Text('削除可能な卓数: ${_emptyTables.length}'),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(
-                  labelText: '卓',
-                  border: OutlineInputBorder(),
+            Center(
+              child: AlertDialog(
+                title: const Text('卓を削除'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('削除する卓を選択してください（空いている卓のみ表示）'),
+                      const SizedBox(height: 16),
+                      if (_isLoadingTables)
+                        const Center(child: CircularProgressIndicator())
+                      else if (_emptyTables.isEmpty)
+                        const Text(
+                          '削除可能な卓がありません',
+                          style: TextStyle(color: Colors.grey),
+                        )
+                      else ...[
+                        Text('削除可能な卓数: ${_emptyTables.length}'),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          decoration: const InputDecoration(
+                            labelText: '卓',
+                            border: OutlineInputBorder(),
+                          ),
+                          value: _selectedTableId,
+                          items: _emptyTables
+                              .map((table) => DropdownMenuItem<String>(
+                                    value: table['tableId'] as String,
+                                    child: Text('${table['name']} (${table['maxSeats']}席)'),
+                                  ))
+                              .toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedTableId = value;
+                            });
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-                value: _selectedTableId,
-                items: _emptyTables
-                    .map((table) => DropdownMenuItem<String>(
-                          value: table['tableId'] as String,
-                          child: Text('${table['name']} (${table['maxSeats']}席)'),
-                        ))
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedTableId = value;
-                  });
-                },
+                actions: [
+                  TextButton(
+                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                    child: const Text('キャンセル'),
+                  ),
+                  ElevatedButton(
+                    onPressed: _isLoading || _selectedTableId == null || _emptyTables.isEmpty
+                        ? null
+                        : _removeTableFromTournament,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('削除'),
+                  ),
+                ],
               ),
-            ],
+            ),
+            if (_isLoading)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading || _selectedTableId == null || _emptyTables.isEmpty
-              ? null
-              : _removeTableFromTournament,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red,
-            foregroundColor: Colors.white,
-          ),
-          child: _isLoading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Text('削除'),
-        ),
-      ],
     );
   }
 

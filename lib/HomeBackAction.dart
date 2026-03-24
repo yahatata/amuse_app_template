@@ -14,18 +14,20 @@ import 'package:amuse_app_template/Home/terminalHomePage.dart';
 /// ```
 ///
 /// ただし現在は仮で AdminHomePage に遷移。
-Widget buildHomeButton(BuildContext context) {
+Widget buildHomeButton(BuildContext context, {bool enabled = true}) {
   return IconButton(
     icon: const Icon(Icons.home),
     tooltip: 'Homeへ戻る',
-    onPressed: () {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const AdminHomePage(), // ← 仮：将来的に role に応じて分岐
-        ),
-            (route) => false, // 履歴をすべて削除してから遷移
-      );
-    },
+    onPressed: enabled
+        ? () {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminHomePage(), // ← 仮：将来的に role に応じて分岐
+              ),
+              (route) => false, // 履歴をすべて削除してから遷移
+            );
+          }
+        : null,
   );
 }

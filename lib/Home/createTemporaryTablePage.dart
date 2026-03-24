@@ -30,7 +30,11 @@ class _CreateTemporaryTablePageState extends State<CreateTemporaryTablePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_isLoading,
+      child: Stack(
+        children: [
+          Scaffold(
       appBar: AppBar(
         title: const Text('一時テーブル作成'),
         centerTitle: true,
@@ -45,6 +49,7 @@ class _CreateTemporaryTablePageState extends State<CreateTemporaryTablePage> {
               // テーブル名称入力
               TextFormField(
                 controller: _tableNameController,
+                readOnly: _isLoading,
                 decoration: const InputDecoration(
                   labelText: 'テーブル名称 *',
                   hintText: '例: テーブルA',
@@ -72,6 +77,7 @@ class _CreateTemporaryTablePageState extends State<CreateTemporaryTablePage> {
               // 最大座席数入力
               TextFormField(
                 controller: _maxSeatsController,
+                readOnly: _isLoading,
                 decoration: const InputDecoration(
                   labelText: '最大座席数 *',
                   hintText: '例: 6',
@@ -101,23 +107,10 @@ class _CreateTemporaryTablePageState extends State<CreateTemporaryTablePage> {
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
-                child: _isLoading
-                    ? const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          SizedBox(width: 8),
-                          Text('作成中...'),
-                        ],
-                      )
-                    : const Text(
-                        'テーブルを作成',
-                        style: TextStyle(fontSize: 16),
-                      ),
+                child: const Text(
+                  'テーブルを作成',
+                  style: TextStyle(fontSize: 16),
+                ),
               ),
               
               const SizedBox(height: 24),
@@ -156,6 +149,20 @@ class _CreateTemporaryTablePageState extends State<CreateTemporaryTablePage> {
             ],
           ),
         ),
+      ),
+          ),
+          if (_isLoading)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

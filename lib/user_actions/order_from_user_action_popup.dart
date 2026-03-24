@@ -198,110 +198,125 @@ Future<void> _showQuantityAndConfirm({
 
   await showDialog<void>(
     context: pageContext,
-    barrierDismissible: true,
+    barrierDismissible: false,
     builder: (ctx) {
       return StatefulBuilder(
         builder: (ctx, setState) {
           final totalPrice = item.price * quantity;
-          return AlertDialog(
-            title: Text('${item.name} を注文'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+          return PopScope(
+            canPop: !isSubmitting,
+            child: Stack(
               children: [
-                Text('単価: ¥${item.price}'),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.remove_circle_outline),
-                      onPressed: quantity > 1 ? () => setState(() => quantity -= 1) : null,
+                AlertDialog(
+                  title: Text('${item.name} を注文'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('単価: ¥${item.price}'),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline),
+                            onPressed: isSubmitting
+                                ? null
+                                : quantity > 1
+                                    ? () => setState(() => quantity -= 1)
+                                    : null,
+                          ),
+                          Text('$quantity', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline),
+                            onPressed: isSubmitting ? null : () => setState(() => quantity += 1),
+                          ),
+                          const Spacer(),
+                          Text('合計: ¥$totalPrice', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: isSubmitting ? null : () => Navigator.of(ctx).pop(),
+                      child: const Text('キャンセル'),
                     ),
-                    Text('$quantity', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    IconButton(
-                      icon: const Icon(Icons.add_circle_outline),
-                      onPressed: () => setState(() => quantity += 1),
+                    ElevatedButton(
+                      onPressed: isSubmitting
+                          ? null
+                          : () async {
+                              setState(() {
+                                isSubmitting = true;
+                              });
+
+                              debugPrint('[OrderPop] confirm order for item=${item.id} qty=$quantity billId=$billId clientNonce=$clientNonce');
+                              try {
+                                final functions = FirebaseFunctions.instance;
+                                final callable = functions.httpsCallable('placeOrder');
+                                final resp = await callable.call({
+                                  'billId': billId,
+                                  'item': {
+                                    'menuItemId': item.id,
+                                    'quantity': quantity,
+                                  },
+                                  'clientNonce': clientNonce,
+                                });
+
+                                final data = resp.data;
+                                if (data is Map && data['success'] == true) {
+                                  if (pageContext.mounted) {
+                                    ScaffoldMessenger.of(pageContext).showSnackBar(
+                                      const SnackBar(content: Text('注文を送信しました')),
+                                    );
+                                  }
+                                  Navigator.of(ctx).pop();
+                                  Navigator.of(pageContext).pop();
+                                } else {
+                                  final err = (data is Map ? data['error'] : null) ?? '注文に失敗しました';
+                                  if (pageContext.mounted) {
+                                    ScaffoldMessenger.of(pageContext).showSnackBar(
+                                      SnackBar(content: Text(err)),
+                                    );
+                                  }
+                                  setState(() {
+                                    isSubmitting = false;
+                                  });
+                                }
+                              } catch (e) {
+                                if (pageContext.mounted) {
+                                  debugPrint('[OrderPop] ERROR: ${e.toString()}');
+                                  debugPrint('[OrderPop] ERROR Type: ${e.runtimeType}');
+                                  if (e is FirebaseFunctionsException) {
+                                    debugPrint('[OrderPop] Functions Error Code: ${e.code}');
+                                    debugPrint('[OrderPop] Functions Error Message: ${e.message}');
+                                    debugPrint('[OrderPop] Functions Error Details: ${e.details}');
+                                  }
+                                  ScaffoldMessenger.of(pageContext).showSnackBar(
+                                    SnackBar(content: Text('注文に失敗しました: $e')),
+                                  );
+                                }
+                                setState(() {
+                                  isSubmitting = false;
+                                });
+                              }
+                            },
+                      child: const Text('注文確定'),
                     ),
-                    const Spacer(),
-                    Text('合計: ¥$totalPrice', style: const TextStyle(fontWeight: FontWeight.bold)),
                   ],
                 ),
+                if (isSubmitting)
+                  Positioned.fill(
+                    child: AbsorbPointer(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        child: const Center(
+                          child: CircularProgressIndicator(),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
-            actions: [
-              TextButton(
-                onPressed: isSubmitting ? null : () => Navigator.of(ctx).pop(),
-                child: const Text('キャンセル'),
-              ),
-              ElevatedButton(
-                onPressed: isSubmitting ? null : () async {
-                  setState(() {
-                    isSubmitting = true; // 送信中フラグを立てる
-                  });
-
-                  debugPrint('[OrderPop] confirm order for item=${item.id} qty=$quantity billId=$billId clientNonce=$clientNonce');
-                  try {
-                    final functions = FirebaseFunctions.instance;
-                    final callable = functions.httpsCallable('placeOrder');
-                    final resp = await callable.call({
-                      'billId': billId, // ✅ userId から billId に変更
-                      'item': {
-                        'menuItemId': item.id,
-                        'quantity': quantity,
-                      },
-                      'clientNonce': clientNonce, // ✅ トップレベルに追加（ダイアログが開いている間は固定）
-                    });
-
-                    final data = resp.data;
-                    if (data is Map && data['success'] == true) {
-                      if (pageContext.mounted) {
-                        ScaffoldMessenger.of(pageContext).showSnackBar(
-                          const SnackBar(content: Text('注文を送信しました')),
-                        );
-                      }
-                      // 数量ダイアログを閉じる
-                      Navigator.of(ctx).pop();
-                      // 一覧ダイアログ（orderFromUserActionPop）も閉じる
-                      Navigator.of(pageContext).pop();
-                    } else {
-                      final err = (data is Map ? data['error'] : null) ?? '注文に失敗しました';
-                      if (pageContext.mounted) {
-                        ScaffoldMessenger.of(pageContext).showSnackBar(
-                          SnackBar(content: Text(err)),
-                        );
-                      }
-                      setState(() {
-                        isSubmitting = false; // エラー時はフラグを戻す
-                      });
-                    }
-                  } catch (e) {
-                    if (pageContext.mounted) {
-                      // エラーの詳細をログ出力
-                      debugPrint('[OrderPop] ERROR: ${e.toString()}');
-                      debugPrint('[OrderPop] ERROR Type: ${e.runtimeType}');
-                      if (e is FirebaseFunctionsException) {
-                        debugPrint('[OrderPop] Functions Error Code: ${e.code}');
-                        debugPrint('[OrderPop] Functions Error Message: ${e.message}');
-                        debugPrint('[OrderPop] Functions Error Details: ${e.details}');
-                      }
-                      ScaffoldMessenger.of(pageContext).showSnackBar(
-                        SnackBar(content: Text('注文に失敗しました: $e')),
-                      );
-                    }
-                    setState(() {
-                      isSubmitting = false; // エラー時はフラグを戻す
-                    });
-                  }
-                },
-                child: isSubmitting
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('注文確定'),
-              ),
-            ],
           );
         },
       );

@@ -229,7 +229,17 @@ class _PostAccountingAdjustmentDialogState extends State<PostAccountingAdjustmen
     final operationText = widget.sign > 0 ? '追加徴収' : '減額';
     final operationColor = widget.sign > 0 ? Colors.green : Colors.red;
 
-    return Dialog(
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isProcessing,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Center(
+              child: Dialog(
       child: Container(
         width: MediaQuery.of(context).size.width * 0.8,
         constraints: BoxConstraints(
@@ -393,22 +403,29 @@ class _PostAccountingAdjustmentDialogState extends State<PostAccountingAdjustmen
                         backgroundColor: operationColor,
                         foregroundColor: Colors.white,
                       ),
-                      child: _isProcessing
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : Text('$operationText処理'),
+                      child: Text('$operationText処理'),
                     ),
                   ],
                 ),
               ],
             ),
           ),
+        ),
+      ),
+              ),
+            ),
+            if (_isProcessing)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

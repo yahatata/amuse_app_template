@@ -179,7 +179,17 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
     final status = widget.bill['status'] ?? '';
     final pokerName = widget.bill['party']?['pokerName'] ?? '不明';
 
-    return Dialog(
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isProcessing,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Center(
+              child: Dialog(
       child: Container(
         width: MediaQuery.of(context).size.width * 0.8,
         constraints: BoxConstraints(
@@ -328,6 +338,22 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
               ],
             ),
           ),
+        ),
+      ),
+              ),
+            ),
+            if (_isProcessing)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

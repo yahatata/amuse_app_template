@@ -24,6 +24,7 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
   String _selectedCategory = 'フード';
   bool _isArchive = false;
   bool _isSoldOut = false;
+  bool _isSaving = false;
   File? _selectedImage;
   String? _existingImageUrl; // 既存の画像URL
 
@@ -117,6 +118,7 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
   }
 
   Future<void> _saveMenuItem() async {
+    if (_isSaving) return;
     final name = _nameController.text.trim();
     final price = int.tryParse(_priceController.text.trim()) ?? 0;
     final description = _descriptionController.text.trim();
@@ -148,6 +150,7 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
       }
     }
 
+    setState(() => _isSaving = true);
     try {
       // When: メニュー保存時
       // Where: CreateMenuPage
@@ -203,15 +206,25 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('メニューの保存に失敗しました: $e')),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
     }
   }
 
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.menuItem != null ? 'メニュー編集' : 'メニュー登録')),
-      body: SingleChildScrollView(
+    return PopScope(
+      canPop: !_isSaving,
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: Text(widget.menuItem != null ? 'メニュー編集' : 'メニュー登録'),
+            ),
+            body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -356,12 +369,26 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
             // 登録ボタン
             Center(
               child: ElevatedButton(
-                onPressed: _saveMenuItem,
+                onPressed: _isSaving ? null : _saveMenuItem,
                 child: Text(widget.menuItem != null ? '更新する' : '登録する'),
               ),
             ),
           ],
         ),
+            ),
+          ),
+          if (_isSaving)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

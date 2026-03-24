@@ -32,45 +32,65 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('注文編集'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('注文内容を編集してください'),
-                  const SizedBox(height: 16),
-                  ..._items.asMap().entries.map((entry) {
-                    final index = entry.key;
-                    final item = entry.value;
-                    return _buildItemEditor(index, item);
-                  }).toList(),
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isUpdating,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Center(
+              child: AlertDialog(
+                title: const Text('注文編集'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('注文内容を編集してください'),
+                            const SizedBox(height: 16),
+                            ..._items.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final item = entry.value;
+                              return _buildItemEditor(index, item);
+                            }).toList(),
+                          ],
+                        ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: _isUpdating ? null : () => Navigator.of(context).pop(),
+                    child: const Text('キャンセル'),
+                  ),
+                  TextButton(
+                    onPressed: _isUpdating ? null : _cancelOrder,
+                    child: const Text('注文取り消し', style: TextStyle(color: Colors.red)),
+                  ),
+                  ElevatedButton(
+                    onPressed: _isUpdating ? null : _updateOrder,
+                    child: const Text('更新'),
+                  ),
                 ],
               ),
+            ),
+            if (_isUpdating)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isUpdating ? null : () => Navigator.of(context).pop(),
-          child: const Text('キャンセル'),
-        ),
-        TextButton(
-          onPressed: _isUpdating ? null : _cancelOrder,
-          child: const Text('注文取り消し', style: TextStyle(color: Colors.red)),
-        ),
-        ElevatedButton(
-          onPressed: _isUpdating ? null : _updateOrder,
-          child: _isUpdating
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('更新'),
-        ),
-      ],
     );
   }
 

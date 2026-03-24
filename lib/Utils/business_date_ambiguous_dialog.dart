@@ -68,123 +68,180 @@ Future<String?> showBusinessDateAmbiguousDialog({
   required List<String> candidates,
   required Function(String) onSelected,
 }) async {
-  String? selectedBusinessDateKey;
-  
-  // 各候補の営業時間を取得
-  final businessHoursMap = <String, Map<String, dynamic>?>{};
-  for (final candidate in candidates) {
-    businessHoursMap[candidate] = await _getBusinessHoursForDate(candidate);
-  }
-
   return showDialog<String>(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext context) {
-      return StatefulBuilder(
-        builder: (context, setState) {
-          return AlertDialog(
-            title: const Text('営業日の選択'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '2つの営業日の境界に設定しようとしています。\nどちらの営業日に属するのかを選択して下さい。',
-                    style: TextStyle(fontSize: 16),
-                  ),
-                  const SizedBox(height: 24),
-                  ...candidates.map((candidate) {
-                    final businessHours = businessHoursMap[candidate];
-                    final isSelected = selectedBusinessDateKey == candidate;
-                    
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: InkWell(
-                        onTap: () {
-                          setState(() {
-                            selectedBusinessDateKey = candidate;
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: isSelected ? Colors.blue : Colors.grey,
-                              width: isSelected ? 2 : 1,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                            color: isSelected ? Colors.blue.shade50 : Colors.white,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Radio<String>(
-                                    value: candidate,
-                                    groupValue: selectedBusinessDateKey,
-                                    onChanged: (value) {
-                                      setState(() {
-                                        selectedBusinessDateKey = value;
-                                      });
-                                    },
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    candidate,
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: isSelected ? Colors.blue : Colors.black,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (businessHours != null) ...[
-                                const SizedBox(height: 8),
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 40),
-                                  child: Text(
-                                    _formatBusinessHours(businessHours),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop(null);
-                },
-                child: const Text('キャンセル'),
-              ),
-              ElevatedButton(
-                onPressed: selectedBusinessDateKey != null
-                    ? () {
-                        onSelected(selectedBusinessDateKey!);
-                        Navigator.of(context).pop(selectedBusinessDateKey);
-                      }
-                    : null,
-                child: const Text('確定'),
-              ),
-            ],
-          );
-        },
+      return _BusinessDateAmbiguousDialogContent(
+        candidates: candidates,
+        onSelected: onSelected,
       );
     },
   );
+}
+
+/// 営業時間取得中はダイアログ主領域に CPI を表示（changeSpec 105）
+class _BusinessDateAmbiguousDialogContent extends StatefulWidget {
+  final List<String> candidates;
+  final Function(String) onSelected;
+
+  const _BusinessDateAmbiguousDialogContent({
+    required this.candidates,
+    required this.onSelected,
+  });
+
+  @override
+  State<_BusinessDateAmbiguousDialogContent> createState() =>
+      _BusinessDateAmbiguousDialogContentState();
+}
+
+class _BusinessDateAmbiguousDialogContentState
+    extends State<_BusinessDateAmbiguousDialogContent> {
+  bool _loadingHours = true;
+  final Map<String, Map<String, dynamic>?> _businessHoursMap = {};
+  String? _selectedBusinessDateKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBusinessHours();
+  }
+
+  Future<void> _loadBusinessHours() async {
+    for (final candidate in widget.candidates) {
+      _businessHoursMap[candidate] = await _getBusinessHoursForDate(candidate);
+    }
+    if (mounted) {
+      setState(() => _loadingHours = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadingHours) {
+      return AlertDialog(
+        title: const Text('営業日の選択'),
+        content: const SizedBox(
+          width: 280,
+          height: 140,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text(
+                  '営業時間を取得しています…',
+                  style: TextStyle(fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final candidates = widget.candidates;
+    return AlertDialog(
+      title: const Text('営業日の選択'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '2つの営業日の境界に設定しようとしています。\nどちらの営業日に属するのかを選択して下さい。',
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 24),
+            ...candidates.map((candidate) {
+              final businessHours = _businessHoursMap[candidate];
+              final isSelected = _selectedBusinessDateKey == candidate;
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: InkWell(
+                  onTap: () {
+                    setState(() {
+                      _selectedBusinessDateKey = candidate;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: isSelected ? Colors.blue : Colors.grey,
+                        width: isSelected ? 2 : 1,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      color: isSelected ? Colors.blue.shade50 : Colors.white,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Radio<String>(
+                              value: candidate,
+                              groupValue: _selectedBusinessDateKey,
+                              onChanged: (value) {
+                                setState(() {
+                                  _selectedBusinessDateKey = value;
+                                });
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              candidate,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected ? Colors.blue : Colors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (businessHours != null) ...[
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 40),
+                            child: Text(
+                              _formatBusinessHours(businessHours),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            Navigator.of(context).pop(null);
+          },
+          child: const Text('キャンセル'),
+        ),
+        ElevatedButton(
+          onPressed: _selectedBusinessDateKey != null
+              ? () {
+                  widget.onSelected(_selectedBusinessDateKey!);
+                  Navigator.of(context).pop(_selectedBusinessDateKey);
+                }
+              : null,
+          child: const Text('確定'),
+        ),
+      ],
+    );
+  }
 }
 
 /// 指定された日付の営業時間を取得

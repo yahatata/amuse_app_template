@@ -35,68 +35,88 @@ class _AddTableDialogState extends State<AddTableDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('卓を追加'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isLoading,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            const Text('使用可能なテーブルを選択してください'),
-            const SizedBox(height: 16),
-            // テーブル選択ドロップダウン
-            if (_isLoadingTables)
-              const Center(child: CircularProgressIndicator())
-            else ...[
-              Text('利用可能テーブル数: ${_availableTables.length}'),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(
-                  labelText: 'テーブル',
-                  border: OutlineInputBorder(),
+            Center(
+              child: AlertDialog(
+                title: const Text('卓を追加'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('使用可能なテーブルを選択してください'),
+                      const SizedBox(height: 16),
+                      // テーブル選択ドロップダウン
+                      if (_isLoadingTables)
+                        const Center(child: CircularProgressIndicator())
+                      else ...[
+                        Text('利用可能テーブル数: ${_availableTables.length}'),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          decoration: const InputDecoration(
+                            labelText: 'テーブル',
+                            border: OutlineInputBorder(),
+                          ),
+                          value: _selectedTableId,
+                          items: _availableTables
+                              .map((table) => DropdownMenuItem<String>(
+                                    value: table['tableId'] as String,
+                                    child: Text('${table['name']} (${table['maxSeats']}席)'),
+                                  ))
+                              .toList(),
+                          onChanged: (value) {
+                            print('テーブル選択: $value');
+                            setState(() {
+                              _selectedTableId = value;
+                            });
+                          },
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      // 選択されたテーブルの詳細表示
+                      if (_selectedTableId != null) ...[
+                        _buildSelectedTableInfo(),
+                        const SizedBox(height: 16),
+                      ],
+                    ],
+                  ),
                 ),
-                value: _selectedTableId,
-                items: _availableTables
-                    .map((table) => DropdownMenuItem<String>(
-                          value: table['tableId'] as String,
-                          child: Text('${table['name']} (${table['maxSeats']}席)'),
-                        ))
-                    .toList(),
-                onChanged: (value) {
-                  print('テーブル選択: $value');
-                  setState(() {
-                    _selectedTableId = value;
-                  });
-                },
+                actions: [
+                  TextButton(
+                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                    child: const Text('キャンセル'),
+                  ),
+                  ElevatedButton(
+                    onPressed: _isLoading || _selectedTableId == null
+                        ? null
+                        : _addTableToTournament,
+                    child: const Text('追加'),
+                  ),
+                ],
               ),
-            ],
-            const SizedBox(height: 16),
-            // 選択されたテーブルの詳細表示
-            if (_selectedTableId != null) ...[
-              _buildSelectedTableInfo(),
-              const SizedBox(height: 16),
-            ],
+            ),
+            if (_isLoading)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading || _selectedTableId == null
-              ? null
-              : _addTableToTournament,
-          child: _isLoading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('追加'),
-        ),
-      ],
     );
   }
 

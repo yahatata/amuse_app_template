@@ -526,7 +526,9 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return Stack(
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: const Text('操作履歴'),
         centerTitle: true,
@@ -547,9 +549,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
                 ],
               ),
       ),
-      body: Stack(
-        children: [
-          Column(
+      body: Column(
             children: [
               // 初回データ取得ボタン
               if (_actionLogs.isEmpty && !_isLoading)
@@ -579,30 +579,19 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
               ),
             ],
           ),
-          // 巻き戻し処理中のローディング表示
-          if (_isRollingBack)
-            Container(
-              color: Colors.black26,
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text(
-                      '取り消し処理中...',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+      ),
+        if (_isRollingBack)
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: ColoredBox(
+                color: Colors.black.withValues(alpha: 0.35),
+                child: const Center(
+                  child: CircularProgressIndicator(),
                 ),
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 

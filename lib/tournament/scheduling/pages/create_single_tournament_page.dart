@@ -225,34 +225,38 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('単発トーナメント作成'),
-        backgroundColor: Colors.grey[800],
-        foregroundColor: Colors.white,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _tournamentTemplates.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 64, color: Colors.grey),
-                      const SizedBox(height: 16),
-                      const Text(
-                        '利用可能なテンプレートがありません',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('戻る'),
-                      ),
-                    ],
-                  ),
-                )
-              : SingleChildScrollView(
+    return PopScope(
+      canPop: !_isCreating,
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: const Text('単発トーナメント作成'),
+              backgroundColor: Colors.grey[800],
+              foregroundColor: Colors.white,
+            ),
+            body: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _tournamentTemplates.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, size: 64, color: Colors.grey),
+                        const SizedBox(height: 16),
+                        const Text(
+                          '利用可能なテンプレートがありません',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                        const SizedBox(height: 24),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('戻る'),
+                        ),
+                      ],
+                    ),
+                  )
+                : SingleChildScrollView(
                   padding: const EdgeInsets.all(24.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -386,33 +390,40 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
                             ),
                           ),
                           child: _isCreating
-                              ? const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                    SizedBox(width: 12),
-                                    Text(
-                                      '作成中...',
-                                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                                    ),
-                                  ],
+                              ? const SizedBox(
+                                  width: 28,
+                                  height: 28,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Text(
                                   'トーナメントを作成',
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                         ),
                       ),
                     ],
                   ),
                 ),
+          ),
+          if (_isCreating)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
