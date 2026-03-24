@@ -148,6 +148,39 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
               ),
             ),
             const SizedBox(height: 16),
+            // 給与検証用デモ（staffs 30 + attendances 200）
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.payments_outlined, color: Colors.deepPurple),
+                title: const Text('給与検証デモデータ投入'),
+                subtitle: const Text('staffs 30人・2026/3月の勤怠200件（削除フラグ付き）'),
+                trailing: _isProcessing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.arrow_forward_ios),
+                onTap: _isProcessing ? null : _showSeedPayrollDemoDialog,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.delete_sweep_outlined, color: Colors.redAccent),
+                title: const Text('給与検証デモデータ削除'),
+                subtitle: const Text('isPayrollDemoSeed 付きの staffs / attendances を一括削除'),
+                trailing: _isProcessing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.arrow_forward_ios),
+                onTap: _isProcessing ? null : _showDeletePayrollDemoDialog,
+              ),
+            ),
+            const SizedBox(height: 16),
             // 閉店クリーンアップ機能
             Card(
               child: ListTile(
@@ -654,6 +687,177 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
         );
       },
     );
+  }
+
+  void _showSeedPayrollDemoDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('給与検証デモデータ投入'),
+          content: const Text(
+            '次のデータを Firestore に作成します。\n\n'
+            '• staffs: 30件（LIFF 登録時と同様のフィールド + hourlyWage）\n'
+            '• attendances: 200件（2026/03/01〜03/31、上記スタッフに紐づく）\n'
+            '• 退勤済み・勤務中・休憩中など複数パターン\n\n'
+            '既に投入済みの場合は先に「給与検証デモデータ削除」を実行してください。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: _executeSeedPayrollDemo,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('投入'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _executeSeedPayrollDemo() async {
+    Navigator.of(context).pop();
+    final user = _auth.currentUser;
+    if (user == null) {
+      _showErrorDialog('認証が必要です。ログインしてから再度お試しください。');
+      return;
+    }
+    setState(() => _isProcessing = true);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('給与検証デモデータ投入中...'),
+          ],
+        ),
+      ),
+    );
+    try {
+      final callable = _functions.httpsCallable('seedPayrollDemoData');
+      final result = await callable.call();
+      if (!mounted) return;
+      if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+      if (result.data['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result.data['message'] ?? '投入完了'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        _showErrorDialog(result.data['error'] ?? '投入に失敗しました');
+      }
+    } catch (e) {
+      debugPrint('seedPayrollDemoData error: $e');
+      if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
+      if (e is FirebaseFunctionsException) {
+        if (e.code == 'unauthenticated' || e.code == 'permission-denied') {
+          _showErrorDialog('認証エラー: 管理者でログインしてから再度お試しください。');
+          return;
+        }
+        if (e.code == 'failed-precondition') {
+          _showErrorDialog(e.message ?? '既にデモデータが存在します。先に削除してください。');
+          return;
+        }
+      }
+      _showErrorDialog('投入に失敗しました: $e');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  void _showDeletePayrollDemoDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('給与検証デモデータ削除'),
+          content: const Text(
+            'isPayrollDemoSeed が true の attendances（breaks 含む）と staffs をすべて削除します。\n\n'
+            'この操作は取り消せません。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: _executeDeletePayrollDemo,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('削除'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _executeDeletePayrollDemo() async {
+    Navigator.of(context).pop();
+    final user = _auth.currentUser;
+    if (user == null) {
+      _showErrorDialog('認証が必要です。ログインしてから再度お試しください。');
+      return;
+    }
+    setState(() => _isProcessing = true);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('給与検証デモデータ削除中...'),
+          ],
+        ),
+      ),
+    );
+    try {
+      final callable = _functions.httpsCallable('deletePayrollDemoData');
+      final result = await callable.call();
+      if (!mounted) return;
+      if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+      if (result.data['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result.data['message'] ?? '削除完了'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        _showErrorDialog(result.data['error'] ?? '削除に失敗しました');
+      }
+    } catch (e) {
+      debugPrint('deletePayrollDemoData error: $e');
+      if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
+      if (e is FirebaseFunctionsException) {
+        if (e.code == 'unauthenticated' || e.code == 'permission-denied') {
+          _showErrorDialog('認証エラー: 管理者でログインしてから再度お試しください。');
+          return;
+        }
+      }
+      _showErrorDialog('削除に失敗しました: $e');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
   }
 
   Future<void> _executeSeedAttendancesDemo() async {

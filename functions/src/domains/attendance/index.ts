@@ -18,5 +18,16 @@ export { getAttendanceCorrectionRequests } from "./callables/getAttendanceCorrec
 export { approveAttendanceCorrectionRequest } from "./callables/approveAttendanceCorrectionRequest";
 export { rejectAttendanceCorrectionRequest } from "./callables/rejectAttendanceCorrectionRequest";
 export { getPayrollData } from "./callables/getPayrollData";
+export { getPayrollCandidates } from "./callables/getPayrollCandidates";
+export { executeMonthlyPayroll } from "./callables/executeMonthlyPayroll";
+export { confirmPayrollRun } from "./callables/confirmPayrollRun";
+export { retryFailedStaffTasks } from "./callables/retryFailedStaffTasks";
+export { cancelPayrollRun } from "./callables/cancelPayrollRun";
+export { registerPaymentStatus } from "./callables/registerPaymentStatus";
+export { processStaffPayroll } from "./tasks/processStaffPayroll";
+export { finalizePayrollRun } from "./tasks/finalizePayrollRun";
 export { seedAttendancesDemo } from "./callables/seedAttendancesDemo";
 export { monthlyPayrollTrigger } from "./scheduler/monthlyPayrollTrigger";
+export { payrollNotificationScheduler } from "./scheduler/payrollNotificationScheduler";
+export { processPayrollNotifications } from "./tasks/processPayrollNotifications";
+export { attendanceOnWrite } from "./triggers/attendanceOnWrite";

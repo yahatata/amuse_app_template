@@ -102,12 +102,29 @@ export async function recalculateAttendanceFromBreaks(
     const nightWorkStartHour =
       config.attendance?.nightWorkStartHour ?? DEFAULT_NIGHT_WORK_START_HOUR;
     const nightWorkEndHour = config.attendance?.nightWorkEndHour ?? DEFAULT_NIGHT_WORK_END_HOUR;
-    nightWorkMinutes = calculateNightWorkMinutes(
+    const grossNightWorkMinutes = calculateNightWorkMinutes(
       clockIn,
       clockOut,
       nightWorkStartHour,
       nightWorkEndHour
     );
+
+    let nightBreakMinutes = 0;
+    for (const doc of breaksSnap.docs) {
+      const d = doc.data();
+      if (d.isDeleted === true) continue;
+      const bStart = d.startedAt as Timestamp;
+      const bEnd = d.endedAt as Timestamp | null;
+      if (!bEnd) continue;
+      nightBreakMinutes += calculateNightWorkMinutes(
+        bStart,
+        bEnd,
+        nightWorkStartHour,
+        nightWorkEndHour
+      );
+    }
+
+    nightWorkMinutes = Math.max(0, grossNightWorkMinutes - nightBreakMinutes);
   }
 
   const updateData: Record<string, unknown> = {

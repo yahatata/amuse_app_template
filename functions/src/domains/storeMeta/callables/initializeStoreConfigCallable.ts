@@ -15,6 +15,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { buildFromDefaults, mergeConfigForUpsert } from '../../../shared/config/configLoader';
 import { buildSchedulerConfigFromDefaults } from '../../../shared/config/schedulerConfigLoader';
+import { buildPayrollConfigFromDefaults, mergePayrollConfigForUpsert } from '../../../shared/config/payrollConfigLoader';
 import {
   DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT,
   DEFAULT_MONTHLY_PAYROLL_TRIGGER_ENABLED,
@@ -71,10 +72,13 @@ export const initializeStoreConfigCallable = onCall(
       const requiredStaffRef = db.collection('storeMeta').doc('requiredStaffByTimeSlot');
       const schedulerConfigRef = db.collection('storeMeta').doc('schedulerConfig');
 
-      const [configDoc, requiredStaffDoc, schedulerConfigDoc] = await Promise.all([
+      const payrollConfigRef = db.collection('storeMeta').doc('payrollConfig');
+
+      const [configDoc, requiredStaffDoc, schedulerConfigDoc, payrollConfigDoc] = await Promise.all([
         configRef.get(),
         requiredStaffRef.get(),
         schedulerConfigRef.get(),
+        payrollConfigRef.get(),
       ]);
 
       const created: string[] = [];
@@ -125,13 +129,33 @@ export const initializeStoreConfigCallable = onCall(
         updated.push('storeMeta/schedulerConfig');
       }
 
+      if (!payrollConfigDoc.exists) {
+        const payrollConfig = buildPayrollConfigFromDefaults();
+        await payrollConfigRef.set({
+          ...payrollConfig,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        created.push('storeMeta/payrollConfig');
+      } else {
+        const payrollDefaults = buildPayrollConfigFromDefaults();
+        const mergedPayroll = mergePayrollConfigForUpsert(
+          payrollConfigDoc.data() as Record<string, unknown>,
+          payrollDefaults
+        );
+        await payrollConfigRef.set(
+          { ...mergedPayroll, updatedAt: FieldValue.serverTimestamp() },
+          { merge: true }
+        );
+        updated.push('storeMeta/payrollConfig');
+      }
+
       const parts: string[] = [];
       if (created.length > 0) parts.push(`${created.join(' と ')} を作成しました`);
       if (updated.length > 0) parts.push(`${updated.join(' と ')} の不足フィールドを補完しました`);
       const message =
         parts.length > 0
           ? parts.join('。')
-          : 'storeMeta/config、storeMeta/requiredStaffByTimeSlot、storeMeta/schedulerConfig は既に存在し、不足フィールドもありません';
+          : 'storeMeta/config、storeMeta/requiredStaffByTimeSlot、storeMeta/schedulerConfig、storeMeta/payrollConfig は既に存在し、不足フィールドもありません';
 
       return {
         success: true,

@@ -1,8 +1,10 @@
 # Phase4.2: 給与計算システム改修 — 詳細 To-Be 仕様
 
-最終更新: 2026-03-04
+最終更新: 2026-03-20
 
 **参照**: [00_OVERVIEW.md](./00_OVERVIEW.md)
+
+**Step 仕様確定の反映**: Step01・Step02 で確定した仕様を本ドキュメントに反映済み（最終更新 2026-03-20）。
 
 ---
 
@@ -71,7 +73,16 @@
 
 - 未選択理由の表示を行う。
 - 理由の種別: **期間外**、**前回未反映**、**その他**（判別不可は「その他」）。
-- 実装時に、データの内容と理由の紐付けをユーザーと確実に行う。
+- 各 attendance に `reasonType` と `reasonLabel` を付与する（Step02 で確定）:
+
+| 属性 | reasonType | reasonLabel |
+|------|------------|-------------|
+| 属性1 | `in_period` | 「期間内の正常勤怠データ」 |
+| 属性2 | `not_reflected` | 「先月分以前の未反映データ」 |
+| 属性3（未退勤） | `other` | 「期間内の未退勤のため計算対象外データ」 |
+| 属性3（論理削除） | `other` | 「期間内の削除済のため計算対象外データ」 |
+
+- 論理削除（期間内）の簡潔な表示文言: 「削除済みのため計算対象外」。
 
 ---
 
@@ -89,6 +100,9 @@
   - 概算金額
   - 合計時間
 - storeMeta/payrollConfig に設定した**想定範囲**から外れている場合は**警告**を出す（あくまで警告。実行は可能）。
+- **集計は UI 側でローカルに行う**（Step02 確定）。Callable は group1/2/3 を返すのみで previewMeta は返さない。
+- 各属性について「全件数 / 選択件数」（XX/YY 形式）でサマリを表示する。
+- **属性1のチェックマークは原則外せない**。外す場合は確認ダイアログを突破する必要がある。
 
 ### 3.3 計算対象期間・計算可能期間 【確定】
 
@@ -107,8 +121,13 @@
 
 ### 3.5 対象データの抽出 【確定】
 
-- 「対象データの抽出を開始する」ボタン押下で、**Functions（Callable）を起動**する。
-- Callable は payroll.startDay/endDay から計算対象期間を算出し、該当する attendances を属性別に取得して返す。
+- 「対象データの抽出を開始する」ボタン押下で、**Functions（Callable）`getPayrollCandidates` を起動**する。
+- Callable は payroll.startDay/endDay と paymentPeriodKey から計算対象期間（periodStart, periodEnd）を算出し、該当する attendances を属性別（group1/2/3）に取得して返す。
+- 返却順序: **属性3 → 属性2 → 属性1**。
+- 返却されない attendance: 期間より未来（date > periodEnd）、期間外で論理削除。
+- 属性判定: 期間内・論理削除 or 未退勤 → 属性3。期間内・退勤済・非削除 → 属性1。期間外・非削除・前回未反映（payrollReflectedAt 未設定）→ 属性2。
+- payrollReflectedAt は `"{periodStart}-{periodEnd}"` 形式で保存。当該 date が含まれる past 期間のキーが付与されていない場合に「前回未反映」とする。
+- maxCandidatesCount（payrollConfig、デフォルト 1000）を超える件数は返却しない。
 - 返却されたデータを Flutter で表示し、ユーザーがチェック・計算実行等の操作を行えるようにする。
 - Firestore への書き込みは Functions 経由とする（読み取りも Callable 経由で行うか、必要に応じて設計）。
 
@@ -249,9 +268,13 @@
 
 **計算対象期間（給与期間）の SSOT**: `storeMeta/config` の **payroll.startDay / payroll.endDay** を参照する。計算対象期間の設定は既存の payroll のみを使用する。
 
-**配置**: `storeMeta/payrollConfig`（新規ドキュメント or config の拡張）
+**配置**: `storeMeta/payrollConfig`（**別ドキュメント**。Step01 で採用。storeMeta/config と同一処理としてアプリ起動時に購読）
+
+**paymentDate の運用**: 固定日。initializeStoreConfigCallable 実行時に Firestore に保存。原則変更しない（必要時は Firestore 直接編集）。
 
 **計算可能期間の導出**: 計算対象期間（payroll.startDay/endDay から算出）と paymentDate から導出する。例: 給与期間 2/26〜3/25 の計算可能期間は 3/26 〜 4/24（支払日 4/25 の前日まで）。当日（JST）がこの範囲に含まれるかでボタン表示を判定する。
+
+**期間計算**: payrollPeriodUtils（getPayrollPeriod, isDateInPeriod）を使用。attendance.date（YYYY-MM-DD）で期間判定。01_TOBE 8.2 に準拠。
 
 | フィールド | 型 | 説明 |
 |------------|-----|------|
@@ -264,8 +287,10 @@
 | expectedRange.estimatedAmountMax | number? | 概算金額の上限 |
 | expectedRange.totalHoursMin | number? | 合計時間の下限 |
 | expectedRange.totalHoursMax | number? | 合計時間の上限 |
+| maxCandidatesCount | number? | 対象データ抽出 Callable の返却件数上限。未設定時は 1000 |
 
 ※ expectedRange の詳細は実装時に詰める。
+※ payrollConfig の更新 UI は Step04 以降で検討。保守運用で Firestore 直接編集する可能性あり（Step01 確定）。
 
 ### 7.2 monthlyPayroll コレクション（見直し） 【確定】
 
@@ -355,7 +380,7 @@
 | 2 | payrollConfig の expectedRange の詳細 | 閾値・判定ロジック |
 | 3 | 通知のアーカイブ仕様 | 2ヶ月でアーカイブするか、取得しないか |
 | 4 | 古い payrollRun の削除タイミング | バッファの具体的な期間 |
-| 5 | 計算期間より未来の attendance の表示 | 表示するか、しないか。する場合は「対象外」として明示 |
+| 5 | ~~計算期間より未来の attendance の表示~~ | **Step02 で確定: 返却しない**（getPayrollCandidates は date > periodEnd の attendance を返さない） |
 | 6 | 通知コレクションの名前 | 実装時に決定 |
 
 ---
@@ -375,14 +400,16 @@
 
 ## 12. 実装時の注意事項
 
-1. **属性と理由の紐付け**: データの内容と「期間外」「前回未反映」「その他」の理由を、ユーザーと確実に紐付ける。
+1. **属性と理由の紐付け**: データの内容と「期間外」「前回未反映」「その他」の理由を紐付ける。reasonType/reasonLabel は 2.6 の表に従う（Step02 確定）。
 2. **計算結果チェック**: 内容をユーザーと詰める。Cursor が勝手に決めない。
 3. **拡張性**: 通知は LINE・メール送信を将来的に想定し、スキーマ・処理を拡張しやすい形で設計する。
 4. **計算対象期間の SSOT**: 計算対象期間（給与期間）は **storeMeta/config の payroll.startDay / payroll.endDay** を参照する。以下を網羅的に payroll 参照に統一する:
    - 計算用タブ: 属性1〜3の判定、期間表示
    - 集計プレビュー: 期間の算出
    - Callable（給与計算実行）: 期間の算出・バリデーション
+   - getPayrollCandidates: payrollPeriodUtils で期間算出（Step02）
    - monthlyPayrollTrigger: 期間の算出
    - 計算結果タブ: 期間表示・過去結果の期間判定
    - getPayrollData 等の既存 Callable: 既に payroll 参照の場合は維持
 5. **attendanceLogs**: 計算実行（`monthly_payroll_reflect`）と計算結果の確定（`payroll_confirmed` 等）が log として識別できるようにする。
+6. **payrollErrors**: Step01 で定義。PERMISSION_DENIED, ALREADY_CONFIRMED, INVALID_PERIOD, PAYROLL_CONFIG_NOT_FOUND, NO_ATTENDANCE_SELECTED。Callable はこれらを使用する。
