@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -13,6 +15,13 @@ class OrderCard extends StatelessWidget {
   final VoidCallback? onMarkServeStart;
   final VoidCallback? onMarkServeEnd;
 
+  /// スワイプで [Dismissible.onDismissed] が呼ばれた直後に、親がリストから即除外する（同期）。
+  /// 省略時は Dismissible が「dismiss 済みだがツリーに残る」アサーションになる。
+  final void Function(String orderId)? onDismissedSwipeCompleted;
+
+  /// スワイプ経路で Firestore 更新に失敗したとき、楽観更新を戻す。
+  final void Function(String orderId)? onSwipeServeFailed;
+
   const OrderCard({
     super.key,
     required this.order,
@@ -23,6 +32,8 @@ class OrderCard extends StatelessWidget {
     this.isMarkingServed = false,
     this.onMarkServeStart,
     this.onMarkServeEnd,
+    this.onDismissedSwipeCompleted,
+    this.onSwipeServeFailed,
   });
 
   @override
@@ -78,8 +89,12 @@ class OrderCard extends StatelessWidget {
           ),
         );
       },
-      onDismissed: (direction) async {
-        await _markAsServed(context);
+      onDismissed: (direction) {
+        final id = order['id']?.toString();
+        if (id != null) {
+          onDismissedSwipeCompleted?.call(id);
+        }
+        unawaited(_markAsServed(context, skipOverlayCallbacks: true));
       },
       child: Stack(
         clipBehavior: Clip.hardEdge,
@@ -156,17 +171,7 @@ class OrderCard extends StatelessWidget {
               child: Material(
                 color: Colors.black26,
                 child: const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 8),
-                      Text(
-                        '更新中…',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
+                  child: CircularProgressIndicator(),
                 ),
               ),
             ),
@@ -431,8 +436,13 @@ class OrderCard extends StatelessWidget {
   }
 
   /// 提供済みにマーク
-  Future<void> _markAsServed(BuildContext context) async {
-    onMarkServeStart?.call();
+  Future<void> _markAsServed(
+    BuildContext context, {
+    bool skipOverlayCallbacks = false,
+  }) async {
+    if (!skipOverlayCallbacks) {
+      onMarkServeStart?.call();
+    }
     try {
       // Firestoreのステータスを更新
       await FirebaseFirestore.instance
@@ -454,6 +464,12 @@ class OrderCard extends StatelessWidget {
         );
       }
     } catch (e) {
+      if (skipOverlayCallbacks) {
+        final id = order['id']?.toString();
+        if (id != null) {
+          onSwipeServeFailed?.call(id);
+        }
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -463,7 +479,9 @@ class OrderCard extends StatelessWidget {
         );
       }
     } finally {
-      onMarkServeEnd?.call();
+      if (!skipOverlayCallbacks) {
+        onMarkServeEnd?.call();
+      }
     }
   }
 

@@ -37,6 +37,8 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
   /// 日付ごとの未処理申請一覧（ダイアログ表示・ドラフト遷移用）
   Map<String, List<ShiftRequest>> _pendingRequestsByDate = {};
   bool _isLoading = false;
+  /// 1日／月の最終確定（Callable）実行中（ダイアログ確定後の画面全体ロック）
+  bool _isFinalizeOperationLoading = false;
   
   // 不足日集計・募集作成用の状態
   List<String> _insufficientDays = []; // 不足日のdateKeyリスト
@@ -270,26 +272,27 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
           });
         },
         onFinalize: () async {
-          // 最終確定処理
+          // 日付ダイアログを先に閉じる（showDialog ルートより下にオーバーレイを載せるため）
+          Navigator.pop(context);
+          setState(() => _isFinalizeOperationLoading = true);
           try {
             await _repository.finalizeDay(dateKey);
-            // データを再読み込み
             await _loadShiftData();
-            Navigator.pop(context);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('この日を最終確定しました')),
-              );
-            }
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('この日を最終確定しました')),
+            );
           } catch (e) {
-            Navigator.pop(context);
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('エラー: ${e.toString()}'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          } finally {
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('エラー: ${e.toString()}'),
-                  backgroundColor: Colors.red,
-                ),
-              );
+              setState(() => _isFinalizeOperationLoading = false);
             }
           }
         },
@@ -298,6 +301,7 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
   }
 
   void _finalizeAllMonth() {
+    if (_isFinalizeOperationLoading) return;
     final parentContext = context;
     showDialog(
       context: context,
@@ -312,11 +316,10 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
           TextButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
-              // 一括最終確定処理
+              setState(() => _isFinalizeOperationLoading = true);
               try {
                 final monthKey = DateFormat('yyyy-MM').format(_currentMonth);
                 await _repository.finalizeMonth(monthKey);
-                // データを再読み込み
                 await _loadShiftData();
                 if (parentContext.mounted) {
                   ScaffoldMessenger.of(parentContext).showSnackBar(
@@ -333,6 +336,10 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                       backgroundColor: Colors.red,
                     ),
                   );
+                }
+              } finally {
+                if (mounted) {
+                  setState(() => _isFinalizeOperationLoading = false);
                 }
               }
             },
@@ -356,69 +363,88 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
     final rowMargin = bodyHeight * 0.0001;
     final totalRowsHeight = rowHeight * requiredWeeks + rowMargin * (requiredWeeks > 0 ? requiredWeeks - 1 : 0);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('シフトカレンダー'),
-        backgroundColor: Colors.deepPurple,
-        foregroundColor: Colors.white,
-        actions: [
-          TextButton(
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ShiftDraftPage()),
-              );
-              // シフトドラフトページから戻ってきたらデータを再読み込み
-              await _loadShiftData();
-            },
-            child: const Text(
-              'シフトドラフト',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-          TextButton(
-            onPressed: _finalizeAllMonth,
-            child: const Text(
-              '一括最終確定',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Stack(
-              children: [
-                // カレンダー部分
-                Column(
-                  children: [
-                    // 月選択ヘッダー
-                    SizedBox(
-                      height: monthSelectorHeight,
-                      child: _buildMonthSelector(),
-                    ),
-                    // 曜日ヘッダー
-                    SizedBox(
-                      height: weekdayHeaderHeight,
-                      child: _buildWeekdayHeader(),
-                    ),
-                    // カレンダーグリッド
-                    SizedBox(
-                      height: totalRowsHeight,
-                      child: _buildCalendarGrid(rowHeight, rowMargin),
-                    ),
-                  ],
+    return PopScope(
+      canPop: !_isFinalizeOperationLoading,
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: const Text('シフトカレンダー'),
+              backgroundColor: Colors.deepPurple,
+              foregroundColor: Colors.white,
+              actions: [
+                TextButton(
+                  onPressed: _isFinalizeOperationLoading
+                      ? null
+                      : () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const ShiftDraftPage()),
+                          );
+                          if (mounted) await _loadShiftData();
+                        },
+                  child: const Text(
+                    'シフトドラフト',
+                    style: TextStyle(color: Colors.white),
+                  ),
                 ),
-                // タブ（次月のみ、スワイプでカレンダーの上に被る）
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: _calculateTabTop(bodyHeight, monthSelectorHeight, weekdayHeaderHeight, totalRowsHeight),
-                  bottom: 0, // 常に画面の最下部まで
-                  child: _buildBottomTabs(monthSelectorHeight, weekdayHeaderHeight, totalRowsHeight),
+                TextButton(
+                  onPressed: _isFinalizeOperationLoading ? null : _finalizeAllMonth,
+                  child: const Text(
+                    '一括最終確定',
+                    style: TextStyle(color: Colors.white),
+                  ),
                 ),
               ],
             ),
+            body: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : Stack(
+                    children: [
+                      // カレンダー部分
+                      Column(
+                        children: [
+                          // 月選択ヘッダー
+                          SizedBox(
+                            height: monthSelectorHeight,
+                            child: _buildMonthSelector(),
+                          ),
+                          // 曜日ヘッダー
+                          SizedBox(
+                            height: weekdayHeaderHeight,
+                            child: _buildWeekdayHeader(),
+                          ),
+                          // カレンダーグリッド
+                          SizedBox(
+                            height: totalRowsHeight,
+                            child: _buildCalendarGrid(rowHeight, rowMargin),
+                          ),
+                        ],
+                      ),
+                      // タブ（次月のみ、スワイプでカレンダーの上に被る）
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: _calculateTabTop(bodyHeight, monthSelectorHeight, weekdayHeaderHeight, totalRowsHeight),
+                        bottom: 0, // 常に画面の最下部まで
+                        child: _buildBottomTabs(monthSelectorHeight, weekdayHeaderHeight, totalRowsHeight),
+                      ),
+                    ],
+                  ),
+          ),
+          if (_isFinalizeOperationLoading)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

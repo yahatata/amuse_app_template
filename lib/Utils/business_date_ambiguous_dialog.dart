@@ -125,17 +125,7 @@ class _BusinessDateAmbiguousDialogContentState
           width: 280,
           height: 140,
           child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text(
-                  '営業時間を取得しています…',
-                  style: TextStyle(fontSize: 14),
-                ),
-              ],
-            ),
+            child: CircularProgressIndicator(),
           ),
         ),
       );

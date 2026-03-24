@@ -20,8 +20,8 @@ class _MenuListPageState extends State<MenuListPage> {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
   // ✅ ページが開いている間は固定の clientNonce（画面セッションで固定）
   late final String _clientNonce;
-  // 二重タップ対策フラグ（各注文ごとに管理）
-  final Map<String, bool> _submittingOrders = {};
+  /// `placeOrder` 送信中（ダイアログを閉じた後の全画面ロック＋CPI）
+  bool _isPlacingOrder = false;
 
   @override
   void initState() {
@@ -212,90 +212,69 @@ class _MenuListPageState extends State<MenuListPage> {
     // What: SnackBar表示で利用
     // How: this.contextをローカルへ保持
     final BuildContext pageContext = context;
-    // 二重タップ対策：注文キーを生成（同じアイテム・同じ伝票・同じ数量の組み合わせ）
-    final String orderKey = '${item.id}_${billId}_$quantity';
-    final bool isSubmitting = _submittingOrders[orderKey] ?? false;
 
     showDialog(
       context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              title: const Text('注文確認'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('注文者: $userName'),
-                  Text('メニュー: ${item.name}'),
-                  Text('個数: $quantity'),
-                  Text('合計: ¥$total'),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSubmitting ? null : () => Navigator.pop(context),
-                  child: const Text('キャンセル'),
-                ),
-                TextButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          // 二重タップ対策：送信中フラグを立てる
-                          setState(() {
-                            _submittingOrders[orderKey] = true;
-                          });
-                          setDialogState(() {}); // ダイアログのボタンを無効化
-
-                          Navigator.pop(context);
-                          try {
-                            final callable = _functions.httpsCallable('placeOrder');
-                            final payload = {
-                              'billId': billId, // ✅ userId から billId に変更
-                              'item': {
-                                'menuItemId': item.id,
-                                'quantity': quantity,
-                              },
-                              'clientNonce': _clientNonce, // ✅ トップレベルに追加（ページが開いている間は固定）
-                            };
-                            final result = await callable.call(payload);
-                            if (!mounted) return; // 非同期後の安全確認
-                            final res = result.data;
-                            if (res is Map && res['success'] == true) {
-                              ScaffoldMessenger.of(pageContext).showSnackBar(
-                                const SnackBar(content: Text('注文を送信しました')),
-                              );
-                            } else {
-                              final msg = (res is Map ? res['error'] : null) ?? '注文に失敗しました';
-                              ScaffoldMessenger.of(pageContext).showSnackBar(
-                                SnackBar(content: Text(msg)),
-                              );
-                            }
-                          } catch (e) {
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(pageContext).showSnackBar(
-                              SnackBar(content: Text('注文に失敗しました: $e')),
-                            );
-                          } finally {
-                            // 送信中フラグを戻す
-                            if (mounted) {
-                              setState(() {
-                                _submittingOrders.remove(orderKey);
-                              });
-                            }
-                          }
-                        },
-                  child: isSubmitting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('注文確定'),
-                ),
-              ],
-            );
-          },
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('注文確認'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('注文者: $userName'),
+              Text('メニュー: ${item.name}'),
+              Text('個数: $quantity'),
+              Text('合計: ¥$total'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () async {
+                setState(() => _isPlacingOrder = true);
+                await WidgetsBinding.instance.endOfFrame;
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                try {
+                  final callable = _functions.httpsCallable('placeOrder');
+                  final payload = {
+                    'billId': billId, // ✅ userId から billId に変更
+                    'item': {
+                      'menuItemId': item.id,
+                      'quantity': quantity,
+                    },
+                    'clientNonce': _clientNonce, // ✅ トップレベルに追加（ページが開いている間は固定）
+                  };
+                  final result = await callable.call(payload);
+                  if (!mounted) return; // 非同期後の安全確認
+                  final res = result.data;
+                  if (res is Map && res['success'] == true) {
+                    ScaffoldMessenger.of(pageContext).showSnackBar(
+                      const SnackBar(content: Text('注文を送信しました')),
+                    );
+                  } else {
+                    final msg = (res is Map ? res['error'] : null) ?? '注文に失敗しました';
+                    ScaffoldMessenger.of(pageContext).showSnackBar(
+                      SnackBar(content: Text(msg)),
+                    );
+                  }
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(pageContext).showSnackBar(
+                    SnackBar(content: Text('注文に失敗しました: $e')),
+                  );
+                } finally {
+                  if (mounted) {
+                    setState(() => _isPlacingOrder = false);
+                  }
+                }
+              },
+              child: const Text('注文確定'),
+            ),
+          ],
         );
       },
     );
@@ -360,21 +339,40 @@ class _MenuListPageState extends State<MenuListPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.category} メニュー'),
-        actions: [
-          // When: 更新ボタン表示時
-          // Where: AppBar
-          // What: 更新ボタンを表示
-          // How: IconButtonで更新アイコンを配置
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : _refreshData,
+    return PopScope(
+      canPop: !_isPlacingOrder,
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: Text('${widget.category} メニュー'),
+              actions: [
+                // When: 更新ボタン表示時
+                // Where: AppBar
+                // What: 更新ボタンを表示
+                // How: IconButtonで更新アイコンを配置
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed:
+                      (_isLoading || _isPlacingOrder) ? null : _refreshData,
+                ),
+              ],
+            ),
+            body: _buildBody(),
           ),
+          if (_isPlacingOrder)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
-      body: _buildBody(),
     );
   }
 

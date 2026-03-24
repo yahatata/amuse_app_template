@@ -274,17 +274,7 @@ class _DeviceRegistrationPageState extends State<DeviceRegistrationPage> {
                 child: ColoredBox(
                   color: Colors.black.withValues(alpha: 0.35),
                   child: const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 12),
-                        Text(
-                          '登録中…',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
+                    child: CircularProgressIndicator(),
                   ),
                 ),
               ),

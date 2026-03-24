@@ -322,16 +322,7 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
                         backgroundColor: Colors.blue,
                         foregroundColor: Colors.white,
                       ),
-                      child: _isProcessing
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : const Text('再開処理'),
+                      child: const Text('再開処理'),
                     ),
                   ],
                 ),

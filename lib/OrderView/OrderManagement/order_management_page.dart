@@ -440,7 +440,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
           onEdit: (orderId, billId) {
             _showEditDialog(orderId, billId);
           },
-          localStatus: _localOrderStatus[order['id']],
+          localStatus: _localOrderStatus[order['id']?.toString()],
           isActiveTab: _selectedTabIndex == 0,
           isMarkingServed:
               orderIdStr != null && _servingOrderId == orderIdStr,
@@ -454,6 +454,12 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
               setState(() => _servingOrderId = null);
             }
           },
+          onDismissedSwipeCompleted: (orderId) {
+            setState(() => _localOrderStatus[orderId] = 'served');
+          },
+          onSwipeServeFailed: (orderId) {
+            setState(() => _localOrderStatus.remove(orderId));
+          },
         );
       },
     );
@@ -466,8 +472,10 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
         ? ['preparing', 'in_progress'] 
         : ['served'];
     
-    allOrders = allOrders.where((order) => 
-        targetStatuses.contains(order['status'])).toList();
+    allOrders = allOrders.where((order) {
+      final effective = _effectiveOrderStatus(order);
+      return targetStatuses.contains(effective);
+    }).toList();
     
     
     // ソート
@@ -486,6 +494,17 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
     });
     
     return allOrders;
+  }
+
+  /// Firestore の値に、ローカル上書き（スワイプ提供済みの楽観更新・タブ切替用）を合成
+  String _effectiveOrderStatus(Map<String, dynamic> order) {
+    final id = order['id']?.toString();
+    if (id != null && _localOrderStatus.containsKey(id)) {
+      return _localOrderStatus[id]!;
+    }
+    final raw = order['status'];
+    if (raw is String) return raw;
+    return raw?.toString() ?? 'preparing';
   }
 
   /// 注文ステータスを更新

@@ -323,20 +323,7 @@ class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
                   child: Material(
                     color: Colors.black54,
                     child: const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(),
-                          SizedBox(height: 12),
-                          Text(
-                            '処理中…',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
+                      child: CircularProgressIndicator(),
                     ),
                   ),
                 ),

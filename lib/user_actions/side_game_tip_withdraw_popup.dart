@@ -189,16 +189,7 @@ class _SideGameTipWithdrawDialogState
             backgroundColor: Colors.red,
             foregroundColor: Colors.white,
           ),
-          child: _isLoading
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
-              : const Text('引き出し確定'),
+          child: const Text('引き出し確定'),
         ),
       ],
     );

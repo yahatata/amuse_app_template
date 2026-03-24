@@ -67,15 +67,6 @@ class _AdminControlsState extends State<AdminControls> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                '処理中…',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey[700],
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
             ],
             const SizedBox(height: 8),
             Text(

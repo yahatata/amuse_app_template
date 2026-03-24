@@ -167,20 +167,7 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
                 child: ColoredBox(
                   color: Colors.black.withValues(alpha: 0.38),
                   child: const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 12),
-                        Text(
-                          '処理中…',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    ),
+                    child: CircularProgressIndicator(),
                   ),
                 ),
               ),

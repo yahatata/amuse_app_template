@@ -389,22 +389,13 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
-                          child: _isCreating
-                              ? const SizedBox(
-                                  width: 28,
-                                  height: 28,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Text(
-                                  'トーナメントを作成',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                          child: const Text(
+                            'トーナメントを作成',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
                     ],
