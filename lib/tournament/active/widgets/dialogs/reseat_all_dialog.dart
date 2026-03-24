@@ -39,68 +39,67 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('全員リシート'),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: 400,
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isLoading,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
         child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            Column(
-              children: [
-                const Text('リシート対象者を選択してください'),
-                const SizedBox(height: 16),
-                // 待機者リストとリシート対象者リストを横並びで表示
-                Expanded(
-                  child: Row(
+            Center(
+              child: AlertDialog(
+                title: const Text('全員リシート'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  height: 400,
+                  child: Column(
                     children: [
-                      Expanded(child: _buildWaitingList()),
-                      const SizedBox(width: 16),
-                      Expanded(child: _buildReseatTargetList()),
+                      const Text('リシート対象者を選択してください'),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Expanded(child: _buildWaitingList()),
+                            const SizedBox(width: 16),
+                            Expanded(child: _buildReseatTargetList()),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildCapacityInfo(),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
-                _buildCapacityInfo(),
-              ],
+                actions: [
+                  TextButton(
+                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                    child: const Text('キャンセル'),
+                  ),
+                  ElevatedButton(
+                    onPressed: _isLoading || _reseatTargetUserIds.isEmpty
+                        ? null
+                        : _showConfirmationDialog,
+                    child: const Text('リシート実行'),
+                  ),
+                ],
+              ),
             ),
-            // リシート実行中のローディング表示
             if (_isLoading)
-              Container(
-                color: Colors.black26,
-                child: const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text(
-                        'リシート実行中...',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
                   ),
                 ),
               ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading || _reseatTargetUserIds.isEmpty
-              ? null
-              : _showConfirmationDialog,
-          child: const Text('リシート実行'),
-        ),
-      ],
     );
   }
 
@@ -319,6 +318,7 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('リシート確認'),

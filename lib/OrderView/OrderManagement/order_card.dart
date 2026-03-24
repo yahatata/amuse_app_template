@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -8,6 +10,18 @@ class OrderCard extends StatelessWidget {
   final String? localStatus;
   final bool isActiveTab; // 準備中・提供中タブかどうか
 
+  /// 提供済み更新処理中（親が [orderId] と突き合わせて指定。changeSpec 103）
+  final bool isMarkingServed;
+  final VoidCallback? onMarkServeStart;
+  final VoidCallback? onMarkServeEnd;
+
+  /// スワイプで [Dismissible.onDismissed] が呼ばれた直後に、親がリストから即除外する（同期）。
+  /// 省略時は Dismissible が「dismiss 済みだがツリーに残る」アサーションになる。
+  final void Function(String orderId)? onDismissedSwipeCompleted;
+
+  /// スワイプ経路で Firestore 更新に失敗したとき、楽観更新を戻す。
+  final void Function(String orderId)? onSwipeServeFailed;
+
   const OrderCard({
     super.key,
     required this.order,
@@ -15,6 +29,11 @@ class OrderCard extends StatelessWidget {
     required this.onEdit,
     this.localStatus,
     this.isActiveTab = false,
+    this.isMarkingServed = false,
+    this.onMarkServeStart,
+    this.onMarkServeEnd,
+    this.onDismissedSwipeCompleted,
+    this.onSwipeServeFailed,
   });
 
   @override
@@ -51,6 +70,7 @@ class OrderCard extends StatelessWidget {
         ),
       ),
       confirmDismiss: (direction) async {
+        if (isMarkingServed) return false;
         return await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
@@ -69,10 +89,17 @@ class OrderCard extends StatelessWidget {
           ),
         );
       },
-      onDismissed: (direction) async {
-        await _markAsServed(context);
+      onDismissed: (direction) {
+        final id = order['id']?.toString();
+        if (id != null) {
+          onDismissedSwipeCompleted?.call(id);
+        }
+        unawaited(_markAsServed(context, skipOverlayCallbacks: true));
       },
-      child: Card(
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Card(
         margin: const EdgeInsets.only(bottom: 8),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -130,12 +157,25 @@ class OrderCard extends StatelessWidget {
                   : _buildStatusChip(context, status),
               const SizedBox(width: 8),
               IconButton(
-                onPressed: () => onEdit(order['id'], order['billId'] as String?),
+                onPressed: isMarkingServed
+                    ? null
+                    : () => onEdit(order['id'], order['billId'] as String?),
                 icon: const Icon(Icons.edit, color: Colors.blue),
               ),
             ],
           ),
         ),
+      ),
+          if (isMarkingServed)
+            Positioned.fill(
+              child: Material(
+                color: Colors.black26,
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -342,6 +382,7 @@ class OrderCard extends StatelessWidget {
 
   /// ステータススイッチタップ処理
   void _handleStatusSwitchTap(BuildContext context, String targetStatus) {
+    if (isMarkingServed) return;
     final currentStatus = localStatus ?? order['status'] ?? 'preparing';
     
     // 現在のステータスと異なる場合のみ変更
@@ -395,7 +436,13 @@ class OrderCard extends StatelessWidget {
   }
 
   /// 提供済みにマーク
-  Future<void> _markAsServed(BuildContext context) async {
+  Future<void> _markAsServed(
+    BuildContext context, {
+    bool skipOverlayCallbacks = false,
+  }) async {
+    if (!skipOverlayCallbacks) {
+      onMarkServeStart?.call();
+    }
     try {
       // Firestoreのステータスを更新
       await FirebaseFirestore.instance
@@ -417,6 +464,12 @@ class OrderCard extends StatelessWidget {
         );
       }
     } catch (e) {
+      if (skipOverlayCallbacks) {
+        final id = order['id']?.toString();
+        if (id != null) {
+          onSwipeServeFailed?.call(id);
+        }
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -424,6 +477,10 @@ class OrderCard extends StatelessWidget {
             backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      if (!skipOverlayCallbacks) {
+        onMarkServeEnd?.call();
       }
     }
   }

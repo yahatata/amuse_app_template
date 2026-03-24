@@ -130,30 +130,48 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('QRチェックイン/チェックアウト'),
-      ),
-      body: Column(
+    return PopScope(
+      canPop: !_isProcessing,
+      child: Stack(
         children: [
-          Expanded(
-            child: Transform.rotate(
-              angle: -1.5708, // -90度（反時計回りに90度回転）をラジアンで指定（-π/2 ≈ -1.5708）
-              child: MobileScanner(
-                controller: _scannerController,
-                onDetect: _handleDetect,
-              ),
+          Scaffold(
+            appBar: AppBar(
+              title: const Text('QRチェックイン/チェックアウト'),
+            ),
+            body: Column(
+              children: [
+                Expanded(
+                  child: Transform.rotate(
+                      angle: -1.5708, // -90度（反時計回りに90度回転）をラジアンで指定（-π/2 ≈ -1.5708）
+                      child: MobileScanner(
+                        controller: _scannerController,
+                        onDetect: _handleDetect,
+                      ),
+                    ),
+                ),
+                if (_lastMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Text(
+                      _lastMessage!,
+                      style: const TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+              ],
             ),
           ),
-          if (_lastMessage != null)
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Text(
-                _lastMessage!,
-                style: const TextStyle(fontSize: 14, color: Colors.grey),
+          if (_isProcessing)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.38),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
               ),
             ),
-          const SizedBox(height: 8),
         ],
       ),
     );

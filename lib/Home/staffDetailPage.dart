@@ -195,7 +195,11 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_isLoading,
+      child: Stack(
+        children: [
+          Scaffold(
       appBar: AppBar(
         title: Text(widget.staffData['fullName'] ?? 'スタッフ詳細'),
         backgroundColor: Colors.blue[600],
@@ -298,6 +302,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                         children: [
                           TextField(
                             controller: _hourlyWageController,
+                            readOnly: _isLoading,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
                               labelText: '時給（円）',
@@ -309,20 +314,21 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                           Row(
                             children: [
                               Expanded(
-                                child: ElevatedButton.icon(
+                                child: ElevatedButton(
                                   onPressed: _isLoading ? null : _updateHourlyWage,
-                                  icon: _isLoading
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
-                                        )
-                                      : const Icon(Icons.save),
-                                  label: Text(_isLoading ? '保存中...' : '保存'),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.green,
                                     foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                  child: const Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.save),
+                                      SizedBox(width: 8),
+                                      Text('保存'),
+                                    ],
                                   ),
                                 ),
                               ),
@@ -407,6 +413,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                         children: [
                           TextField(
                             controller: _bankNameController,
+                            readOnly: _isLoading,
                             decoration: const InputDecoration(
                               labelText: '銀行名',
                               border: OutlineInputBorder(),
@@ -416,6 +423,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: _branchNameController,
+                            readOnly: _isLoading,
                             decoration: const InputDecoration(
                               labelText: '支店名',
                               border: OutlineInputBorder(),
@@ -433,15 +441,18 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                               DropdownMenuItem(value: '普通', child: Text('普通')),
                               DropdownMenuItem(value: '当座', child: Text('当座')),
                             ],
-                            onChanged: (value) {
-                              setState(() {
-                                _accountType = value ?? '普通';
-                              });
-                            },
+                            onChanged: _isLoading
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _accountType = value ?? '普通';
+                                    });
+                                  },
                           ),
                           const SizedBox(height: 12),
                           TextField(
                             controller: _accountNumberController,
+                            readOnly: _isLoading,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
                               labelText: '口座番号',
@@ -452,6 +463,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: _accountHolderController,
+                            readOnly: _isLoading,
                             decoration: const InputDecoration(
                               labelText: '口座名義（カタカナ）',
                               border: OutlineInputBorder(),
@@ -462,20 +474,21 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                           Row(
                             children: [
                               Expanded(
-                                child: ElevatedButton.icon(
+                                child: ElevatedButton(
                                   onPressed: _isLoading ? null : _updateBankInfo,
-                                  icon: _isLoading
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
-                                        )
-                                      : const Icon(Icons.save),
-                                  label: Text(_isLoading ? '保存中...' : '保存'),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.green,
                                     foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                  child: const Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.save),
+                                      SizedBox(width: 8),
+                                      Text('保存'),
+                                    ],
                                   ),
                                 ),
                               ),
@@ -527,6 +540,20 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
             ),
           ],
         ),
+      ),
+          ),
+          if (_isLoading)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

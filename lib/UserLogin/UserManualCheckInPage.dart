@@ -125,76 +125,97 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('ユーザーログイン'),
-        centerTitle: true,
-        actions: [
-          buildHomeButton(context), // ← 追加
-        ],
-      ),
-      key: _scaffoldKey,
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Center(
-          child: SingleChildScrollView(
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.lock, size: 80, color: Colors.blue),
-                  const SizedBox(height: 20),
-                  const Text(
-                    "ログイン",
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 20),
-                  TextFormField(
-                    controller: _loginIdController,
-                    decoration: const InputDecoration(
-                      labelText: "ログインID",
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.person),
+    return PopScope(
+      canPop: !_isLoading,
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: const Text('ユーザーログイン'),
+              centerTitle: true,
+              actions: [
+                buildHomeButton(context, enabled: !_isLoading),
+              ],
+            ),
+            key: _scaffoldKey,
+            body: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Center(
+                child: SingleChildScrollView(
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.lock, size: 80, color: Colors.blue),
+                        const SizedBox(height: 20),
+                        const Text(
+                          "ログイン",
+                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 20),
+                        TextFormField(
+                          controller: _loginIdController,
+                          readOnly: _isLoading,
+                          decoration: const InputDecoration(
+                            labelText: "ログインID",
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.person),
+                          ),
+                          validator: (value) =>
+                              value!.isEmpty ? "ログインIDを入力してください" : null,
+                        ),
+                        const SizedBox(height: 15),
+                        TextFormField(
+                          controller: _pinController,
+                          readOnly: _isLoading,
+                          decoration: const InputDecoration(
+                            labelText: "PIN (4桁)",
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.lock),
+                          ),
+                          keyboardType: TextInputType.number,
+                          obscureText: true,
+                          validator: (value) =>
+                              value!.length != 4 ? "PINは4桁で入力してください" : null,
+                        ),
+                        const SizedBox(height: 20),
+                        ElevatedButton(
+                          onPressed: _isLoading ? null : _loginWithAuthFirst,
+                          child: const Text("ログイン"),
+                        ),
+                        TextButton(
+                          onPressed: _isLoading
+                              ? null
+                              : () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const CreateUserAccount(),
+                                    ),
+                                  );
+                                },
+                          child: const Text("新規登録はこちら"),
+                        ),
+                      ],
                     ),
-                    validator: (value) =>
-                    value!.isEmpty ? "ログインIDを入力してください" : null,
                   ),
-                  const SizedBox(height: 15),
-                  TextFormField(
-                    controller: _pinController,
-                    decoration: const InputDecoration(
-                      labelText: "PIN (4桁)",
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.lock),
-                    ),
-                    keyboardType: TextInputType.number,
-                    obscureText: true,
-                    validator: (value) =>
-                    value!.length != 4 ? "PINは4桁で入力してください" : null,
-                  ),
-                  const SizedBox(height: 20),
-                  _isLoading
-                      ? const CircularProgressIndicator()
-                      : ElevatedButton(
-                    onPressed: _loginWithAuthFirst,
-                    child: const Text("ログイン"),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) => const CreateUserAccount()),
-                      );
-                    },
-                    child: const Text("新規登録はこちら"),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
-        ),
+          if (_isLoading)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

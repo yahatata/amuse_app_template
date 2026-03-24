@@ -400,12 +400,10 @@ class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamen
                         backgroundColor: Colors.blue,
                         foregroundColor: Colors.white,
                       ),
-                      child: _isLoading
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text(
-                              '定期開催トーナメントを作成',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
+                      child: const Text(
+                        '定期開催トーナメントを作成',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
                 ],

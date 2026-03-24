@@ -62,7 +62,7 @@ class AccountingPage extends StatefulWidget {
 class _AccountingPageState extends State<AccountingPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
-
+  
   List<Map<String, dynamic>> _activeBills = [];
   List<Map<String, dynamic>> _settledBills = [];
   bool _isLoading = false;
@@ -159,7 +159,7 @@ class _AccountingPageState extends State<AccountingPage> {
           .get();
 
       final filteredDocs = querySnapshot.docs.where((doc) {
-        final data = doc.data();
+          final data = doc.data();
         final closeSnapshot = data['closeSnapshot'];
         if (closeSnapshot == null || closeSnapshot is! Map) return true;
         final unresolved = closeSnapshot['unresolved'];
@@ -260,7 +260,7 @@ class _AccountingPageState extends State<AccountingPage> {
       );
 
       if (mounted) {
-        setState(() {
+      setState(() {
           _settledBills = mappedSettledBills;
         });
       }
@@ -318,8 +318,8 @@ class _AccountingPageState extends State<AccountingPage> {
       // tournaments サブコレクション
       final tournamentsSnapshot = await billRef.collection('tournaments').get();
       final tournamentsList = tournamentsSnapshot.docs.map((doc) {
-        final data = doc.data();
-        return {
+          final data = doc.data();
+          return {
           'templateName': data['templateName'] ?? '不明',
           'entryCount': (data['entryCount'] as num?)?.toInt() ?? 0,
           'entryFeeIncl': (data['entryFeeIncl'] as num?)?.toInt() ?? 0,
@@ -327,8 +327,8 @@ class _AccountingPageState extends State<AccountingPage> {
           'reentryFeeIncl': (data['reentryFeeIncl'] as num?)?.toInt() ?? 0,
           'addonCount': (data['addonCount'] as num?)?.toInt() ?? 0,
           'addonFeeIncl': (data['addonFeeIncl'] as num?)?.toInt() ?? 0,
-        };
-      }).toList();
+          };
+        }).toList();
       int tournamentsAmount = tournamentsList.fold(0, (sum, data) {
         return sum +
             (data['entryFeeIncl'] as int) * (data['entryCount'] as int) +
@@ -1077,7 +1077,7 @@ class _AccountingPageState extends State<AccountingPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('会計プレビュー情報の取得に失敗しました: $e')),
         );
       }
@@ -1577,69 +1577,69 @@ class _AccountingPageState extends State<AccountingPage> {
 
       if (!mounted) return;
 
-      if (result.data['success'] == true) {
-        final shouldComplete = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.green),
-                SizedBox(width: 8),
-                Text('会計開始完了'),
+        if (result.data['success'] == true) {
+          final shouldComplete = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green),
+                  SizedBox(width: 8),
+                  Text('会計開始完了'),
+                ],
+              ),
+              content: const Text(
+                '会計を開始しました。\n\nこのまま会計を完了しますか？',
+                style: TextStyle(fontSize: 16),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('後で', style: TextStyle(fontSize: 16)),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text(
+                    '会計完了',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
               ],
             ),
-            content: const Text(
-              '会計を開始しました。\n\nこのまま会計を完了しますか？',
-              style: TextStyle(fontSize: 16),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('後で', style: TextStyle(fontSize: 16)),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text(
-                  '会計完了',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-        );
+          );
 
-        if (shouldComplete == true) {
-          await _completeAccounting(billId);
-        } else {
+          if (shouldComplete == true) {
+            await _completeAccounting(billId);
+          } else {
           if (_currentBusinessDateKey != null) {
             _loadActiveBills(_currentBusinessDateKey!);
           }
-        }
-      } else {
-        await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.error_outline, color: Colors.red),
-                SizedBox(width: 8),
-                Text('会計開始エラー'),
+          }
+        } else {
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('会計開始エラー'),
+                ],
+              ),
+              content: Text(result.data['message'] ?? '会計開始に失敗しました'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('閉じる'),
+                ),
               ],
             ),
-            content: Text(result.data['message'] ?? '会計開始に失敗しました'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('閉じる'),
-              ),
-            ],
-          ),
-        );
+          );
       }
     } catch (e) {
       // エラー時もローディングダイアログを閉じる
@@ -1653,24 +1653,24 @@ class _AccountingPageState extends State<AccountingPage> {
 
       if (!mounted) return;
 
-      await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.error_outline, color: Colors.red),
-              SizedBox(width: 8),
-              Text('会計開始エラー'),
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.red),
+                SizedBox(width: 8),
+                Text('会計開始エラー'),
+              ],
+            ),
+            content: Text(_extractUserFriendlyMessage(e.toString())),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('閉じる'),
+              ),
             ],
           ),
-          content: Text(_extractUserFriendlyMessage(e.toString())),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('閉じる'),
-            ),
-          ],
-        ),
       );
     }
   }
@@ -2030,7 +2030,7 @@ class _AccountingPageState extends State<AccountingPage> {
             });
           } catch (e) {
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('未会計後処理に失敗しました: $e'), backgroundColor: Colors.orange),
               );
             }
@@ -2045,9 +2045,9 @@ class _AccountingPageState extends State<AccountingPage> {
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('会計完了に失敗しました: ${result.data['message']}')),
-          );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('会計完了に失敗しました: ${result.data['message']}')),
+        );
         }
       }
     } catch (e) {
@@ -2094,12 +2094,12 @@ class _AccountingPageState extends State<AccountingPage> {
     // Firebase Functions のエラーメッセージから実際のメッセージ部分を抽出
     final regex = RegExp(r'の残高が不足しています。現在の残高: \d+円、必要な金額: \d+円');
     final match = regex.firstMatch(errorMessage);
-
+    
     if (match != null) {
       // マッチした部分の前後を含めて、より自然なメッセージを構築
       final beforeMatch = errorMessage.substring(0, match.start);
       final matchedPart = match.group(0)!;
-
+      
       // 技術的な部分を除去して、ポイント名と残高不足メッセージのみを抽出
       if (beforeMatch.contains('ポイントA')) {
         return 'ポイントA$matchedPart';
@@ -2109,7 +2109,7 @@ class _AccountingPageState extends State<AccountingPage> {
         return 'サイドゲームチップ$matchedPart';
       }
     }
-
+    
     // マッチしない場合は元のメッセージを返す（フォールバック）
     return errorMessage;
   }
@@ -2202,30 +2202,30 @@ class _AccountingPageState extends State<AccountingPage> {
           }
           
           return _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : DefaultTabController(
-                  length: 2,
-                  child: Column(
-                    children: [
-                      const TabBar(
-                        tabs: [
-                          Tab(text: '未会計'),
-                          Tab(text: '会計完了'),
-                        ],
-                      ),
-                      Expanded(
-                        child: TabBarView(
-                          children: [
-                            _buildActiveBillsTab(),
-                            _buildSettledBillsTab(),
-                          ],
-                        ),
-                      ),
+          ? const Center(child: CircularProgressIndicator())
+          : DefaultTabController(
+              length: 2,
+              child: Column(
+                children: [
+                  const TabBar(
+                    tabs: [
+                      Tab(text: '未会計'),
+                      Tab(text: '会計完了'),
                     ],
                   ),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _buildActiveBillsTab(),
+                        _buildSettledBillsTab(),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
                 );
         },
-      ),
+            ),
     );
   }
 
@@ -2292,13 +2292,13 @@ class _AccountingPageState extends State<AccountingPage> {
       child: SizedBox(
         width: cardWidth,
         child: Card(
-          elevation: 4,
-          child: Padding(
+      elevation: 4,
+      child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
-              children: [
+          children: [
                 // 上部：左上にuserName、作成日時、ボタン（横並び）、右上にステータス
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2309,14 +2309,14 @@ class _AccountingPageState extends State<AccountingPage> {
                         spacing: 8,
                         runSpacing: 4,
                         crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            pokerName,
-                            style: const TextStyle(
+              children: [
+                Text(
+                  pokerName,
+                  style: const TextStyle(
                               fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                           Text(
                             '作成日時: ${_formatDateTime(createdAt)}',
                             style: TextStyle(color: Colors.grey[600], fontSize: 11),
@@ -2337,58 +2337,58 @@ class _AccountingPageState extends State<AccountingPage> {
                       ),
                     ),
                     // 右上：ステータスバッジ
-                    Container(
+                Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
                         vertical: 4,
                       ),
-                      decoration: BoxDecoration(
-                        color: accountingStarted ? Colors.orange : Colors.blue,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        accountingStarted ? '会計中' : '未会計',
-                        style: const TextStyle(
-                          color: Colors.white,
+                  decoration: BoxDecoration(
+                    color: accountingStarted ? Colors.orange : Colors.blue,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    accountingStarted ? '会計中' : '未会計',
+                    style: const TextStyle(
+                      color: Colors.white,
                           fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                // 会計額表示（縮小版）
-                if (totalPrice != null && totalPrice > 0)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.blue[200]!),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          '¥${totalPrice.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue,
-                          ),
-                        ),
-                        const Text(
-                          '会計額（参考値）',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.blue,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+                // 会計額表示（縮小版）
+                if (totalPrice != null && totalPrice > 0)
+            Container(
+              width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue[200]!),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    '¥${totalPrice.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                    style: const TextStyle(
+                            fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const Text(
+                          '会計額（参考値）',
+                    style: TextStyle(
+                            fontSize: 12,
+                      color: Colors.blue,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
                 // 会計中の表示（支払い方法と操作）
                 if (accountingStarted) ...[
                   const SizedBox(height: 8),
@@ -2397,7 +2397,7 @@ class _AccountingPageState extends State<AccountingPage> {
                   // 右下：ボタン
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
+              children: [
                       // TODO: 会計開始「後で」選択後の再開用。後で実装する
                       // ElevatedButton.icon(
                       //   onPressed: () => _completeAccounting(bill['id']),
@@ -2456,20 +2456,20 @@ class _AccountingPageState extends State<AccountingPage> {
                       const SizedBox(width: 8),
                       SizedBox(
                         width: 300, // 横幅を300%相当（元の3倍）に設定
-                        child: ElevatedButton.icon(
+                    child: ElevatedButton.icon(
                           onPressed: () => _startAccounting(bill['id']),
                           icon: const Icon(Icons.play_arrow, size: 16),
                           label: const Text('会計開始', style: TextStyle(fontSize: 11)),
-                          style: ElevatedButton.styleFrom(
+                      style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
+                        foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          ),
-                        ),
                       ),
-                    ],
+                    ),
                   ),
               ],
+            ),
+          ],
             ),
           ),
         ),
@@ -2512,7 +2512,7 @@ class _AccountingPageState extends State<AccountingPage> {
     final paymentMethod = bill['paymentMethod'] ?? 'cash';
     final screenWidth = MediaQuery.of(context).size.width;
     final cardWidth = screenWidth * 0.95;
-
+    
     print('=== _buildSettledBillCard ===');
     print('billId: $billId, pokerName: $pokerName, totalPrice: $totalPrice');
 
@@ -2520,81 +2520,81 @@ class _AccountingPageState extends State<AccountingPage> {
       child: SizedBox(
         width: cardWidth,
         child: Card(
-          elevation: 4,
-          child: Padding(
+      elevation: 4,
+      child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
-              children: [
+          children: [
                 // 上部：左上にuserName、右上にステータス
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      pokerName,
-                      style: const TextStyle(
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  pokerName,
+                  style: const TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Container(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
                         vertical: 4,
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.green,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Text(
-                        '会計完了',
-                        style: TextStyle(
-                          color: Colors.white,
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    '会計完了',
+                    style: TextStyle(
+                      color: Colors.white,
                           fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      fontWeight: FontWeight.bold,
                     ),
-                  ],
+                  ),
                 ),
+              ],
+            ),
                 const SizedBox(height: 4),
-                // 会計完了日時
-                Text(
-                  '会計完了: ${accountingCompletedAt.year}年${accountingCompletedAt.month}月${accountingCompletedAt.day}日 ${accountingCompletedAt.hour.toString().padLeft(2, '0')}:${accountingCompletedAt.minute.toString().padLeft(2, '0')}',
+            // 会計完了日時
+            Text(
+              '会計完了: ${accountingCompletedAt.year}年${accountingCompletedAt.month}月${accountingCompletedAt.day}日 ${accountingCompletedAt.hour.toString().padLeft(2, '0')}:${accountingCompletedAt.minute.toString().padLeft(2, '0')}',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
                 const SizedBox(height: 8),
                 // 合計金額（縮小版）
                 if (totalPrice != null)
-                  Container(
+            Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.green.shade200),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          '会計額',
-                          style: TextStyle(
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '会計額',
+                    style: TextStyle(
                             fontSize: 12,
-                            color: Colors.green,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          '${totalPrice.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}円',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green.shade700,
-                          ),
-                        ),
-                      ],
+                      color: Colors.green,
+                      fontWeight: FontWeight.w500,
                     ),
+                  ),
+                  Text(
+                          '${totalPrice.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}円',
+                    style: TextStyle(
+                            fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade700,
+                    ),
+                  ),
+                ],
+              ),
                   )
                 else
                   Container(
@@ -2633,31 +2633,31 @@ class _AccountingPageState extends State<AccountingPage> {
                 // 右下：アクションボタン
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
+              children: [
                     OutlinedButton.icon(
-                      onPressed: () => _showEditDialog(bill),
+                    onPressed: () => _showEditDialog(bill),
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('修正', style: TextStyle(fontSize: 11)),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.blue,
-                        side: const BorderSide(color: Colors.blue),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.blue,
+                      side: const BorderSide(color: Colors.blue),
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
+                  ),
+                ),
+                const SizedBox(width: 8),
                     OutlinedButton.icon(
-                      onPressed: () => _showCancelDialog(bill),
+                    onPressed: () => _showCancelDialog(bill),
                       icon: const Icon(Icons.cancel, size: 16),
                       label: const Text('キャンセル', style: TextStyle(fontSize: 11)),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.red,
-                        side: const BorderSide(color: Colors.red),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ],
+            ),
+          ],
             ),
           ),
         ),
@@ -2683,7 +2683,7 @@ class _AccountingPageState extends State<AccountingPage> {
     // トーナメント参加費
     final tournamentsData = bill['tournaments'];
     int totalTournamentFee = 0;
-
+    
     // tournamentsはMapまたはListの可能性があるため、型チェックを行う
     if (tournamentsData is Map<String, dynamic>) {
       for (final tournamentEntry in tournamentsData.values) {
@@ -2695,7 +2695,7 @@ class _AccountingPageState extends State<AccountingPage> {
     } else if (tournamentsData is List) {
       // Listの場合は空配列なので何もしない
     }
-
+    
     if (totalTournamentFee > 0) {
       breakdown.add(
         _buildBreakdownItem(
@@ -2727,7 +2727,7 @@ class _AccountingPageState extends State<AccountingPage> {
     for (final chip in sideGameChips) {
       // action='purchase'のデータのみを集計
       if (chip['action'] == 'purchase') {
-        totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
+      totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
       }
     }
     if (totalSideGameChipAmount > 0) {
@@ -2815,7 +2815,7 @@ class _AccountingPageState extends State<AccountingPage> {
     } else {
       displayText = _getPaymentMethodName(method);
     }
-
+    
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -2847,7 +2847,7 @@ class _AccountingPageState extends State<AccountingPage> {
 
   void _showCategoryDetail(String categoryName, Map<String, dynamic> bill) {
     List<dynamic> items = [];
-
+    
     switch (categoryName) {
       case '入店料':
         items = bill['extraCost'] as List<dynamic>? ?? [];
@@ -3014,6 +3014,7 @@ class _AccountingPageState extends State<AccountingPage> {
   void _showEditDialog(Map<String, dynamic> bill) {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AccountingEditDialog(
         bill: bill,
         onUpdated: () {

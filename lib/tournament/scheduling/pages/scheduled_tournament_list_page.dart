@@ -111,7 +111,11 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_isLoading,
+      child: Stack(
+        children: [
+          Scaffold(
       appBar: AppBar(
         title: const Text('スケジュール済みトーナメント一覧'),
         backgroundColor: Colors.blue,
@@ -359,14 +363,22 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
         onPressed: _isLoading ? null : _showCreateTournamentDialog,
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
-        icon: _isLoading 
-          ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-            )
-          : const Icon(Icons.add),
-        label: Text(_isLoading ? '作成中...' : 'トーナメント作成'),
+        icon: const Icon(Icons.add),
+        label: const Text('トーナメント作成'),
+      ),
+          ),
+          if (_isLoading)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

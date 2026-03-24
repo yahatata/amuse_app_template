@@ -43,6 +43,12 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   // 会計前かどうか
   late bool _isBeforeAccounting;
 
+  /// 選択肢読込中（changeSpec: 読込 CPI）
+  bool _isLoadingOptions = true;
+
+  /// 会計修正送信中（changeSpec: 更新ロック＋CPI）
+  bool _isSubmitting = false;
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +59,10 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
 
   // 選択肢データを読み込む
   Future<void> _loadAvailableOptions() async {
+    if (mounted) {
+      setState(() => _isLoadingOptions = true);
+    }
+    try {
     // storeMeta/currentBusinessDayを取得してcurrentBusinessDateKeyを取得
     final stateDoc = await FirebaseFirestore.instance
         .collection('storeMeta')
@@ -122,6 +132,11 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
       _availableFoodItems = foodItems;
       _availableChipItems = chipItems;
     });
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingOptions = false);
+      }
+    }
   }
 
   void _initializeData() {
@@ -328,6 +343,7 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   }
 
   Future<void> _updateAccounting() async {
+    if (_isSubmitting || _isLoadingOptions) return;
     if (!_formKey.currentState!.validate()) return;
     
     // 会計完了済みの場合は修正理由が必要
@@ -338,6 +354,9 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
       return;
     }
 
+    setState(() => _isSubmitting = true);
+    // ローディング用の rebuild が描画されるまで待つ（失敗が速いとオーバーレイが一度も出ない）
+    await WidgetsBinding.instance.endOfFrame;
     try {
       // 会計前の場合はupdateActiveBill、会計完了済みの場合はupdateAccountingを使用
       final functionName = _isBeforeAccounting ? 'updateActiveBill' : 'updateAccounting';
@@ -372,144 +391,185 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('修正に失敗しました: $e')),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.9,
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.8,
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    '会計内容修正',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isSubmitting,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Center(
+              child: Dialog(
+                child: Container(
+                  width: size.width * 0.9,
+                  constraints: BoxConstraints(
+                    maxHeight: size.height * 0.8,
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              
-              // 修正理由（会計完了済みの場合のみ必須）
-              if (!_isBeforeAccounting) ...[
-              TextFormField(
-                controller: _reasonController,
-                decoration: const InputDecoration(
-                    labelText: '修正理由 *',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return '修正理由を入力してください';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              ] else ...[
-                TextFormField(
-                  controller: _reasonController,
-                  decoration: const InputDecoration(
-                    labelText: '修正理由（任意）',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-              
-              // タブ
-              SizedBox(
-                height: 400, // 固定の高さを設定
-                child: DefaultTabController(
-                  length: 4,
-                  child: Column(
-                    children: [
-                      const TabBar(
-                        tabs: [
-                          Tab(text: '入店料'),
-                          Tab(text: 'トーナメント'),
-                          Tab(text: 'フード・ドリンク'),
-                          Tab(text: 'サイドゲームチップ'),
-                        ],
+                  padding: const EdgeInsets.all(16),
+                  child: Form(
+                    key: _formKey,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                '会計内容修正',
+                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                              ),
+                              IconButton(
+                                onPressed: _isSubmitting
+                                    ? null
+                                    : () => Navigator.of(context).pop(),
+                                icon: const Icon(Icons.close),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+
+                          // 修正理由（会計完了済みの場合のみ必須）
+                          if (!_isBeforeAccounting) ...[
+                        TextFormField(
+                          controller: _reasonController,
+                          readOnly: _isSubmitting,
+                          decoration: const InputDecoration(
+                            labelText: '修正理由 *',
+                            border: OutlineInputBorder(),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return '修正理由を入力してください';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                      ] else ...[
+                        TextFormField(
+                          controller: _reasonController,
+                          readOnly: _isSubmitting,
+                          decoration: const InputDecoration(
+                            labelText: '修正理由（任意）',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+
+                      // タブ（読込中は主領域 CPI）
+                      SizedBox(
+                        height: 400,
+                        child: _isLoadingOptions
+                            ? const Center(child: CircularProgressIndicator())
+                            : DefaultTabController(
+                                length: 4,
+                                child: Column(
+                                  children: [
+                                    const TabBar(
+                                      tabs: [
+                                        Tab(text: '入店料'),
+                                        Tab(text: 'トーナメント'),
+                                        Tab(text: 'フード・ドリンク'),
+                                        Tab(text: 'サイドゲームチップ'),
+                                      ],
+                                    ),
+                                    Expanded(
+                                      child: TabBarView(
+                                        children: [
+                                          _buildExtraCostTab(),
+                                          _buildTournamentTab(),
+                                          _buildItemsTab(),
+                                          _buildSideGameChipTab(),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                       ),
-                      Expanded(
-                        child: TabBarView(
+
+                      const SizedBox(height: 16),
+
+                      // 合計金額
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            _buildExtraCostTab(),
-                            _buildTournamentTab(),
-                            _buildItemsTab(),
-                            _buildSideGameChipTab(),
+                            const Text(
+                              '合計金額:',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              '${_calculateTotalPrice().toInt()}円',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.shade700,
+                              ),
+                            ),
                           ],
                         ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // ボタン
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: _isSubmitting
+                                ? null
+                                : () => Navigator.of(context).pop(),
+                            child: const Text('キャンセル'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: (_isSubmitting || _isLoadingOptions)
+                                ? null
+                                : _updateAccounting,
+                            child: const Text('修正'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
               ),
-              
-              const SizedBox(height: 16),
-              
-              // 合計金額
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      '合計金額:',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      '${_calculateTotalPrice().toInt()}円',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue.shade700,
-                      ),
-                    ),
-                  ],
                 ),
               ),
-              
-              const SizedBox(height: 16),
-              
-              // ボタン
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('キャンセル'),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _updateAccounting,
-                    child: const Text('修正'),
-                  ),
-                ],
-              ),
-              ],
             ),
-          ),
+            // ダイアログ内ではなく、ルート全体（背面の会計画面含む）を半透明＋ロック
+            if (_isSubmitting)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

@@ -76,10 +76,14 @@ class _DeviceRegistrationPageState extends State<DeviceRegistrationPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.blue[50],
-      body: SafeArea(
-        child: SingleChildScrollView(
+    return PopScope(
+      canPop: !_isLoading,
+      child: Stack(
+        children: [
+          Scaffold(
+            backgroundColor: Colors.blue[50],
+            body: SafeArea(
+              child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: ConstrainedBox(
             constraints: BoxConstraints(
@@ -139,6 +143,7 @@ class _DeviceRegistrationPageState extends State<DeviceRegistrationPage> {
                       const SizedBox(height: 8),
                       TextField(
                         controller: _nameController,
+                        readOnly: _isLoading,
                         decoration: InputDecoration(
                           hintText: '例: 受付タブレット、管理PC',
                           border: OutlineInputBorder(
@@ -179,11 +184,13 @@ class _DeviceRegistrationPageState extends State<DeviceRegistrationPage> {
                         subtitle: const Text('全機能にアクセス可能'),
                         value: 'admin',
                         groupValue: _selectedRole,
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedRole = value!;
-                          });
-                        },
+                        onChanged: _isLoading
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  _selectedRole = value!;
+                                });
+                              },
                         activeColor: Colors.blue[700],
                       ),
                       RadioListTile<String>(
@@ -191,11 +198,13 @@ class _DeviceRegistrationPageState extends State<DeviceRegistrationPage> {
                         subtitle: const Text('基本的な操作のみ'),
                         value: 'terminal',
                         groupValue: _selectedRole,
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedRole = value!;
-                          });
-                        },
+                        onChanged: _isLoading
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  _selectedRole = value!;
+                                });
+                              },
                         activeColor: Colors.blue[700],
                       ),
                     ],
@@ -242,22 +251,13 @@ class _DeviceRegistrationPageState extends State<DeviceRegistrationPage> {
                     ),
                     elevation: 2,
                   ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : const Text(
-                          'デバイスを登録',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                  child: const Text(
+                    'デバイスを登録',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
               // 下部に余白を追加（スクロール時の見た目を改善）
@@ -266,6 +266,20 @@ class _DeviceRegistrationPageState extends State<DeviceRegistrationPage> {
             ),
           ),
         ),
+            ),
+          ),
+          if (_isLoading)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

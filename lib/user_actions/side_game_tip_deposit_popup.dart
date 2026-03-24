@@ -198,16 +198,7 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
             backgroundColor: Colors.green,
             foregroundColor: Colors.white,
           ),
-          child: _isLoading
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
-              : const Text('預入のみ'),
+          child: const Text('預入のみ'),
         ),
         ElevatedButton(
           onPressed: _isLoading
@@ -219,16 +210,7 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
             backgroundColor: Colors.orange,
             foregroundColor: Colors.white,
           ),
-          child: _isLoading
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
-              : const Text('預入と退席'),
+          child: const Text('預入と退席'),
         ),
       ],
     );

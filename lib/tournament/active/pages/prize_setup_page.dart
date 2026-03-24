@@ -39,7 +39,10 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
   
   // 既存プライズ情報
   Map<String, int>? _existingPrizes; // 既存のXstPrize情報
-  
+
+  /// プライズ確定（setPrizeData）送信中は戻る操作を禁止する
+  bool _isSavingPrize = false;
+
   @override
   void initState() {
     super.initState();
@@ -271,6 +274,7 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
   Future<void> _savePrizeData() async {
     try {
       setState(() {
+        _isSavingPrize = true;
         _isLoading = true;
         _errorMessage = null;
       });
@@ -311,9 +315,6 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
                 ),
               );
             }
-            setState(() {
-              _isLoading = false;
-            });
             return;
           }
         }
@@ -357,9 +358,12 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
         _errorMessage = 'エラーが発生しました: $e';
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSavingPrize = false;
+          _isLoading = false;
+        });
+      }
     }
   }
   
@@ -372,7 +376,9 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
     print('_mainViewData: $_mainViewData');
     print('=== build メソッド開始 ===');
     
-    return Scaffold(
+    return PopScope(
+      canPop: !_isSavingPrize,
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('プライズ確定'),
         backgroundColor: Colors.blue.shade700,
@@ -445,6 +451,7 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
                     ],
                   ),
                 ),
+      ),
     );
   }
   

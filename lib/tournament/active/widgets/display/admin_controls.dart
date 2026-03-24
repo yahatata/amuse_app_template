@@ -58,6 +58,16 @@ class _AdminControlsState extends State<AdminControls> {
                 ),
               ],
             ),
+            if (_isLoading) ...[
+              const SizedBox(height: 12),
+              const Center(
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             Text(
               '現在のステータス: ${_getStatusDisplayName(widget.currentStatus)}',

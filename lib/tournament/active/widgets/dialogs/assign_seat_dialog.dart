@@ -46,82 +46,101 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('待機者を着席させる'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isLoading,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            const Text('待機者と着席先を選択してください'),
-            const SizedBox(height: 16),
-            
-            // 待機者選択
-            if (_isLoadingData)
-              const Center(child: CircularProgressIndicator())
-            else
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(
-                  labelText: '待機者',
-                  border: OutlineInputBorder(),
+            Center(
+              child: AlertDialog(
+                title: const Text('待機者を着席させる'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('待機者と着席先を選択してください'),
+                      const SizedBox(height: 16),
+
+                      // 待機者選択
+                      if (_isLoadingData)
+                        const Center(child: CircularProgressIndicator())
+                      else
+                        DropdownButtonFormField<String>(
+                          decoration: const InputDecoration(
+                            labelText: '待機者',
+                            border: OutlineInputBorder(),
+                          ),
+                          value: _selectedUserId,
+                          items: _waitingPlayers
+                              .map((player) => DropdownMenuItem(
+                                    value: player.userId,
+                                    child: Text('${player.displayName} (待機${player.waitingMinutes}分)'),
+                                  ))
+                              .toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedUserId = value;
+                            });
+                          },
+                        ),
+
+                      const SizedBox(height: 16),
+
+                      // テーブル選択（リアルタイム状態監視）
+                      if (_isLoadingData)
+                        const SizedBox.shrink()
+                      else
+                        _buildTableSelectionWithStatus(),
+
+                      const SizedBox(height: 16),
+
+                      // シート選択（リアルタイム状態監視）
+                      if (_selectedTableId != null) ...[
+                        _buildSeatSelectionWithStatus(),
+                        const SizedBox(height: 16),
+                      ],
+
+                      // 選択内容の確認表示
+                      if (_selectedUserId != null && _selectedTableId != null && _selectedSeatNumber != null) ...[
+                        _buildAssignmentConfirmation(),
+                        const SizedBox(height: 16),
+                      ],
+                    ],
+                  ),
                 ),
-                value: _selectedUserId,
-                items: _waitingPlayers
-                    .map((player) => DropdownMenuItem(
-                          value: player.userId,
-                          child: Text('${player.displayName} (待機${player.waitingMinutes}分)'),
-                        ))
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedUserId = value;
-                  });
-                },
+                actions: [
+                  TextButton(
+                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                    child: const Text('キャンセル'),
+                  ),
+                  ElevatedButton(
+                    onPressed: _isLoading || _selectedUserId == null || _selectedTableId == null || _selectedSeatNumber == null
+                        ? null
+                        : _assignSeatToPlayer,
+                    child: const Text('着席'),
+                  ),
+                ],
               ),
-            
-            const SizedBox(height: 16),
-            
-            // テーブル選択（リアルタイム状態監視）
-            if (_isLoadingData)
-              const SizedBox.shrink()
-            else
-              _buildTableSelectionWithStatus(),
-            
-            const SizedBox(height: 16),
-            
-            // シート選択（リアルタイム状態監視）
-            if (_selectedTableId != null) ...[
-              _buildSeatSelectionWithStatus(),
-              
-              const SizedBox(height: 16),
-            ],
-            
-            // 選択内容の確認表示
-            if (_selectedUserId != null && _selectedTableId != null && _selectedSeatNumber != null) ...[
-              _buildAssignmentConfirmation(),
-              const SizedBox(height: 16),
-            ],
+            ),
+            if (_isLoading)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading || _selectedUserId == null || _selectedTableId == null || _selectedSeatNumber == null
-              ? null
-              : _assignSeatToPlayer,
-          child: _isLoading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('着席'),
-        ),
-      ],
     );
   }
 

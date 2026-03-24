@@ -537,6 +537,7 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
         // 退席確認ダイアログを表示
         final confirmed = await showDialog<bool>(
           context: ctx,
+          barrierDismissible: false,
           builder: (context) => AlertDialog(
             title: const Text('退席確認'),
             content: Text('${pokerName}様を退席させますか？'),
@@ -558,16 +559,38 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
         );
         
         if (confirmed == true) {
+          if (!ctx.mounted) return;
+          showDialog<void>(
+            context: ctx,
+            barrierDismissible: false,
+            useRootNavigator: true,
+            builder: (loadingCtx) {
+              final size = MediaQuery.sizeOf(loadingCtx);
+              return PopScope(
+                canPop: false,
+                child: SizedBox(
+                  width: size.width,
+                  height: size.height,
+                  child: Material(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
           try {
             final functions = FirebaseFunctions.instance;
             final callable = functions.httpsCallable('leaveSeat');
-            
+
             await callable.call({
               'tableId': tableId,
               'seatNumber': seatNumber,
               'userId': userId,
             });
-            
+
             if (ctx.mounted) {
               ScaffoldMessenger.of(ctx).showSnackBar(
                 SnackBar(
@@ -584,6 +607,10 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
                   backgroundColor: Colors.red,
                 ),
               );
+            }
+          } finally {
+            if (ctx.mounted) {
+              Navigator.of(ctx, rootNavigator: true).pop();
             }
           }
         }

@@ -28,6 +28,8 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<Device> _devices = [];
   bool _isLoading = true;
+  /// オプション編集の保存〜一覧再取得まで（changeSpec 型の全体ロック）
+  bool _isSavingOptions = false;
   String? _error;
   /// 現在操作しているデバイスID（この画面を開いている端末）
   String? _currentDeviceId;
@@ -350,6 +352,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     );
 
     if (result == true) {
+      setState(() => _isSavingOptions = true);
       try {
         // プリセットのみを送信（全置換）
         final Map<String, bool> presetOnly = {
@@ -384,6 +387,10 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
               backgroundColor: Colors.red,
             ),
           );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isSavingOptions = false);
         }
       }
     }
@@ -428,20 +435,38 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('デバイス管理'),
-        backgroundColor: Colors.blue[700],
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadDevices,
-            tooltip: '更新',
+    return PopScope(
+      canPop: !_isSavingOptions,
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: const Text('デバイス管理'),
+              backgroundColor: Colors.blue[700],
+              foregroundColor: Colors.white,
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _isSavingOptions ? null : _loadDevices,
+                  tooltip: '更新',
+                ),
+              ],
+            ),
+            body: _buildBody(),
           ),
+          if (_isSavingOptions)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
-      body: _buildBody(),
     );
   }
 

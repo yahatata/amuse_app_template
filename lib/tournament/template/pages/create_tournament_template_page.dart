@@ -334,27 +334,15 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return Stack(
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: Text(widget.existingTemplate != null 
           ? 'トーナメントテンプレート編集' 
           : 'トーナメントテンプレート作成'),
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
-        actions: [
-          if (_isSaving)
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              ),
-            ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -746,6 +734,19 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
                 ),
               ),
             ),
+        ),
+        if (_isSaving)
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: ColoredBox(
+                color: Colors.black.withValues(alpha: 0.35),
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
