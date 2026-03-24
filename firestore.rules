@@ -2,6 +2,15 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isPayrollAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     // ===== 開発用設定（セキュリティを緩く設定） =====
     // 本番環境では適切な認証制限を再設定してください
 
@@ -306,6 +315,12 @@ service cloud.firestore {
       allow write: if false; // 書き込みは Functions 経由のみ
     }
 
+    // storeMeta/payrollConfig ドキュメント（Phase4.3 給与設定。PayrollConfigService が購読）
+    match /storeMeta/payrollConfig {
+      allow read: if isPayrollAdmin();
+      allow write: if false;
+    }
+
     // storeMeta/currentBusinessDay コレクション
     match /storeMeta/currentBusinessDay {
       // 読み取り: 全ユーザー許可（UIがsnapshot購読するため）
@@ -327,6 +342,39 @@ service cloud.firestore {
     match /storeMeta/currentBusinessDay/assessmentLogs/{logId} {
       allow read: if true;
       allow write: if false;
+    }
+
+    // Phase4.3: 給与計算結果
+    match /monthlyPayroll/{paymentPeriodKey} {
+      allow read: if isPayrollAdmin();
+      allow write: if false;
+
+      match /payrollRuns/{runId} {
+        allow read: if isPayrollAdmin();
+        allow write: if false;
+
+        match /staffResults/{staffId} {
+          allow read: if isPayrollAdmin();
+          allow write: if false;
+
+          match /attendanceItems/{itemId} {
+            allow read: if isPayrollAdmin();
+            allow write: if false;
+          }
+        }
+      }
+    }
+
+    // Phase4.3: 給与通知
+    match /notifications/{notificationId} {
+      allow read: if isPayrollAdmin();
+      allow create, delete: if false;
+      allow update: if isPayrollAdmin()
+        && resource.data.operationCategory == 'payroll'
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'isRead',
+          'isFlagged'
+        ]);
     }
 
     // その他のコレクションは読み書き禁止

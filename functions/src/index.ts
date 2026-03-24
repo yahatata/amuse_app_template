@@ -14,6 +14,9 @@ import * as admin from "firebase-admin";
 // Firebase Admin SDKの初期化
 admin.initializeApp();
 
+// 給与検証用デモデータ（開発）
+export * from "./demo_data";
+
 // 認証・ユーザー・入店（Phase4: user）
 export * from "./domains/user/index";
 // メニューアイテム・注文（Phase4: itemOrder）

@@ -1,12 +1,15 @@
 import 'package:amuse_app_template/StaffDate/createStaffAccountPage.dart';
 import 'package:amuse_app_template/StaffDate/shiftMenuPage.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/AttendanceManagement/all_staff_attendance_page_from_adminHome.dart';
 import 'package:amuse_app_template/AttendanceManagement/attendanceCorrectionRequestsPage.dart';
 import 'package:amuse_app_template/pages/device_management_page.dart';
 import 'package:amuse_app_template/pages/admin_detail_settings_page.dart';
 import 'package:amuse_app_template/Home/staffListPage.dart';
+import 'package:amuse_app_template/payroll/payroll_calc_page.dart';
+import 'package:amuse_app_template/payroll/widgets/notification_list.dart';
 
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({super.key});
@@ -24,6 +27,37 @@ class _AdminHomePageState extends State<AdminHomePage> {
     });
   }
 
+  Widget _buildNotificationBell() {
+    final twoMonthsAgo = DateTime.now().subtract(const Duration(days: 60));
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('notifications')
+          .where('operationCategory', isEqualTo: 'payroll')
+          .where('isRead', isEqualTo: false)
+          .where('createdAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(twoMonthsAgo))
+          .snapshots(),
+      builder: (context, snapshot) {
+        final unreadCount = snapshot.data?.docs.length ?? 0;
+        return IconButton(
+          icon: Badge(
+            isLabelVisible: unreadCount > 0,
+            label: Text('$unreadCount', style: const TextStyle(fontSize: 10)),
+            child: const Icon(Icons.notifications_outlined, color: Colors.white),
+          ),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const PayrollNotificationListPage(),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -37,6 +71,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         (label: '詳細設定', destination: const AdminDetailSettingsPage()),
         (label: 'スタッフ一覧', destination: const StaffListPage()),
         (label: 'Staff作成', destination: const CreateStaffAccount()),
+        (label: '給与計算', destination: const PayrollCalcPage()),
       ];
 
     return Scaffold(
@@ -47,6 +82,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
           style: const TextStyle(fontSize: 30),
         ),
         actions: [
+          if (!_isTerminalMode) _buildNotificationBell(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: TextButton.icon(
