@@ -9,7 +9,7 @@
 
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import type { BusinessDateResult } from './types';
 import {
   convertToJst,
@@ -78,9 +78,14 @@ export async function calcBusinessDate(nowUtc?: Date): Promise<BusinessDateResul
       return { status: 'AMBIGUOUS', candidates };
     }
   } catch (error) {
-    logger.error('calcBusinessDate failed', {
-      error: error instanceof Error ? error.message : String(error),
-      nowUtc: nowUtc?.toISOString(),
+    logOpsError({
+      message: 'calcBusinessDate failed',
+      failureType: 'business',
+      functionEntry: 'calcBusinessDate',
+      cause: error,
+      context: {
+        nowUtc: nowUtc?.toISOString(),
+      },
     });
     
     // エラー時はNONEを返す（既存の動作を維持）

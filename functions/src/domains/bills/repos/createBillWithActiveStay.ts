@@ -18,6 +18,7 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import * as crypto from 'crypto';
 import { dualWriteTodaysBillsSkeleton, shouldDualWrite } from './dualWrite';
 import { getCurrentBusinessDateKeyOrThrow } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
@@ -242,15 +243,20 @@ export async function createBillWithActiveStay(
 
     return result;
   } catch (error) {
-    logger.error('createBillWithActiveStay: failed', {
-      op: 'createBillWithActiveStay',
-      billId,
-      userId,
-      idempKey: idempotencyKeyFull,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
-      requestHash8: requestHash.substring(0, 8),
+    logOpsError({
+      message: 'createBillWithActiveStay: failed',
+      failureType: 'business',
+      functionEntry: 'createBillWithActiveStay',
+      cause: error,
+      context: {
+        op: 'createBillWithActiveStay',
+        billId,
+        userId,
+        idempKey: idempotencyKeyFull,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+        requestHash8: requestHash.substring(0, 8),
+      },
     });
 
     if (error instanceof HttpsError) {

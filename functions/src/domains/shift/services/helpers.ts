@@ -3,6 +3,7 @@ import { logger } from "firebase-functions";
 import * as admin from "firebase-admin";
 import type { Firestore } from "firebase-admin/firestore";
 import { CONFIG_ERROR_CODES } from "../../../shared/config/configLoader";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
 const MAX_RETRIES = 2;
@@ -113,11 +114,17 @@ export async function getRequiredStaffByTimeSlot(firestore?: Firestore): Promise
     } catch (err) {
       lastError = err;
       if (attempt < MAX_RETRIES) continue;
-      logger.error("config_read_error", {
-        code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-        reason: "read_error",
-        message: String(err instanceof Error ? err.message : err),
-        error: String(lastError),
+      logOpsError({
+        message: "config_read_error",
+        failureType: "config",
+        functionEntry: "getRequiredStaffByTimeSlot",
+        operation: "config_read",
+        cause: lastError,
+        context: {
+          code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
+          reason: "read_error",
+          message: String(err instanceof Error ? err.message : err),
+        },
       });
       logger.warn("config_fallback", {
         code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,

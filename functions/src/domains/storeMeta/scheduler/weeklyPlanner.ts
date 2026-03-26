@@ -11,6 +11,7 @@
 
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { CloudTasksClient } from '@google-cloud/tasks';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getEnv } from '../../../shared/firebase';
@@ -215,7 +216,12 @@ export const weeklyPlanner = onSchedule(
       }
     }
     } catch (error) {
-      logger.error('weeklyPlannerでエラーが発生しました:', error);
+      logOpsError({
+        message: 'weeklyPlannerでエラーが発生しました:',
+        failureType: 'scheduled',
+        functionEntry: 'weeklyPlanner',
+        cause: error,
+      });
       throw error;
     }
   }

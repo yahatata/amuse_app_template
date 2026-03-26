@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { logger } from "firebase-functions";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { validateStoreTenantForProduction } from "../../../shared/runtime";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
@@ -118,11 +119,17 @@ export const createTournamentRecurrence = onCall(async (request) => {
     try {
       await runEnqueueTournamentTasks({ storeId, tenantId });
     } catch (enqueueError) {
-      logger.error('enqueue 呼び出しエラー', {
-        recurrenceId: recurrenceRef.id,
-        storeId,
-        tenantId,
-        error: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
+      logOpsError({
+        message: 'enqueue 呼び出しエラー',
+        failureType: 'business',
+        functionEntry: 'createTournamentRecurrence',
+        operation: 'enqueueAfterCreate',
+        cause: enqueueError,
+        context: {
+          recurrenceId: recurrenceRef.id,
+          storeId,
+          tenantId,
+        },
       });
     }
 

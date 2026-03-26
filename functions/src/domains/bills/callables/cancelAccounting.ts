@@ -17,6 +17,7 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 // 会計キャンセルのスキーマ（pre-settlement 専用）
 const CancelAccountingSchema = z.object({
@@ -112,10 +113,15 @@ export const cancelAccounting = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    logger.error('cancelAccounting failed', {
-      op: 'cancelAccounting',
-      code: 'internal',
-      reason: error?.message || String(error),
+    logOpsError({
+      message: 'cancelAccounting failed',
+      failureType: 'business',
+      functionEntry: 'cancelAccounting',
+      cause: error,
+      context: {
+        op: 'cancelAccounting',
+        code: 'internal',
+      },
     });
     throw new HttpsError('internal', '会計開始取り消しに失敗しました', error.message);
   }

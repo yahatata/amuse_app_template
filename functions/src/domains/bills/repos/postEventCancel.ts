@@ -12,6 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { calcBusinessDate } from './calcBusinessDate';
 
 export interface PostEventCancelRequest {
@@ -177,13 +178,18 @@ export async function postEventCancel(request: PostEventCancelRequest): Promise<
 
     return result;
   } catch (error) {
-    logger.error('postEventCancel failed', {
-      op: 'postEventCancel',
-      billId,
-      eventId: idempotencyKey,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'postEventCancel failed',
+      failureType: 'business',
+      functionEntry: 'postEventCancel',
+      cause: error,
+      context: {
+        op: 'postEventCancel',
+        billId,
+        eventId: idempotencyKey,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+      },
     });
 
     if (error instanceof HttpsError) {

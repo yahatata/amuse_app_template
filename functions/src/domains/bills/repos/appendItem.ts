@@ -12,6 +12,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import * as crypto from 'crypto';
 import { resolveMenuItem } from './resolveMenuItem';
 import { shouldDualWrite, legacyAppendItemUpdate } from './dualWrite';
@@ -336,16 +337,21 @@ export async function appendItem(request: AppendItemRequest): Promise<AppendItem
     const { dualWriteResult: _, dualWriteError: __, ...response } = result;
     return response as AppendItemResponse;
   } catch (error) {
-    logger.error('appendItem: failed', {
-      op: 'appendItem',
-      billId,
-      idempKey: idempotencyKey,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
-      requestHash8: requestHash.substring(0, 8),
+    logOpsError({
+      message: 'appendItem: failed',
+      failureType: 'business',
+      functionEntry: 'appendItem',
+      cause: error,
+      context: {
+        op: 'appendItem',
+        billId,
+        idempKey: idempotencyKey,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+        requestHash8: requestHash.substring(0, 8),
+      },
     });
-    
+
     if (error instanceof HttpsError) {
       throw error;
     }
@@ -592,18 +598,24 @@ export async function appendItemWithOrderProjection(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
-    
-    logger.error('appendItemWithOrderProjection: failed', {
-      op: 'appendItemWithOrderProjection',
-      billId,
-      idempKey: idempotencyKey,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: errorMessage,
-      stack: errorStack,
-      requestHash8: requestHash.substring(0, 8),
+
+    logOpsError({
+      message: 'appendItemWithOrderProjection: failed',
+      failureType: 'business',
+      functionEntry: 'appendItem',
+      operation: 'appendItemWithOrderProjection',
+      cause: error,
+      context: {
+        op: 'appendItemWithOrderProjection',
+        billId,
+        idempKey: idempotencyKey,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+        requestHash8: requestHash.substring(0, 8),
+        stackPreview: errorStack ? errorStack.slice(0, 500) : undefined,
+      },
     });
-    
+
     if (error instanceof HttpsError) {
       throw error;
     }

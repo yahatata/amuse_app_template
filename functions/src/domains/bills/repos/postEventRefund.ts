@@ -11,6 +11,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { calcBusinessDate } from './calcBusinessDate';
 
 export interface PostEventRefundRequest {
@@ -248,13 +249,18 @@ export async function postEventRefund(request: PostEventRefundRequest): Promise<
 
     return result;
   } catch (error) {
-    logger.error('postEventRefund failed', {
-      op: 'postEventRefund',
-      billId,
-      eventId: idempotencyKey,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'postEventRefund failed',
+      failureType: 'business',
+      functionEntry: 'postEventRefund',
+      cause: error,
+      context: {
+        op: 'postEventRefund',
+        billId,
+        eventId: idempotencyKey,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+      },
     });
 
     if (error instanceof HttpsError) {

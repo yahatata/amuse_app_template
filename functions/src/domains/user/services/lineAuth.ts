@@ -1,4 +1,4 @@
-import * as logger from "firebase-functions/logger";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import { LineUserInfo } from "../../../shared/types";
 
 /**
@@ -28,7 +28,12 @@ export async function verifyLineIdToken(
       email: payload.email || null,
     };
   } catch (error) {
-    logger.error("Error verifying LINE ID token", error);
+    logOpsError({
+      message: "Error verifying LINE ID token",
+      failureType: "internal",
+      functionEntry: "verifyLineIdToken",
+      cause: error,
+    });
     throw new Error("Failed to verify LINE ID token");
   }
 }

@@ -5,6 +5,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shar
 import { validateStoreTenantForProduction } from "../../../shared/runtime";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { logger } from "firebase-functions";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
 
 // 入力スキーマの定義
@@ -361,11 +362,13 @@ export const createScheduledTournament = onCall(async (request) => {
     try {
       await runEnqueueTournamentTasks({ storeId, tenantId });
     } catch (enqueueError) {
-      logger.error('enqueue 呼び出しエラー', {
-        tournamentId,
-        storeId,
-        tenantId,
-        error: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
+      logOpsError({
+        message: 'enqueue 呼び出しエラー',
+        failureType: 'business',
+        functionEntry: 'createScheduledTournament',
+        operation: 'enqueueAfterCreate',
+        cause: enqueueError,
+        context: { tournamentId, storeId, tenantId },
       });
     }
 

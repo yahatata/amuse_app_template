@@ -13,6 +13,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { shouldDualWrite, legacyUpdatePlaceUpdate } from './dualWrite';
 
 export interface UpdatePlaceRequest {
@@ -173,17 +174,22 @@ export async function updatePlace(request: UpdatePlaceRequest): Promise<UpdatePl
       updatedAt: result.updatedAt.toDate().toISOString(),
     };
   } catch (error) {
-    logger.error('updatePlace: failed', {
-      op: 'updatePlace',
-      billId,
-      table,
-      seat,
-      idempKey: idempotencyKey,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'updatePlace: failed',
+      failureType: 'business',
+      functionEntry: 'updatePlace',
+      cause: error,
+      context: {
+        op: 'updatePlace',
+        billId,
+        table,
+        seat,
+        idempKey: idempotencyKey,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+      },
     });
-    
+
     if (error instanceof HttpsError) {
       throw error;
     }
