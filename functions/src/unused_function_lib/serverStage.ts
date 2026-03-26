@@ -1,4 +1,5 @@
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../shared/logging/logOpsError';
 
 /**
  * ブラインドテンプレートからステージ配列を導出し、
@@ -73,7 +74,12 @@ export function buildStagesFromTemplate(
     return stages;
 
   } catch (error) {
-    logger.error('buildStagesFromTemplate: Error building stages', error);
+    logOpsError({
+      message: 'buildStagesFromTemplate: Error building stages',
+      failureType: 'internal',
+      functionEntry: 'buildStagesFromTemplate',
+      cause: error,
+    });
     throw error;
   }
 }
@@ -112,7 +118,12 @@ export function calculateLateRegCloseTime(
     return closeTime;
 
   } catch (error) {
-    logger.error('calculateLateRegCloseTime: Error calculating close time', error);
+    logOpsError({
+      message: 'calculateLateRegCloseTime: Error calculating close time',
+      failureType: 'internal',
+      functionEntry: 'calculateLateRegCloseTime',
+      cause: error,
+    });
     throw error;
   }
 }
@@ -148,7 +159,12 @@ export function getCurrentStage(
     return stages[0] || null;
 
   } catch (error) {
-    logger.error('getCurrentStage: Error getting current stage', error);
+    logOpsError({
+      message: 'getCurrentStage: Error getting current stage',
+      failureType: 'internal',
+      functionEntry: 'getCurrentStage',
+      cause: error,
+    });
     throw error;
   }
 }

@@ -1,6 +1,7 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
+import { logOpsError, truncateForLog } from "../../../shared/logging/logOpsError";
 import { isProductionRuntime } from "../../../shared/runtime";
 import { linkStaffRichMenu, linkUserRichMenu } from "../services/lineRichMenu";
 
@@ -67,7 +68,12 @@ export const lineWebhook = onRequest(async (request, response) => {
 
     const channelAccessToken = getLineChannelAccessToken();
     if (!channelAccessToken) {
-      logger.error("LINE_CHANNEL_ACCESS_TOKEN is not set");
+      logOpsError({
+        message: "LINE_CHANNEL_ACCESS_TOKEN is not set",
+        failureType: "config",
+        functionEntry: "lineWebhook",
+        operation: "token",
+      });
       response.status(500).json({ error: "Configuration error" });
       return;
     }
@@ -125,13 +131,25 @@ export const lineWebhook = onRequest(async (request, response) => {
                 });
                 if (!replyResponse.ok) {
                   const errorText = await replyResponse.text();
-                  logger.error("Failed to send reply message", {
-                    status: replyResponse.status,
-                    error: errorText,
+                  logOpsError({
+                    message: "Failed to send reply message",
+                    failureType: "external_api",
+                    functionEntry: "lineWebhook",
+                    operation: "replyMessage",
+                    context: {
+                      status: replyResponse.status,
+                      lineApiErrorPreview: errorText.slice(0, 200),
+                    },
                   });
                 }
               } catch (replyError) {
-                logger.error("Error sending reply message", { error: replyError });
+                logOpsError({
+                  message: "Error sending reply message",
+                  failureType: "external_api",
+                  functionEntry: "lineWebhook",
+                  operation: "replyMessage",
+                  cause: replyError,
+                });
               }
               continue; // 処理をスキップ
             }
@@ -180,13 +198,25 @@ export const lineWebhook = onRequest(async (request, response) => {
 
                   if (!replyResponse.ok) {
                     const errorText = await replyResponse.text();
-                    logger.error("Failed to send reply message", {
-                      status: replyResponse.status,
-                      error: errorText,
+                    logOpsError({
+                      message: "Failed to send reply message",
+                      failureType: "external_api",
+                      functionEntry: "lineWebhook",
+                      operation: "replyMessage",
+                      context: {
+                        status: replyResponse.status,
+                        lineApiErrorPreview: errorText.slice(0, 200),
+                      },
                     });
                   }
                 } catch (replyError) {
-                  logger.error("Error sending reply message", { error: replyError });
+                  logOpsError({
+                    message: "Error sending reply message",
+                    failureType: "external_api",
+                    functionEntry: "lineWebhook",
+                    operation: "replyMessage",
+                    cause: replyError,
+                  });
                 }
               } else {
                 logger.warn("Invalid staff ID or already processed", { 
@@ -201,7 +231,18 @@ export const lineWebhook = onRequest(async (request, response) => {
             }
           }
         } catch (error) {
-          logger.error("Error processing postback event", { lineUserId, postbackData, error });
+          logOpsError({
+            message: "Error processing postback event",
+            failureType: "webhook",
+            functionEntry: "lineWebhook",
+            operation: "postback",
+            cause: error,
+            context: {
+              lineUserId,
+              postbackDataPreview:
+                typeof postbackData === "string" ? truncateForLog(postbackData, 64) : undefined,
+            },
+          });
         }
       }
 
@@ -229,14 +270,27 @@ export const lineWebhook = onRequest(async (request, response) => {
             logger.warn("Rich menu link failed (non-fatal)", { lineUserId, isStaff: staffDoc.exists });
           }
         } catch (error) {
-          logger.error("Error processing follow/unblock", { lineUserId, error });
+          logOpsError({
+            message: "Error processing follow/unblock",
+            failureType: "webhook",
+            functionEntry: "lineWebhook",
+            operation: "followOrUnblock",
+            cause: error,
+            context: { lineUserId },
+          });
         }
       }
     }
 
     response.status(200).json({ message: "OK" });
   } catch (error) {
-    logger.error("Webhook error", error);
+    logOpsError({
+      message: "Webhook error",
+      failureType: "webhook",
+      functionEntry: "lineWebhook",
+      operation: "handler",
+      cause: error,
+    });
     response.status(500).json({ error: "Internal server error" });
   }
 });

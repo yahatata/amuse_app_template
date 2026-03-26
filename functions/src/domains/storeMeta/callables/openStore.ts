@@ -7,6 +7,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { getCallerDeviceByUid, hasStoreManagementPermission, isActive } from '../../../shared/devices';
 import { generateJstDateKey } from '../../../shared/time';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -94,10 +95,15 @@ export const openStore = onCall(
       throw error;
     }
 
-    logger.error('openStore failed', {
-      uid: callerUid,
-      businessDateKey: (request.data as any)?.businessDateKey || 'auto-generated',
-      error: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'openStore failed',
+      failureType: 'business',
+      functionEntry: 'openStore',
+      cause: error,
+      context: {
+        uid: callerUid,
+        businessDateKey: (request.data as any)?.businessDateKey || 'auto-generated',
+      },
     });
 
     // best-effortでlogsサブコレクションに記録を試みる（失敗しても致命ではない）

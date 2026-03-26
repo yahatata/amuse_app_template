@@ -8,7 +8,7 @@ import { onCall } from 'firebase-functions/v2/https';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { appendExtra, AppendExtraRequest } from '../repos/appendExtra';
-import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 export const appendExtraCallable = onCall(async (request) => {
   // 認証チェック
@@ -46,10 +46,15 @@ export const appendExtraCallable = onCall(async (request) => {
     const result = await appendExtra(data);
     return result;
   } catch (error) {
-    logger.error('appendExtra callable error', {
-      uid,
-      billId: data.billId,
-      error: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'appendExtra callable error',
+      failureType: 'business',
+      functionEntry: 'appendExtraCallable',
+      cause: error,
+      context: {
+        uid,
+        billId: data.billId,
+      },
     });
 
     if (error instanceof HttpsError) {

@@ -9,6 +9,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import * as crypto from 'crypto';
 import { shouldDualWrite } from './dualWrite';
 
@@ -251,14 +252,19 @@ export async function appendExtra(request: AppendExtraRequest): Promise<AppendEx
     const { dualWriteResult: _, dualWriteError: __, ...response } = result;
     return response as AppendExtraResponse;
   } catch (error) {
-    logger.error('appendExtra: failed', {
-      op: 'appendExtra',
-      billId,
-      idempKey: finalIdempotencyKey,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
-      requestHash8: requestHash.substring(0, 8),
+    logOpsError({
+      message: 'appendExtra: failed',
+      failureType: 'business',
+      functionEntry: 'appendExtra',
+      cause: error,
+      context: {
+        op: 'appendExtra',
+        billId,
+        idempKey: finalIdempotencyKey,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+        requestHash8: requestHash.substring(0, 8),
+      },
     });
     
     if (error instanceof HttpsError) {

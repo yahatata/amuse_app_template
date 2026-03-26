@@ -12,6 +12,7 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { postEventRefund } from '../repos/postEventRefund';
 
 // 返金処理のスキーマ
@@ -84,10 +85,15 @@ export const processRefund = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    logger.error('processRefund failed', {
-      op: 'processRefund',
-      code: 'internal',
-      reason: error?.message || String(error),
+    logOpsError({
+      message: 'processRefund failed',
+      failureType: 'business',
+      functionEntry: 'processRefund',
+      cause: error,
+      context: {
+        op: 'processRefund',
+        code: 'internal',
+      },
     });
     throw new HttpsError('internal', '返金処理に失敗しました', error.message);
   }
@@ -133,10 +139,15 @@ export const getRefundHistory = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    logger.error('getRefundHistory failed', {
-      op: 'getRefundHistory',
-      code: 'internal',
-      reason: error?.message || String(error),
+    logOpsError({
+      message: 'getRefundHistory failed',
+      failureType: 'business',
+      functionEntry: 'getRefundHistory',
+      cause: error,
+      context: {
+        op: 'getRefundHistory',
+        code: 'internal',
+      },
     });
     throw new HttpsError('internal', '返金履歴の取得に失敗しました', error.message);
   }

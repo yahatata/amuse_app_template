@@ -11,6 +11,7 @@ import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { cleanupIdempotencyOnSettle } from '../services/onSettleCleanupIdempotency';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import {
@@ -197,9 +198,12 @@ export const billsOnSettle = onDocumentUpdated(
         }
       }
     } catch (error) {
-      logger.error('billsOnSettle failed', {
-        billId,
-        code: error instanceof Error ? error.message : String(error),
+      logOpsError({
+        message: 'billsOnSettle failed',
+        failureType: 'datastore',
+        functionEntry: 'billsOnSettle',
+        cause: error,
+        context: { billId },
       });
 
       // トリガのエラーは再スローしない（Firestore の仕様）

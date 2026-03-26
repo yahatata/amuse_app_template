@@ -8,6 +8,7 @@
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 import { aggregateStaffResults } from '../helpers/payrollRunHelpers';
 import { generateAnomalyFlags } from '../helpers/generateAnomalyFlags';
@@ -38,7 +39,12 @@ export const finalizePayrollRun = onTaskDispatched(
     // 1. 冪等性ガード
     const runDoc = await runRef.get();
     if (!runDoc.exists) {
-      logger.error('finalizePayrollRun: run not found', { runId });
+      logOpsError({
+        message: 'finalizePayrollRun: run not found',
+        failureType: 'business',
+        functionEntry: 'finalizePayrollRun',
+        context: { runId },
+      });
       return;
     }
     const runData = runDoc.data()!;

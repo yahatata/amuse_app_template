@@ -8,6 +8,7 @@
 import * as crypto from 'crypto';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { validateStoreTenantForProduction, isProductionRuntime } from '../../../shared/runtime';
 import { enqueueTournamentTask } from './tasks';
 
@@ -233,10 +234,13 @@ async function processTournament(
         });
         results[taskType] = 'done';
       } catch (err) {
-        logger.error('enqueueTournamentTask failed', {
-          tournamentId,
-          taskType,
-          error: err instanceof Error ? err.message : String(err),
+        logOpsError({
+          message: 'enqueueTournamentTask failed',
+          failureType: 'business',
+          functionEntry: 'runEnqueueTournamentTasks',
+          operation: 'enqueueTournamentTask',
+          cause: err,
+          context: { tournamentId, taskType },
         });
         await idxRef.update({
           enqueueState: 'failed',

@@ -7,7 +7,7 @@
 
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { generateJstDateKey } from '../../../shared/time';
 
 const db = getFirestore();
@@ -107,7 +107,12 @@ export async function getCurrentBusinessDateKeyOrThrow(): Promise<string> {
       throw error;
     }
 
-    logger.error('getCurrentBusinessDateKeyOrThrow failed', { error });
+    logOpsError({
+      message: 'getCurrentBusinessDateKeyOrThrow failed',
+      failureType: 'datastore',
+      functionEntry: 'getCurrentBusinessDateKeyOrThrow',
+      cause: error,
+    });
     throw new HttpsError(
       'internal',
       `Failed to get current business date key: ${error instanceof Error ? error.message : String(error)}`

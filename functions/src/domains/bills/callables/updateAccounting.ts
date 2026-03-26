@@ -12,6 +12,7 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { postEventAdjustment } from '../repos/postEventAdjustment';
 import { postEventCancel } from '../repos/postEventCancel';
 import { postEventReopen } from '../repos/postEventReopen';
@@ -122,10 +123,15 @@ export const updateAccounting = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    logger.error('updateAccounting failed', {
-      op: 'updateAccounting',
-      code: 'internal',
-      reason: error?.message || String(error),
+    logOpsError({
+      message: 'updateAccounting failed',
+      failureType: 'business',
+      functionEntry: 'updateAccounting',
+      cause: error,
+      context: {
+        op: 'updateAccounting',
+        code: 'internal',
+      },
     });
     throw new HttpsError('internal', '会計後調整に失敗しました', error.message);
   }

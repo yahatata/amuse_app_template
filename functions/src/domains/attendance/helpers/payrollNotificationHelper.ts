@@ -6,6 +6,7 @@
 
 import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { PAYROLL_NOTIFICATION_TEMPLATES } from './payrollNotificationTemplates';
 
 export interface CreateNotificationOptions {
@@ -59,7 +60,12 @@ export async function createPayrollNotification(
 ): Promise<void> {
   const template = PAYROLL_NOTIFICATION_TEMPLATES[triggerType];
   if (!template) {
-    logger.error('createPayrollNotification: unknown triggerType', { triggerType });
+    logOpsError({
+      message: 'createPayrollNotification: unknown triggerType',
+      failureType: 'business',
+      functionEntry: 'createPayrollNotification',
+      context: { triggerType },
+    });
     return;
   }
 

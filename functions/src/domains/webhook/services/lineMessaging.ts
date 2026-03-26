@@ -1,4 +1,5 @@
 import * as logger from "firebase-functions/logger";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import { isProductionRuntime } from "../../../shared/runtime";
 
 // LINE_CHANNEL_ACCESS_TOKEN: コマンド/コンソールで設定。本番で未設定時はエラー（Phase0A D-01）
@@ -25,12 +26,23 @@ export async function sendLinePushMessage(
     const channelAccessToken = getLineChannelAccessToken();
 
     if (!channelAccessToken) {
-      logger.error("LINE_CHANNEL_ACCESS_TOKEN is not set");
+      logOpsError({
+        message: "LINE_CHANNEL_ACCESS_TOKEN is not set",
+        failureType: "config",
+        functionEntry: "sendLinePushMessage",
+        operation: "token",
+      });
       return false;
     }
 
     if (!userId || !message) {
-      logger.error("Invalid parameters for sendLinePushMessage", { userId, hasMessage: !!message });
+      logOpsError({
+        message: "Invalid parameters for sendLinePushMessage",
+        failureType: "config",
+        functionEntry: "sendLinePushMessage",
+        operation: "validate",
+        context: { userId, hasMessage: !!message },
+      });
       return false;
     }
 
@@ -53,10 +65,16 @@ export async function sendLinePushMessage(
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error("Failed to send LINE push message", {
-        userId,
-        status: response.status,
-        error: errorText,
+      logOpsError({
+        message: "Failed to send LINE push message",
+        failureType: "external_api",
+        functionEntry: "sendLinePushMessage",
+        operation: "push",
+        context: {
+          userId,
+          status: response.status,
+          lineApiErrorPreview: errorText.slice(0, 200),
+        },
       });
       return false;
     }
@@ -64,7 +82,14 @@ export async function sendLinePushMessage(
     logger.info("LINE push message sent successfully", { userId });
     return true;
   } catch (error) {
-    logger.error("Error sending LINE push message", { userId, error });
+    logOpsError({
+      message: "Error sending LINE push message",
+      failureType: "external_api",
+      functionEntry: "sendLinePushMessage",
+      operation: "push",
+      cause: error,
+      context: { userId },
+    });
     return false;
   }
 }
@@ -82,7 +107,13 @@ export function formatDateToJapanese(dateString: string): string {
     const day = date.getDate();
     return `${month}月${day}日`;
   } catch (error) {
-    logger.error("Error formatting date", { dateString, error });
+    logOpsError({
+      message: "Error formatting date",
+      failureType: "internal",
+      functionEntry: "formatDateToJapanese",
+      cause: error,
+      context: { dateString },
+    });
     return dateString; // エラー時は元の文字列を返す
   }
 }
@@ -121,15 +152,26 @@ export async function sendLineButtonMessage(
     const channelAccessToken = getLineChannelAccessToken();
 
     if (!channelAccessToken) {
-      logger.error("LINE_CHANNEL_ACCESS_TOKEN is not set");
+      logOpsError({
+        message: "LINE_CHANNEL_ACCESS_TOKEN is not set",
+        failureType: "config",
+        functionEntry: "sendLineButtonMessage",
+        operation: "token",
+      });
       return false;
     }
 
     if (!userId || !message || !buttons || buttons.length === 0) {
-      logger.error("Invalid parameters for sendLineButtonMessage", { 
-        userId, 
-        hasMessage: !!message,
-        hasButtons: !!buttons 
+      logOpsError({
+        message: "Invalid parameters for sendLineButtonMessage",
+        failureType: "config",
+        functionEntry: "sendLineButtonMessage",
+        operation: "validate",
+        context: {
+          userId,
+          hasMessage: !!message,
+          hasButtons: !!buttons,
+        },
       });
       return false;
     }
@@ -164,10 +206,16 @@ export async function sendLineButtonMessage(
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error("Failed to send LINE button message", {
-        userId,
-        status: response.status,
-        error: errorText,
+      logOpsError({
+        message: "Failed to send LINE button message",
+        failureType: "external_api",
+        functionEntry: "sendLineButtonMessage",
+        operation: "push",
+        context: {
+          userId,
+          status: response.status,
+          lineApiErrorPreview: errorText.slice(0, 200),
+        },
       });
       return false;
     }
@@ -175,7 +223,14 @@ export async function sendLineButtonMessage(
     logger.info("LINE button message sent successfully", { userId });
     return true;
   } catch (error) {
-    logger.error("Error sending LINE button message", { userId, error });
+    logOpsError({
+      message: "Error sending LINE button message",
+      failureType: "external_api",
+      functionEntry: "sendLineButtonMessage",
+      operation: "push",
+      cause: error,
+      context: { userId },
+    });
     return false;
   }
 }

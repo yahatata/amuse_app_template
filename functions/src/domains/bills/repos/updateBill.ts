@@ -12,6 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { shouldDualWrite, legacyUpdateBillUpdate } from './dualWrite';
 
 export interface UpdateBillRequest {
@@ -175,12 +176,17 @@ export async function updateBill(request: UpdateBillRequest): Promise<UpdateBill
 
     return result;
   } catch (error) {
-    logger.error('updateBill failed', {
-      op: 'updateBill',
-      billId,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'updateBill failed',
+      failureType: 'business',
+      functionEntry: 'updateBill',
+      cause: error,
+      context: {
+        op: 'updateBill',
+        billId,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+      },
     });
 
     if (error instanceof HttpsError) {

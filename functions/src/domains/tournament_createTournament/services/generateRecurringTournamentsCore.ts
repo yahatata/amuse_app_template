@@ -12,6 +12,7 @@
 
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import { isProductionRuntime, validateStoreTenantForProduction } from "../../../shared/runtime";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { runEnqueueTournamentTasks } from "./enqueueTournamentTasksCore";
@@ -227,9 +228,13 @@ export async function runGenerateRecurringTournaments(): Promise<GenerateRecurri
         const opts = storeIds.size === 1 ? { storeId: Array.from(storeIds)[0] } : {};
         await runEnqueueTournamentTasks(opts);
       } catch (enqueueError) {
-        logger.error("enqueue 呼び出しエラー（定期生成後）", {
-          totalGenerated,
-          error: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
+        logOpsError({
+          message: "enqueue 呼び出しエラー（定期生成後）",
+          failureType: "business",
+          functionEntry: "runGenerateRecurringTournaments",
+          operation: "enqueueAfterGenerate",
+          cause: enqueueError,
+          context: { totalGenerated },
         });
       }
     } else {
