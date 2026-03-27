@@ -6,6 +6,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import type { DeviceDoc } from '../../../shared/devices';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力データの検証スキーマ
 const bustAndExitSchema = z.object({
@@ -170,7 +171,12 @@ export const bustAndExit = onCall(async (request) => {
           seat: null,
         });
       } catch (error) {
-        console.error('updatePlace failed', error);
+        logOpsError({
+      message: 'updatePlace failed',
+      failureType: 'business',
+      functionEntry: 'bustAndExit',
+      cause: error,
+    });
         // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
       }
     }
@@ -204,8 +210,12 @@ export const bustAndExit = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('=== Bust&退席エラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== Bust&退席エラー ===',
+      failureType: 'business',
+      functionEntry: 'bustAndExit',
+      cause: error,
+    });
 
     const rawData = request.data as Record<string, unknown> | undefined;
     const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : undefined;
@@ -221,7 +231,12 @@ export const bustAndExit = onCall(async (request) => {
           payload: {},
         });
       } catch (logErr) {
-        console.error('operationLog 書き込み失敗', logErr);
+        logOpsError({
+      message: 'operationLog 書き込み失敗',
+      failureType: 'business',
+      functionEntry: 'bustAndExit',
+      cause: logErr,
+    });
       }
     }
 

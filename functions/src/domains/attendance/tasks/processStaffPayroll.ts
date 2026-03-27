@@ -9,6 +9,7 @@ import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getFunctions } from 'firebase-admin/functions';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 import { calculateStaffPayroll, calculateCarryOverPayroll } from '../helpers/payrollCalcEngine';
 import { buildCalcConfigFromSnapshot } from '../helpers/payrollRunHelpers';
@@ -39,7 +40,12 @@ export const processStaffPayroll = onTaskDispatched(
       // 1. payrollRuns status チェック
       const runDoc = await runRef.get();
       if (!runDoc.exists) {
-        logger.error('processStaffPayroll: run not found', { runId });
+        logOpsError({
+          message: 'processStaffPayroll: run not found',
+          failureType: 'business',
+          functionEntry: 'processStaffPayroll',
+          context: { runId },
+        });
         return;
       }
       const runData = runDoc.data()!;
@@ -51,7 +57,12 @@ export const processStaffPayroll = onTaskDispatched(
       // 2. 冪等性ガード
       const staffResultDoc = await staffResultRef.get();
       if (!staffResultDoc.exists) {
-        logger.error('processStaffPayroll: staffResult not found', { runId, staffId });
+        logOpsError({
+          message: 'processStaffPayroll: staffResult not found',
+          failureType: 'business',
+          functionEntry: 'processStaffPayroll',
+          context: { runId, staffId },
+        });
         return;
       }
       const srData = staffResultDoc.data()!;
@@ -287,7 +298,13 @@ export const processStaffPayroll = onTaskDispatched(
 
       logger.info('processStaffPayroll: completed', { runId, staffId });
     } catch (error) {
-      logger.error('processStaffPayroll: failed', { runId, staffId, error });
+      logOpsError({
+        message: 'processStaffPayroll: failed',
+        failureType: 'business',
+        functionEntry: 'processStaffPayroll',
+        cause: error,
+        context: { runId, staffId },
+      });
 
       // 失敗処理（トランザクション）
       // 成功時と同様、read を先にまとめる（write 後の get は不可）。
@@ -330,7 +347,14 @@ export const processStaffPayroll = onTaskDispatched(
           await finalizeQueue.enqueue({ runId, paymentPeriodKey });
         }
       } catch (trxError) {
-        logger.error('processStaffPayroll: failed to update failure status', { runId, staffId, trxError });
+        logOpsError({
+          message: 'processStaffPayroll: failed to update failure status',
+          failureType: 'business',
+          functionEntry: 'processStaffPayroll',
+          operation: 'failureStatusUpdate',
+          cause: trxError,
+          context: { runId, staffId },
+        });
       }
 
       throw error;

@@ -15,6 +15,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 function resolveAdjustedTimestamp(
   adjustmentOffsetMinutes: unknown,
@@ -139,7 +140,12 @@ export const startBreak = onCall(async (request: CallableRequest) => {
     };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
-    console.error('Error in startBreak:', error);
+    logOpsError({
+      message: 'Error in startBreak:',
+      failureType: 'business',
+      functionEntry: 'startBreak',
+      cause: error,
+    });
     throw new HttpsError('internal', 'Internal server error');
   }
 });

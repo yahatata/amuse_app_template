@@ -12,6 +12,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { logOpsError } from "../shared/logging/logOpsError";
 
 export const updateClockOutRecord = onCall(async (request: CallableRequest) => {
   if (!request.auth) {
@@ -106,7 +107,12 @@ export const updateClockOutRecord = onCall(async (request: CallableRequest) => {
       }
     };
   } catch (error) {
-    console.error('Error in updateClockOutRecord:', error);
+    logOpsError({
+      message: 'Error in updateClockOutRecord:',
+      failureType: 'internal',
+      functionEntry: 'updateClockOutRecord',
+      cause: error,
+    });
     if (error instanceof HttpsError) {
       throw error;
     }

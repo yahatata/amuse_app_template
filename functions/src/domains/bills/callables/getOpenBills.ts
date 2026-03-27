@@ -1,6 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getCurrentBusinessDateKeyOrThrow } from "../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * When: 入店中ユーザー一覧が必要なとき（例: 注文ダイアログ表示前、利用者一覧画面表示時）
@@ -37,7 +38,12 @@ export const getOpenBills = onCall(async () => {
 
     return { success: true, data };
   } catch (error) {
-    console.error("getOpenBills エラー:", error);
+    logOpsError({
+      message: 'getOpenBills エラー:',
+      failureType: 'business',
+      functionEntry: 'getOpenBills',
+      cause: error,
+    });
     return { success: false, error: "入店中ユーザーの取得に失敗しました" };
   }
 });

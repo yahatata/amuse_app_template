@@ -11,6 +11,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { calcBusinessDate } from './calcBusinessDate';
 
 export interface PostEventAdjustmentRequest {
@@ -239,13 +240,18 @@ export async function postEventAdjustment(request: PostEventAdjustmentRequest): 
 
     return result;
   } catch (error) {
-    logger.error('postEventAdjustment failed', {
-      op: 'postEventAdjustment',
-      billId,
-      eventId: idempotencyKey,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'postEventAdjustment failed',
+      failureType: 'business',
+      functionEntry: 'postEventAdjustment',
+      cause: error,
+      context: {
+        op: 'postEventAdjustment',
+        billId,
+        eventId: idempotencyKey,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+      },
     });
 
     if (error instanceof HttpsError) {

@@ -16,6 +16,7 @@ import { appendSideGameChip } from "../../bills/repos/appendSideGameChip";
 import { resolveMenuItem } from "../../bills/repos/resolveMenuItem";
 import { addLogEntry } from "../../user/services/logUtils";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const placeOrder = onCall(async (request) => {
   const db = getFirestore();
@@ -125,7 +126,12 @@ export const placeOrder = onCall(async (request) => {
             });
           }
         } catch (logError) {
-          console.error('Chip購入ログ記録エラー:', logError);
+          logOpsError({
+      message: 'Chip購入ログ記録エラー:',
+      failureType: 'business',
+      functionEntry: 'placeOrder',
+      cause: logError,
+    });
           // ログ記録の失敗は注文処理を止めない
         }
       }
@@ -176,7 +182,12 @@ export const placeOrder = onCall(async (request) => {
       };
     }
   } catch (error) {
-    console.error("placeOrder エラー:", error);
+    logOpsError({
+      message: 'placeOrder エラー:',
+      failureType: 'business',
+      functionEntry: 'placeOrder',
+      cause: error,
+    });
     
     // HttpsError の場合はそのまま throw
     if (error instanceof HttpsError) {

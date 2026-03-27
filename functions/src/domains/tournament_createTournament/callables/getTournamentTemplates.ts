@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const getTournamentTemplates = onCall(async (request) => {
   try {
@@ -60,7 +61,12 @@ export const getTournamentTemplates = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('トーナメントテンプレート取得エラー:', error);
+    logOpsError({
+      message: 'トーナメントテンプレート取得エラー:',
+      failureType: 'business',
+      functionEntry: 'getTournamentTemplates',
+      cause: error,
+    });
     return { success: false, error: 'トーナメントテンプレートの取得に失敗しました' };
   }
 });

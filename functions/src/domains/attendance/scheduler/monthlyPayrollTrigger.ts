@@ -7,6 +7,7 @@ import { getStoreConfig } from "../../../shared/config/configLoader";
 import { getSchedulerConfig } from "../../../shared/config/schedulerConfigLoader";
 import { DEFAULT_PAYROLL_END_DAY, DEFAULT_PAYROLL_START_DAY } from "../../../shared/config/defaults";
 import { writeAttendanceLog } from "../helpers/attendanceLogs";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const MONTHLY_PAYROLL_TRIGGER_CRON =
   process.env.MONTHLY_PAYROLL_TRIGGER_CRON || "59 23 25 * *"; // 毎月25日 23:59 (JST)
@@ -165,7 +166,11 @@ export const monthlyPayrollTrigger = onSchedule(
     console.log(`処理結果: ${results.length}名の給与計算が完了しました`);
     
   } catch (error) {
-    console.error('=== 月次給与計算エラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== 月次給与計算エラー ===',
+      failureType: 'scheduled',
+      functionEntry: 'monthlyPayrollTrigger',
+      cause: error,
+    });
   }
 });

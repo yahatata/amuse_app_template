@@ -6,6 +6,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import type { DeviceDoc } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const assignSeatToPlayerSchema = z.object({
@@ -181,7 +182,12 @@ export const assignSeatToPlayer = onCall(async (request) => {
           seat: transactionResult.seatNumber,
         });
       } catch (error) {
-        console.error('updatePlace failed', error);
+        logOpsError({
+      message: 'updatePlace failed',
+      failureType: 'business',
+      functionEntry: 'assignSeatToPlayer',
+      cause: error,
+    });
       }
     }
 
@@ -209,8 +215,12 @@ export const assignSeatToPlayer = onCall(async (request) => {
     return transactionResult;
     
   } catch (error) {
-    console.error('=== 待機者着席エラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== 待機者着席エラー ===',
+      failureType: 'business',
+      functionEntry: 'assignSeatToPlayer',
+      cause: error,
+    });
 
     const rawData = request.data as Record<string, unknown> | undefined;
     const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : undefined;
@@ -226,7 +236,12 @@ export const assignSeatToPlayer = onCall(async (request) => {
           payload: {},
         });
       } catch (logErr) {
-        console.error('operationLog 書き込み失敗', logErr);
+        logOpsError({
+      message: 'operationLog 書き込み失敗',
+      failureType: 'business',
+      functionEntry: 'assignSeatToPlayer',
+      cause: logErr,
+    });
       }
     }
     

@@ -12,6 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 /**
  * イベント差分トリガ
@@ -198,12 +199,17 @@ export const billsEventsOnCreate = onDocumentCreated(
       // TODO: Analytics 差分処理の実装（analytics_plan.md を参照）
 
     } catch (error) {
-      logger.error('billsEventsOnCreate failed', {
-        billId,
-        eventId,
-        type: eventDoc.type,
-        code: error instanceof HttpsError ? error.code : 'internal',
-        reason: error instanceof Error ? error.message : String(error),
+      logOpsError({
+        message: 'billsEventsOnCreate failed',
+        failureType: 'datastore',
+        functionEntry: 'billsEventsOnCreate',
+        cause: error,
+        context: {
+          billId,
+          eventId,
+          type: eventDoc.type,
+          code: error instanceof HttpsError ? error.code : 'internal',
+        },
       });
 
       // トリガのエラーは再スローしない（Firestore の仕様）

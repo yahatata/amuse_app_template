@@ -11,6 +11,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { calcBusinessDate } from './calcBusinessDate';
 
 export interface PostEventReopenRequest {
@@ -165,13 +166,18 @@ export async function postEventReopen(request: PostEventReopenRequest): Promise<
 
     return result;
   } catch (error) {
-    logger.error('postEventReopen failed', {
-      op: 'postEventReopen',
-      billId,
-      eventId: idempotencyKey,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'postEventReopen failed',
+      failureType: 'business',
+      functionEntry: 'postEventReopen',
+      cause: error,
+      context: {
+        op: 'postEventReopen',
+        billId,
+        eventId: idempotencyKey,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+      },
     });
 
     if (error instanceof HttpsError) {

@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const toggleSoldOutForMenuItem = onCall(async (request) => {
   // 認証チェック
@@ -70,7 +71,12 @@ export const toggleSoldOutForMenuItem = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('売り切れ状態切り替えエラー:', error);
+    logOpsError({
+      message: '売り切れ状態切り替えエラー:',
+      failureType: 'business',
+      functionEntry: 'toggleSoldOutForMenuItem',
+      cause: error,
+    });
     
     if (error instanceof HttpsError) {
       throw error;

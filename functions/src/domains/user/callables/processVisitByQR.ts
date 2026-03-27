@@ -4,6 +4,7 @@ import * as crypto from "crypto";
 import { parseQRData, verifyQRData } from "../services/qrCodeUtils";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { createBillWithActiveStay } from "../../bills/repos/createBillWithActiveStay";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * 入店処理（QRスキャン起点）
@@ -206,7 +207,12 @@ export const processVisitByQR = onCall(async (request) => {
 
     return result;
   } catch (error) {
-    console.error("processVisitByQR error", error);
+    logOpsError({
+      message: 'processVisitByQR error',
+      failureType: 'business',
+      functionEntry: 'processVisitByQR',
+      cause: error,
+    });
     return {
       success: false,
       action: null,

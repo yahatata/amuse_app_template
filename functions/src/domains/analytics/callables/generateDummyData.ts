@@ -2,6 +2,7 @@ import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
 import { logger } from "firebase-functions";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // ランダムな値を生成する関数（-25%〜+25%の範囲）
 function getRandomValue(baseValue: number): number {
@@ -312,7 +313,12 @@ export const generateDummyData = onCall({
     };
 
   } catch (error) {
-    logger.error('4ヶ月分のダミーデータ生成エラー:', error);
+    logOpsError({
+      message: '4ヶ月分のダミーデータ生成エラー:',
+      failureType: 'business',
+      functionEntry: 'generateDummyData',
+      cause: error,
+    });
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

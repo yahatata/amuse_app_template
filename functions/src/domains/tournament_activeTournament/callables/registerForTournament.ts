@@ -4,6 +4,7 @@ import { z } from "zod";
 import { recordTournamentAction } from "../../bills/repos/recordTournamentAction";
 import * as crypto from "crypto";
 import { writeSingleOperationLog, toErrorSummary } from "../../logs/lib/operationLog";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const registerForTournamentSchema = z.object({
@@ -208,7 +209,12 @@ export const registerForTournament = onCall(async (request) => {
         idempotencyKey,
       });
     } catch (error) {
-      console.error('Failed to record tournament action via recordTournamentAction helper:', error);
+      logOpsError({
+      message: 'Failed to record tournament action via recordTournamentAction helper:',
+      failureType: 'business',
+      functionEntry: 'registerForTournament',
+      cause: error,
+    });
       // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
       // scheduledTournamentsの更新は成功しているため
     }
@@ -247,8 +253,12 @@ export const registerForTournament = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('=== LIFF用トーナメント参加登録エラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== LIFF用トーナメント参加登録エラー ===',
+      failureType: 'business',
+      functionEntry: 'registerForTournament',
+      cause: error,
+    });
 
     const rawData = request.data as Record<string, unknown> | undefined;
     const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : crypto.randomUUID();
@@ -264,7 +274,12 @@ export const registerForTournament = onCall(async (request) => {
         tournamentId: typeof rawData?.tournamentId === 'string' ? rawData.tournamentId : undefined,
       });
     } catch (logErr) {
-      console.error('operationLog 書き込み失敗', logErr);
+      logOpsError({
+      message: 'operationLog 書き込み失敗',
+      failureType: 'business',
+      functionEntry: 'registerForTournament',
+      cause: logErr,
+    });
     }
 
     if (error instanceof z.ZodError) {

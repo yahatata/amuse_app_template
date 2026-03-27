@@ -2,6 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const createTemporaryTableSchema = z.object({
@@ -103,8 +104,12 @@ export const createTemporaryTable = onCall(async (request) => {
     return result;
     
   } catch (error) {
-    console.error('=== 一時テーブル作成エラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== 一時テーブル作成エラー ===',
+      failureType: 'business',
+      functionEntry: 'createTemporaryTable',
+      cause: error,
+    });
     
     // エラーメッセージを適切に返す
     if (error instanceof Error) {

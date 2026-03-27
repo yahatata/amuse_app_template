@@ -11,6 +11,7 @@
 import * as admin from 'firebase-admin';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { getStoreCloseHour, normalizeStoreCloseHour } from '../../../shared/time';
+import { logOpsError } from "../shared/logging/logOpsError";
 
 const db = admin.firestore();
 
@@ -135,7 +136,12 @@ export const getAccountingHistory = onCall(async (request) => {
     };
   } catch (error: any) {
     if (error instanceof HttpsError) throw error;
-    console.error('会計履歴取得エラー:', error);
+    logOpsError({
+      message: '会計履歴取得エラー:',
+      failureType: 'internal',
+      functionEntry: 'getAccountingHistory',
+      cause: error,
+    });
     throw new HttpsError('internal', '会計履歴の取得に失敗しました', error.message);
   }
 });

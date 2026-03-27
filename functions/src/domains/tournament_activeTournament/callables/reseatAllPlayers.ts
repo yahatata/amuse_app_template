@@ -6,6 +6,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import type { DeviceDoc } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const reseatAllPlayersSchema = z.object({
@@ -229,7 +230,12 @@ export const reseatAllPlayers = onCall(async (request) => {
               seat: assignment.seatNumber,
             });
           } catch (error) {
-            console.error(`updatePlace failed for userId ${assignment.userId}`, error);
+            logOpsError({
+      message: `updatePlace failed for userId ${assignment.userId}`,
+      failureType: 'business',
+      functionEntry: 'reseatAllPlayers',
+      cause: error,
+    });
             // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
           }
         }
@@ -257,8 +263,12 @@ export const reseatAllPlayers = onCall(async (request) => {
     return { success: true, playerCount: result.playerCount };
     
   } catch (error) {
-    console.error('=== 全員リシートエラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== 全員リシートエラー ===',
+      failureType: 'business',
+      functionEntry: 'reseatAllPlayers',
+      cause: error,
+    });
 
     const rawData = request.data as Record<string, unknown> | undefined;
     const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : undefined;
@@ -274,7 +284,12 @@ export const reseatAllPlayers = onCall(async (request) => {
           payload: {},
         });
       } catch (logErr) {
-        console.error('operationLog 書き込み失敗', logErr);
+        logOpsError({
+      message: 'operationLog 書き込み失敗',
+      failureType: 'business',
+      functionEntry: 'reseatAllPlayers',
+      cause: logErr,
+    });
       }
     }
     

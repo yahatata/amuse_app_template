@@ -13,6 +13,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const leaveSeat = onCall(async (request) => {
   // 認証チェック
@@ -93,13 +94,13 @@ export const leaveSeat = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('leaveSeatエラー:', error);
-    console.error('エラー詳細:', {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      name: error instanceof Error ? error.name : undefined,
+    logOpsError({
+      message: 'leaveSeatエラー:',
+      failureType: 'business',
+      functionEntry: 'leaveSeat',
+      cause: error,
     });
-    
+
     if (error instanceof HttpsError) {
       throw error;
     }

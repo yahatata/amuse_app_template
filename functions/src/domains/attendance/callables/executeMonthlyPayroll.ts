@@ -10,6 +10,7 @@ import type { CallableRequest } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getFunctions } from 'firebase-admin/functions';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
@@ -180,9 +181,13 @@ export const executeMonthlyPayroll = onCall(
         status: 'processing',
       };
     } catch (dispatchErr) {
-      logger.error('executeMonthlyPayroll: task dispatch failed', {
-        runId,
-        error: String(dispatchErr),
+      logOpsError({
+        message: 'executeMonthlyPayroll: task dispatch failed',
+        failureType: 'business',
+        functionEntry: 'executeMonthlyPayroll',
+        operation: 'taskDispatch',
+        cause: dispatchErr,
+        context: { runId },
       });
 
       await runRef.update({

@@ -3,6 +3,7 @@ import * as crypto from "crypto";
 import * as admin from "firebase-admin";
 import { QRCodeData } from "../../../shared/types";
 import { isProductionRuntime } from "../../../shared/runtime";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * QRコードの有効期限（分）
@@ -137,12 +138,12 @@ export async function saveQRCodeToStorage(
 
     return url;
   } catch (error) {
-    console.error("QRコードStorage保存エラー詳細:", {
-      error: error,
-      message: error instanceof Error ? error.message : "Unknown error",
-      stack: error instanceof Error ? error.stack : undefined,
-      uid: uid,
-      type: type,
+    logOpsError({
+      message: "QRコードStorage保存エラー",
+      failureType: "business",
+      functionEntry: "saveQRCodeToStorage",
+      cause: error,
+      context: { uid, type },
     });
     const errorMessage = error instanceof Error ?
       error.message : "Unknown error";
@@ -175,7 +176,12 @@ async function deleteOldQRCodeFiles(uid: string, type: "user" | "staff"): Promis
       console.log('削除する古いファイルはありません');
     }
   } catch (error) {
-    console.error('古いQRコードファイル削除エラー:', error);
+    logOpsError({
+      message: '古いQRコードファイル削除エラー:',
+      failureType: 'business',
+      functionEntry: 'deleteOldQRCodeFiles',
+      cause: error,
+    });
     // 削除に失敗しても処理を続行
   }
 }

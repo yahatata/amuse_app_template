@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const createBlindTemplate = onCall(async (request) => {
   try {
@@ -81,7 +82,12 @@ export const createBlindTemplate = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('ブラインドテンプレート作成エラー:', error);
+    logOpsError({
+      message: 'ブラインドテンプレート作成エラー:',
+      failureType: 'business',
+      functionEntry: 'createBlindTemplate',
+      cause: error,
+    });
     return { success: false, error: 'ブラインドテンプレートの作成に失敗しました' };
   }
 });

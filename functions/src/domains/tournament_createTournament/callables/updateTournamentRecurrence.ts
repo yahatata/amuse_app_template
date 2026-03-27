@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const updateTournamentRecurrenceSchema = z.object({
   recurrenceId: z.string(),
@@ -148,7 +149,12 @@ export const updateTournamentRecurrence = onCall(async (request) => {
       message: '定期開催設定を更新しました',
     };
   } catch (error) {
-    console.error('定期開催設定更新エラー:', error);
+    logOpsError({
+      message: '定期開催設定更新エラー:',
+      failureType: 'business',
+      functionEntry: 'updateTournamentRecurrence',
+      cause: error,
+    });
     return {
       success: false,
       error: error instanceof Error ? error.message : '不明なエラーが発生しました',

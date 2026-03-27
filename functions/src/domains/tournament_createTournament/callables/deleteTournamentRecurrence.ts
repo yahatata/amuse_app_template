@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマの定義
 const deleteTournamentRecurrenceSchema = z.object({
@@ -74,7 +75,12 @@ export const deleteTournamentRecurrence = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('定期開催トーナメント削除エラー:', error);
+    logOpsError({
+      message: '定期開催トーナメント削除エラー:',
+      failureType: 'business',
+      functionEntry: 'deleteTournamentRecurrence',
+      cause: error,
+    });
     if (error instanceof HttpsError) {
       throw error;
     }

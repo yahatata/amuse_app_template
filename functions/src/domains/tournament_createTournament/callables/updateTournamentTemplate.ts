@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const updateTournamentTemplateSchema = z.object({
   templateId: z.string(),
@@ -101,7 +102,12 @@ export const updateTournamentTemplate = onCall(async (request) => {
       message: 'トーナメントテンプレートを更新しました',
     };
   } catch (error) {
-    console.error('トーナメントテンプレート更新エラー:', error);
+    logOpsError({
+      message: 'トーナメントテンプレート更新エラー:',
+      failureType: 'business',
+      functionEntry: 'updateTournamentTemplate',
+      cause: error,
+    });
     return {
       success: false,
       error: error instanceof Error ? error.message : '不明なエラーが発生しました',

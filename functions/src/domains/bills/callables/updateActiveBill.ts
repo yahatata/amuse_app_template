@@ -16,6 +16,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { shouldDualWrite } from '../repos/dualWrite';
 import { resolveMenuItem } from '../repos/resolveMenuItem';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 // 入店料のスキーマ
 const ExtraCostSchema = z.object({
@@ -327,12 +328,17 @@ export const updateActiveBill = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    logger.error('updateActiveBill failed', {
-      op: 'updateActiveBill',
-      billId: request.data?.billId,
-      result: 'fail',
-      code: 'internal',
-      reason: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'updateActiveBill failed',
+      failureType: 'business',
+      functionEntry: 'updateActiveBill',
+      cause: error,
+      context: {
+        op: 'updateActiveBill',
+        billId: request.data?.billId,
+        result: 'fail',
+        code: 'internal',
+      },
     });
     throw new HttpsError('internal', '請求書修正に失敗しました', error.message);
   }

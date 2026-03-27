@@ -12,6 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import * as crypto from 'crypto';
 import { shouldDualWrite, legacyRecordTournamentActionUpdate } from './dualWrite';
 
@@ -307,15 +308,20 @@ export async function recordTournamentAction(request: RecordTournamentActionRequ
 
     return result;
   } catch (error) {
-    logger.error('recordTournamentAction failed', {
-      op: 'recordTournamentAction',
-      billId,
-      templateId,
-      action,
-      idempKey: idempotencyKey,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'recordTournamentAction failed',
+      failureType: 'business',
+      functionEntry: 'recordTournamentAction',
+      cause: error,
+      context: {
+        op: 'recordTournamentAction',
+        billId,
+        templateId,
+        action,
+        idempKey: idempotencyKey,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+      },
     });
 
     if (error instanceof HttpsError) {

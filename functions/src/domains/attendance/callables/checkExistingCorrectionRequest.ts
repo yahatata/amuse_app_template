@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const checkExistingCorrectionRequest = onCall(
   { region: "us-central1", maxInstances: 10 },
@@ -71,7 +72,12 @@ export const checkExistingCorrectionRequest = onCall(
       };
 
     } catch (error) {
-      console.error("申請済みチェックエラー:", error);
+      logOpsError({
+      message: '申請済みチェックエラー:',
+      failureType: 'business',
+      functionEntry: 'checkExistingCorrectionRequest',
+      cause: error,
+    });
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error occurred."

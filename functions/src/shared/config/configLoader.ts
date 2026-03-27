@@ -26,6 +26,8 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 
+import { logOpsError } from '../logging/logOpsError';
+
 import {
   DEFAULT_AUTO_OPEN_CLOSE_ENABLED,
   DEFAULT_TASK_CLOSE_OFFSET_MINUTES,
@@ -100,11 +102,17 @@ export async function getStoreConfig(db?: Firestore): Promise<StoreConfig> {
       if (attempt < MAX_RETRIES) {
         continue;
       }
-      logger.error('config_read_error', {
-        code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-        reason: 'read_error',
-        message: String(err instanceof Error ? err.message : err),
-        error: String(lastError),
+      logOpsError({
+        message: 'config_read_error',
+        failureType: 'config',
+        functionEntry: 'getStoreConfig',
+        operation: 'config_read',
+        cause: lastError,
+        context: {
+          code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
+          reason: 'read_error',
+          message: String(err instanceof Error ? err.message : err),
+        },
       });
       logger.warn('config_fallback', {
         code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,

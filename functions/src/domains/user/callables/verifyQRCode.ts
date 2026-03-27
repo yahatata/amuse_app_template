@@ -2,6 +2,7 @@ import {onCall} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { VerifyQRResponse } from "../../../shared/types";
 import { verifyQRData, parseQRData } from "../services/qrCodeUtils";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * QRコード検証関数
@@ -71,7 +72,12 @@ export const verifyQRCode = onCall(
         message: `${parsedData.type === "user" ? "ユーザー" : "スタッフ"}のQRコードが有効です。`,
       };
     } catch (error) {
-      console.error("QRコード検証エラー:", error);
+      logOpsError({
+      message: 'QRコード検証エラー:',
+      failureType: 'business',
+      functionEntry: 'verifyQRCode',
+      cause: error,
+    });
       return {
         valid: false,
         message: "QRコードの検証に失敗しました。",

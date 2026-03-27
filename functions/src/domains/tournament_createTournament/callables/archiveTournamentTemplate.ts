@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const archiveTournamentTemplate = onCall(async (request) => {
   try {
@@ -27,7 +28,12 @@ export const archiveTournamentTemplate = onCall(async (request) => {
       message: 'トーナメントテンプレートが正常にアーカイブされました' 
     };
   } catch (error) {
-    console.error('トーナメントテンプレートアーカイブエラー:', error);
+    logOpsError({
+      message: 'トーナメントテンプレートアーカイブエラー:',
+      failureType: 'business',
+      functionEntry: 'archiveTournamentTemplate',
+      cause: error,
+    });
     return { success: false, error: 'トーナメントテンプレートのアーカイブに失敗しました' };
   }
 });

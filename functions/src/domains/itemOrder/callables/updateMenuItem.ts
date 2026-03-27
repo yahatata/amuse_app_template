@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const updateMenuItem = onCall(async (request) => {
   // 認証チェック
@@ -75,7 +76,12 @@ export const updateMenuItem = onCall(async (request) => {
         // ファイルを公開アクセス可能に設定
         await file.makePublic();
       } catch (error) {
-        console.error('画像アップロードエラー:', error);
+        logOpsError({
+      message: '画像アップロードエラー:',
+      failureType: 'business',
+      functionEntry: 'updateMenuItem',
+      cause: error,
+    });
         throw new HttpsError('internal', '画像のアップロードに失敗しました');
       }
     }
@@ -140,7 +146,12 @@ export const updateMenuItem = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('メニュー更新エラー:', error);
+    logOpsError({
+      message: 'メニュー更新エラー:',
+      failureType: 'business',
+      functionEntry: 'updateMenuItem',
+      cause: error,
+    });
     
     if (error instanceof HttpsError) {
       throw error;

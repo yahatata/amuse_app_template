@@ -3,6 +3,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as crypto from 'crypto';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { writeSingleOperationLog } from '../../logs/lib/operationLog';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 type ForceReason = 'not_registered' | 'no_prize' | 'no_ranking';
 
@@ -115,7 +116,12 @@ export const endTournament = onCall(async (request) => {
       operationId,
     };
   } catch (error) {
-    console.error('endTournament error:', error);
+    logOpsError({
+      message: 'endTournament error:',
+      failureType: 'business',
+      functionEntry: 'endTournament',
+      cause: error,
+    });
 
     if (error instanceof HttpsError) {
       throw error;

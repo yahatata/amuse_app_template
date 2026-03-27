@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import {
   getCallerDeviceByUid,
   hasStoreManagementPermission,
@@ -94,7 +95,12 @@ export const cleanupActiveStaysOnClose = onCall(async (request) => {
         result.unsettledBillIds.length > 0 ? result.unsettledBillIds : undefined,
     };
   } catch (error) {
-    console.error('cleanupActiveStaysOnClose: error', error);
+    logOpsError({
+      message: 'cleanupActiveStaysOnClose: error',
+      failureType: 'business',
+      functionEntry: 'cleanupActiveStaysOnClose',
+      cause: error,
+    });
     throw new HttpsError(
       'internal',
       `閉店クリーンアップに失敗しました: ${error}`

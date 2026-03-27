@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getCurrentBusinessDateKeyOrThrow } from "../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * When: LIFF側のユーザーが注文履歴を確認したいとき
@@ -109,7 +110,12 @@ export const getUserOrderHistory = onCall(async (request) => {
       },
     };
   } catch (error) {
-    console.error("getUserOrderHistory エラー:", error);
+    logOpsError({
+      message: 'getUserOrderHistory エラー:',
+      failureType: 'business',
+      functionEntry: 'getUserOrderHistory',
+      cause: error,
+    });
     if (error instanceof HttpsError) {
       if (error.code === "failed-precondition") {
         return { success: false, error: "店舗が閉店中のため注文履歴を取得できません。" };

@@ -1,6 +1,7 @@
 import {onRequest} from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import { verifyLineIdToken } from "../services/lineAuth";
 
 /**
@@ -67,7 +68,12 @@ export const getFirebaseCustomToken = onRequest(async (request, response) => {
       },
     });
   } catch (error) {
-    logger.error("Error in getFirebaseCustomToken", error);
+    logOpsError({
+      message: "Error in getFirebaseCustomToken",
+      failureType: "internal",
+      functionEntry: "getFirebaseCustomToken",
+      cause: error,
+    });
 
     if (error instanceof Error) {
       response.status(400).json({error: error.message});

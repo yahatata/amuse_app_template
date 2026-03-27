@@ -5,6 +5,7 @@ import {
   getDisplayBusinessDateKeyForNonRunning,
   getShiftDateKeyForNonRunning,
 } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 async function getAttendanceAndShiftDates(): Promise<{
   status: string;
@@ -207,7 +208,12 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
     };
 
   } catch (error) {
-    console.error('Error in getStaffListForAttendance:', error);
+    logOpsError({
+      message: 'Error in getStaffListForAttendance:',
+      failureType: 'business',
+      functionEntry: 'getStaffListForAttendance',
+      cause: error,
+    });
     
     if (error instanceof HttpsError) {
       throw error;

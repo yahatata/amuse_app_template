@@ -5,6 +5,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import * as crypto from 'crypto';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const registerParticipantsSchema = z.object({
@@ -288,7 +289,12 @@ export const registerParticipants = onCall(async (request) => {
             idempotencyKey,
           });
         } catch (error) {
-          console.error(`Failed to record tournament action for user ${result.userId}:`, error);
+          logOpsError({
+      message: `Failed to record tournament action for user ${result.userId}:`,
+      failureType: 'business',
+      functionEntry: 'registerParticipants',
+      cause: error,
+    });
           // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
           // scheduledTournamentsの更新は成功しているため
         }
@@ -303,7 +309,12 @@ export const registerParticipants = onCall(async (request) => {
         });
         console.log(`ユーザー ${userId} の登録完了`);
       } catch (error) {
-        console.error(`ユーザー ${userId} の登録失敗:`, error);
+        logOpsError({
+      message: `ユーザー ${userId} の登録失敗:`,
+      failureType: 'business',
+      functionEntry: 'registerParticipants',
+      cause: error,
+    });
         results.push({ 
           success: false, 
           userId, 
@@ -348,8 +359,12 @@ export const registerParticipants = onCall(async (request) => {
       }
     };
   } catch (error) {
-    console.error('=== 参加者登録エラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== 参加者登録エラー ===',
+      failureType: 'business',
+      functionEntry: 'registerParticipants',
+      cause: error,
+    });
 
     const rawData = request.data as Record<string, unknown> | undefined;
     const opId = (typeof rawData?.operationId === 'string' ? rawData.operationId : null) ?? crypto.randomUUID();
@@ -365,7 +380,12 @@ export const registerParticipants = onCall(async (request) => {
         tournamentId: typeof rawData?.tournamentId === 'string' ? rawData.tournamentId : undefined,
       });
     } catch (logErr) {
-      console.error('operationLog 書き込み失敗', logErr);
+      logOpsError({
+      message: 'operationLog 書き込み失敗',
+      failureType: 'business',
+      functionEntry: 'registerParticipants',
+      cause: logErr,
+    });
     }
 
     if (error instanceof z.ZodError) {

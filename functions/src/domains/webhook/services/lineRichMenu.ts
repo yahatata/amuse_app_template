@@ -1,4 +1,5 @@
 import * as logger from "firebase-functions/logger";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import { defineString } from "firebase-functions/params";
 import { isProductionRuntime } from "../../../shared/runtime";
 
@@ -51,11 +52,16 @@ export async function linkStaffRichMenu(lineUserId: string): Promise<boolean> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error("linkStaffRichMenu: Failed to link rich menu", {
-        lineUserId,
-        richMenuId,
-        status: response.status,
-        error: errorText,
+      logOpsError({
+        message: "linkStaffRichMenu: Failed to link rich menu",
+        failureType: "external_api",
+        functionEntry: "linkStaffRichMenu",
+        context: {
+          lineUserId,
+          richMenuId,
+          status: response.status,
+          lineApiErrorPreview: errorText.slice(0, 200),
+        },
       });
       return false;
     }
@@ -66,7 +72,13 @@ export async function linkStaffRichMenu(lineUserId: string): Promise<boolean> {
     });
     return true;
   } catch (error) {
-    logger.error("linkStaffRichMenu: Error", { lineUserId, error });
+    logOpsError({
+      message: "linkStaffRichMenu: Error",
+      failureType: "external_api",
+      functionEntry: "linkStaffRichMenu",
+      cause: error,
+      context: { lineUserId },
+    });
     return false;
   }
 }
@@ -106,11 +118,16 @@ export async function linkUserRichMenu(lineUserId: string): Promise<boolean> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error("linkUserRichMenu: Failed to link rich menu", {
-        lineUserId,
-        richMenuId,
-        status: response.status,
-        error: errorText,
+      logOpsError({
+        message: "linkUserRichMenu: Failed to link rich menu",
+        failureType: "external_api",
+        functionEntry: "linkUserRichMenu",
+        context: {
+          lineUserId,
+          richMenuId,
+          status: response.status,
+          lineApiErrorPreview: errorText.slice(0, 200),
+        },
       });
       return false;
     }
@@ -121,7 +138,13 @@ export async function linkUserRichMenu(lineUserId: string): Promise<boolean> {
     });
     return true;
   } catch (error) {
-    logger.error("linkUserRichMenu: Error", { lineUserId, error });
+    logOpsError({
+      message: "linkUserRichMenu: Error",
+      failureType: "external_api",
+      functionEntry: "linkUserRichMenu",
+      cause: error,
+      context: { lineUserId },
+    });
     return false;
   }
 }

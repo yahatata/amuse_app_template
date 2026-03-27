@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../logging/logOpsError';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
 /**
@@ -94,7 +95,13 @@ export const controlHook = async (req: Request, res: Response) => {
     logger.warn('controlHook: Neither taskType nor action present');
     res.status(400).json({ error: 'Missing taskType or action in payload' });
   } catch (error) {
-    logger.error('controlHook: Error processing request', error);
+    logOpsError({
+      message: 'controlHook: Error processing request',
+      failureType: 'internal',
+      functionEntry: 'controlHook',
+      operation: 'request',
+      cause: error,
+    });
     res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
@@ -291,7 +298,13 @@ async function handleNewPayload(
     } catch (e) {
       logger.warn('controlHook: Failed to update taskIndex to failed', e);
     }
-    logger.error('controlHook: Error processing new payload', err);
+    logOpsError({
+      message: 'controlHook: Error processing new payload',
+      failureType: 'internal',
+      functionEntry: 'controlHook',
+      operation: 'newPayload',
+      cause: err,
+    });
     res.status(500).json({
       error: 'Internal server error',
       message: err instanceof Error ? err.message : 'Unknown error',
@@ -424,7 +437,13 @@ async function handleOldPayload(
       message: `Task ${action} processed for tournament ${tournamentId}`,
     });
   } catch (error) {
-    logger.error('controlHook: Error processing legacy request', error);
+    logOpsError({
+      message: 'controlHook: Error processing legacy request',
+      failureType: 'internal',
+      functionEntry: 'controlHook',
+      operation: 'legacyPayload',
+      cause: error,
+    });
     res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',

@@ -7,6 +7,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { getCallerDeviceByUid, hasStoreManagementPermission, isActive } from '../../../shared/devices';
 
 const db = getFirestore();
@@ -63,7 +64,13 @@ export const closeStore = onCall(
       return { success: true, lastClosedBusinessDateKey, status: 'closed' };
     } catch (error) {
       if (error instanceof HttpsError) throw error;
-      logger.error('closeStore failed', { uid: callerUid, error: error instanceof Error ? error.message : String(error) });
+      logOpsError({
+        message: 'closeStore failed',
+        failureType: 'business',
+        functionEntry: 'closeStore',
+        cause: error,
+        context: { uid: callerUid },
+      });
       try {
         const docRef = db.collection('storeMeta').doc('currentBusinessDay');
         const doc = await docRef.get();

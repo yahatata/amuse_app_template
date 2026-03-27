@@ -12,6 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import * as crypto from 'crypto';
 import { shouldDualWrite, legacyAppendSideGameChipUpdate } from './dualWrite';
 
@@ -288,15 +289,20 @@ export async function appendSideGameChip(request: AppendSideGameChipRequest): Pr
 
     return result;
   } catch (error) {
-    logger.error('appendSideGameChip: failed', {
-      op: 'appendSideGameChip',
-      billId,
-      action,
-      idempKey: idempotencyKey,
-      result: 'fail',
-      code: error instanceof HttpsError ? error.code : 'internal',
-      reason: error instanceof Error ? error.message : String(error),
-      requestHash8: requestHash.substring(0, 8),
+    logOpsError({
+      message: 'appendSideGameChip: failed',
+      failureType: 'business',
+      functionEntry: 'appendSideGameChip',
+      cause: error,
+      context: {
+        op: 'appendSideGameChip',
+        billId,
+        action,
+        idempKey: idempotencyKey,
+        result: 'fail',
+        code: error instanceof HttpsError ? error.code : 'internal',
+        requestHash8: requestHash.substring(0, 8),
+      },
     });
     
     if (error instanceof HttpsError) {

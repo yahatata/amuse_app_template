@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
@@ -108,13 +109,22 @@ export const getPayrollData = onCall(async (request: CallableRequest) => {
       period: `${periodStartStr} 〜 ${periodEndStr}`,
       count: payrollData.length,
     };
-  } catch (error) {
-    console.error('Error in getPayrollData:', error);
 
+  } catch (error) {
+    logOpsError({
+      message: 'Error in getPayrollData:',
+      failureType: 'business',
+      functionEntry: 'getPayrollData',
+      cause: error,
+    });
+    
     if (error instanceof HttpsError) {
       throw error;
     }
-
-    throw new HttpsError('internal', 'Internal server error');
+    
+    throw new HttpsError(
+      'internal',
+      'Internal server error'
+    );
   }
 });

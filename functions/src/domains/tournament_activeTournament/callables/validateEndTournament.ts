@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const validateEndTournament = onCall(async (request) => {
   // 認証チェック
@@ -192,7 +193,12 @@ export const validateEndTournament = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('validateEndTournament error:', error);
+    logOpsError({
+      message: 'validateEndTournament error:',
+      failureType: 'business',
+      functionEntry: 'validateEndTournament',
+      cause: error,
+    });
     
     if (error instanceof HttpsError) {
       throw error;

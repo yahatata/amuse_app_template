@@ -1,6 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore, Firestore } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import { processBillAnalyticsAtomically } from "../services/updateAnalyticsForBill";
 
 /** storeMeta/currentBusinessDay のドキュメントパス */
@@ -99,7 +100,14 @@ export async function runMigrateSettledBillsForBusinessDay(
       const pokerName = (billData.party?.pokerName as string) ?? '';
       if (pokerName.trim()) processedPokerNames.push(pokerName.trim());
     } catch (error) {
-      logger.error(`処理失敗: ${billId}`, error);
+      logOpsError({
+        message: `処理失敗: ${billId}`,
+        failureType: "business",
+        functionEntry: "migrateSettledBillsForBusinessDay",
+        operation: "runMigratePerBill",
+        cause: error,
+        context: { billId },
+      });
       throw error;
     }
   }
@@ -131,7 +139,13 @@ export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
           : `移管処理完了: 処理=${processedCount}件, スキップ=${skippedCount}件`,
     };
   } catch (error) {
-    logger.error('移管処理エラー:', error);
+    logOpsError({
+      message: '移管処理エラー:',
+      failureType: 'business',
+      functionEntry: 'migrateSettledBillsForBusinessDay',
+      operation: 'callable',
+      cause: error,
+    });
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const updateBlindTemplate = onCall(async (request) => {
   try {
@@ -91,7 +92,12 @@ export const updateBlindTemplate = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('ブラインドテンプレート更新エラー:', error);
+    logOpsError({
+      message: 'ブラインドテンプレート更新エラー:',
+      failureType: 'business',
+      functionEntry: 'updateBlindTemplate',
+      cause: error,
+    });
     return { success: false, error: 'ブラインドテンプレートの更新に失敗しました' };
   }
 });
