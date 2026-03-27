@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { markOperationLogRolledBack } from "../lib/operationLog";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import {
   undoAddon,
   undoBulkAddon,
@@ -286,7 +287,12 @@ export const rollbackAction = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('ロールバック操作エラー:', error);
+    logOpsError({
+      message: 'ロールバック操作エラー:',
+      failureType: 'business',
+      functionEntry: 'rollbackAction',
+      cause: error,
+    });
     
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', `入力検証エラー: ${error.errors.map(e => e.message).join(', ')}`);

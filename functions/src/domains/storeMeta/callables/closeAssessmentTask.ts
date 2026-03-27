@@ -17,6 +17,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const closeAssessmentTask = onRequest(
   {
@@ -230,7 +231,12 @@ export const closeAssessmentTask = onRequest(
 
       res.status(200).json({ success: true });
     } catch (error: any) {
-      console.error('閉店認定処理でエラーが発生しました:', error);
+      logOpsError({
+      message: '閉店認定処理でエラーが発生しました:',
+      failureType: 'business',
+      functionEntry: 'closeAssessmentTask',
+      cause: error,
+    });
       res.status(500).json({ error: error.message });
     }
   }

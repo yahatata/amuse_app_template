@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * スケジュール済みトーナメント一覧を取得するCloud Function
@@ -272,7 +273,12 @@ export const getScheduledTournaments = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('Error in getScheduledTournaments:', error);
+    logOpsError({
+      message: 'Error in getScheduledTournaments:',
+      failureType: 'business',
+      functionEntry: 'getScheduledTournaments',
+      cause: error,
+    });
     
     return {
       success: false,

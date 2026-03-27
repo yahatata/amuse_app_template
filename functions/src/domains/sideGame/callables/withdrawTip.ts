@@ -16,6 +16,7 @@ import { addLogEntry } from '../../user/services/logUtils';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { getActiveBillByUser } from '../../bills/repos/getActiveBillByUser';
 import { appendSideGameChip } from '../../bills/repos/appendSideGameChip';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const withdrawTip = onCall(async (request) => {
   // 認証チェック
@@ -135,13 +136,13 @@ export const withdrawTip = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('withdrawTipエラー:', error);
-    console.error('エラー詳細:', {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      name: error instanceof Error ? error.name : undefined,
+    logOpsError({
+      message: 'withdrawTipエラー:',
+      failureType: 'business',
+      functionEntry: 'withdrawTip',
+      cause: error,
     });
-    
+
     if (error instanceof HttpsError) {
       throw error;
     }

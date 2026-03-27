@@ -2,6 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const removeTableFromTournamentSchema = z.object({
@@ -92,8 +93,12 @@ export const removeTableFromTournament = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('=== 卓削除エラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== 卓削除エラー ===',
+      failureType: 'business',
+      functionEntry: 'removeTableFromTournament',
+      cause: error,
+    });
     
     // エラーメッセージを適切に返す
     if (error instanceof Error) {

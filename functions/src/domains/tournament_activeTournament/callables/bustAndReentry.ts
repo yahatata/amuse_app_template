@@ -7,6 +7,7 @@ import type { DeviceDoc } from '../../../shared/devices';
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const bustAndReentrySchema = z.object({
@@ -324,7 +325,12 @@ export const bustAndReentry = onCall(async (request) => {
         idempotencyKey,
       });
     } catch (error) {
-      console.error('Failed to record tournament action via recordTournamentAction helper:', error);
+      logOpsError({
+      message: 'Failed to record tournament action via recordTournamentAction helper:',
+      failureType: 'business',
+      functionEntry: 'bustAndReentry',
+      cause: error,
+    });
       // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
       // scheduledTournamentsの更新は成功しているため
     }
@@ -359,8 +365,12 @@ export const bustAndReentry = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('=== Bust＆リエントリーエラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== Bust＆リエントリーエラー ===',
+      failureType: 'business',
+      functionEntry: 'bustAndReentry',
+      cause: error,
+    });
 
     const rawData = request.data as Record<string, unknown> | undefined;
     const opId = typeof rawData?.operationId === 'string' ? rawData.operationId : undefined;
@@ -376,7 +386,12 @@ export const bustAndReentry = onCall(async (request) => {
           payload: {},
         });
       } catch (logErr) {
-        console.error('operationLog 書き込み失敗', logErr);
+        logOpsError({
+      message: 'operationLog 書き込み失敗',
+      failureType: 'business',
+      functionEntry: 'bustAndReentry',
+      cause: logErr,
+    });
       }
     }
     

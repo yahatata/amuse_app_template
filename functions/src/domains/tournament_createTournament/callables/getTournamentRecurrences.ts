@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const getTournamentRecurrences = onCall(async (request) => {
   try {
@@ -42,7 +43,12 @@ export const getTournamentRecurrences = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('定期開催トーナメント一覧取得エラー:', error);
+    logOpsError({
+      message: '定期開催トーナメント一覧取得エラー:',
+      failureType: 'business',
+      functionEntry: 'getTournamentRecurrences',
+      cause: error,
+    });
     return { 
       success: false, 
       error: '定期開催トーナメント一覧の取得に失敗しました' 

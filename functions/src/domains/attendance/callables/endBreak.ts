@@ -17,6 +17,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
 import { recalculateAttendanceFromBreaks } from '../helpers/recalculateAttendanceFromBreaks';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 function resolveAdjustedEndTimestamp(
   adjustmentOffsetMinutes: unknown,
@@ -163,7 +164,12 @@ export const endBreak = onCall(async (request: CallableRequest) => {
     };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
-    console.error('Error in endBreak:', error);
+    logOpsError({
+      message: 'Error in endBreak:',
+      failureType: 'business',
+      functionEntry: 'endBreak',
+      cause: error,
+    });
     throw new HttpsError('internal', 'Internal server error');
   }
 });

@@ -20,6 +20,7 @@ import {
   endActiveBreaksForClockOut,
   recalculateAttendanceFromBreaks,
 } from '../helpers/recalculateAttendanceFromBreaks';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const GRACE_HOURS = 1;
 
@@ -205,7 +206,12 @@ export const clockOut = onCall(async (request: CallableRequest) => {
     return result;
   } catch (error) {
     if (error instanceof HttpsError) throw error;
-    console.error('Error in clockOut:', error);
+    logOpsError({
+      message: 'Error in clockOut:',
+      failureType: 'business',
+      functionEntry: 'clockOut',
+      cause: error,
+    });
     throw new HttpsError('internal', 'Internal server error');
   }
 });

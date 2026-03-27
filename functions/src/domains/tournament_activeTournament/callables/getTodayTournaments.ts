@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * LIFF用：本日開催のトーナメント一覧を取得するCloud Function
@@ -229,7 +230,12 @@ export const getTodayTournaments = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('Error in getTodayTournaments:', error);
+    logOpsError({
+      message: 'Error in getTodayTournaments:',
+      failureType: 'business',
+      functionEntry: 'getTodayTournaments',
+      cause: error,
+    });
     
     return {
       success: false,

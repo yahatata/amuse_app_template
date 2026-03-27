@@ -16,6 +16,7 @@ import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
 import { recalculateAttendanceFromBreaks } from '../helpers/recalculateAttendanceFromBreaks';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 function parseTimestamp(v: unknown): admin.firestore.Timestamp {
   if (v instanceof admin.firestore.Timestamp) return v;
@@ -175,7 +176,12 @@ export const createAttendance = onCall(async (request: CallableRequest) => {
     };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
-    console.error('Error in createAttendance:', error);
+    logOpsError({
+      message: 'Error in createAttendance:',
+      failureType: 'business',
+      functionEntry: 'createAttendance',
+      cause: error,
+    });
     throw new HttpsError('internal', 'Internal server error');
   }
 });

@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const archiveBlindTemplate = onCall(async (request) => {
   try {
@@ -24,7 +25,12 @@ export const archiveBlindTemplate = onCall(async (request) => {
 
     return { success: true, message: 'ブラインドテンプレートが正常にアーカイブされました' };
   } catch (error) {
-    console.error('ブラインドテンプレートアーカイブエラー:', error);
+    logOpsError({
+      message: 'ブラインドテンプレートアーカイブエラー:',
+      failureType: 'business',
+      functionEntry: 'archiveBlindTemplate',
+      cause: error,
+    });
     return { success: false, error: 'ブラインドテンプレートのアーカイブに失敗しました' };
   }
 });

@@ -3,6 +3,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import * as crypto from 'crypto';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { writeSingleOperationLog } from '../../logs/lib/operationLog';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export interface RankingEntryForRollback {
   playerUid: string;
@@ -148,8 +149,12 @@ export const setRankingData = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('=== setRankingData エラー ===');
-    console.error('setRankingData error:', error);
+    logOpsError({
+      message: '=== setRankingData エラー ===',
+      failureType: 'business',
+      functionEntry: 'setRankingData',
+      cause: error,
+    });
     
     if (error instanceof HttpsError) {
       throw error;
@@ -302,7 +307,12 @@ async function _awardPrizes(
     }
     return result;
   } catch (error) {
-    console.error('=== プライズ付与処理エラー ===', error);
+    logOpsError({
+      message: '=== プライズ付与処理エラー ===',
+      failureType: 'business',
+      functionEntry: 'setRankingData',
+      cause: error,
+    });
     throw error;
   }
 }

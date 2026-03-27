@@ -4,6 +4,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { calculatePaymentSplit } from '../services/paymentSplitCalculator';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_POINT_PRIORITY } from '../../../shared/config/defaults';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const VerifyPaymentSplitSchema = z.object({
@@ -161,7 +162,12 @@ export const verifyPaymentSplit = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('支払い分割照合エラー:', error);
+    logOpsError({
+      message: '支払い分割照合エラー:',
+      failureType: 'business',
+      functionEntry: 'verifyPaymentSplit',
+      cause: error,
+    });
     throw new HttpsError('internal', '支払い分割照合に失敗しました', error.message);
   }
 });

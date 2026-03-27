@@ -1,5 +1,6 @@
 import { onCall } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const debugSideGame = onCall(async (request) => {
   const db = getFirestore();
@@ -59,7 +60,12 @@ export const debugSideGame = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('debugSideGameエラー:', error);
+    logOpsError({
+      message: 'debugSideGameエラー:',
+      failureType: 'business',
+      functionEntry: 'debugSideGame',
+      cause: error,
+    });
     throw new Error(`デバッグエラー: ${error}`);
   }
 });

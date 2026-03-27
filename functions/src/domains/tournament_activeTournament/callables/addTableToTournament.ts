@@ -2,6 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const addTableToTournamentSchema = z.object({
@@ -113,8 +114,12 @@ export const addTableToTournament = onCall(async (request) => {
     return result;
     
   } catch (error) {
-    console.error('=== 卓追加エラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== 卓追加エラー ===',
+      failureType: 'business',
+      functionEntry: 'addTableToTournament',
+      cause: error,
+    });
     
     // エラーメッセージを適切に返す
     if (error instanceof Error) {

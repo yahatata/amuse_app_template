@@ -2,6 +2,7 @@ import { onCall } from "firebase-functions/v2/https";
 import { HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { getStoreConfig } from "../../../shared/config/configLoader";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 interface ConfirmShiftRequestRequest {
   requestId: string;
@@ -96,7 +97,12 @@ export const confirmShiftRequest = onCall(
       };
 
     } catch (error) {
-      console.error("希望シフト要請確認エラー:", error);
+      logOpsError({
+      message: '希望シフト要請確認エラー:',
+      failureType: 'business',
+      functionEntry: 'confirmShiftRequest',
+      cause: error,
+    });
 
       if (error instanceof Error) {
         throw new Error(`要請の確認に失敗しました: ${error.message}`);

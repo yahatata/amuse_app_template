@@ -1,4 +1,5 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export interface UndoAddonParams {
   tournamentId: string;
@@ -75,7 +76,12 @@ export async function undoAddon(params: UndoAddonParams): Promise<void> {
     console.log(`Addon operation undone for player ${params.playerName} in tournament ${params.tournamentId}`);
     
   } catch (error) {
-    console.error('Error undoing addon operation:', error);
+    logOpsError({
+      message: 'Error undoing addon operation:',
+      failureType: 'business',
+      functionEntry: 'unknown',
+      cause: error,
+    });
     throw error;
   }
 }

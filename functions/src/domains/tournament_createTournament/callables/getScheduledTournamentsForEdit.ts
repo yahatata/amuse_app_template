@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const getScheduledTournamentsForEditSchema = z.object({
   type: z.enum(['recurrence', 'template']),
@@ -71,7 +72,12 @@ export const getScheduledTournamentsForEdit = onCall(async (request) => {
       tournaments,
     };
   } catch (error) {
-    console.error('スケジュール済みトーナメント取得エラー:', error);
+    logOpsError({
+      message: 'スケジュール済みトーナメント取得エラー:',
+      failureType: 'business',
+      functionEntry: 'getScheduledTournamentsForEdit',
+      cause: error,
+    });
     return {
       success: false,
       error: error instanceof Error ? error.message : '不明なエラーが発生しました',

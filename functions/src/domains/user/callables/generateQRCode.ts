@@ -2,6 +2,7 @@ import {onCall} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { GenerateQRResponse } from "../../../shared/types";
 import { generateQRData, generateQRImage, saveQRCodeToStorage } from "../services/qrCodeUtils";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * QRコード生成関数（統合版）
@@ -138,11 +139,13 @@ export const generateQRCode = onCall(
         expiresAtMs = finalExpMs;
         
       } catch (transactionError: unknown) {
-        console.error(`❌ トランザクションエラー: ${collectionName}/${uid}`);
-        console.error(`エラーの詳細:`, transactionError);
-        console.error(`エラータイプ:`, transactionError instanceof Error ? transactionError.constructor.name : 'Unknown');
-        console.error(`エラーメッセージ:`, transactionError instanceof Error ? transactionError.message : 'Unknown error');
-        console.error(`エラースタック:`, transactionError instanceof Error ? transactionError.stack : 'No stack trace');
+        logOpsError({
+        message: 'QRコード生成トランザクションエラー',
+        failureType: 'datastore',
+        functionEntry: 'generateQRCode',
+        operation: 'transaction',
+        cause: transactionError,
+      });
         
         const errorMessage = transactionError instanceof Error ? transactionError.message : String(transactionError);
         throw new Error(`トランザクション処理に失敗しました: ${errorMessage}`);
@@ -155,7 +158,12 @@ export const generateQRCode = onCall(
         expiresAt: expiresAtMs,
       };
     } catch (error) {
-      console.error("QRコード生成エラー:", error);
+      logOpsError({
+      message: 'QRコード生成エラー:',
+      failureType: 'business',
+      functionEntry: 'generateQRCode',
+      cause: error,
+    });
 
       // エラーメッセージを詳細化
       if (error instanceof Error) {

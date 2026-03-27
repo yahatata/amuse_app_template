@@ -1,6 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { isInsufficientDaysNotificationSent } from "../../shift/services/helpers";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 interface GetShiftsResponse {
   success: boolean;
@@ -49,7 +50,12 @@ export const getShifts = onCall(
       console.log("Firestore接続テスト成功。ドキュメント数:", testDoc.size);
       
     } catch (error) {
-      console.error("初期化エラー:", error);
+      logOpsError({
+      message: '初期化エラー:',
+      failureType: 'business',
+      functionEntry: 'getShifts',
+      cause: error,
+    });
       if (error instanceof Error) {
         throw new Error("初期化に失敗しました: " + error.message);
       } else {
@@ -258,16 +264,31 @@ export const getShifts = onCall(
 
     } catch (error) {
       // エラーの詳細情報をログ出力（Firebase Consoleで確認可能）
-      console.error("シフト取得エラー:", error);
+      logOpsError({
+      message: 'シフト取得エラー:',
+      failureType: 'business',
+      functionEntry: 'getShifts',
+      cause: error,
+    });
       
       if (error instanceof Error) {
         // エラーの詳細情報を含めて返す
         const errorMessage = `シフト一覧の取得に失敗しました: ${error.message}`;
-        console.error("詳細エラーメッセージ:", errorMessage);
+        logOpsError({
+      message: '詳細エラーメッセージ:',
+      failureType: 'business',
+      functionEntry: 'getShifts',
+      cause: errorMessage,
+    });
         throw new Error(errorMessage);
       } else {
         const errorMessage = "シフト一覧の取得に失敗しました。";
-        console.error("不明なエラー:", error);
+        logOpsError({
+      message: '不明なエラー:',
+      failureType: 'business',
+      functionEntry: 'getShifts',
+      cause: error,
+    });
         throw new Error(errorMessage);
       }
     }

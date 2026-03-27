@@ -143,7 +143,12 @@ export const createTournamentRecurrence = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('定期開催トーナメント作成エラー:', error);
+    logOpsError({
+      message: '定期開催トーナメント作成エラー:',
+      failureType: 'business',
+      functionEntry: 'createTournamentRecurrence',
+      cause: error,
+    });
     if (error instanceof HttpsError) {
       throw error;
     }
@@ -532,7 +537,12 @@ async function createScheduledTournamentFromRecurrence(
     console.log('定期開催トーナメント作成完了:', tournamentRef.id);
     return tournamentRef.id;
   } catch (error) {
-    console.error('定期開催トーナメント作成エラー:', error);
+    logOpsError({
+      message: '定期開催トーナメント作成エラー:',
+      failureType: 'business',
+      functionEntry: 'createTournamentRecurrence',
+      cause: error,
+    });
     return null;
   }
 }

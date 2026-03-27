@@ -7,6 +7,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { runEnqueueTournamentTasks } from '../services/enqueueTournamentTasksCore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const enqueueTournamentTasks = onCall(async (request) => {
   if (!request.auth) {
@@ -27,7 +28,12 @@ export const enqueueTournamentTasks = onCall(async (request) => {
     const result = await runEnqueueTournamentTasks({});
     return result;
   } catch (error) {
-    console.error('enqueueTournamentTasks エラー:', error);
+    logOpsError({
+      message: 'enqueueTournamentTasks エラー:',
+      failureType: 'business',
+      functionEntry: 'enqueueTournamentTasks',
+      cause: error,
+    });
     throw new HttpsError(
       'internal',
       error instanceof Error ? error.message : 'enqueue に失敗しました'

@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Query } from "firebase-admin/firestore";
 import { z } from "zod";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const getActionLogsSchema = z.object({
   tournamentId: z.string().min(1, "トーナメントIDは必須です"),
@@ -189,7 +190,13 @@ export const getActionLogs = onCall(async (request) => {
     }
     if (error instanceof HttpsError) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    console.error("[getActionLogs] error:", message, error);
+    logOpsError({
+      message: '[getActionLogs] error',
+      failureType: 'business',
+      functionEntry: 'getActionLogs',
+      cause: error,
+      context: { detailMessage: String(message) },
+    });
     throw new HttpsError("internal", "アクションログの取得に失敗しました");
   }
 });

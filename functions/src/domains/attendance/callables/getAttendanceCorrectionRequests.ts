@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const getAttendanceCorrectionRequests = onCall(
   { region: "us-central1", maxInstances: 10 },
@@ -75,7 +76,12 @@ export const getAttendanceCorrectionRequests = onCall(
       };
 
     } catch (error) {
-      console.error("勤怠修正申請取得エラー:", error);
+      logOpsError({
+      message: '勤怠修正申請取得エラー:',
+      failureType: 'business',
+      functionEntry: 'getAttendanceCorrectionRequests',
+      cause: error,
+    });
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error occurred.",

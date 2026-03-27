@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const getBlindTemplates = onCall(async (request) => {
   try {
@@ -37,7 +38,12 @@ export const getBlindTemplates = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('ブラインドテンプレート取得エラー:', error);
+    logOpsError({
+      message: 'ブラインドテンプレート取得エラー:',
+      failureType: 'business',
+      functionEntry: 'getBlindTemplates',
+      cause: error,
+    });
     return { success: false, error: 'ブラインドテンプレートの取得に失敗しました' };
   }
 });

@@ -11,6 +11,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { logger } from 'firebase-functions';
 import { runEnqueueTournamentTasks } from '../services/enqueueTournamentTasksCore';
 import { getStoreConfig } from '../../../shared/config/configLoader';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const SCHEDULE_CRON = process.env.ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON || '0 5 * * *';
 logger.info('enqueueTournamentTasksByScheduler schedule', {
@@ -44,11 +45,21 @@ export const enqueueTournamentTasksByScheduler = onSchedule(
           `=== enqueue バッチ完了: processed=${result.processedCount}, enqueued=${result.enqueuedCount} ===`
         );
       } else {
-        console.error('=== enqueue バッチエラー ===', result.errors);
+        logOpsError({
+          message: '=== enqueue バッチエラー ===',
+          failureType: 'scheduled',
+          functionEntry: 'enqueueTournamentTasksByScheduler',
+          context: { errors: result.errors },
+        });
         throw new Error(result.errors?.map((e) => e.error).join('; ') || 'enqueue に失敗しました');
       }
     } catch (error) {
-      console.error('=== enqueue バッチ（Scheduler）エラー ===', error);
+      logOpsError({
+        message: '=== enqueue バッチ（Scheduler）エラー ===',
+        failureType: 'scheduled',
+        functionEntry: 'enqueueTournamentTasksByScheduler',
+        cause: error,
+      });
       throw error;
     }
   }
