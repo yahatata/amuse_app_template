@@ -13,6 +13,7 @@ import { getFunctions } from 'firebase-admin/functions';
 import { logger } from 'firebase-functions';
 
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 export const payrollNotificationScheduler = onSchedule(
   {
@@ -20,36 +21,56 @@ export const payrollNotificationScheduler = onSchedule(
     timeZone: 'Asia/Tokyo',
   },
   async () => {
-    const payrollConfig = await getPayrollConfig();
-    const notificationHour = payrollConfig.schedulerNotificationHour;
+    let notificationHour: number | undefined;
+    let scheduleTimeUtc: string | undefined;
 
-    const now = new Date();
-    const jstOffsetMs = 9 * 60 * 60 * 1000;
-    const jstNow = new Date(now.getTime() + now.getTimezoneOffset() * 60000 + jstOffsetMs);
+    try {
+      const payrollConfig = await getPayrollConfig();
+      notificationHour = payrollConfig.schedulerNotificationHour;
 
-    const scheduleJst = new Date(
-      jstNow.getFullYear(),
-      jstNow.getMonth(),
-      jstNow.getDate(),
-      notificationHour,
-      0,
-      0
-    );
+      const now = new Date();
+      const jstOffsetMs = 9 * 60 * 60 * 1000;
+      const jstNow = new Date(now.getTime() + now.getTimezoneOffset() * 60000 + jstOffsetMs);
 
-    const scheduleUtc = new Date(scheduleJst.getTime() - jstOffsetMs);
+      const scheduleJst = new Date(
+        jstNow.getFullYear(),
+        jstNow.getMonth(),
+        jstNow.getDate(),
+        notificationHour,
+        0,
+        0
+      );
 
-    const queue = getFunctions().taskQueue('processPayrollNotifications');
-    await queue.enqueue(
-      {},
-      {
-        scheduleTime: scheduleUtc,
-        dispatchDeadlineSeconds: 300,
-      }
-    );
+      const scheduleUtc = new Date(scheduleJst.getTime() - jstOffsetMs);
+      scheduleTimeUtc = scheduleUtc.toISOString();
 
-    logger.info('payrollNotificationScheduler: task enqueued', {
-      scheduleTimeUtc: scheduleUtc.toISOString(),
-      notificationHour,
-    });
+      const queue = getFunctions().taskQueue('processPayrollNotifications');
+      await queue.enqueue(
+        {},
+        {
+          scheduleTime: scheduleUtc,
+          dispatchDeadlineSeconds: 300,
+        }
+      );
+
+      logger.info('payrollNotificationScheduler: task enqueued', {
+        scheduleTimeUtc: scheduleUtc.toISOString(),
+        notificationHour,
+      });
+    } catch (error) {
+      logOpsError({
+        message: 'payroll_notification_scheduler_failed',
+        failureType: 'scheduled',
+        functionEntry: 'payrollNotificationScheduler',
+        operation: 'enqueue',
+        cause: error,
+        context: {
+          ...(notificationHour !== undefined && { notificationHour }),
+          ...(scheduleTimeUtc !== undefined && { scheduleTimeUtc }),
+          taskQueueName: 'processPayrollNotifications',
+        },
+      });
+      throw error;
+    }
   }
 );

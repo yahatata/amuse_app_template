@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * ユーザーの現在の入店状態と基本情報を取得するCloud Function
@@ -54,7 +55,12 @@ export const getUserStatus = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error("getUserStatus error", error);
+    logOpsError({
+      message: 'getUserStatus error',
+      failureType: 'business',
+      functionEntry: 'getUserStatus',
+      cause: error,
+    });
     return { 
       success: false, 
       error: "ユーザー状態の取得に失敗しました。" 

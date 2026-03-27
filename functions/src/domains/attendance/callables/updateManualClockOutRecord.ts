@@ -14,6 +14,7 @@ import {
   endActiveBreaksForClockOut,
   recalculateAttendanceFromBreaks,
 } from '../helpers/recalculateAttendanceFromBreaks';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const GRACE_HOURS = 1;
 
@@ -182,7 +183,12 @@ export const updateManualClockOutRecord = onCall(async (request: CallableRequest
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('Error in updateManualClockOutRecord:', error);
+    logOpsError({
+      message: 'Error in updateManualClockOutRecord:',
+      failureType: 'business',
+      functionEntry: 'updateManualClockOutRecord',
+      cause: error,
+    });
     throw new HttpsError('internal', 'Internal server error');
   }
 });

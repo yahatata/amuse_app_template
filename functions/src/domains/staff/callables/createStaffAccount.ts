@@ -1,6 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * スタッフアカウント作成関数
@@ -115,7 +116,12 @@ export const createStaffAccount = onCall(
         expiresAt,
       };
     } catch (error) {
-      console.error("スタッフアカウント作成エラー:", error);
+      logOpsError({
+      message: 'スタッフアカウント作成エラー:',
+      failureType: 'business',
+      functionEntry: 'createStaffAccount',
+      cause: error,
+    });
       
       // 既にHttpsErrorの場合はそのまま再スロー
       if (error instanceof functions.https.HttpsError) {

@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const getPayrollData = onCall(async (request: CallableRequest) => {
   try {
@@ -91,7 +92,12 @@ export const getPayrollData = onCall(async (request: CallableRequest) => {
     };
 
   } catch (error) {
-    console.error('Error in getPayrollData:', error);
+    logOpsError({
+      message: 'Error in getPayrollData:',
+      failureType: 'business',
+      functionEntry: 'getPayrollData',
+      cause: error,
+    });
     
     if (error instanceof HttpsError) {
       throw error;

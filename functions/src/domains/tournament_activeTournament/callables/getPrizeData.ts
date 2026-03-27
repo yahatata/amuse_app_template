@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const getPrizeDataSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId is required'),
@@ -53,7 +54,12 @@ export const getPrizeData = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('getPrizeData error:', error);
+    logOpsError({
+      message: 'getPrizeData error:',
+      failureType: 'business',
+      functionEntry: 'getPrizeData',
+      cause: error,
+    });
     
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', `Input validation error: ${error.errors.map(e => e.message).join(', ')}`);

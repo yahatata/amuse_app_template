@@ -1,6 +1,7 @@
 import { onCall } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const db = getFirestore();
 
@@ -45,7 +46,12 @@ export const getAvailableTables = onCall({
     };
     
   } catch (error) {
-    console.error('getAvailableTables エラー:', error);
+    logOpsError({
+      message: 'getAvailableTables エラー:',
+      failureType: 'business',
+      functionEntry: 'getAvailableTables',
+      cause: error,
+    });
     
     if (error instanceof z.ZodError) {
       return {

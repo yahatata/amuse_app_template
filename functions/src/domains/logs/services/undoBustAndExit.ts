@@ -1,4 +1,5 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export interface UndoBustAndExitParams {
   tournamentId: string;
@@ -86,7 +87,12 @@ export async function undoBustAndExit(params: UndoBustAndExitParams): Promise<vo
 
     console.log(`Bust and exit operation undone for player ${params.playerName} in tournament ${params.tournamentId}`);
   } catch (error) {
-    console.error('Error undoing bust and exit operation:', error);
+    logOpsError({
+      message: 'Error undoing bust and exit operation:',
+      failureType: 'business',
+      functionEntry: 'unknown',
+      cause: error,
+    });
     throw error;
   }
 }

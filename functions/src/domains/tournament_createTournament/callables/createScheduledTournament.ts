@@ -386,7 +386,12 @@ export const createScheduledTournament = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('スケジュール済みトーナメント作成エラー:', error);
+    logOpsError({
+      message: 'スケジュール済みトーナメント作成エラー:',
+      failureType: 'business',
+      functionEntry: 'createScheduledTournament',
+      cause: error,
+    });
     
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', `入力検証エラー: ${error.errors.map(e => e.message).join(', ')}`);

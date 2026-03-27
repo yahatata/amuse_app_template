@@ -249,7 +249,12 @@ export async function runGenerateRecurringTournaments(): Promise<GenerateRecurri
       message: `${totalGenerated}件の定期開催トーナメントを生成しました`,
     };
   } catch (error) {
-    console.error("定期開催トーナメント自動生成エラー:", error);
+    logOpsError({
+      message: '定期開催トーナメント自動生成エラー:',
+      failureType: 'business',
+      functionEntry: 'unknown',
+      cause: error,
+    });
     return {
       success: false,
       generatedCount: 0,
@@ -532,7 +537,12 @@ async function createScheduledTournamentFromRecurrence(
 
     return tournamentRef.id;
   } catch (error) {
-    console.error("定期開催トーナメント作成エラー:", error);
+    logOpsError({
+      message: '定期開催トーナメント作成エラー:',
+      failureType: 'business',
+      functionEntry: 'unknown',
+      cause: error,
+    });
     return null;
   }
 }

@@ -1,4 +1,5 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export interface UndoReseatAllPlayersParams {
   tournamentId: string;
@@ -79,7 +80,12 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
     console.log(`Reseat all players operation undone in tournament ${params.tournamentId}`);
     
   } catch (error) {
-    console.error('Error undoing reseat all players operation:', error);
+    logOpsError({
+      message: 'Error undoing reseat all players operation:',
+      failureType: 'business',
+      functionEntry: 'unknown',
+      cause: error,
+    });
     throw error;
   }
 }

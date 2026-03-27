@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * LIFF用：当日以降のトーナメント一覧を取得するCloud Function
@@ -260,7 +261,12 @@ export const getUpcomingTournaments = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('Error in getUpcomingTournaments:', error);
+    logOpsError({
+      message: 'Error in getUpcomingTournaments:',
+      failureType: 'business',
+      functionEntry: 'getUpcomingTournaments',
+      cause: error,
+    });
     
     return {
       success: false,

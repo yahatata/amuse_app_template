@@ -1,6 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { z } from "zod";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const updateStaffHourlyWageSchema = z.object({
@@ -93,8 +94,12 @@ export const updateStaffHourlyWage = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('=== スタッフ時給更新エラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== スタッフ時給更新エラー ===',
+      failureType: 'business',
+      functionEntry: 'updateStaffHourlyWage',
+      cause: error,
+    });
     
     if (error instanceof z.ZodError) {
       return {

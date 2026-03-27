@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマの定義
 const resumeTournamentSchema = z.object({
@@ -101,7 +102,12 @@ export const resumeTournament = onCall(async (request) => {
     };
 
   } catch (error) {
-    console.error('resumeTournament error:', error);
+    logOpsError({
+      message: 'resumeTournament error:',
+      failureType: 'business',
+      functionEntry: 'resumeTournament',
+      cause: error,
+    });
     
     if (error instanceof HttpsError) {
       throw error;

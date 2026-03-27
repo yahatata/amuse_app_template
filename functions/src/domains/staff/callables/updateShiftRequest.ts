@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import { getStoreConfig } from "../../../shared/config/configLoader";
 import { DEFAULT_SHIFT_SCHEDULING_START_DAY } from "../../../shared/config/defaults";
 import { assertStaffExists, assertHourStep, getYearMonthFromDateKey, isInShiftSchedulingPeriod, isInsufficientDaysNotificationSent, isInsufficientDayOrTimeSlot } from "../../shift/services/helpers";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
 
@@ -155,7 +156,12 @@ export const updateShiftRequest = onCall(
       };
 
     } catch (error) {
-      console.error("シフト申請修正エラー:", error);
+      logOpsError({
+      message: 'シフト申請修正エラー:',
+      failureType: 'business',
+      functionEntry: 'updateShiftRequest',
+      cause: error,
+    });
 
       if (error instanceof HttpsError) {
         throw error;

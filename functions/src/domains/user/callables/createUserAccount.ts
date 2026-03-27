@@ -3,6 +3,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as bcrypt from "bcryptjs";
 import { initializeUserLogs } from "../services/logUtils";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * ユーザーアカウント作成関数
@@ -110,7 +111,12 @@ export const createUserAccount = onCall(
         expiresAt,
       };
     } catch (error) {
-      console.error("ユーザーアカウント作成エラー:", error);
+      logOpsError({
+      message: 'ユーザーアカウント作成エラー:',
+      failureType: 'business',
+      functionEntry: 'createUserAccount',
+      cause: error,
+    });
       
       // 既にHttpsErrorの場合はそのまま再スロー
       if (error instanceof functions.https.HttpsError) {

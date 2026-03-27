@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
 
@@ -80,7 +81,12 @@ export const migrateTodaysBillsAccountingFields = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('マイグレーションエラー:', error);
+    logOpsError({
+      message: 'マイグレーションエラー:',
+      failureType: 'business',
+      functionEntry: 'migrateTodaysBillsAccountingFields',
+      cause: error,
+    });
     throw new HttpsError('internal', 'マイグレーションに失敗しました', error.message);
   }
 });

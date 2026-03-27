@@ -5,6 +5,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const bulkAddonSchema = z.object({
   tournamentId: z.string(),
@@ -201,7 +202,12 @@ export const bulkAddon = onCall(async (request) => {
           idempotencyKey,
         });
       } catch (error) {
-        console.error(`Failed to record tournament action for user ${user.userId}:`, error);
+        logOpsError({
+      message: `Failed to record tournament action for user ${user.userId}:`,
+      failureType: 'business',
+      functionEntry: 'bulkAddon',
+      cause: error,
+    });
         // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
         // scheduledTournamentsの更新は成功しているため
       }
@@ -248,8 +254,12 @@ export const bulkAddon = onCall(async (request) => {
       addonStack: result.addonStack,
     };
   } catch (error) {
-    console.error('=== まとめてAddon処理エラー ===');
-    console.error(error);
+    logOpsError({
+      message: '=== まとめてAddon処理エラー ===',
+      failureType: 'business',
+      functionEntry: 'bulkAddon',
+      cause: error,
+    });
 
     // 操作記録（失敗）
     const rawData = request.data as Record<string, unknown> | undefined;
@@ -268,7 +278,12 @@ export const bulkAddon = onCall(async (request) => {
           payload: {},
         });
       } catch (logErr) {
-        console.error('operationLog 書き込み失敗', logErr);
+        logOpsError({
+      message: 'operationLog 書き込み失敗',
+      failureType: 'business',
+      functionEntry: 'bulkAddon',
+      cause: logErr,
+    });
       }
     }
 

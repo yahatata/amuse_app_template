@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // 支払い方法の表示名を取得するヘルパー関数
 function _getPaymentMethodDisplayName(paymentMethod: string): string {
@@ -349,7 +350,12 @@ export const startAccounting = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('会計開始エラー:', error);
+    logOpsError({
+      message: '会計開始エラー:',
+      failureType: 'business',
+      functionEntry: 'startAccounting',
+      cause: error,
+    });
     throw new HttpsError('internal', '会計開始に失敗しました', error.message);
   }
 });
@@ -494,7 +500,12 @@ export const completeAccounting = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('会計完了エラー:', error);
+    logOpsError({
+      message: '会計完了エラー:',
+      failureType: 'business',
+      functionEntry: 'completeAccounting',
+      cause: error,
+    });
     throw new HttpsError('internal', '会計完了に失敗しました', error.message);
   }
 });
@@ -627,7 +638,12 @@ export const completeAccountingV2 = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('会計完了エラー:', error);
+    logOpsError({
+      message: '会計完了エラー:',
+      failureType: 'business',
+      functionEntry: 'completeAccountingV2',
+      cause: error,
+    });
     throw new HttpsError('internal', '会計完了に失敗しました', error.message);
   }
 });

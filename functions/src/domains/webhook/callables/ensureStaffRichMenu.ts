@@ -2,6 +2,7 @@ import { onCall } from "firebase-functions/v2/https";
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { linkStaffRichMenu } from "../services/lineRichMenu";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * 提案C-B: スタッフ＋ユーザー登録アカウントのリッチメニューをスタッフ用に整える
@@ -40,7 +41,12 @@ export const ensureStaffRichMenu = onCall(async (request) => {
       reason: ok ? "rich_menu_linked" : "link_failed",
     };
   } catch (error) {
-    console.error("ensureStaffRichMenu error:", error);
+    logOpsError({
+      message: 'ensureStaffRichMenu error:',
+      failureType: 'webhook',
+      functionEntry: 'ensureStaffRichMenu',
+      cause: error,
+    });
     // 呼び出し元では fire-and-forget のため、エラー時も失敗させずに返す
     return { success: false, updated: false, reason: "error" };
   }

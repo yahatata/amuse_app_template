@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import { logger } from "firebase-functions";
 
 import { getSchedulerConfig } from "../../../shared/config/schedulerConfigLoader";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * 毎日午前2時に却下されたシフトを自動削除するスケジュール関数
@@ -75,7 +76,12 @@ export const scheduledCleanup = onSchedule(
       console.log(`${shiftsToDelete.length}件の却下シフトを自動削除しました`);
 
     } catch (error) {
-      console.error("スケジュール削除エラー:", error);
+      logOpsError({
+      message: 'スケジュール削除エラー:',
+      failureType: 'scheduled',
+      functionEntry: 'scheduledCleanup',
+      cause: error,
+    });
       throw error; // スケジュール関数ではエラーを再スロー
     }
   }

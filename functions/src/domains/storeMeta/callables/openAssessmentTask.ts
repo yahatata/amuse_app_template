@@ -17,6 +17,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const openAssessmentTask = onRequest(
   {
@@ -238,7 +239,12 @@ export const openAssessmentTask = onRequest(
 
       res.status(200).json({ success: true });
     } catch (error: any) {
-      console.error('開店認定処理でエラーが発生しました:', error);
+      logOpsError({
+      message: '開店認定処理でエラーが発生しました:',
+      failureType: 'business',
+      functionEntry: 'openAssessmentTask',
+      cause: error,
+    });
       res.status(500).json({ error: error.message });
     }
   }

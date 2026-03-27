@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import { getStoreConfig } from "../../../shared/config/configLoader";
 import { writeAttendanceLog } from "../helpers/attendanceLogs";
 import { recalculateAttendanceFromBreaks } from "../helpers/recalculateAttendanceFromBreaks";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const approveAttendanceCorrectionRequest = onCall(
   { region: "us-central1", maxInstances: 10 },
@@ -121,7 +122,12 @@ export const approveAttendanceCorrectionRequest = onCall(
           console.warn(`勤怠記録が見つかりません: staffId=${requestData.staffId}, date=${requestData.date}`);
         }
       } catch (updateError) {
-        console.error("勤怠記録更新エラー:", updateError);
+        logOpsError({
+      message: '勤怠記録更新エラー:',
+      failureType: 'business',
+      functionEntry: 'approveAttendanceCorrectionRequest',
+      cause: updateError,
+    });
         // 勤怠記録の更新に失敗しても承認処理は成功とする
       }
 
@@ -132,7 +138,12 @@ export const approveAttendanceCorrectionRequest = onCall(
       };
 
     } catch (error) {
-      console.error("勤怠修正申請承認エラー:", error);
+      logOpsError({
+      message: '勤怠修正申請承認エラー:',
+      failureType: 'business',
+      functionEntry: 'approveAttendanceCorrectionRequest',
+      cause: error,
+    });
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error occurred.",

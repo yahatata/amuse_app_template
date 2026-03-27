@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import { getStoreConfig } from "../../../shared/config/configLoader";
 import { DEFAULT_SHIFT_SCHEDULING_START_DAY } from "../../../shared/config/defaults";
 import { assertStaffExists, assertHourStep, getYearMonthFromDateKey, isInShiftSchedulingPeriod, isInsufficientDaysNotificationSent, isInsufficientDayOrTimeSlot } from "../../shift/services/helpers";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
 
@@ -360,7 +361,12 @@ export const createMultipleShifts = onCall(
       };
 
     } catch (error) {
-      console.error("複数シフト作成エラー:", error);
+      logOpsError({
+      message: '複数シフト作成エラー:',
+      failureType: 'business',
+      functionEntry: 'createMultipleShifts',
+      cause: error,
+    });
 
       if (error instanceof HttpsError) {
         throw error;

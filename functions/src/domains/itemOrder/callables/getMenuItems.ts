@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // When: メニューアイテム取得時
 // Where: Firebase Functions
@@ -79,7 +80,12 @@ export const getMenuItems = onCall(async (request) => {
     // Where: Cloud Functions
     // What: エラー情報を返却
     // How: エラーメッセージを含むJSONを返却
-    console.error('Error fetching menu items:', error);
+    logOpsError({
+      message: 'Error fetching menu items:',
+      failureType: 'business',
+      functionEntry: 'getMenuItems',
+      cause: error,
+    });
     return {
       success: false,
       error: 'メニューアイテムの取得に失敗しました'

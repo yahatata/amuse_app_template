@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const getAllStaffAttendance = onCall(
   {
@@ -168,7 +169,12 @@ export const getAllStaffAttendance = onCall(
       };
 
     } catch (error) {
-      console.error("勤怠記録取得エラー:", error);
+      logOpsError({
+      message: '勤怠記録取得エラー:',
+      failureType: 'business',
+      functionEntry: 'getAllStaffAttendance',
+      cause: error,
+    });
       throw new Error(`勤怠記録の取得に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

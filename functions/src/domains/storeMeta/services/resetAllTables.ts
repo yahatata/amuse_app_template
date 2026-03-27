@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /** Phase6 Step3: ターミナルから呼ぶ core。共通化用。 */
 export async function runResetAllTables(
@@ -37,7 +38,12 @@ export const resetAllTables = onCall(async (request) => {
       count,
     };
   } catch (error) {
-    console.error('resetAllTablesエラー:', error);
+    logOpsError({
+      message: 'resetAllTablesエラー:',
+      failureType: 'business',
+      functionEntry: 'resetAllTables',
+      cause: error,
+    });
     throw new HttpsError(
       'internal',
       `全テーブルリセットに失敗しました: ${error}`

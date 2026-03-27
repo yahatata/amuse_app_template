@@ -12,6 +12,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const cancelOrder = onCall(async (request) => {
   const db = getFirestore();
@@ -127,7 +128,12 @@ export const cancelOrder = onCall(async (request) => {
       },
     };
   } catch (error) {
-    console.error("cancelOrder エラー:", error);
+    logOpsError({
+      message: 'cancelOrder エラー:',
+      failureType: 'business',
+      functionEntry: 'cancelOrder',
+      cause: error,
+    });
 
     // HttpsError の場合はそのまま throw
     if (error instanceof HttpsError) {

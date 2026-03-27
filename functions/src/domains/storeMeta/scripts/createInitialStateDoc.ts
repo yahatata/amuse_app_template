@@ -12,6 +12,7 @@
  */
 
 import * as admin from 'firebase-admin';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 // Firebase Admin SDKの初期化
 if (!admin.apps.length) {
@@ -42,7 +43,12 @@ async function createInitialStateDoc() {
     await docRef.set(initialState);
     console.log('storeMeta/currentBusinessDay document created successfully.');
   } catch (error) {
-    console.error('Failed to create initial state doc:', error);
+    logOpsError({
+      message: 'Failed to create initial state doc:',
+      failureType: 'internal',
+      functionEntry: 'unknown',
+      cause: error,
+    });
     process.exit(1);
   }
 }
@@ -54,6 +60,11 @@ createInitialStateDoc()
     process.exit(0);
   })
   .catch((error) => {
-    console.error('Script failed:', error);
+    logOpsError({
+      message: 'Script failed:',
+      failureType: 'internal',
+      functionEntry: 'unknown',
+      cause: error,
+    });
     process.exit(1);
   });

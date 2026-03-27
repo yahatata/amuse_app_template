@@ -11,6 +11,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { getBusinessDateForAttendance } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 function resolveAdjustedClockInTimestamp(
   adjustmentOffsetMinutes: unknown,
@@ -171,7 +172,12 @@ export const createManualClockInRecord = onCall(async (request: CallableRequest)
     if (error instanceof HttpsError) {
       throw error;
     }
-    console.error('Error in createManualClockInRecord:', error);
+    logOpsError({
+      message: 'Error in createManualClockInRecord:',
+      failureType: 'business',
+      functionEntry: 'createManualClockInRecord',
+      cause: error,
+    });
     throw new HttpsError('internal', 'Internal server error');
   }
 });

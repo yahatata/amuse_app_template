@@ -13,6 +13,7 @@ import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { getBusinessDateForAttendance } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
+import { logOpsError } from "../shared/logging/logOpsError";
 
 export const createClockInRecord = onCall(async (request: CallableRequest) => {
   if (!request.auth) {
@@ -69,7 +70,12 @@ export const createClockInRecord = onCall(async (request: CallableRequest) => {
       }
     };
   } catch (error) {
-    console.error('Error in createClockInRecord:', error);
+    logOpsError({
+      message: 'Error in createClockInRecord:',
+      failureType: 'internal',
+      functionEntry: 'createClockInRecord',
+      cause: error,
+    });
     if (error instanceof HttpsError) {
       throw error;
     }

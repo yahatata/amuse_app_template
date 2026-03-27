@@ -16,6 +16,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { getBusinessDateForAttendance } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 function resolveAdjustedClockInTimestamp(
   adjustmentOffsetMinutes: unknown,
@@ -173,7 +174,12 @@ export const clockIn = onCall(async (request: CallableRequest) => {
     return result;
   } catch (error) {
     if (error instanceof HttpsError) throw error;
-    console.error('Error in clockIn:', error);
+    logOpsError({
+      message: 'Error in clockIn:',
+      failureType: 'business',
+      functionEntry: 'clockIn',
+      cause: error,
+    });
     throw new HttpsError('internal', 'Internal server error');
   }
 });

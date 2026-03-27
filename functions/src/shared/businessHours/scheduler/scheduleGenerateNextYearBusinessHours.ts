@@ -13,6 +13,7 @@ import { getSchedulerConfig } from "../../config/schedulerConfigLoader";
 import { upsertBusinessHoursForMonth, syncBusinessHoursToShifts } from "../services/businessHoursCore";
 import { determineStyleId } from "../services/holidayHelper";
 import { getBusinessHoursByStyleId } from "../services/styles";
+import { logOpsError } from "../../logging/logOpsError";
 
 const db = admin.firestore();
 
@@ -122,14 +123,24 @@ export const scheduleGenerateNextYearBusinessHours = onSchedule(
             console.log(`- ${yearMonth}: 更新対象なし（すべてmanual）`);
           }
         } catch (monthError) {
-          console.error(`エラー: ${yearMonth} の処理に失敗`, monthError);
+          logOpsError({
+      message: `エラー: ${yearMonth} の処理に失敗`,
+      failureType: 'scheduled',
+      functionEntry: 'scheduleGenerateNextYearBusinessHours',
+      cause: monthError,
+    });
           // 月ごとのエラーはログに記録するが、処理は継続
         }
       }
 
       console.log('=== 翌年分の営業時間自動生成完了 ===');
     } catch (error) {
-      console.error('=== 翌年分の営業時間自動生成エラー ===', error);
+      logOpsError({
+      message: '=== 翌年分の営業時間自動生成エラー ===',
+      failureType: 'scheduled',
+      functionEntry: 'scheduleGenerateNextYearBusinessHours',
+      cause: error,
+    });
       throw error;
     }
   }

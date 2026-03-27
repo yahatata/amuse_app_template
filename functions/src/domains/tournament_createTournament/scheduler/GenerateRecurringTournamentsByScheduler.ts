@@ -11,6 +11,7 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions";
 import { runGenerateRecurringTournaments } from "../services/generateRecurringTournamentsCore";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /**
  * cron式（JST）: 環境変数 RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON で上書き可能。
@@ -41,14 +42,21 @@ export const generateRecurringTournamentsByScheduler = onSchedule(
           `=== 定期開催トーナメント自動生成完了: ${result.generatedCount}件 ===`
         );
       } else {
-        console.error(
-          "=== 定期開催トーナメント自動生成エラー ===",
-          result.error
-        );
+        logOpsError({
+          message: "=== 定期開催トーナメント自動生成エラー ===",
+          failureType: "scheduled",
+          functionEntry: "generateRecurringTournamentsByScheduler",
+          errorMessage: result.error ?? result.message ?? "unknown",
+        });
         throw new Error(result.error || result.message);
       }
     } catch (error) {
-      console.error("=== 定期開催トーナメント自動生成（Scheduler）エラー ===", error);
+      logOpsError({
+      message: '=== 定期開催トーナメント自動生成（Scheduler）エラー ===',
+      failureType: 'scheduled',
+      functionEntry: 'generateRecurringTournamentsByScheduler',
+      cause: error,
+    });
       throw error;
     }
   }

@@ -2,6 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const setPrizeDataSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId is required'),
@@ -66,7 +67,12 @@ export const setPrizeData = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('setPrizeData error:', error);
+    logOpsError({
+      message: 'setPrizeData error:',
+      failureType: 'business',
+      functionEntry: 'setPrizeData',
+      cause: error,
+    });
     
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', `Input validation error: ${error.errors.map(e => e.message).join(', ')}`);

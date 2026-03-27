@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
+import { logOpsError } from "../../logging/logOpsError";
 
 const db = getFirestore();
 
@@ -76,7 +77,12 @@ export const registerDevice = onCall(async (request) => {
       message: "デバイスを登録しました",
     };
   } catch (error) {
-    console.error("デバイス登録エラー:", error);
+    logOpsError({
+      message: 'デバイス登録エラー:',
+      failureType: 'business',
+      functionEntry: 'registerDevice',
+      cause: error,
+    });
 
     if (error instanceof z.ZodError) {
       throw new HttpsError("invalid-argument", "入力データが無効です");

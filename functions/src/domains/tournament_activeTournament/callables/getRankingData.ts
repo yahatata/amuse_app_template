@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const getRankingData = onCall(async (request) => {
   try {
@@ -64,7 +65,12 @@ export const getRankingData = onCall(async (request) => {
     };
     
   } catch (error) {
-    console.error('getRankingData error:', error);
+    logOpsError({
+      message: 'getRankingData error:',
+      failureType: 'business',
+      functionEntry: 'getRankingData',
+      cause: error,
+    });
     
     if (error instanceof HttpsError) {
       throw error;
