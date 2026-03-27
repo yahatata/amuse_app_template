@@ -7,25 +7,28 @@
 import type { RoundingMethod } from '../../../shared/config/payrollConfigTypes';
 
 /**
- * 金額の端数処理を行う。
- *
- * precision > 0: 小数点以下 precision 桁で処理（例: precision=2 → 小数第2位）
- * precision = 0: 1の位で処理
- * precision < 0: 10の位以上で処理（例: precision=-1 → 10の位）
+ * 小数第2位まで保持する（小数第3位を四捨五入）。
+ * 中間計算値の精度保持に使用する。
  */
-export function payrollRound(
+export function truncateTo2Decimals(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * 円の単位で端数処理を行う。
+ *
+ * unit: 1=1円単位、10=10円単位、100=100円単位、1000=1000円単位
+ * 有効値は 10 の冪のみ（1 / 10 / 100 / 1000）。
+ * grossPay の最終丸めにのみ使用する。
+ */
+export function roundToYenUnit(
   value: number,
   method: RoundingMethod,
-  precision: number
+  unit: number
 ): number {
-  const factor = Math.pow(10, precision);
-  const shifted = value * factor;
   switch (method) {
-    case 'ceil':
-      return Math.ceil(shifted) / factor;
-    case 'floor':
-      return Math.floor(shifted) / factor;
-    case 'round':
-      return Math.round(shifted) / factor;
+    case 'ceil':  return Math.ceil(value  / unit) * unit;
+    case 'floor': return Math.floor(value / unit) * unit;
+    case 'round': return Math.round(value / unit) * unit;
   }
 }

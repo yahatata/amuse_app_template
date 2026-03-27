@@ -5,6 +5,7 @@
  */
 
 import {
+  computeActualPaymentDate,
   getPaymentPeriodKey,
   getPayrollPeriodRange,
   getWeekStartDate,
@@ -95,18 +96,52 @@ describe('payrollPeriodUtils', () => {
     });
   });
 
+  describe('computeActualPaymentDate', () => {
+    it('offset=0 の同月払いを返す', () => {
+      expect(computeActualPaymentDate('2026-03-25', '31', 0)).toBe('2026-03-31');
+    });
+
+    it('offset=1 の翌月払いを返す', () => {
+      expect(computeActualPaymentDate('2026-03-25', '25', 1)).toBe('2026-04-25');
+    });
+
+    it('offset=2 の翌々月払いを返す', () => {
+      expect(computeActualPaymentDate('2026-03-25', '25', 2)).toBe('2026-05-25');
+    });
+
+    it('paymentDayOfMonth=0 は月末になる', () => {
+      expect(computeActualPaymentDate('2026-03-25', '0', 1)).toBe('2026-04-30');
+    });
+
+    it('存在しない日付は月末へクランプされる', () => {
+      expect(computeActualPaymentDate('2026-01-25', '31', 1)).toBe('2026-02-28');
+    });
+
+    it('年跨ぎを正しく処理する', () => {
+      expect(computeActualPaymentDate('2026-12-25', '31', 1)).toBe('2027-01-31');
+    });
+
+    it('paymentDayOfMonth=null は null', () => {
+      expect(computeActualPaymentDate('2026-03-25', null, 1)).toBeNull();
+    });
+
+    it('不正値は null', () => {
+      expect(computeActualPaymentDate('2026-03-25', 'abc', 1)).toBeNull();
+    });
+  });
+
   describe('getCalculablePeriod', () => {
-    it('通常: periodEnd + paymentDate', () => {
+    it('通常: periodEnd + actualPaymentDate', () => {
       const result = getCalculablePeriod('2026-03-25', '2026-04-25');
       expect(result).toEqual({ calcStart: '2026-03-26', calcEnd: '2026-04-24' });
     });
 
-    it('paymentDate=null → null（常時計算可能）', () => {
+    it('actualPaymentDate=null → null（常時計算可能）', () => {
       const result = getCalculablePeriod('2026-03-25', null);
       expect(result).toBeNull();
     });
 
-    it('年跨ぎ: periodEnd=12月, paymentDate=翌年1月', () => {
+    it('年跨ぎ: periodEnd=12月, actualPaymentDate=翌年1月', () => {
       const result = getCalculablePeriod('2026-12-25', '2027-01-25');
       expect(result).toEqual({ calcStart: '2026-12-26', calcEnd: '2027-01-24' });
     });

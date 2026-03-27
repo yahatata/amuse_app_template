@@ -19,6 +19,7 @@ export { approveAttendanceCorrectionRequest } from "./callables/approveAttendanc
 export { rejectAttendanceCorrectionRequest } from "./callables/rejectAttendanceCorrectionRequest";
 export { getPayrollData } from "./callables/getPayrollData";
 export { getPayrollCandidates } from "./callables/getPayrollCandidates";
+export { getPayrollCalcDisplayContext } from "./callables/getPayrollCalcDisplayContext";
 export { executeMonthlyPayroll } from "./callables/executeMonthlyPayroll";
 export { confirmPayrollRun } from "./callables/confirmPayrollRun";
 export { retryFailedStaffTasks } from "./callables/retryFailedStaffTasks";

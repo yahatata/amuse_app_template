@@ -30,6 +30,9 @@ phase4_3/
 ├── FIRESTORE_RULES_RECOMMENDATION.md … Firestore ルール追加・インデックス・運用修正提案
 ├── OUTSTANDING_GAPS_RECHECK.md       … 差分再点検結果と未反映項目の推奨案
 ├── SPEC_IMPLEMENTATION_DIFF.md       … 仕様 ↔ 実装の差分（トレーサビリティ・ギャップ一覧）
+├── 修正用フォルダ/
+│   └── ルール関連/
+│       └── CHANGE_SPEC_PAYROLL_RULES_AND_CALLABLES.md … G1 対応（ルール簡素化・Callable admin 検証）の As-Is/To-Be・実装順
 ├── DISTRIBUTED_EXECUTION_DESIGN.md   … 分散実行アーキテクチャ設計
 ├── IMPLEMENTATION_PLAN.md            … 実装計画（10ステップ + 仕様追跡マトリクス）
 ├── specs/

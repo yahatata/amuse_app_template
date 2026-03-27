@@ -15,7 +15,8 @@ import { logOpsError } from '../logging/logOpsError';
 import { CONFIG_ERROR_CODES } from './configLoader';
 
 import {
-  DEFAULT_PAYROLL_CONFIG_PAYMENT_DATE,
+  DEFAULT_PAYROLL_CONFIG_PAYMENT_DAY_OF_MONTH,
+  DEFAULT_PAYROLL_CONFIG_PAYMENT_MONTH_OFFSET,
   DEFAULT_PAYROLL_CONFIG_BULK_PAYMENT_REGISTRATION_ENABLED,
   DEFAULT_PAYROLL_CONFIG_EXPECTED_RANGE,
   DEFAULT_PAYROLL_CONFIG_MAX_CANDIDATES_COUNT,
@@ -37,6 +38,38 @@ import type { PayrollConfig, ExpectedRange, RoundingMethod } from './payrollConf
 
 const MAX_RETRIES = 2;
 const VALID_ROUNDING_METHODS: RoundingMethod[] = ['ceil', 'floor', 'round'];
+const VALID_ROUNDING_PRECISIONS = [1, 10, 100, 1000];
+const VALID_PAYMENT_MONTH_OFFSETS = [0, 1, 2] as const;
+
+function normalizePaymentDayOfMonth(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  if (!/^\d{1,2}$/.test(raw)) return null;
+  const day = Number(raw);
+  if (!Number.isInteger(day) || day < 0 || day > 31) return null;
+  return String(day);
+}
+
+function parseLegacyPaymentDate(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== 'string') return null;
+
+  const normalizedDay = normalizePaymentDayOfMonth(raw);
+  if (normalizedDay !== null) return normalizedDay;
+
+  const match = raw.match(/^\d{4}-\d{2}-(\d{2})$/);
+  if (!match) return null;
+
+  const day = Number(match[1]);
+  if (!Number.isInteger(day) || day < 1 || day > 31) return null;
+  return String(day);
+}
+
+function normalizePaymentMonthOffset(raw: unknown): 0 | 1 | 2 | null {
+  if (typeof raw !== 'number' || !Number.isInteger(raw)) return null;
+  return VALID_PAYMENT_MONTH_OFFSETS.includes(raw as 0 | 1 | 2)
+    ? (raw as 0 | 1 | 2)
+    : null;
+}
 
 /**
  * storeMeta/payrollConfig を取得する。
@@ -92,7 +125,8 @@ export async function getPayrollConfig(db?: Firestore): Promise<PayrollConfig> {
 
 export function buildPayrollConfigFromDefaults(): PayrollConfig {
   return {
-    paymentDate: DEFAULT_PAYROLL_CONFIG_PAYMENT_DATE,
+    paymentDayOfMonth: DEFAULT_PAYROLL_CONFIG_PAYMENT_DAY_OF_MONTH,
+    paymentMonthOffset: DEFAULT_PAYROLL_CONFIG_PAYMENT_MONTH_OFFSET,
     bulkPaymentRegistrationEnabled: DEFAULT_PAYROLL_CONFIG_BULK_PAYMENT_REGISTRATION_ENABLED,
     expectedRange: DEFAULT_PAYROLL_CONFIG_EXPECTED_RANGE,
     maxCandidatesCount: DEFAULT_PAYROLL_CONFIG_MAX_CANDIDATES_COUNT,
@@ -130,16 +164,41 @@ export function mergePayrollConfigWithDefaults(raw: Record<string, unknown>): Pa
     logFallback(key, reason, (result as unknown as Record<string, unknown>)[key]);
   };
 
-  // paymentDate (string | null)
-  if (typeof raw.paymentDate === 'string') {
-    result.paymentDate = raw.paymentDate;
-    fromConfig.push('paymentDate');
-  } else if (raw.paymentDate === null || raw.paymentDate === undefined) {
-    result.paymentDate = null;
-    if (raw.paymentDate === null) fromConfig.push('paymentDate');
-    else fb('paymentDate', 'field_missing');
+  // paymentDayOfMonth (string | null) with legacy paymentDate fallback
+  const normalizedPaymentDay = normalizePaymentDayOfMonth(raw.paymentDayOfMonth);
+  if (normalizedPaymentDay !== null) {
+    result.paymentDayOfMonth = normalizedPaymentDay;
+    fromConfig.push('paymentDayOfMonth');
+  } else if (raw.paymentDayOfMonth === null) {
+    result.paymentDayOfMonth = null;
+    fromConfig.push('paymentDayOfMonth');
   } else {
-    fb('paymentDate', 'invalid_value');
+    const legacyPaymentDay = parseLegacyPaymentDate(raw.paymentDate);
+    if (legacyPaymentDay !== null) {
+      result.paymentDayOfMonth = legacyPaymentDay;
+      fromConfig.push('paymentDate');
+    } else if (raw.paymentDate === null) {
+      result.paymentDayOfMonth = null;
+      fromConfig.push('paymentDate');
+    } else if (
+      raw.paymentDayOfMonth === undefined &&
+      raw.paymentDate === undefined
+    ) {
+      fb('paymentDayOfMonth', 'field_missing');
+    } else {
+      fb('paymentDayOfMonth', 'invalid_value');
+    }
+  }
+
+  // paymentMonthOffset (0 | 1 | 2)
+  const paymentMonthOffset = normalizePaymentMonthOffset(raw.paymentMonthOffset);
+  if (paymentMonthOffset !== null) {
+    result.paymentMonthOffset = paymentMonthOffset;
+    fromConfig.push('paymentMonthOffset');
+  } else if (raw.paymentMonthOffset === undefined) {
+    fb('paymentMonthOffset', 'field_missing');
+  } else {
+    fb('paymentMonthOffset', 'invalid_value');
   }
 
   // bulkPaymentRegistrationEnabled
@@ -276,8 +335,8 @@ export function mergePayrollConfigWithDefaults(raw: Record<string, unknown>): Pa
     fb('roundingMethod', 'field_missing');
   }
 
-  // roundingPrecision
-  if (typeof raw.roundingPrecision === 'number' && raw.roundingPrecision > 0) {
+  // roundingPrecision: 有効値は 1 / 10 / 100 / 1000（10 の冪）のみ
+  if (typeof raw.roundingPrecision === 'number' && VALID_ROUNDING_PRECISIONS.includes(raw.roundingPrecision)) {
     result.roundingPrecision = raw.roundingPrecision;
     fromConfig.push('roundingPrecision');
   } else if (raw.roundingPrecision !== undefined) {
@@ -331,10 +390,14 @@ export function mergePayrollConfigForUpsert(
     typeof ex[key] === 'string' ? (ex[key] as string) : def;
 
   return {
-    paymentDate:
-      typeof ex.paymentDate === 'string' || ex.paymentDate === null
-        ? ex.paymentDate
-        : defaults.paymentDate,
+    paymentDayOfMonth:
+      normalizePaymentDayOfMonth(ex.paymentDayOfMonth) ??
+      (ex.paymentDayOfMonth === null
+        ? null
+        : (parseLegacyPaymentDate(ex.paymentDate) ?? defaults.paymentDayOfMonth)),
+    paymentMonthOffset:
+      normalizePaymentMonthOffset(ex.paymentMonthOffset) ??
+      defaults.paymentMonthOffset,
     bulkPaymentRegistrationEnabled: boolOrDefault('bulkPaymentRegistrationEnabled', defaults.bulkPaymentRegistrationEnabled),
     expectedRange:
       ex.expectedRange !== undefined ? ex.expectedRange : defaults.expectedRange,
@@ -354,7 +417,10 @@ export function mergePayrollConfigForUpsert(
       typeof ex.roundingMethod === 'string' && VALID_ROUNDING_METHODS.includes(ex.roundingMethod as RoundingMethod)
         ? ex.roundingMethod
         : defaults.roundingMethod,
-    roundingPrecision: numOrDefault('roundingPrecision', defaults.roundingPrecision),
+    roundingPrecision: (() => {
+      const v = numOrDefault('roundingPrecision', defaults.roundingPrecision);
+      return VALID_ROUNDING_PRECISIONS.includes(v) ? v : defaults.roundingPrecision;
+    })(),
     schedulerNotificationHour: numOrDefault('schedulerNotificationHour', defaults.schedulerNotificationHour),
     reminderStartDaysAfterPeriodEnd: numOrDefault('reminderStartDaysAfterPeriodEnd', defaults.reminderStartDaysAfterPeriodEnd),
   };

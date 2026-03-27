@@ -9,7 +9,8 @@ class StaffCardData {
   final String staffId;
   final String staffName;
   final int totalActualWorkMinutes;
-  final int grossPay;
+  final int grossPay;             // 丸め後総支給額（整数）
+  final double? grossPayRaw;      // 丸め前総支給額（nullable: 旧データ互換）
   final int totalLegalOvertimeMinutes;
   final int totalLegalHolidayWorkMinutes;
   final int over60OvertimeMinutes;
@@ -18,11 +19,12 @@ class StaffCardData {
   final int baseHourlyWage;
   final int totalNightWorkMinutes;
   final int totalNonLegalHolidayWorkMinutes;
-  final int basePay;
-  final int lateNightPremiumPay;
-  final int overtimePremiumPay;
-  final int over60PremiumPay;
-  final int legalHolidayPremiumPay;
+  final double basePay;           // 丸め差分吸収後（小数第2位まで）
+  final double? basePayRaw;       // 丸め前基本給（nullable: 旧データ互換）
+  final double lateNightPremiumPay;
+  final double overtimePremiumPay;
+  final double over60PremiumPay;
+  final double legalHolidayPremiumPay;
   final List<String>? warnings;
   final String? paymentStatus;
 
@@ -31,6 +33,7 @@ class StaffCardData {
     required this.staffName,
     required this.totalActualWorkMinutes,
     required this.grossPay,
+    this.grossPayRaw,
     required this.totalLegalOvertimeMinutes,
     required this.totalLegalHolidayWorkMinutes,
     required this.over60OvertimeMinutes,
@@ -40,6 +43,7 @@ class StaffCardData {
     required this.totalNightWorkMinutes,
     required this.totalNonLegalHolidayWorkMinutes,
     required this.basePay,
+    this.basePayRaw,
     required this.lateNightPremiumPay,
     required this.overtimePremiumPay,
     required this.over60PremiumPay,
@@ -54,6 +58,7 @@ class StaffCardData {
       staffName: data['staffNameSnapshot'] as String? ?? '',
       totalActualWorkMinutes: (data['totalActualWorkMinutes'] as num?)?.toInt() ?? 0,
       grossPay: (data['grossPay'] as num?)?.toInt() ?? 0,
+      grossPayRaw: (data['grossPayRaw'] as num?)?.toDouble(),
       totalLegalOvertimeMinutes: (data['totalLegalOvertimeMinutes'] as num?)?.toInt() ?? 0,
       totalLegalHolidayWorkMinutes: (data['totalLegalHolidayWorkMinutes'] as num?)?.toInt() ?? 0,
       over60OvertimeMinutes: (data['over60OvertimeMinutes'] as num?)?.toInt() ?? 0,
@@ -62,11 +67,12 @@ class StaffCardData {
       baseHourlyWage: (data['baseHourlyWageSnapshot'] as num?)?.toInt() ?? 0,
       totalNightWorkMinutes: (data['totalNightWorkMinutes'] as num?)?.toInt() ?? 0,
       totalNonLegalHolidayWorkMinutes: (data['totalNonLegalHolidayWorkMinutes'] as num?)?.toInt() ?? 0,
-      basePay: (data['basePay'] as num?)?.toInt() ?? 0,
-      lateNightPremiumPay: (data['lateNightPremiumPay'] as num?)?.toInt() ?? 0,
-      overtimePremiumPay: (data['overtimePremiumPay'] as num?)?.toInt() ?? 0,
-      over60PremiumPay: (data['over60PremiumPay'] as num?)?.toInt() ?? 0,
-      legalHolidayPremiumPay: (data['legalHolidayPremiumPay'] as num?)?.toInt() ?? 0,
+      basePay: (data['basePay'] as num?)?.toDouble() ?? 0.0,
+      basePayRaw: (data['basePayRaw'] as num?)?.toDouble(),
+      lateNightPremiumPay: (data['lateNightPremiumPay'] as num?)?.toDouble() ?? 0.0,
+      overtimePremiumPay: (data['overtimePremiumPay'] as num?)?.toDouble() ?? 0.0,
+      over60PremiumPay: (data['over60PremiumPay'] as num?)?.toDouble() ?? 0.0,
+      legalHolidayPremiumPay: (data['legalHolidayPremiumPay'] as num?)?.toDouble() ?? 0.0,
       warnings: (data['warnings'] as List<dynamic>?)?.cast<String>(),
       paymentStatus: data['paymentStatus'] as String?,
     );

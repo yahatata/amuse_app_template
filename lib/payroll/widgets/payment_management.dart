@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/services/payroll_config_service.dart';
+import 'package:amuse_app_template/payroll/utils/payment_date_utils.dart';
 import '../services/payroll_callable_service.dart';
 import 'staff_card.dart';
 
@@ -37,31 +38,24 @@ class _PaymentManagementState extends State<PaymentManagement> {
   bool get _isPaymentOverdue {
     final config = PayrollConfigService.instance.latest;
     if (config == null) return false;
-    final paymentDateStr = config.paymentDate;
-    if (paymentDateStr == null || paymentDateStr.isEmpty) return false;
     if (widget.monthlyPayrollStatus != 'confirmed') return false;
 
-    final paymentDay = int.tryParse(paymentDateStr);
-    if (paymentDay == null) return false;
-
-    final now = DateTime.now();
     final parts = widget.paymentPeriodKey.split('_');
     if (parts.length != 2) return false;
-    final endParts = parts[1].split('-');
-    if (endParts.length != 3) return false;
+    final actualPaymentDate = computeActualPaymentDate(
+      periodEnd: parts[1],
+      paymentDayOfMonth: config.paymentDayOfMonth,
+      paymentMonthOffset: config.paymentMonthOffset,
+    );
+    if (actualPaymentDate == null) return false;
 
-    final endYear = int.tryParse(endParts[0]) ?? now.year;
-    final endMonth = int.tryParse(endParts[1]) ?? now.month;
+    final payDate = DateTime.tryParse(actualPaymentDate);
+    if (payDate == null) return false;
 
-    DateTime payDate;
-    if (paymentDay == 0) {
-      final nextM = DateTime(endYear, endMonth + 2, 1);
-      payDate = nextM.subtract(const Duration(days: 1));
-    } else {
-      payDate = DateTime(endYear, endMonth + 1, paymentDay);
-    }
-
-    return now.isAfter(payDate);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final payDay = DateTime(payDate.year, payDate.month, payDate.day);
+    return today.isAfter(payDay);
   }
 
   String get _statusLabel {

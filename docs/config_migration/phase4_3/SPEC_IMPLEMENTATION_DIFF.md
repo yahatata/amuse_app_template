@@ -16,7 +16,7 @@
 
 ---
 
-## G1: Firestore セキュリティルール（重大）
+## G1: Firestore セキュリティルール（重大）— **対応方針（確定・2026-03-27）**
 
 ### 仕様での前提
 
@@ -25,21 +25,27 @@
 | 通知の取得・更新 | `07_NOTIFICATION_SCHEDULER_SPEC` §5-1, §5-2 | Flutter から `notifications` を直接クエリ・`isRead` / `isFlagged` 更新 |
 | 給与 UI | `06_UI_SPEC` / `05_PROCESS_FLOW_SPEC` | `monthlyPayroll` / `payrollRuns` / `staffResults` 等のクライアント読取 |
 | payrollConfig 購読 | `02_CONFIG_SPEC` | `storeMeta/payrollConfig` を Flutter が読む（`PayrollConfigService`） |
-| 共通原則の例外 | `04_CALLABLE_API_SPEC`（07 参照） | 通知の UI 状態のみクライアント直接更新可（admin 制限はルールで担保） |
+| 共通原則の例外 | `04_CALLABLE_API_SPEC`（07 参照） | 通知の UI 状態のみクライアント直接更新可 |
 
-### 実装（コード）
+### 確定した対応方針（リリース優先）
 
-- Flutter: `lib/payroll/widgets/result_tab.dart` 等で `monthlyPayroll` / `payrollRuns` を `snapshots()`。
-- Flutter: `lib/payroll/widgets/notification_list.dart` で `notifications` クエリ・更新。
-- Flutter: `lib/services/payroll_config_service.dart` で `storeMeta/payrollConfig` を購読。
+| レイヤ | 方針 |
+|--------|------|
+| **Firestore ルール** | **`admins/{uid}` 依存を廃止**。payroll 関連パスは **`request.auth != null`（`isSignedIn()`）なら read 可**。クライアント直接 **write は原則禁止**（給与データは Functions のみ）。通知は **`operationCategory == 'payroll'`** の **`isRead` / `isFlagged` のみ** update 可（従来どおりフィールド制限）。 |
+| **Callable** | **変更・集計などの権限**は **`getCallerDeviceByUid` + `device.role === 'admin'` + `isActive`** で担保（既存 payroll Callable と同型）。**`getPayrollData`** にも同一検証を追加。 |
+| **読み取りの機密性** | ルールでは **認証済み端末なら read 可**とし、**「admin 専用 read」は UI 寄り＋Callable 側の厳格化**で賄う（**同一プロジェクト内の terminal が Firestore を直接読むとデータが見える**リスクは許容）。 |
 
-### 差分（❌）
+**詳細・実装手順**: `docs/config_migration/phase4_3/修正用フォルダ/ルール関連/CHANGE_SPEC_PAYROLL_RULES_AND_CALLABLES.md`
 
-| ファイル | 内容 |
-|---------|------|
-| `firestore.rules` | `monthlyPayroll/{...}`、`notifications/{...}`、`storeMeta/payrollConfig` 用の **明示的 `match` が無い**。末尾の `match /{document=**} { allow read, write: if false; }` により、**未列挙パスはクライアントから read/write 拒否**になりうる。 |
+### 差分（旧記録 → 現状）
 
-**結果**: 仕様が前提とする「admin クライアントの直接読取／通知更新」が、**現状ルールのままでは本番で成立しない可能性**が高い。ルール追加はコード変更ではなく **Firestore ルールのデプロイ作業**が必要。
+| 旧課題 | 解消内容 |
+|--------|----------|
+| `isPayrollAdmin()` が **`admins/{uid}`** を参照し **デバイス admin と不一致** | ルールから **`admins` 依存を削除**し **`isSignedIn()` に変更**。 |
+| Callable の **`getPayrollData`** に **認証・admin 検証が無い** | **`getCallerDeviceByUid` + admin** を追加。 |
+| ルールで admin read を厳密に書けない問題 | **索引／Claims は導入せず**、上記の **緩い read + Callable での admin** に寄せる。 |
+
+**結果（G1）**: ✅ **方針に沿って実装すれば**、仕様が前提とする **Flutter からの read／通知更新** と **Callable 上の admin 専用処理**を両立しつつ、`admins` 未整備による **read 拒否**を解消する。
 
 ---
 
@@ -181,7 +187,7 @@
 
 ### 差分
 
-- ロジック上は ✅。**G1 のルール**が許可していなければ、例外が**本番で使えない**（G1 に帰着）。
+- ロジック上は ✅。G1 対応後は **通知更新は `isSignedIn()` + フィールド制限**（**G1 方針**参照）。
 
 ---
 
@@ -193,7 +199,7 @@
 
 ### `03_DATA_MODEL_SPEC.md`
 
-- attendance / monthlyPayroll 階層 / キャリーオーバー / `notifications` ドキュメント形状（Functions 作成）: データモデル面の**未記載の差分はなし**（G1 はルール層の問題）。
+- attendance / monthlyPayroll 階層 / キャリーオーバー / `notifications` ドキュメント形状（Functions 作成）: データモデル面の**未記載の差分はなし**（G1 は **ルール簡素化 + Callable admin 検証**で対応）。
 
 ### `06_UI_SPEC.md` — 意図的未実装
 
@@ -223,7 +229,7 @@
 
 | ID | 種別 | 仕様側 | 実装 / ルール側 |
 |----|------|--------|----------------|
-| **G1** | ルール | 07 §5-1/5-2, Flutter 直接アクセス | `firestore.rules` にパス未登録 → catch-all で拒否の可能性 |
+| **G1** | ルール + Callable | 07 §5-1/5-2, Flutter 直接アクセス | **対応方針確定**: ルールは `isSignedIn()` で read 緩和・`admins` 廃止。admin 境界は Callable + `getPayrollData` で `devices.role` 検証 |
 | **G2** | ログ | 04 §11 `monthly_payroll_reflect` @ processStaffPayroll 完了 | `processStaffPayroll.ts` 未呼出；旧 `monthlyPayrollTrigger` のみ |
 | **G3** | 条件 | 04 §1 手順7: confirmed 時のみ corrected 通知 | `attendanceOnWrite.ts`: confirmed 未参照 |
 | **G4** | 範囲 | 07 §3-2/3-3 複数期間のイメージ | `processPayrollNotifications.ts`: 単一期間キーのみ |
@@ -238,3 +244,4 @@
 | 日付 | 内容 |
 |------|------|
 | 2026-03-22 | 初版作成（差分フォーカス） |
+| 2026-03-27 | G1 を「対応方針確定」に更新: ルール簡素化（`isSignedIn`）、Callable で admin 担保、`getPayrollData` 修正。旧メモ（パス列挙・索引案）は本対応で置換。詳細は `修正用フォルダ/ルール関連/CHANGE_SPEC_PAYROLL_RULES_AND_CALLABLES.md` |

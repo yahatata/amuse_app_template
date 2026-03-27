@@ -8,7 +8,8 @@
  */
 
 // phase4_2 から継承
-export const DEFAULT_PAYROLL_CONFIG_PAYMENT_DATE: string | null = null;
+export const DEFAULT_PAYROLL_CONFIG_PAYMENT_DAY_OF_MONTH: string | null = null;
+export const DEFAULT_PAYROLL_CONFIG_PAYMENT_MONTH_OFFSET: 0 | 1 | 2 = 1;
 export const DEFAULT_PAYROLL_CONFIG_BULK_PAYMENT_REGISTRATION_ENABLED = false;
 export const DEFAULT_PAYROLL_CONFIG_EXPECTED_RANGE = null;
 export const DEFAULT_PAYROLL_CONFIG_MAX_CANDIDATES_COUNT = 1000;
@@ -30,6 +31,7 @@ export const DEFAULT_PAYROLL_CONFIG_LEGAL_HOLIDAY_PREMIUM_RATE = 0.35;
 
 // 端数処理
 export const DEFAULT_PAYROLL_CONFIG_ROUNDING_METHOD = 'floor';
+/** 端数処理の円単位。有効値: 1（1円単位）/ 10（10円単位）/ 100（100円単位）/ 1000（1000円単位） */
 export const DEFAULT_PAYROLL_CONFIG_ROUNDING_PRECISION = 1;
 
 // 通知・スケジューラー

@@ -99,12 +99,14 @@ export interface StaffCalcResult {
   over60OvertimeMinutes: number;
   totalLegalHolidayWorkMinutes: number;
   totalNonLegalHolidayWorkMinutes: number;
-  basePay: number;
+  basePayRaw: number;              // 丸め前基本給（小数第2位まで）
+  basePay: number;                 // 丸め差分吸収後の基本給（小数第2位まで）
   lateNightPremiumPay: number;
   overtimePremiumPay: number;
   over60PremiumPay: number;
   legalHolidayPremiumPay: number;
-  grossPay: number;
+  grossPayRaw: number;             // 丸め前総支給額（小数第2位まで）
+  grossPay: number;                // 丸め後総支給額（整数）
   attendanceItems: AttendanceItemResult[];
   carryOverGrossPay: number;
   carryOverAttendanceCount: number;
