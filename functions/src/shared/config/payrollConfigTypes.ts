@@ -6,7 +6,8 @@
 
 export interface PayrollConfig {
   // phase4_2 から継承
-  paymentDate: string | null;
+  paymentDayOfMonth: string | null;
+  paymentMonthOffset: 0 | 1 | 2;
   bulkPaymentRegistrationEnabled: boolean;
   expectedRange: ExpectedRange | null;
   maxCandidatesCount: number;

@@ -149,6 +149,39 @@ export function getPaymentPeriodKey(
 }
 
 /**
+ * 対象期間に対する実支給日を算出する。
+ *
+ * - paymentDayOfMonth は '0'..'31' または null
+ * - '0' は対象月の月末
+ * - paymentMonthOffset は 0=同月, 1=翌月, 2=翌々月
+ */
+export function computeActualPaymentDate(
+  periodEnd: string,
+  paymentDayOfMonth: string | null,
+  paymentMonthOffset: 0 | 1 | 2
+): string | null {
+  if (paymentDayOfMonth === null) return null;
+  if (!/^\d{1,2}$/.test(paymentDayOfMonth)) return null;
+
+  const paymentDay = Number(paymentDayOfMonth);
+  if (!Number.isInteger(paymentDay) || paymentDay < 0 || paymentDay > 31) {
+    return null;
+  }
+
+  const { year, month } = parseDate(periodEnd);
+  let payMonth = month + paymentMonthOffset;
+  let payYear = year;
+  while (payMonth > 12) {
+    payMonth -= 12;
+    payYear += 1;
+  }
+
+  const lastDay = getLastDayOfMonth(payYear, payMonth);
+  const actualDay = paymentDay === 0 ? lastDay : Math.min(paymentDay, lastDay);
+  return formatDate(payYear, payMonth, actualDay);
+}
+
+/**
  * weekStartDate を算出する。
  *
  * date から直近の過去方向にある weekStartDay 曜日の日付を返す。
@@ -171,14 +204,14 @@ export function getWeekStartDate(date: string, weekStartDay: number): string {
  * 計算可能期間を算出する。
  *
  * @returns { calcStart, calcEnd } | null
- *          paymentDate が null の場合は null（常時計算可能）
+ *          actualPaymentDate が null の場合は null（常時計算可能）
  */
 export function getCalculablePeriod(
   periodEnd: string,
-  paymentDate: string | null
+  actualPaymentDate: string | null
 ): { calcStart: string; calcEnd: string } | null {
-  if (paymentDate === null) return null;
+  if (actualPaymentDate === null) return null;
   const calcStart = addDays(periodEnd, 1);
-  const calcEnd = addDays(paymentDate, -1);
+  const calcEnd = addDays(actualPaymentDate, -1);
   return { calcStart, calcEnd };
 }

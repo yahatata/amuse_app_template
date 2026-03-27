@@ -12,7 +12,8 @@ import {
   mergePayrollConfigForUpsert,
 } from '../../src/shared/config/payrollConfigLoader';
 import {
-  DEFAULT_PAYROLL_CONFIG_PAYMENT_DATE,
+  DEFAULT_PAYROLL_CONFIG_PAYMENT_DAY_OF_MONTH,
+  DEFAULT_PAYROLL_CONFIG_PAYMENT_MONTH_OFFSET,
   DEFAULT_PAYROLL_CONFIG_BULK_PAYMENT_REGISTRATION_ENABLED,
   DEFAULT_PAYROLL_CONFIG_EXPECTED_RANGE,
   DEFAULT_PAYROLL_CONFIG_MAX_CANDIDATES_COUNT,
@@ -48,9 +49,10 @@ describe('payrollConfigLoader', () => {
   });
 
   describe('buildPayrollConfigFromDefaults', () => {
-    it('全16フィールドがデフォルト値と一致する', () => {
+    it('全17フィールドがデフォルト値と一致する', () => {
       const config = buildPayrollConfigFromDefaults();
-      expect(config.paymentDate).toBe(DEFAULT_PAYROLL_CONFIG_PAYMENT_DATE);
+      expect(config.paymentDayOfMonth).toBe(DEFAULT_PAYROLL_CONFIG_PAYMENT_DAY_OF_MONTH);
+      expect(config.paymentMonthOffset).toBe(DEFAULT_PAYROLL_CONFIG_PAYMENT_MONTH_OFFSET);
       expect(config.bulkPaymentRegistrationEnabled).toBe(DEFAULT_PAYROLL_CONFIG_BULK_PAYMENT_REGISTRATION_ENABLED);
       expect(config.expectedRange).toBe(DEFAULT_PAYROLL_CONFIG_EXPECTED_RANGE);
       expect(config.maxCandidatesCount).toBe(DEFAULT_PAYROLL_CONFIG_MAX_CANDIDATES_COUNT);
@@ -70,16 +72,18 @@ describe('payrollConfigLoader', () => {
   });
 
   describe('mergePayrollConfigWithDefaults', () => {
-    it('Firestore の値がデフォルトより優先される', () => {
+    it('新フィールドの値がデフォルトより優先される', () => {
       const config = mergePayrollConfigWithDefaults({
-        paymentDate: '2026-04-25',
+        paymentDayOfMonth: '25',
+        paymentMonthOffset: 0,
         weekStartDay: 1,
         weeklyLegalLimitMinutes: 2640,
         nightPremiumRate: 0.30,
         roundingMethod: 'round',
         roundingPrecision: 10,
       });
-      expect(config.paymentDate).toBe('2026-04-25');
+      expect(config.paymentDayOfMonth).toBe('25');
+      expect(config.paymentMonthOffset).toBe(0);
       expect(config.weekStartDay).toBe(1);
       expect(config.weeklyLegalLimitMinutes).toBe(2640);
       expect(config.nightPremiumRate).toBe(0.30);
@@ -88,6 +92,35 @@ describe('payrollConfigLoader', () => {
       // 未設定フィールドはデフォルト
       expect(config.legalHolidayWeekday).toBe(DEFAULT_PAYROLL_CONFIG_LEGAL_HOLIDAY_WEEKDAY);
       expect(config.calcVersion).toBe(DEFAULT_PAYROLL_CONFIG_CALC_VERSION);
+    });
+
+    it('旧 paymentDate が paymentDayOfMonth に読み替えられる', () => {
+      const config = mergePayrollConfigWithDefaults({
+        paymentDate: '2026-04-25',
+      });
+      expect(config.paymentDayOfMonth).toBe('25');
+      expect(config.paymentMonthOffset).toBe(DEFAULT_PAYROLL_CONFIG_PAYMENT_MONTH_OFFSET);
+    });
+
+    it('旧 paymentDate の日のみ文字列も読み替えられる', () => {
+      const config = mergePayrollConfigWithDefaults({
+        paymentDate: '0',
+      });
+      expect(config.paymentDayOfMonth).toBe('0');
+    });
+
+    it('無効な paymentDayOfMonth は null にフォールバックする', () => {
+      const config = mergePayrollConfigWithDefaults({
+        paymentDayOfMonth: '32',
+      });
+      expect(config.paymentDayOfMonth).toBeNull();
+    });
+
+    it('無効な paymentMonthOffset はデフォルトにフォールバックする', () => {
+      const config = mergePayrollConfigWithDefaults({
+        paymentMonthOffset: 3,
+      });
+      expect(config.paymentMonthOffset).toBe(DEFAULT_PAYROLL_CONFIG_PAYMENT_MONTH_OFFSET);
     });
 
     it('不正な roundingMethod はデフォルトにフォールバック', () => {
@@ -149,9 +182,17 @@ describe('payrollConfigLoader', () => {
     it('既存値を上書きしない', () => {
       const defaults = buildPayrollConfigFromDefaults();
       const merged = mergePayrollConfigForUpsert(
-        { weekStartDay: 1, legalHolidayWeekday: 0, roundingMethod: 'ceil' },
+        {
+          paymentDayOfMonth: '25',
+          paymentMonthOffset: 0,
+          weekStartDay: 1,
+          legalHolidayWeekday: 0,
+          roundingMethod: 'ceil',
+        },
         defaults
       );
+      expect(merged.paymentDayOfMonth).toBe('25');
+      expect(merged.paymentMonthOffset).toBe(0);
       expect(merged.weekStartDay).toBe(1);
       expect(merged.legalHolidayWeekday).toBe(0);
       expect(merged.roundingMethod).toBe('ceil');
@@ -160,9 +201,11 @@ describe('payrollConfigLoader', () => {
     it('不足フィールドのみデフォルトで補完される', () => {
       const defaults = buildPayrollConfigFromDefaults();
       const merged = mergePayrollConfigForUpsert(
-        { weekStartDay: 1 },
+        { paymentDate: '2026-04-25', weekStartDay: 1 },
         defaults
       );
+      expect(merged.paymentDayOfMonth).toBe('25');
+      expect(merged.paymentMonthOffset).toBe(DEFAULT_PAYROLL_CONFIG_PAYMENT_MONTH_OFFSET);
       expect(merged.weekStartDay).toBe(1);
       expect(merged.weeklyLegalLimitMinutes).toBe(2400);
       expect(merged.legalHolidayWeekday).toBeNull();

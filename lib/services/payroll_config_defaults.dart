@@ -5,7 +5,8 @@
 /// 参照: docs/config_migration/phase4_3/specs/02_CONFIG_SPEC.md
 
 // phase4_2 から継承
-const String? kDefaultPayrollConfigPaymentDate = null;
+const String? kDefaultPayrollConfigPaymentDayOfMonth = null;
+const int kDefaultPayrollConfigPaymentMonthOffset = 1;
 const bool kDefaultPayrollConfigBulkPaymentRegistrationEnabled = false;
 const int kDefaultPayrollConfigMaxCandidatesCount = 1000;
 
