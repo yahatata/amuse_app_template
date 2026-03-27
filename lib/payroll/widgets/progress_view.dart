@@ -12,6 +12,8 @@ class ProgressView extends StatelessWidget {
   final VoidCallback onCompleted;
   final VoidCallback onCompletedWithErrors;
   final VoidCallback? onCancel;
+  /// failed / cancelled などでダイアログを閉じるとき
+  final VoidCallback? onTerminal;
 
   const ProgressView({
     super.key,
@@ -20,6 +22,7 @@ class ProgressView extends StatelessWidget {
     required this.onCompleted,
     required this.onCompletedWithErrors,
     this.onCancel,
+    this.onTerminal,
   });
 
   @override
@@ -82,10 +85,24 @@ class ProgressView extends StatelessWidget {
                   const Icon(Icons.error, color: Colors.red, size: 48),
                   const SizedBox(height: 8),
                   const Text('計算に失敗しました'),
+                  if (onTerminal != null) ...[
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: onTerminal,
+                      child: const Text('閉じる'),
+                    ),
+                  ],
                 ] else if (status == 'cancelled') ...[
                   const Icon(Icons.cancel, color: Colors.grey, size: 48),
                   const SizedBox(height: 8),
                   const Text('中止されました'),
+                  if (onTerminal != null) ...[
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: onTerminal,
+                      child: const Text('閉じる'),
+                    ),
+                  ],
                 ],
                 const SizedBox(height: 16),
                 if (status == 'preparing' || status == 'processing')

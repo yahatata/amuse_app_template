@@ -15,6 +15,8 @@ import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
 import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
 import type { CandidateReasonType } from '../types/payrollCalcTypes';
+import { buildPayrollDisplayContext } from '../helpers/payrollDisplayContext';
+import type { PayrollDisplayContext } from '../helpers/payrollDisplayContext';
 
 const PERIOD_KEY_REGEX = /^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/;
 
@@ -43,6 +45,10 @@ export interface GetPayrollCandidatesResponse {
   group1: CandidateEntry[];
   group2: CandidateEntry[];
   group3: CandidateEntry[];
+  /** Callable と同一経路で算出した UI 表示用メタ */
+  displayContext: PayrollDisplayContext;
+  /** monthlyPayroll.status が confirmed または paid */
+  isConfirmed: boolean;
 }
 
 /** Firestore Timestamp → ISO string */
@@ -183,7 +189,15 @@ export const getPayrollCandidates = onCall(async (request: CallableRequest) => {
     throw new HttpsError('invalid-argument', 'paymentPeriodKey の形式が不正です（YYYY-MM-DD_YYYY-MM-DD）');
   }
 
-  const [periodStart, periodEnd] = paymentPeriodKey.split('_');
+  const displayContext = await buildPayrollDisplayContext();
+  if (paymentPeriodKey !== displayContext.paymentPeriodKey) {
+    throw new HttpsError(
+      'invalid-argument',
+      `paymentPeriodKey がサーバー算出の当日期間と一致しません。期待値: ${displayContext.paymentPeriodKey}`
+    );
+  }
+
+  const { periodStart, periodEnd } = displayContext;
 
   let payrollConfig;
   try {
@@ -194,6 +208,13 @@ export const getPayrollCandidates = onCall(async (request: CallableRequest) => {
   const maxCount = payrollConfig.maxCandidatesCount;
 
   const db = getFirestore();
+
+  const mpSnap = await db.collection('monthlyPayroll').doc(paymentPeriodKey).get();
+  let isConfirmed = false;
+  if (mpSnap.exists) {
+    const st = mpSnap.data()?.status as string | undefined;
+    isConfirmed = st === 'confirmed' || st === 'paid';
+  }
   const attendancesRef = db.collection('attendances');
 
   const [inPeriodSnap, unreflectedSnap] = await Promise.all([
@@ -228,6 +249,8 @@ export const getPayrollCandidates = onCall(async (request: CallableRequest) => {
     group1,
     group2,
     group3,
+    displayContext,
+    isConfirmed,
   };
 
   return response;
