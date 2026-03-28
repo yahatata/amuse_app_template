@@ -1,3 +1,11 @@
+/// `YYYY-MM-DD` を `YYYY/MM/DD` 表示用に変換（想定外の文字列はそのまま返す）
+String formatIsoYmdToSlash(String iso) {
+  if (iso.length >= 10 && iso[4] == '-' && iso[7] == '-') {
+    return '${iso.substring(0, 4)}/${iso.substring(5, 7)}/${iso.substring(8, 10)}';
+  }
+  return iso;
+}
+
 String? computeActualPaymentDate({
   required String periodEnd,
   required String? paymentDayOfMonth,

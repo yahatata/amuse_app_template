@@ -91,4 +91,14 @@ void main() {
       );
     });
   });
+
+  group('formatIsoYmdToSlash', () {
+    test('YYYY-MM-DD をスラッシュ区切りにする', () {
+      expect(formatIsoYmdToSlash('2026-03-25'), '2026/03/25');
+    });
+
+    test('想定外はそのまま', () {
+      expect(formatIsoYmdToSlash('bad'), 'bad');
+    });
+  });
 }

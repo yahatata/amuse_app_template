@@ -6,18 +6,20 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
+import 'package:amuse_app_template/services/payroll_config_service.dart';
 
 import '../services/payroll_callable_service.dart';
+import '../utils/payment_date_utils.dart';
 import 'result_summary.dart';
 import 'staff_card.dart';
 import 'staff_detail_page.dart';
 import 'confirm_section.dart';
 import 'payment_management.dart';
 import 'past_results_selector.dart';
+import 'payroll_header_common.dart';
 
 class ResultTab extends StatefulWidget {
   const ResultTab({super.key});
@@ -28,8 +30,49 @@ class ResultTab extends StatefulWidget {
 
 class _ResultTabState extends State<ResultTab> {
   final _payrollService = PayrollCallableService();
+  final ScrollController _staffResultsScrollController = ScrollController();
   String _paymentPeriodKey = '';
   bool _periodKeyLoading = true;
+  bool _mgmtPaymentRegisterBusy = false;
+
+  /// 親 StreamBuilder の再ビルドのたびに `snapshots()` を渡し直すと、子 StreamBuilder が
+  /// 別ストリーム扱いで再購読 → 一瞬 waiting → スクロール可能領域が消えてオフセットが 0 に戻る。
+  /// 同一 period + runId では同じ Stream インスタンスを使い回す。
+  String? _payrollStreamsCacheKey;
+  Stream<DocumentSnapshot>? _cachedPayrollRunDocStream;
+  Stream<QuerySnapshot>? _cachedStaffResultsQueryStream;
+
+  void _invalidatePayrollStreamCaches() {
+    _payrollStreamsCacheKey = null;
+    _cachedPayrollRunDocStream = null;
+    _cachedStaffResultsQueryStream = null;
+  }
+
+  void _ensurePayrollStreams(String runId) {
+    final key = '$_paymentPeriodKey|$runId';
+    if (_payrollStreamsCacheKey == key) return;
+    _payrollStreamsCacheKey = key;
+    final runRef = FirebaseFirestore.instance
+        .collection('monthlyPayroll')
+        .doc(_paymentPeriodKey)
+        .collection('payrollRuns')
+        .doc(runId);
+    _cachedPayrollRunDocStream = runRef.snapshots();
+    _cachedStaffResultsQueryStream = runRef
+        .collection('staffResults')
+        .where('taskStatus', isEqualTo: 'completed')
+        .snapshots();
+  }
+
+  Stream<DocumentSnapshot> _payrollRunDocumentStream(String runId) {
+    _ensurePayrollStreams(runId);
+    return _cachedPayrollRunDocStream!;
+  }
+
+  Stream<QuerySnapshot> _staffResultsQueryStream(String runId) {
+    _ensurePayrollStreams(runId);
+    return _cachedStaffResultsQueryStream!;
+  }
 
   @override
   void initState() {
@@ -37,19 +80,41 @@ class _ResultTabState extends State<ResultTab> {
     _resolvePaymentPeriodKey();
   }
 
+  @override
+  void dispose() {
+    _staffResultsScrollController.dispose();
+    super.dispose();
+  }
+
+  /// デフォルトは直近の monthlyPayroll（createdAt 最新）。無ければ Callable の期間キー。
   Future<void> _resolvePaymentPeriodKey() async {
     try {
-      final ctx = await _payrollService.getPayrollCalcDisplayContext();
+      final snap = await FirebaseFirestore.instance
+          .collection('monthlyPayroll')
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+
+      String key = '';
+      if (snap.docs.isNotEmpty) {
+        key = snap.docs.first.id;
+      } else {
+        final ctx = await _payrollService.getPayrollCalcDisplayContext();
+        key = ctx['paymentPeriodKey'] as String? ?? '';
+      }
+
       if (!mounted) return;
-      final key = ctx['paymentPeriodKey'] as String? ?? '';
       setState(() {
+        if (_paymentPeriodKey != key) _invalidatePayrollStreamCaches();
         _paymentPeriodKey = key;
         _periodKeyLoading = false;
       });
     } catch (_) {
       if (!mounted) return;
+      final fallback = _computePeriodKey();
       setState(() {
-        _paymentPeriodKey = _computePeriodKey();
+        if (_paymentPeriodKey != fallback) _invalidatePayrollStreamCaches();
+        _paymentPeriodKey = fallback;
         _periodKeyLoading = false;
       });
     }
@@ -84,115 +149,89 @@ class _ResultTabState extends State<ResultTab> {
   }
 
   void _changePeriod(String newKey) {
-    setState(() => _paymentPeriodKey = newKey);
+    setState(() {
+      _paymentPeriodKey = newKey;
+      _invalidatePayrollStreamCaches();
+    });
   }
 
-  static String _formatTs(dynamic t) {
-    if (t is Timestamp) {
-      return DateFormat('yyyy-MM-dd HH:mm').format(t.toDate());
+  /// 結果サマリ見出し横: 対象期間・支給予定日（選択中の期間キー＋店舗 payrollConfig）
+  String _resultSummaryHeaderMetaLine() {
+    final parts = _paymentPeriodKey.split('_');
+    if (parts.length != 2) {
+      return '対象期間：—, 給与支給予定日：未設定';
     }
-    return '—';
-  }
-
-  static String _monthlyStatusLabel(String status) {
-    switch (status) {
-      case 'draft':
-        return '未確定';
-      case 'confirmed':
-        return '確定済み';
-      case 'hold':
-        return '保留中';
-      case 'paid':
-        return '支払済';
-      default:
-        return status.isEmpty ? '—' : status;
-    }
-  }
-
-  /// draft=赤系、confirmed/paid=緑系、その他=橙/灰
-  ({Color border, Color background, Color foreground}) _statusBadgeColors(
-    String mpStatus,
-  ) {
-    switch (mpStatus) {
-      case 'draft':
-        return (
-          border: Colors.red.shade700,
-          background: Colors.red.shade50,
-          foreground: Colors.red.shade800,
-        );
-      case 'confirmed':
-      case 'paid':
-        return (
-          border: Colors.green.shade700,
-          background: Colors.green.shade50,
-          foreground: Colors.green.shade800,
-        );
-      case 'hold':
-        return (
-          border: Colors.orange.shade700,
-          background: Colors.orange.shade50,
-          foreground: Colors.orange.shade900,
-        );
-      default:
-        return (
-          border: Colors.grey.shade600,
-          background: Colors.grey.shade100,
-          foreground: Colors.grey.shade800,
-        );
-    }
-  }
-
-  Widget _monthlyStatusBadge(String mpStatus) {
-    final label = _monthlyStatusLabel(mpStatus);
-    final c = _statusBadgeColors(mpStatus);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: c.background,
-        border: Border.all(color: c.border, width: 1.5),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: c.foreground,
-          fontWeight: FontWeight.w600,
-          fontSize: 13,
-        ),
-      ),
+    final range =
+        '${formatIsoYmdToSlash(parts[0])}~${formatIsoYmdToSlash(parts[1])}';
+    final config = PayrollConfigService.instance.latest;
+    final actual = computeActualPaymentDate(
+      periodEnd: parts[1],
+      paymentDayOfMonth: config?.paymentDayOfMonth,
+      paymentMonthOffset: config?.paymentMonthOffset ?? 1,
     );
+    final payLabel =
+        actual != null ? formatIsoYmdToSlash(actual) : '未設定';
+    return '対象期間：$range, 給与支給予定日：$payLabel';
   }
 
-  Widget _buildCalcTimeStatusRow(Map<String, dynamic> mpData, Map<String, dynamic>? runData) {
-    final runStatus = runData?['status'] as String? ?? '';
-    dynamic ts;
-    if (runStatus == 'completed' ||
-        runStatus == 'completed_with_errors' ||
-        runStatus == 'failed' ||
-        runStatus == 'cancelled') {
-      ts = runData?['finishedAt'] ?? mpData['latestCalculatedAt'];
-    } else {
-      ts = mpData['latestCalculatedAt'] ?? runData?['startedAt'];
+  /// カード内ダイアログから呼ぶ。失敗時は SnackBar のあと rethrow（ダイアログを確認画面に戻す）
+  Future<void> _registerStaffPaymentStatus(
+    StaffCardData staff,
+    String status,
+  ) async {
+    try {
+      await _payrollService.registerPaymentStatus(
+        paymentPeriodKey: _paymentPeriodKey,
+        entries: [
+          {'staffId': staff.staffId, 'status': status}
+        ],
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('登録に失敗: $e')),
+        );
+      }
+      rethrow;
     }
-    final timeLabel = _formatTs(ts);
-    final mpStatus = mpData['status'] as String? ?? '';
+  }
 
+  Widget _buildResultHeaderRow(
+    BuildContext context, {
+    required Map<String, dynamic>? mpData,
+    required Map<String, dynamic>? runData,
+  }) {
+    final time = payrollExecutionTimeFormatted(mpData, runData);
+    final mpStatus = mpData?['status'] as String? ?? '';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
+            flex: 2,
             child: Text(
-              'この結果の集計基準日時: $timeLabel',
+              '下記の計算実行日時：$time',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.error,
                 fontWeight: FontWeight.w600,
+                fontSize: 13,
               ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(width: 12),
-          _monthlyStatusBadge(mpStatus),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 2,
+            child: PastResultsSelector(
+              currentPeriodKey: _paymentPeriodKey,
+              onPeriodChanged: _changePeriod,
+              compact: true,
+            ),
+          ),
+          const SizedBox(width: 8),
+          PayrollMonthlyStatusBadge(status: mpStatus),
         ],
       ),
     );
@@ -203,104 +242,191 @@ class _ResultTabState extends State<ResultTab> {
     if (_periodKeyLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_paymentPeriodKey.isEmpty) {
-      return const Center(child: Text('期間情報を取得できません'));
-    }
 
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('monthlyPayroll')
-          .doc(_paymentPeriodKey)
-          .snapshots(),
-      builder: (context, mpSnapshot) {
-        if (mpSnapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: _paymentPeriodKey.isEmpty
+              ? const Center(child: Text('表示する期間を取得できません'))
+              : StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('monthlyPayroll')
+                      .doc(_paymentPeriodKey)
+                      .snapshots(),
+                  builder: (context, mpSnapshot) {
+                    if (mpSnapshot.connectionState == ConnectionState.waiting) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildResultHeaderRow(
+                            context,
+                            mpData: null,
+                            runData: null,
+                          ),
+                          const Expanded(
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ],
+                      );
+                    }
 
-        final mpData = mpSnapshot.data?.data() as Map<String, dynamic>?;
-        if (mpData == null) {
-          return _emptyState();
-        }
+                    final mpData =
+                        mpSnapshot.data?.data() as Map<String, dynamic>?;
+                    if (mpData == null) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildResultHeaderRow(
+                            context,
+                            mpData: null,
+                            runData: null,
+                          ),
+                          Expanded(child: _emptyState()),
+                        ],
+                      );
+                    }
 
-        final mpStatus = mpData['status'] as String? ?? '';
-        final latestRunId = mpData['latestRunId'] as String?;
+                    final latestRunId = mpData['latestRunId'] as String?;
+                    if (latestRunId == null) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildResultHeaderRow(
+                            context,
+                            mpData: mpData,
+                            runData: null,
+                          ),
+                          Expanded(child: _emptyState()),
+                        ],
+                      );
+                    }
 
-        if (latestRunId == null) {
-          return _emptyState();
-        }
-
-        return _buildWithRun(latestRunId, mpStatus, mpData);
-      },
+                    return _buildWithRun(context, latestRunId, mpData);
+                  },
+                ),
+        ),
+      ],
     );
   }
 
   Widget _emptyState() {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          PastResultsSelector(
-            currentPeriodKey: _paymentPeriodKey,
-            onPeriodChanged: _changePeriod,
-          ),
-          const SizedBox(height: 64),
-          const Icon(Icons.inbox, size: 64, color: Colors.grey),
-          const SizedBox(height: 16),
-          const Text('計算結果がありません',
-              style: TextStyle(color: Colors.grey, fontSize: 16)),
-        ],
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.inbox, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            Text(
+              'この期間の計算結果はまだありません',
+              style: TextStyle(color: Colors.grey.shade700, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildWithRun(String runId, String mpStatus, Map<String, dynamic> mpData) {
-    final runRef = FirebaseFirestore.instance
-        .collection('monthlyPayroll')
-        .doc(_paymentPeriodKey)
-        .collection('payrollRuns')
-        .doc(runId);
-
+  Widget _buildWithRun(
+    BuildContext context,
+    String runId,
+    Map<String, dynamic> mpData,
+  ) {
     return StreamBuilder<DocumentSnapshot>(
-      stream: runRef.snapshots(),
+      stream: _payrollRunDocumentStream(runId),
       builder: (context, runSnapshot) {
         if (runSnapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildResultHeaderRow(
+                context,
+                mpData: mpData,
+                runData: null,
+              ),
+              const Expanded(
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ],
+          );
         }
 
         final runData = runSnapshot.data?.data() as Map<String, dynamic>?;
         if (runData == null) {
-          return _emptyState();
-        }
-
-        final runStatus = runData['status'] as String? ?? '';
-
-        if (['preparing', 'processing', 'aggregating'].contains(runStatus)) {
-          return SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                PastResultsSelector(
-                  currentPeriodKey: _paymentPeriodKey,
-                  onPeriodChanged: _changePeriod,
-                ),
-                _buildCalcTimeStatusRow(mpData, runData),
-                const SizedBox(height: 24),
-                const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text('計算中です。計算タブで進捗を確認できます',
-                          style: TextStyle(color: Colors.grey)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildResultHeaderRow(
+                context,
+                mpData: mpData,
+                runData: null,
+              ),
+              Expanded(child: _emptyState()),
+            ],
           );
         }
 
-        return _buildStaffResults(runId, runData, runStatus, mpStatus, mpData);
+        final runStatus = runData['status'] as String? ?? '';
+        final mpStatus = mpData['status'] as String? ?? '';
+
+        if (['preparing', 'processing', 'aggregating'].contains(runStatus)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildResultHeaderRow(
+                context,
+                mpData: mpData,
+                runData: runData,
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 24),
+                      const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text(
+                              '計算中です。計算タブで進捗を確認できます',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildResultHeaderRow(
+              context,
+              mpData: mpData,
+              runData: runData,
+            ),
+            Expanded(
+              child: _buildStaffResults(
+                runId,
+                runData,
+                runStatus,
+                mpStatus,
+                mpData,
+              ),
+            ),
+          ],
+        );
       },
     );
   }
@@ -312,16 +438,8 @@ class _ResultTabState extends State<ResultTab> {
     String mpStatus,
     Map<String, dynamic> mpData,
   ) {
-    final staffRef = FirebaseFirestore.instance
-        .collection('monthlyPayroll')
-        .doc(_paymentPeriodKey)
-        .collection('payrollRuns')
-        .doc(runId)
-        .collection('staffResults')
-        .where('taskStatus', isEqualTo: 'completed');
-
     return StreamBuilder<QuerySnapshot>(
-      stream: staffRef.snapshots(),
+      stream: _staffResultsQueryStream(runId),
       builder: (context, staffSnapshot) {
         if (staffSnapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -346,16 +464,12 @@ class _ResultTabState extends State<ResultTab> {
             (runData['failedStaffCount'] as num?)?.toInt() ?? 0;
 
         return SingleChildScrollView(
+          key: const PageStorageKey<String>('result_tab_staff_scroll'),
+          controller: _staffResultsScrollController,
           padding: const EdgeInsets.only(bottom: 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              PastResultsSelector(
-                currentPeriodKey: _paymentPeriodKey,
-                onPeriodChanged: _changePeriod,
-              ),
-              _buildCalcTimeStatusRow(mpData, runData),
-
               if (runStatus == 'completed_with_errors')
                 Container(
                   margin:
@@ -382,6 +496,7 @@ class _ResultTabState extends State<ResultTab> {
                 totalLegalHolidayWorkMinutes: totalHoliday,
                 anomalyFlags:
                     runData['anomalyFlags'] as Map<String, dynamic>?,
+                headerMetaLine: _resultSummaryHeaderMetaLine(),
               ),
 
               Padding(
@@ -401,19 +516,27 @@ class _ResultTabState extends State<ResultTab> {
                 ),
               ),
 
-              ...staffList.map((staff) => StaffCard(
-                    data: staff,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => StaffDetailPage(
-                          paymentPeriodKey: _paymentPeriodKey,
-                          runId: runId,
-                          staffData: staff,
-                        ),
+              ...staffList.map((staff) {
+                final showPay = ['confirmed', 'hold', 'paid']
+                    .contains(mpStatus);
+                return StaffCard(
+                  data: staff,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StaffDetailPage(
+                        paymentPeriodKey: _paymentPeriodKey,
+                        runId: runId,
+                        staffData: staff,
                       ),
                     ),
-                  )),
+                  ),
+                  showPaymentActions: showPay,
+                  paymentBusy: _mgmtPaymentRegisterBusy,
+                  onRegisterPaid: (s) => _registerStaffPaymentStatus(s, 'paid'),
+                  onRegisterHold: (s) => _registerStaffPaymentStatus(s, 'hold'),
+                );
+              }),
 
               ConfirmSection(
                 paymentPeriodKey: _paymentPeriodKey,
@@ -428,6 +551,12 @@ class _ResultTabState extends State<ResultTab> {
                   paymentPeriodKey: _paymentPeriodKey,
                   monthlyPayrollStatus: mpStatus,
                   staffList: staffList,
+                  showPerStaffPaymentRows: false,
+                  paymentRegisterBusy: _mgmtPaymentRegisterBusy,
+                  onManagementProcessingChanged: (v) {
+                    if (!mounted) return;
+                    setState(() => _mgmtPaymentRegisterBusy = v);
+                  },
                 ),
             ],
           ),

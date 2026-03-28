@@ -65,7 +65,7 @@ export const controlHookHttp = onRequest(controlHook);
 // 注意: この関数はリモートにのみ存在し、ローカルには実装がないため、
 // デプロイ時に削除されないように一時的なスタブとして追加
 import { onCall } from 'firebase-functions/v2/https';
-
+　　
 
 export const processShiftsByStaff = onCall(async (request) => {
   return { message: "This function is maintained remotely" };

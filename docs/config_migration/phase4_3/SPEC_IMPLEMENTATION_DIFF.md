@@ -66,6 +66,14 @@
 
 **結果**: 仕様表の「processStaffPayroll 完了時」と**一致しない**（ログ設計ギャップ）。
 
+### 許容方針（確定・実装変更なし）
+
+**現状の実装のまま本ギャップを許容する。**
+
+- 分散計算（`processStaffPayroll`）完了時には `monthly_payroll_reflect` を `attendanceLogs` に書かない。
+- 同種ログは **`monthlyPayrollTrigger` 経路にのみ**付与される（旧フロー）。
+- 監査・運用上、上記の差分を受け入れ、`04_CALLABLE_API_SPEC` §11 の表現は**実装優先で読み替える**（将来、仕様の修正または実装追加のどちらかで揃える余地は残す）。
+
 ---
 
 ## G3: `payroll_attendance_corrected` 通知条件（中）
@@ -85,6 +93,13 @@
 
 **結果**: ⚠️ **draft のまま reflected した勤怠を修正した場合**でも通知が出うる可能性があり、仕様の「confirmed 済み期間の修正」より**条件が広い**。
 
+### 許容方針（確定・実装変更なし）
+
+**現状の実装のまま本ギャップを許容する。**
+
+- `attendanceOnWrite` は `monthlyPayroll.status === 'confirmed'` を参照せず、`reflected` → `corrected_after_reflection` 遷移で通知を作成し続ける。
+- 仕様の「確定後の修正のみ通知」より通知が出る範囲が広い可能性を受け入れる（運用で許容）。
+
 ---
 
 ## G4: `processPayrollNotifications` の対象期間（中）
@@ -103,6 +118,13 @@
 | `functions/src/domains/attendance/tasks/processPayrollNotifications.ts` | `todayStr` と `getPayrollPeriodRange` から **「直前に完了した 1 期間」**（`recentPeriodKey`）**1 本**だけを読み、`evaluateScheduledNotifications` に渡す。**複数期間のループは無い**。 |
 
 **結果**: ⚠️ 仕様文言の「当月・前月・前々月を順に見る」イメージと**完全一致ではない**（単一期間への簡略化）。**G6**（用語）とも関連。
+
+### 許容方針（確定・実装変更なし）
+
+**現状の実装のまま本ギャップを許容する。**
+
+- `processPayrollNotifications` は **`recentPeriodKey`（直前に完了した 1 期間）のみ**を評価し、複数期間のループは行わない。
+- 仕様 §3-2/3-3 の「複数期間を順に見る」文言との厳密一致は求めない（単一期間簡略化で運用する）。
 
 ---
 
@@ -230,9 +252,9 @@
 | ID | 種別 | 仕様側 | 実装 / ルール側 |
 |----|------|--------|----------------|
 | **G1** | ルール + Callable | 07 §5-1/5-2, Flutter 直接アクセス | **対応方針確定**: ルールは `isSignedIn()` で read 緩和・`admins` 廃止。admin 境界は Callable + `getPayrollData` で `devices.role` 検証 |
-| **G2** | ログ | 04 §11 `monthly_payroll_reflect` @ processStaffPayroll 完了 | `processStaffPayroll.ts` 未呼出；旧 `monthlyPayrollTrigger` のみ |
-| **G3** | 条件 | 04 §1 手順7: confirmed 時のみ corrected 通知 | `attendanceOnWrite.ts`: confirmed 未参照 |
-| **G4** | 範囲 | 07 §3-2/3-3 複数期間のイメージ | `processPayrollNotifications.ts`: 単一期間キーのみ |
+| **G2** | ログ | 04 §11 `monthly_payroll_reflect` @ processStaffPayroll 完了 | `processStaffPayroll.ts` 未呼出；旧 `monthlyPayrollTrigger` のみ。**許容方針確定**（本文 G2 参照） |
+| **G3** | 条件 | 04 §1 手順7: confirmed 時のみ corrected 通知 | `attendanceOnWrite.ts`: confirmed 未参照。**許容方針確定**（本文 G3 参照） |
+| **G4** | 範囲 | 07 §3-2/3-3 複数期間のイメージ | `processPayrollNotifications.ts`: 単一期間キーのみ。**許容方針確定**（本文 G4 参照） |
 | **G5** | 表記 | 02: paymentDate を YYYY-MM-DD と読める箇所 | Loader/スケジューラ/Flutter は日/null 運用 |
 | **G6** | 文言 | 07 §3-3 current/previous | 実装は recent 1 期間中心（G4 と関連） |
 | **G7** | 時刻 | 07: JST として保存 | `serverTimestamp()`（UTC） |
@@ -245,3 +267,5 @@
 |------|------|
 | 2026-03-22 | 初版作成（差分フォーカス） |
 | 2026-03-27 | G1 を「対応方針確定」に更新: ルール簡素化（`isSignedIn`）、Callable で admin 担保、`getPayrollData` 修正。旧メモ（パス列挙・索引案）は本対応で置換。詳細は `修正用フォルダ/ルール関連/CHANGE_SPEC_PAYROLL_RULES_AND_CALLABLES.md` |
+| 2026-03-28 | G2 に「許容方針（確定・実装変更なし）」を追記 |
+| 2026-03-28 | G3・G4 に「許容方針（確定・実装変更なし）」を追記、早見表を更新 |

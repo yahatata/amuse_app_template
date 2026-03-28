@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:amuse_app_template/services/payroll_config_service.dart';
 import '../models/payroll_display_context.dart';
 import '../services/payroll_callable_service.dart';
+import '../utils/payroll_calc_window.dart';
 import 'candidate_section.dart';
 import 'preview_summary.dart';
 import 'progress_view.dart';
@@ -337,8 +338,20 @@ class _CalcTabState extends State<CalcTab> {
     return sorted.first.id;
   }
 
-  Widget _buildDisplayContextCard() {
+  Widget _buildDisplayContextCard({
+    required bool inCalculationWindow,
+    required String? monthlyPayrollStatus,
+    required bool periodClosedForCalculation,
+  }) {
     final ctx = _displayContext!;
+    final theme = Theme.of(context);
+    final statusLine = payrollMonthlyCycleStatusLine(
+      monthlyPayrollStatus: monthlyPayrollStatus,
+      periodClosedForCalculation: periodClosedForCalculation,
+      periodStartIso: ctx.periodStart,
+      periodEndIso: ctx.periodEnd,
+    );
+
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Padding(
@@ -346,12 +359,39 @@ class _CalcTabState extends State<CalcTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('計算対象の情報', style: Theme.of(context).textTheme.titleSmall),
+            Text('計算対象の情報', style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
-            Text('基準日（JST）: ${ctx.asOfDateJst}'),
-            Text('対象期間キー: ${ctx.paymentPeriodKey}'),
-            Text('期間: ${ctx.periodStart} 〜 ${ctx.periodEnd}'),
-            Text('給与支給予定日: ${ctx.paymentDateDisplay}'),
+            Text('基準日（当日の日付）: ${ctx.asOfDateJst}'),
+            if (inCalculationWindow) ...[
+              const SizedBox(height: 8),
+              Text('期間: ${ctx.periodStart} 〜 ${ctx.periodEnd}'),
+              Text('給与支給予定日: ${ctx.paymentDateDisplay}'),
+            ] else ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '計算期間対象外',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(statusLine),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -476,8 +516,9 @@ class _CalcTabState extends State<CalcTab> {
             final activeRunId = _pickActiveRunId(activeDocs);
             final blockExtract = activeRunId != null;
 
-            final isConfirmed = mpData != null &&
-                (mpData['status'] == 'confirmed' || mpData['status'] == 'paid');
+            final mpStatus = mpData?['status'] as String?;
+            final isCalculationLocked = mpStatus != null &&
+                ['confirmed', 'paid', 'hold'].contains(mpStatus);
 
             if (latestRunId != null) {
               return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -493,7 +534,7 @@ class _CalcTabState extends State<CalcTab> {
                     latestRunDoc: runSnap.data,
                     blockExtract: blockExtract,
                     activeRunId: activeRunId,
-                    isConfirmed: isConfirmed,
+                    isCalculationLocked: isCalculationLocked,
                   );
                 },
               );
@@ -504,7 +545,7 @@ class _CalcTabState extends State<CalcTab> {
               latestRunDoc: null,
               blockExtract: blockExtract,
               activeRunId: activeRunId,
-              isConfirmed: isConfirmed,
+              isCalculationLocked: isCalculationLocked,
             );
           },
         );
@@ -517,15 +558,31 @@ class _CalcTabState extends State<CalcTab> {
     required DocumentSnapshot<Map<String, dynamic>>? latestRunDoc,
     required bool blockExtract,
     required String? activeRunId,
-    required bool isConfirmed,
+    required bool isCalculationLocked,
   }) {
+    final ctx = _displayContext!;
+    final mpStatus = mpData?['status'] as String?;
+    final periodClosed = isPayrollPeriodClosedForCalculation(
+      ctx.asOfDateJst,
+      ctx.periodEnd,
+    );
+    final inCalculationWindow = isInPayrollCalculationWindow(
+      ctx.asOfDateJst,
+      ctx.periodEnd,
+      mpStatus,
+    );
+
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildDraftWarningBanner(mpData, latestRunDoc),
-          _buildDisplayContextCard(),
+          _buildDisplayContextCard(
+            inCalculationWindow: inCalculationWindow,
+            monthlyPayrollStatus: mpStatus,
+            periodClosedForCalculation: periodClosed,
+          ),
           _buildActiveRunBanner(
             activeRunId,
             () => _showRunProgressDialog(activeRunId!),
@@ -540,7 +597,8 @@ class _CalcTabState extends State<CalcTab> {
               ),
               child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
             ),
-          if (_state == CalcTabState.idle || _state == CalcTabState.loading)
+          if (inCalculationWindow &&
+              (_state == CalcTabState.idle || _state == CalcTabState.loading))
             Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -570,10 +628,56 @@ class _CalcTabState extends State<CalcTab> {
                 ],
               ),
             ),
-          if (_state == CalcTabState.candidatesLoaded ||
-              _state == CalcTabState.running ||
-              _payrollSubmitBusy) ...[
-            if (isConfirmed)
+          if (!inCalculationWindow &&
+              (_state == CalcTabState.idle || _state == CalcTabState.loading))
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: Text(
+                '計算期間対象外のため、対象データの抽出はできません。',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          if (!inCalculationWindow &&
+              (_state == CalcTabState.candidatesLoaded ||
+                  _state == CalcTabState.running ||
+                  _payrollSubmitBusy))
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Text(
+                    '計算期間対象外のため、抽出・実行の操作は行えません。',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.grey.shade800,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: () {
+                      setState(() {
+                        _state = CalcTabState.idle;
+                        _group1 = [];
+                        _group2 = [];
+                        _group3 = [];
+                        _errorMessage = null;
+                      });
+                    },
+                    child: const Text('画面を初期状態に戻す'),
+                  ),
+                ],
+              ),
+            ),
+          if (inCalculationWindow &&
+              (_state == CalcTabState.candidatesLoaded ||
+                  _state == CalcTabState.running ||
+                  _payrollSubmitBusy)) ...[
+            if (isCalculationLocked)
               Container(
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(12),
@@ -616,7 +720,7 @@ class _CalcTabState extends State<CalcTab> {
               expectedCountMin:
                   PayrollConfigService.instance.latest?.maxCandidatesCount != null ? null : null,
             ),
-            if (!isConfirmed)
+            if (!isCalculationLocked)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: ElevatedButton.icon(
@@ -639,7 +743,8 @@ class _CalcTabState extends State<CalcTab> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: OutlinedButton.icon(
-                onPressed: blockExtract ? null : _fetchCandidates,
+                onPressed:
+                    (inCalculationWindow && !blockExtract) ? _fetchCandidates : null,
                 icon: const Icon(Icons.refresh),
                 label: const Text('再抽出'),
               ),
