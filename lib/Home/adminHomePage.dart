@@ -7,6 +7,7 @@ import 'package:amuse_app_template/AttendanceManagement/all_staff_attendance_pag
 import 'package:amuse_app_template/AttendanceManagement/attendanceCorrectionRequestsPage.dart';
 import 'package:amuse_app_template/pages/device_management_page.dart';
 import 'package:amuse_app_template/pages/admin_detail_settings_page.dart';
+import 'package:amuse_app_template/pages/error_shape_probe_page.dart';
 import 'package:amuse_app_template/Home/staffListPage.dart';
 import 'package:amuse_app_template/payroll/payroll_calc_page.dart';
 import 'package:amuse_app_template/payroll/widgets/notification_list.dart';
@@ -69,6 +70,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         (label: '勤怠修正申請', destination: const AttendanceCorrectionRequestsPage()),
         (label: 'デバイス管理', destination: const DeviceManagementPage()),
         (label: '詳細設定', destination: const AdminDetailSettingsPage()),
+        (label: 'エラーShape probe', destination: const ErrorShapeProbePage()),
         (label: 'スタッフ一覧', destination: const StaffListPage()),
         (label: 'Staff作成', destination: const CreateStaffAccount()),
         (label: '給与計算', destination: const PayrollCalcPage()),

@@ -252,7 +252,7 @@ export async function runGenerateRecurringTournaments(): Promise<GenerateRecurri
     logOpsError({
       message: '定期開催トーナメント自動生成エラー:',
       failureType: 'business',
-      functionEntry: 'unknown',
+      functionEntry: 'runGenerateRecurringTournaments',
       cause: error,
     });
     return {
@@ -540,7 +540,7 @@ async function createScheduledTournamentFromRecurrence(
     logOpsError({
       message: '定期開催トーナメント作成エラー:',
       failureType: 'business',
-      functionEntry: 'unknown',
+      functionEntry: 'createScheduledTournamentFromRecurrence',
       cause: error,
     });
     return null;

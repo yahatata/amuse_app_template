@@ -222,7 +222,7 @@ export async function undoRegisterParticipants(params: UndoRegisterParticipantsP
     logOpsError({
       message: 'Error undoing register participants operation:',
       failureType: 'business',
-      functionEntry: 'unknown',
+      functionEntry: 'undoRegisterParticipants',
       cause: error,
     });
     throw error;

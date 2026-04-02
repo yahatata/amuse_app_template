@@ -21,6 +21,12 @@ export const getMenuItems = onCall(async (request) => {
     const adminMenuDoc = await db.collection('administrativeMenu').doc('current').get();
     
     if (!adminMenuDoc.exists) {
+      logOpsError({
+        message: 'administrativeMenu/current が存在しません',
+        failureType: 'config',
+        functionEntry: 'getMenuItems',
+        context: { collection: 'administrativeMenu', docId: 'current' },
+      });
       return {
         success: false,
         error: 'メニューデータが見つかりません'
