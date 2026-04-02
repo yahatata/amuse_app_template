@@ -46,7 +46,7 @@ async function createInitialStateDoc() {
     logOpsError({
       message: 'Failed to create initial state doc:',
       failureType: 'internal',
-      functionEntry: 'unknown',
+      functionEntry: 'createInitialStateDoc',
       cause: error,
     });
     process.exit(1);
@@ -63,7 +63,7 @@ createInitialStateDoc()
     logOpsError({
       message: 'Script failed:',
       failureType: 'internal',
-      functionEntry: 'unknown',
+      functionEntry: 'createInitialStateDoc',
       cause: error,
     });
     process.exit(1);

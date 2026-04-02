@@ -83,7 +83,7 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
     logOpsError({
       message: 'Error undoing reseat all players operation:',
       failureType: 'business',
-      functionEntry: 'unknown',
+      functionEntry: 'undoReseatAllPlayers',
       cause: error,
     });
     throw error;

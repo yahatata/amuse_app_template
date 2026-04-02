@@ -26,6 +26,14 @@ export const enqueueTournamentTasks = onCall(async (request) => {
 
   try {
     const result = await runEnqueueTournamentTasks({});
+    if (!result.success) {
+      logOpsError({
+        message: '=== enqueue バッチエラー（手動 Callable） ===',
+        failureType: 'business',
+        functionEntry: 'enqueueTournamentTasks',
+        context: { errors: result.errors },
+      });
+    }
     return result;
   } catch (error) {
     logOpsError({
