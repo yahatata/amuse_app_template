@@ -14,42 +14,21 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { buildFromDefaults, mergeConfigForUpsert } from '../../../shared/config/configLoader';
-import { buildSchedulerConfigFromDefaults } from '../../../shared/config/schedulerConfigLoader';
+import {
+  buildSchedulerConfigFromDefaults,
+  mergeSchedulerConfigForUpsert,
+} from '../../../shared/config/schedulerConfigLoader';
 import { buildPayrollConfigFromDefaults, mergePayrollConfigForUpsert } from '../../../shared/config/payrollConfigLoader';
 import {
   DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT,
-  DEFAULT_MONTHLY_PAYROLL_TRIGGER_ENABLED,
-  DEFAULT_SCHEDULED_CLEANUP_ENABLED,
-  DEFAULT_SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_ENABLED,
 } from '../../../shared/config/defaults';
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 
 const db = getFirestore();
 
-function mergeSchedulerConfigForUpsert(
-  existing: Record<string, unknown> | undefined,
-  defaults: ReturnType<typeof buildSchedulerConfigFromDefaults>
-): Record<string, unknown> {
-  const ex = existing ?? {};
-  return {
-    monthlyPayrollTriggerEnabled:
-      typeof ex.monthlyPayrollTriggerEnabled === 'boolean'
-        ? ex.monthlyPayrollTriggerEnabled
-        : DEFAULT_MONTHLY_PAYROLL_TRIGGER_ENABLED,
-    scheduledCleanupEnabled:
-      typeof ex.scheduledCleanupEnabled === 'boolean'
-        ? ex.scheduledCleanupEnabled
-        : DEFAULT_SCHEDULED_CLEANUP_ENABLED,
-    scheduleGenerateNextYearBusinessHoursEnabled:
-      typeof ex.scheduleGenerateNextYearBusinessHoursEnabled === 'boolean'
-        ? ex.scheduleGenerateNextYearBusinessHoursEnabled
-        : DEFAULT_SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_ENABLED,
-  };
-}
-
 export const initializeStoreConfigCallable = onCall(
   {
-    region: 'us-central1',
+    region: 'asia-northeast1',
   },
   async (request) => {
     if (!request.auth) {
@@ -117,10 +96,8 @@ export const initializeStoreConfigCallable = onCall(
         });
         created.push('storeMeta/schedulerConfig');
       } else {
-        const defaults = buildSchedulerConfigFromDefaults();
         const merged = mergeSchedulerConfigForUpsert(
-          schedulerConfigDoc.data() as Record<string, unknown>,
-          defaults
+          schedulerConfigDoc.data() as Record<string, unknown>
         );
         await schedulerConfigRef.set(
           { ...merged, updatedAt: FieldValue.serverTimestamp() },

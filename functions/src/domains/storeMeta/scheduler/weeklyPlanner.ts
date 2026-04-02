@@ -1,228 +1,257 @@
 /**
- * 週次Planner: 週1回（日曜20:00 JST）に起動し、翌週（月〜日）分の「閉店認定」「開店認定」タスクをCloud Tasksに投入
- * 
- * 処理内容:
- * - businessHoursMonthlyMapから翌週（月〜日）分の営業時間を取得（月跨ぎの場合は複数のドキュメントを取得）
- * - 各日の「閉店認定」「開店認定」タスクをCloud Tasksに投入
- *   - 閉店認定: 閉店時間 + TASK_CLOSE_OFFSET_MINUTES（デフォルト: 120分）
- *   - 開店認定: 開店時間 + TASK_OPEN_OFFSET_MINUTES（デフォルト: -30分）
- * - taskId固定で冪等を担保（task.nameをtasksClient.taskPath(...)で固定）
+ * weeklyPlanner task 実行本体
+ *
+ * schedulerSupervisor から渡された targetWeekStartDate（JST日付キー）を起点に、
+ * 7日分の開店/閉店認定 task を作成する。
  */
 
-import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
-import { CloudTasksClient } from '@google-cloud/tasks';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getEnv } from '../../../shared/firebase';
-import { getStoreConfig } from '../../../shared/config/configLoader';
-import { DEFAULT_TASK_CLOSE_OFFSET_MINUTES, DEFAULT_TASK_OPEN_OFFSET_MINUTES } from '../../../shared/config/defaults';
+import { logger } from "firebase-functions";
+import { logOpsError } from "../../../shared/logging/logOpsError";
+import { CloudTasksClient } from "@google-cloud/tasks";
+import { getFirestore } from "firebase-admin/firestore";
+import {
+  OPENCLOSE_TASKS_QUEUE,
+  OPENCLOSE_TASKS_REGION,
+  OPENCLOSE_INVOKER_SA_PREFIX,
+  buildInvokerSaEmail,
+} from "../../../shared/config/cloudTasksConfig";
+import { getRequiredProjectId } from "../../../shared/runtime/projectId";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import {
+  DEFAULT_TASK_CLOSE_OFFSET_MINUTES,
+  DEFAULT_TASK_OPEN_OFFSET_MINUTES,
+} from "../../../shared/config/defaults";
+import { getTaskEndpoints } from "../../../shared/secrets/secretManager";
 
 const tasksClient = new CloudTasksClient();
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-const WEEKLY_PLANNER_CRON = process.env.WEEKLY_PLANNER_CRON || '0 11 * * 0';  // UTC 11:00 = JST 20:00（日曜）
-logger.info('weeklyPlanner schedule', {
-  schedule: WEEKLY_PLANNER_CRON,
-  source: process.env.WEEKLY_PLANNER_CRON ? 'env' : 'default',
-});
+export interface WeeklyPlannerTaskInput {
+  targetWeekStartDate: string;
+}
 
-export const weeklyPlanner = onSchedule(
-  {
-    schedule: WEEKLY_PLANNER_CRON,
-    timeZone: 'UTC',
-  },
-  async (event) => {
-    try {
-      // PROJECT_IDを関数内で取得（デフォルト値を使用）
-      const PROJECT_ID =
-        process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || process.env.PROJECT_ID || 'amuse-app-template';
+export interface WeeklyPlannerTaskResult {
+  openTasksEnqueued: number;
+  closeTasksEnqueued: number;
+  skippedClosedDays: number;
+}
 
-      const config = await getStoreConfig();
-      if (!config.autoOpenClose?.enabled) {
-        logger.info('自動開閉店が無効化されています。スキップします。');
-        return;
-      }
+function isTaskAlreadyExistsError(error: unknown): boolean {
+  const err = error as {code?: unknown; message?: unknown};
+  const code = typeof err?.code === "string" ? err.code : String(err?.code ?? "");
+  const message = typeof err?.message === "string" ? err.message : "";
 
-      const closeAssessmentUrl = getEnv('CLOSE_ASSESSMENT_URL');
-      const openAssessmentUrl = getEnv('OPEN_ASSESSMENT_URL');
-      const tasksQueue = getEnv('WEEKLYPLANNER_TASKS_QUEUE');
-      const tasksLocation = getEnv('WEEKLYPLANNER_TASKS_LOCATION');
-      const tasksInvokerSa = getEnv('TASKS_INVOKER_SA');
-      const taskCloseOffsetMinutes = config.autoOpenClose?.taskCloseOffsetMinutes ?? DEFAULT_TASK_CLOSE_OFFSET_MINUTES;
-      const taskOpenOffsetMinutes = config.autoOpenClose?.taskOpenOffsetMinutes ?? DEFAULT_TASK_OPEN_OFFSET_MINUTES;
+  return (
+    code === "6" ||
+    code === "functions/task-already-exists" ||
+    message.includes("ALREADY_EXISTS") ||
+    message.includes("task-already-exists")
+  );
+}
 
-      const db = getFirestore();
-      const now = new Date();
-      const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);  // UTC+9
-      const nextWeekStart = new Date(jstNow);
-      nextWeekStart.setDate(nextWeekStart.getDate() + (1 - nextWeekStart.getDay()));  // 次の月曜日
-      nextWeekStart.setHours(0, 0, 0, 0);
+function parseJstDateKey(dateKey: string): Date {
+  if (!DATE_KEY_PATTERN.test(dateKey)) {
+    throw new Error(`Invalid targetWeekStartDate: ${dateKey}`);
+  }
 
-      // businessHoursMonthlyMapから翌週（月〜日）分の営業時間を取得
-      // 月跨ぎの場合は複数のドキュメントを取得する必要がある
-      const monthDocs = new Map<string, any>();  // yearMonth -> businessHoursData のキャッシュ
+  const [yearStr, monthStr, dayStr] = dateKey.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  const jstMidnightUtcMillis = Date.UTC(year, month - 1, day, 0, 0, 0, 0) - 9 * 60 * 60 * 1000;
+  return new Date(jstMidnightUtcMillis);
+}
 
-      const queuePath = tasksClient.queuePath(PROJECT_ID, tasksLocation, tasksQueue);
+function formatJstDateKey(baseUtcDate: Date): string {
+  const jstDate = new Date(baseUtcDate.getTime() + 9 * 60 * 60 * 1000);
+  const year = jstDate.getUTCFullYear();
+  const month = String(jstDate.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(jstDate.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
-    // 各日の「閉店認定」「開店認定」タスクをCloud Tasksに投入
-    for (let day = 0; day < 7; day++) {
-      const targetDate = new Date(nextWeekStart);
-      targetDate.setDate(targetDate.getDate() + day);
-      const dateKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
-      const yearMonth = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
+function addDays(baseUtcDate: Date, days: number): Date {
+  return new Date(baseUtcDate.getTime() + days * 24 * 60 * 60 * 1000);
+}
 
-      // 月ドキュメントを取得（キャッシュがあれば使用）
+function buildScheduleTimeFromJstMinutes(
+  jstDateAtMidnight: Date,
+  minuteOfDay: number
+): Date {
+  return new Date(jstDateAtMidnight.getTime() + minuteOfDay * 60 * 1000);
+}
+
+export async function runWeeklyPlannerTask(
+  input: WeeklyPlannerTaskInput
+): Promise<WeeklyPlannerTaskResult> {
+  let openTasksEnqueued = 0;
+  let closeTasksEnqueued = 0;
+  let skippedClosedDays = 0;
+
+  try {
+    const projectId = getRequiredProjectId();
+    const config = await getStoreConfig();
+    if (!config.autoOpenClose?.enabled) {
+      logger.info("weeklyPlanner: skipped because autoOpenClose is disabled");
+      return {openTasksEnqueued, closeTasksEnqueued, skippedClosedDays};
+    }
+
+    const targetWeekStartDate = parseJstDateKey(input.targetWeekStartDate);
+
+    const { closeAssessmentUrl, openAssessmentUrl } = await getTaskEndpoints();
+    const tasksQueue = OPENCLOSE_TASKS_QUEUE;
+    const tasksLocation = OPENCLOSE_TASKS_REGION;
+    const tasksInvokerSa = buildInvokerSaEmail(
+      OPENCLOSE_INVOKER_SA_PREFIX,
+      projectId
+    );
+    const taskCloseOffsetMinutes = config.autoOpenClose?.taskCloseOffsetMinutes ??
+      DEFAULT_TASK_CLOSE_OFFSET_MINUTES;
+    const taskOpenOffsetMinutes = config.autoOpenClose?.taskOpenOffsetMinutes ??
+      DEFAULT_TASK_OPEN_OFFSET_MINUTES;
+
+    const db = getFirestore();
+    const monthDocs = new Map<string, Record<string, unknown>>();
+    const queuePath = tasksClient.queuePath(projectId, tasksLocation, tasksQueue);
+
+    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+      const targetDate = addDays(targetWeekStartDate, dayOffset);
+      const dateKey = formatJstDateKey(targetDate);
+      const yearMonth = dateKey.substring(0, 7);
+
       let businessHoursData = monthDocs.get(yearMonth);
       if (!businessHoursData) {
         const businessHoursDoc = await db
-          .collection('businessHoursMonthlyMap')
+          .collection("businessHoursMonthlyMap")
           .doc(yearMonth)
           .get();
-
         if (!businessHoursDoc.exists) {
           throw new Error(`businessHoursMonthlyMap/${yearMonth} が見つかりません`);
         }
-
-        businessHoursData = businessHoursDoc.data();
+        businessHoursData = businessHoursDoc.data() as Record<string, unknown>;
         monthDocs.set(yearMonth, businessHoursData);
       }
 
-      const days = businessHoursData?.days || {};
-      const k1 = String(targetDate.getDate());
-      const k2 = String(targetDate.getDate()).padStart(2, '0');
-      const dayData = days[k1] ?? days[k2];  // "1" / "01" の揺れに対応
+      const dayNumber = Number(dateKey.slice(8, 10));
+      const days = (businessHoursData?.days ?? {}) as Record<string, {
+        isClosed?: boolean;
+        openMinute?: number;
+        closeMinute?: number;
+      }>;
+      const dayData = days[String(dayNumber)] ?? days[String(dayNumber).padStart(2, "0")];
+
       if (!dayData || dayData.isClosed) {
-        continue;  // 休業日の場合はスキップ
+        skippedClosedDays += 1;
+        continue;
       }
 
-      const openMinute = dayData.openMinute;
-      const closeMinute = dayData.closeMinute;
+      const openMinute = Number(dayData.openMinute ?? 0);
+      const closeMinute = Number(dayData.closeMinute ?? 0);
 
-      // 開店認定タスクの投入
-      // openMinute/closeMinuteは intendedBusinessDateKey（営業日）に紐づく時刻定義
-      // intendedBusinessDateKeyは営業日キー（YYYY-MM-DD）であり、openMinute/closeMinuteはその営業日の開店/閉店時刻を分単位で表す
-      // openScheduleTimeは intendedBusinessDateKey の営業日の openMinute から計算する（JST基準）
-      // JST時刻を計算してからUTCに変換する必要がある（Cloud FunctionsはUTCで実行されるため）
-      const openScheduleTime = new Date(targetDate);
-      // JST時刻を計算（openMinuteはJST基準の分数）
-      const jstOpenHour = Math.floor(openMinute / 60);
-      const jstOpenMinute = openMinute % 60;
-      const jstOpenTotalMinutes = jstOpenHour * 60 + jstOpenMinute + taskOpenOffsetMinutes;
-      // JST時刻をUTCに変換（9時間引く）
-      const utcOpenTotalMinutes = jstOpenTotalMinutes - 9 * 60;
-      // UTC時刻を設定
-      openScheduleTime.setUTCHours(Math.floor(utcOpenTotalMinutes / 60), utcOpenTotalMinutes % 60, 0, 0);
+      const openScheduleTime = buildScheduleTimeFromJstMinutes(
+        targetDate,
+        openMinute + taskOpenOffsetMinutes
+      );
+      const closeScheduleTime = buildScheduleTimeFromJstMinutes(
+        targetDate,
+        closeMinute + taskCloseOffsetMinutes
+      );
 
       const openTaskId = `open_assessment_${dateKey}`;
-      const openTaskName = tasksClient.taskPath(PROJECT_ID, tasksLocation, tasksQueue, openTaskId);
+      const openTaskName = tasksClient.taskPath(
+        projectId,
+        tasksLocation,
+        tasksQueue,
+        openTaskId
+      );
       const openTaskPayload = {
-        action: 'open_assessment',
+        action: "open_assessment",
         intendedBusinessDateKey: dateKey,
         scheduledAt: openScheduleTime.toISOString(),
       };
 
       try {
-        const [openTaskResponse] = await tasksClient.createTask({
+        await tasksClient.createTask({
           parent: queuePath,
           task: {
             name: openTaskName,
             httpRequest: {
-              httpMethod: 'POST',
+              httpMethod: "POST",
               url: openAssessmentUrl,
               headers: {
-                'Content-Type': 'application/json',
+                "Content-Type": "application/json",
               },
-              body: Buffer.from(JSON.stringify(openTaskPayload)).toString('base64'),
+              body: Buffer.from(JSON.stringify(openTaskPayload)).toString("base64"),
               oidcToken: {
                 serviceAccountEmail: tasksInvokerSa,
               },
             },
             scheduleTime: {
-              seconds: Math.floor(openScheduleTime.getTime() / 1000),  // UTC epoch秒へ変換
+              seconds: Math.floor(openScheduleTime.getTime() / 1000),
             },
           },
         });
-        logger.info(`開店認定タスク投入完了: ${dateKey}`, { taskName: openTaskResponse.name });
-      } catch (error: any) {
-        if (error.code === 6) {  // ALREADY_EXISTS
-          logger.info(`開店認定タスク ${dateKey} は既に存在します。スキップします。`);
+        openTasksEnqueued += 1;
+      } catch (error) {
+        if (isTaskAlreadyExistsError(error)) {
+          logger.info("weeklyPlanner: open task already exists", {dateKey});
         } else {
           throw error;
         }
       }
 
-      // 閉店認定タスクの投入
-      // closeMinute > 1440 の時は翌日へ繰り越すルールを維持
-      // closeScheduleTimeは intendedBusinessDateKey の営業日の closeMinute から計算する（JST基準）
-      // closeMinute > 1440 の場合は、intendedBusinessDateKey の翌日の暦日として計算する
-      // JST時刻を計算してからUTCに変換する必要がある（Cloud FunctionsはUTCで実行されるため）
-      const closeScheduleTime = new Date(targetDate);
-      let jstCloseHour: number;
-      let jstCloseMinute: number;
-      
-      if (closeMinute > 1440) {
-        // 翌日に伸びる場合
-        closeScheduleTime.setUTCDate(closeScheduleTime.getUTCDate() + 1);
-        jstCloseHour = Math.floor((closeMinute - 1440) / 60);
-        jstCloseMinute = (closeMinute - 1440) % 60;
-      } else {
-        jstCloseHour = Math.floor(closeMinute / 60);
-        jstCloseMinute = closeMinute % 60;
-      }
-      
-      // JST時刻を計算
-      const jstCloseTotalMinutes = jstCloseHour * 60 + jstCloseMinute + taskCloseOffsetMinutes;
-      // JST時刻をUTCに変換（9時間引く）
-      const utcCloseTotalMinutes = jstCloseTotalMinutes - 9 * 60;
-      // UTC時刻を設定
-      closeScheduleTime.setUTCHours(Math.floor(utcCloseTotalMinutes / 60), utcCloseTotalMinutes % 60, 0, 0);
-
       const closeTaskId = `close_assessment_${dateKey}`;
-      const closeTaskName = tasksClient.taskPath(PROJECT_ID, tasksLocation, tasksQueue, closeTaskId);
+      const closeTaskName = tasksClient.taskPath(
+        projectId,
+        tasksLocation,
+        tasksQueue,
+        closeTaskId
+      );
       const closeTaskPayload = {
-        action: 'close_assessment',
+        action: "close_assessment",
         intendedBusinessDateKey: dateKey,
         scheduledAt: closeScheduleTime.toISOString(),
       };
 
       try {
-        const [closeTaskResponse] = await tasksClient.createTask({
+        await tasksClient.createTask({
           parent: queuePath,
           task: {
             name: closeTaskName,
             httpRequest: {
-              httpMethod: 'POST',
+              httpMethod: "POST",
               url: closeAssessmentUrl,
               headers: {
-                'Content-Type': 'application/json',
+                "Content-Type": "application/json",
               },
-              body: Buffer.from(JSON.stringify(closeTaskPayload)).toString('base64'),
+              body: Buffer.from(JSON.stringify(closeTaskPayload)).toString("base64"),
               oidcToken: {
                 serviceAccountEmail: tasksInvokerSa,
               },
             },
             scheduleTime: {
-              seconds: Math.floor(closeScheduleTime.getTime() / 1000),  // UTC epoch秒へ変換
+              seconds: Math.floor(closeScheduleTime.getTime() / 1000),
             },
           },
         });
-        logger.info(`閉店認定タスク投入完了: ${dateKey}`, { taskName: closeTaskResponse.name });
-      } catch (error: any) {
-        if (error.code === 6) {  // ALREADY_EXISTS
-          logger.info(`閉店認定タスク ${dateKey} は既に存在します。スキップします。`);
+        closeTasksEnqueued += 1;
+      } catch (error) {
+        if (isTaskAlreadyExistsError(error)) {
+          logger.info("weeklyPlanner: close task already exists", {dateKey});
         } else {
           throw error;
         }
       }
     }
-    } catch (error) {
-      logOpsError({
-        message: 'weeklyPlannerでエラーが発生しました:',
-        failureType: 'scheduled',
-        functionEntry: 'weeklyPlanner',
-        cause: error,
-      });
-      throw error;
-    }
+
+    return {openTasksEnqueued, closeTasksEnqueued, skippedClosedDays};
+  } catch (error) {
+    logOpsError({
+      message: "weeklyPlanner task execution failed",
+      failureType: "scheduled",
+      functionEntry: "weeklyPlanner",
+      cause: error,
+    });
+    throw error;
   }
-);
+}

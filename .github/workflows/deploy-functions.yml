@@ -1,0 +1,54 @@
+name: Deploy Firebase Functions
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: "デプロイ先 Firebase Project ID"
+        required: true
+        type: choice
+        options:
+          - amuse-app-template
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: deploy-functions-${{ inputs.project_id }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Show target project
+        run: |
+          echo "Deploy target project: ${{ inputs.project_id }}"
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: functions
+
+      - name: Authenticate to Google Cloud (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Deploy Firebase Functions
+        run: npx firebase-tools deploy --only functions --project="${{ inputs.project_id }}" --non-interactive
+        working-directory: functions
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+          CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.auth.outputs.credentials_file_path }}

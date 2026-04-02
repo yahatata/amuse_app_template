@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/services/payroll_config_service.dart';
+import 'package:amuse_app_template/payroll/utils/payment_date_utils.dart';
 import '../services/payroll_callable_service.dart';
 import 'staff_card.dart';
 
@@ -12,12 +13,21 @@ class PaymentManagement extends StatefulWidget {
   final String paymentPeriodKey;
   final String monthlyPayrollStatus;
   final List<StaffCardData> staffList;
+  /// false のとき、スタッフごとの支払い行は出さない（カード内操作に寄せる）
+  final bool showPerStaffPaymentRows;
+  /// 親（結果タブのカードなど）が支払い登録中のとき一括操作を抑止
+  final bool paymentRegisterBusy;
+  /// このウィジェット内の一括／行ごと登録の処理中を親に伝える（カード側ボタンと相互ロック用）
+  final ValueChanged<bool>? onManagementProcessingChanged;
 
   const PaymentManagement({
     super.key,
     required this.paymentPeriodKey,
     required this.monthlyPayrollStatus,
     required this.staffList,
+    this.showPerStaffPaymentRows = true,
+    this.paymentRegisterBusy = false,
+    this.onManagementProcessingChanged,
   });
 
   @override
@@ -34,34 +44,29 @@ class _PaymentManagementState extends State<PaymentManagement> {
       widget.staffList.where((s) => s.paymentStatus == 'hold').length;
   int get _totalCount => widget.staffList.length;
 
+  bool get _anyProcessing => _processing || widget.paymentRegisterBusy;
+
   bool get _isPaymentOverdue {
     final config = PayrollConfigService.instance.latest;
     if (config == null) return false;
-    final paymentDateStr = config.paymentDate;
-    if (paymentDateStr == null || paymentDateStr.isEmpty) return false;
     if (widget.monthlyPayrollStatus != 'confirmed') return false;
 
-    final paymentDay = int.tryParse(paymentDateStr);
-    if (paymentDay == null) return false;
-
-    final now = DateTime.now();
     final parts = widget.paymentPeriodKey.split('_');
     if (parts.length != 2) return false;
-    final endParts = parts[1].split('-');
-    if (endParts.length != 3) return false;
+    final actualPaymentDate = computeActualPaymentDate(
+      periodEnd: parts[1],
+      paymentDayOfMonth: config.paymentDayOfMonth,
+      paymentMonthOffset: config.paymentMonthOffset,
+    );
+    if (actualPaymentDate == null) return false;
 
-    final endYear = int.tryParse(endParts[0]) ?? now.year;
-    final endMonth = int.tryParse(endParts[1]) ?? now.month;
+    final payDate = DateTime.tryParse(actualPaymentDate);
+    if (payDate == null) return false;
 
-    DateTime payDate;
-    if (paymentDay == 0) {
-      final nextM = DateTime(endYear, endMonth + 2, 1);
-      payDate = nextM.subtract(const Duration(days: 1));
-    } else {
-      payDate = DateTime(endYear, endMonth + 1, paymentDay);
-    }
-
-    return now.isAfter(payDate);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final payDay = DateTime(payDate.year, payDate.month, payDate.day);
+    return today.isAfter(payDay);
   }
 
   String get _statusLabel {
@@ -77,8 +82,13 @@ class _PaymentManagementState extends State<PaymentManagement> {
     }
   }
 
+  void _setProcessing(bool v) {
+    widget.onManagementProcessingChanged?.call(v);
+    if (mounted) setState(() => _processing = v);
+  }
+
   Future<void> _registerStatus(String staffId, String status) async {
-    setState(() => _processing = true);
+    _setProcessing(true);
     try {
       await _service.registerPaymentStatus(
         paymentPeriodKey: widget.paymentPeriodKey,
@@ -93,7 +103,7 @@ class _PaymentManagementState extends State<PaymentManagement> {
         );
       }
     } finally {
-      if (mounted) setState(() => _processing = false);
+      if (mounted) _setProcessing(false);
     }
   }
 
@@ -103,43 +113,19 @@ class _PaymentManagementState extends State<PaymentManagement> {
         .toList();
     if (unpaidStaff.isEmpty) return;
 
-    final confirmed = await showDialog<bool>(
+    await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('全員支払い済みに登録'),
-        content: Text('${unpaidStaff.length}名を支払い済みにします。よろしいですか？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('登録する'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (ctx) => _BulkPaidConfirmDialog(
+        unpaidCount: unpaidStaff.length,
+        onSubmit: () => _service.registerPaymentStatus(
+          paymentPeriodKey: widget.paymentPeriodKey,
+          entries: unpaidStaff
+              .map((s) => {'staffId': s.staffId, 'status': 'paid'})
+              .toList(),
+        ),
       ),
     );
-
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _processing = true);
-    try {
-      await _service.registerPaymentStatus(
-        paymentPeriodKey: widget.paymentPeriodKey,
-        entries: unpaidStaff
-            .map((s) => {'staffId': s.staffId, 'status': 'paid'})
-            .toList(),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('一括登録に失敗: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _processing = false);
-    }
   }
 
   @override
@@ -189,7 +175,7 @@ class _PaymentManagementState extends State<PaymentManagement> {
 
         if (bulkEnabled &&
             widget.monthlyPayrollStatus != 'paid' &&
-            _processing == false)
+            !_anyProcessing)
           Padding(
             padding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -206,7 +192,8 @@ class _PaymentManagementState extends State<PaymentManagement> {
             child: Center(child: CircularProgressIndicator()),
           ),
 
-        ...widget.staffList.map((staff) => _staffPaymentRow(staff, yenFormat)),
+        if (widget.showPerStaffPaymentRows)
+          ...widget.staffList.map((staff) => _staffPaymentRow(staff, yenFormat)),
       ],
     );
   }
@@ -290,5 +277,81 @@ class _PaymentManagementState extends State<PaymentManagement> {
           ],
         );
     }
+  }
+}
+
+class _BulkPaidConfirmDialog extends StatefulWidget {
+  const _BulkPaidConfirmDialog({
+    required this.unpaidCount,
+    required this.onSubmit,
+  });
+
+  final int unpaidCount;
+  final Future<void> Function() onSubmit;
+
+  @override
+  State<_BulkPaidConfirmDialog> createState() => _BulkPaidConfirmDialogState();
+}
+
+class _BulkPaidConfirmDialogState extends State<_BulkPaidConfirmDialog> {
+  bool _submitting = false;
+
+  Future<void> _onConfirm() async {
+    setState(() => _submitting = true);
+    try {
+      await widget.onSubmit();
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('一括登録に失敗: $e')),
+        );
+        setState(() => _submitting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_submitting,
+      child: AlertDialog(
+        title: const Text('全員支払い済みに登録'),
+        content: _submitting
+            ? const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text(
+                      '登録しています…',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : Text(
+                '${widget.unpaidCount}名を支払い済みにします。よろしいですか？',
+              ),
+        actions: _submitting
+            ? null
+            : [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('キャンセル'),
+                ),
+                ElevatedButton(
+                  onPressed: _onConfirm,
+                  child: const Text('登録する'),
+                ),
+              ],
+      ),
+    );
   }
 }

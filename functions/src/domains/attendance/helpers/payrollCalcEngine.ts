@@ -17,7 +17,7 @@ import type {
   AttendanceItemResult,
   StaffCalcResult,
 } from '../types/payrollCalcTypes';
-import { payrollRound } from './payrollRoundingUtils';
+import { roundToYenUnit, truncateTo2Decimals } from './payrollRoundingUtils';
 
 // ─── 01_CALC_SPEC §3: 法定休日判定 ───
 
@@ -189,12 +189,14 @@ export function calcOver60(
 // ─── 01_CALC_SPEC §10: 金額計算 ───
 
 export interface AmountResult {
-  basePay: number;
-  lateNightPremiumPay: number;
+  basePayRaw: number;              // 丸め前基本給（小数第2位まで）
+  lateNightPremiumPay: number;     // 小数第2位まで（丸めなし）
   overtimePremiumPay: number;
   over60PremiumPay: number;
   legalHolidayPremiumPay: number;
-  grossPay: number;
+  grossPayRaw: number;             // 丸め前総支給額（小数第2位まで）
+  grossPay: number;                // 丸め後総支給額（整数）
+  basePay: number;                 // 丸め差分吸収後の基本給（小数第2位まで）
 }
 
 export function calcAmount(
@@ -208,17 +210,26 @@ export function calcAmount(
   config: CalcConfigInput
 ): AmountResult {
   const { roundingMethod, roundingPrecision, baseHourlyWage } = config;
-  const r = (v: number) => payrollRound(v, roundingMethod, roundingPrecision);
+  const t2d = truncateTo2Decimals;
 
-  const basePay = r(totals.totalActualWorkMinutes / 60 * baseHourlyWage);
-  const lateNightPremiumPay = r(totals.totalNightWorkMinutes / 60 * baseHourlyWage * config.nightPremiumRate);
-  const overtimePremiumPay = r(totals.totalLegalOvertimeMinutes / 60 * baseHourlyWage * config.overtimePremiumRate);
-  const over60PremiumPay = r(totals.over60OvertimeMinutes / 60 * baseHourlyWage * config.over60PremiumRate);
-  const legalHolidayPremiumPay = r(totals.totalLegalHolidayWorkMinutes / 60 * baseHourlyWage * config.legalHolidayPremiumRate);
+  // Step 1: 各中間項目（丸めなし、小数第2位まで保持）
+  const basePayRaw          = t2d(totals.totalActualWorkMinutes / 60 * baseHourlyWage);
+  const lateNightPremiumPay = t2d(totals.totalNightWorkMinutes / 60 * baseHourlyWage * config.nightPremiumRate);
+  const overtimePremiumPay  = t2d(totals.totalLegalOvertimeMinutes / 60 * baseHourlyWage * config.overtimePremiumRate);
+  const over60PremiumPay    = t2d(totals.over60OvertimeMinutes / 60 * baseHourlyWage * config.over60PremiumRate);
+  const legalHolidayPremiumPay = t2d(totals.totalLegalHolidayWorkMinutes / 60 * baseHourlyWage * config.legalHolidayPremiumRate);
 
-  const grossPay = basePay + lateNightPremiumPay + overtimePremiumPay + over60PremiumPay + legalHolidayPremiumPay;
+  // Step 2: 丸め前総支給額
+  const grossPayRaw = t2d(basePayRaw + lateNightPremiumPay + overtimePremiumPay + over60PremiumPay + legalHolidayPremiumPay);
 
-  return { basePay, lateNightPremiumPay, overtimePremiumPay, over60PremiumPay, legalHolidayPremiumPay, grossPay };
+  // Step 3: grossPay に丸めを1回適用
+  const grossPay = roundToYenUnit(grossPayRaw, roundingMethod, roundingPrecision);
+
+  // Step 4: 丸め差分を basePay に吸収（basePay + 各割増 = grossPay を保証）
+  const roundingAdjustment = grossPay - grossPayRaw;
+  const basePay = t2d(basePayRaw + roundingAdjustment);
+
+  return { basePayRaw, lateNightPremiumPay, overtimePremiumPay, over60PremiumPay, legalHolidayPremiumPay, grossPayRaw, grossPay, basePay };
 }
 
 // ─── 01_CALC_SPEC §2,12: staff 1人分の全計算 ───

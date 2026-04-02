@@ -60,25 +60,26 @@ describe('Step 7: deprecated 関数・死コード削除の確認', () => {
       expect(content).toContain('export async function enqueueTournamentTask');
     });
 
-    it('getEnv で環境変数を直接参照していること（定数経由でなく）', () => {
+    it('Cloud Tasks 設定はコード固定定数を参照し、task-endpoints secret 経由でURLを解決すること', () => {
       const content = fs.readFileSync(TASKS_PATH, 'utf-8');
-      // 各 env キーが getEnv('KEY') の形で tasks.ts 内に存在すること。
-      // モジュール級定数経由だと削除時に事故しやすいため、直接参照であることを検証。
-      const requiredEnvKeys = [
-        'CONTROL_HOOK_URL',
-        'TASKS_QUEUE',
-        'TASKS_LOCATION',
-        'TASKS_INVOKER_SA',
-      ];
-      requiredEnvKeys.forEach((key) => {
-        expect(content).toContain(`getEnv('${key}')`);
+      expect(content).toContain('getTaskEndpoints');
+      expect(content).toContain('TOURNAMENT_TASKS_QUEUE');
+      expect(content).toContain('TOURNAMENT_TASKS_REGION');
+      expect(content).toContain('TOURNAMENT_INVOKER_SA_PREFIX');
+      expect(content).toContain('buildInvokerSaEmail');
+      expect(content).toContain('getRequiredProjectId');
+      expect(content).not.toContain("getEnv('CONTROL_HOOK_URL')");
+
+      const removedEnvKeys = ['TASKS_QUEUE', 'TASKS_LOCATION', 'TASKS_INVOKER_SA'];
+      removedEnvKeys.forEach((key) => {
+        expect(content).not.toContain(`getEnv('${key}')`);
       });
     });
 
     it('旧モジュール級定数（CONTROL_HOOK_URL, TASK_SA, QUEUE_NAME, REGION）が復活していないこと', () => {
       const content = fs.readFileSync(TASKS_PATH, 'utf-8');
       // 削除した定数宣言のパターンが戻っていないことを確認。
-      // getEnv('CONTROL_HOOK_URL') は OK、const CONTROL_HOOK_URL = は NG。
+      // getTaskEndpoints() で解決するため、旧定数復活を禁止する。
       const oldConstPatterns = [
         /const\s+CONTROL_HOOK_URL\s*=/,
         /const\s+TASK_SA\s*=/,

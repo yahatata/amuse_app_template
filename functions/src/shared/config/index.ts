@@ -7,3 +7,4 @@
 export * from './defaults';
 export * from './types';
 export * from './configLoader';
+export * from './cloudTasksConfig';

@@ -13,7 +13,10 @@ import { logger } from 'firebase-functions';
 
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
 import { getStoreConfig } from '../../../shared/config/configLoader';
-import { getPayrollPeriodRange } from '../helpers/payrollPeriodUtils';
+import {
+  computeActualPaymentDate,
+  getPayrollPeriodRange,
+} from '../helpers/payrollPeriodUtils';
 import {
   createPayrollNotification,
   buildSchedulerIdempotencyKey,
@@ -22,6 +25,10 @@ import {
   DEFAULT_PAYROLL_START_DAY,
   DEFAULT_PAYROLL_END_DAY,
 } from '../../../shared/config/defaults';
+
+interface ProcessPayrollNotificationsTaskPayload {
+  targetDate?: string;
+}
 
 // ─── Pure types & helpers (Firestore-independent, unit-testable) ───
 
@@ -50,43 +57,24 @@ function addDays(dateStr: string, days: number): string {
 }
 
 /**
- * 期間終了月の翌月の paymentDay 日を実際の支払日として算出する。
- */
-export function computeActualPaymentDate(
-  paymentDayStr: string | null,
-  periodEnd: string
-): string | null {
-  if (!paymentDayStr) return null;
-  const paymentDay = parseInt(paymentDayStr, 10);
-  if (isNaN(paymentDay) || paymentDay < 1 || paymentDay > 31) return null;
-
-  const [y, m] = periodEnd.split('-').map(Number);
-  let payMonth = m + 1;
-  let payYear = y;
-  if (payMonth > 12) {
-    payMonth = 1;
-    payYear++;
-  }
-
-  const lastDay = new Date(payYear, payMonth, 0).getDate();
-  const clampedDay = Math.min(paymentDay, lastDay);
-  return `${payYear}-${String(payMonth).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`;
-}
-
-/**
  * 5種のスケジューラー通知条件を純粋に評価する（Firestore 非依存）。
  */
 export function evaluateScheduledNotifications(
   todayStr: string,
   recentPeriod: PeriodInfo,
-  paymentDate: string | null,
+  paymentDayOfMonth: string | null,
+  paymentMonthOffset: 0 | 1 | 2,
   reminderStartDays: number
 ): NotificationAction[] {
   const actions: NotificationAction[] = [];
 
   const dayAfterPeriodEnd = addDays(recentPeriod.periodEnd, 1);
   const reminderStartDate = addDays(recentPeriod.periodEnd, reminderStartDays);
-  const actualPaymentDate = computeActualPaymentDate(paymentDate, recentPeriod.periodEnd);
+  const actualPaymentDate = computeActualPaymentDate(
+    recentPeriod.periodEnd,
+    paymentDayOfMonth,
+    paymentMonthOffset
+  );
 
   // 1. payroll_period_start: periodEnd+1 == today, まだ計算未実行
   if (
@@ -201,7 +189,7 @@ export const processPayrollNotifications = onTaskDispatched(
   {
     retryConfig: { maxAttempts: 3, minBackoffSeconds: 10, maxBackoffSeconds: 60 },
   },
-  async () => {
+  async (request) => {
     const db = getFirestore();
 
     const [payrollConfig, storeConfig] = await Promise.all([
@@ -211,18 +199,25 @@ export const processPayrollNotifications = onTaskDispatched(
 
     const startDay = storeConfig.payroll?.startDay ?? DEFAULT_PAYROLL_START_DAY;
     const endDay = storeConfig.payroll?.endDay ?? DEFAULT_PAYROLL_END_DAY;
-    const paymentDate = payrollConfig.paymentDate;
+    const paymentDayOfMonth = payrollConfig.paymentDayOfMonth;
+    const paymentMonthOffset = payrollConfig.paymentMonthOffset;
     const reminderStartDays = payrollConfig.reminderStartDaysAfterPeriodEnd;
 
-    // JST の today を算出
-    const now = new Date();
-    const jstOffsetMs = 9 * 60 * 60 * 1000;
-    const jstDate = new Date(now.getTime() + now.getTimezoneOffset() * 60000 + jstOffsetMs);
-    const todayStr = [
-      jstDate.getFullYear(),
-      String(jstDate.getMonth() + 1).padStart(2, '0'),
-      String(jstDate.getDate()).padStart(2, '0'),
-    ].join('-');
+    const payload = (request.data ?? {}) as ProcessPayrollNotificationsTaskPayload;
+    const todayStr = payload.targetDate && /^\d{4}-\d{2}-\d{2}$/.test(payload.targetDate) ?
+      payload.targetDate :
+      (() => {
+        const now = new Date();
+        const jstOffsetMs = 9 * 60 * 60 * 1000;
+        const jstDate = new Date(
+          now.getTime() + now.getTimezoneOffset() * 60000 + jstOffsetMs
+        );
+        return [
+          jstDate.getFullYear(),
+          String(jstDate.getMonth() + 1).padStart(2, '0'),
+          String(jstDate.getDate()).padStart(2, '0'),
+        ].join('-');
+      })();
 
     // 対象期間: today が属する期間 → その直前の期間
     const activePeriod = getPayrollPeriodRange(todayStr, startDay, endDay);
@@ -263,7 +258,8 @@ export const processPayrollNotifications = onTaskDispatched(
     const actions = evaluateScheduledNotifications(
       todayStr,
       recentPeriodInfo,
-      paymentDate,
+      paymentDayOfMonth,
+      paymentMonthOffset,
       reminderStartDays
     );
 

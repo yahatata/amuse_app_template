@@ -26,6 +26,9 @@ export interface RunEnqueueOptions {
   lookbackHours?: number;
   tenantId?: string;
   storeId?: string;
+  rangeStartAt?: string;
+  rangeEndAt?: string;
+  now?: Date;
 }
 
 export interface RunEnqueueResult {
@@ -282,9 +285,28 @@ export async function runEnqueueTournamentTasks(
   const lookbackHours = options.lookbackHours ?? LOOKBACK_HOURS;
 
   const db = getFirestore();
-  const now = new Date();
-  const rangeStart = new Date(now.getTime() - lookbackHours * 60 * 60 * 1000);
-  const rangeEnd = new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000);
+  const now = options.now ?? new Date();
+  if (
+    (options.rangeStartAt && !options.rangeEndAt) ||
+    (!options.rangeStartAt && options.rangeEndAt)
+  ) {
+    throw new Error("Both rangeStartAt and rangeEndAt are required when explicit range is used");
+  }
+  const hasExplicitRange = Boolean(options.rangeStartAt && options.rangeEndAt);
+  const rangeStart = hasExplicitRange ?
+    new Date(options.rangeStartAt as string) :
+    new Date(now.getTime() - lookbackHours * 60 * 60 * 1000);
+  const rangeEnd = hasExplicitRange ?
+    new Date(options.rangeEndAt as string) :
+    new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000);
+
+  if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
+    throw new Error("Invalid enqueue rangeStartAt/rangeEndAt");
+  }
+  if (rangeStart.getTime() >= rangeEnd.getTime()) {
+    throw new Error("enqueue rangeStartAt must be before rangeEndAt");
+  }
+
   const thirtyDaysFromNow = new Date(now.getTime() + THIRTY_DAYS_MS);
 
   const rangeStartTs = Timestamp.fromDate(rangeStart);

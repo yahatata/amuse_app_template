@@ -9,7 +9,7 @@ const db = getFirestore();
 const getAvailableTablesSchema = z.object({});
 
 export const getAvailableTables = onCall({
-  region: 'us-central1',
+  region: 'asia-northeast1',
   maxInstances: 10,
 }, async (request) => {
   try {

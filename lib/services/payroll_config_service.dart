@@ -1,9 +1,9 @@
-/// storeMeta/payrollConfig の購読サービス
-///
-/// StoreConfigService と同一パターンのシングルトン。
-/// snapshot で storeMeta/payrollConfig を購読し、各画面は stream から取得。
-///
-/// 参照: docs/config_migration/phase4_3/specs/02_CONFIG_SPEC.md
+// storeMeta/payrollConfig の購読サービス
+//
+// StoreConfigService と同一パターンのシングルトン。
+// snapshot で storeMeta/payrollConfig を購読し、各画面は stream から取得。
+//
+// 参照: docs/config_migration/phase4_3/specs/02_CONFIG_SPEC.md
 
 import 'dart:async';
 
@@ -12,9 +12,40 @@ import 'package:flutter/foundation.dart';
 
 import 'payroll_config_defaults.dart';
 
+String? _normalizePaymentDayOfMonth(dynamic raw) {
+  if (raw is! String) return null;
+  final digitsOnly = RegExp(r'^\d{1,2}$');
+  if (!digitsOnly.hasMatch(raw)) return null;
+  final day = int.tryParse(raw);
+  if (day == null || day < 0 || day > 31) return null;
+  return '$day';
+}
+
+String? _parseLegacyPaymentDate(dynamic raw) {
+  if (raw == null) return null;
+  if (raw is! String) return null;
+
+  final normalized = _normalizePaymentDayOfMonth(raw);
+  if (normalized != null) return normalized;
+
+  final match = RegExp(r'^\d{4}-\d{2}-(\d{2})$').firstMatch(raw);
+  if (match == null) return null;
+  final day = int.tryParse(match.group(1)!);
+  if (day == null || day < 1 || day > 31) return null;
+  return '$day';
+}
+
+int? _normalizePaymentMonthOffset(dynamic raw) {
+  if (raw is! num) return null;
+  final value = raw.toInt();
+  if (value < 0 || value > 2) return null;
+  return value;
+}
+
 /// storeMeta/payrollConfig のデータクラス
 class PayrollConfigData {
-  final String? paymentDate;
+  final String? paymentDayOfMonth;
+  final int paymentMonthOffset;
   final bool bulkPaymentRegistrationEnabled;
   final int maxCandidatesCount;
   final int weekStartDay;
@@ -31,7 +62,8 @@ class PayrollConfigData {
   final int reminderStartDaysAfterPeriodEnd;
 
   PayrollConfigData({
-    this.paymentDate = kDefaultPayrollConfigPaymentDate,
+    this.paymentDayOfMonth = kDefaultPayrollConfigPaymentDayOfMonth,
+    this.paymentMonthOffset = kDefaultPayrollConfigPaymentMonthOffset,
     this.bulkPaymentRegistrationEnabled =
         kDefaultPayrollConfigBulkPaymentRegistrationEnabled,
     this.maxCandidatesCount = kDefaultPayrollConfigMaxCandidatesCount,
@@ -81,13 +113,38 @@ class PayrollConfigData {
     }
 
     // nullable fields need special handling
-    String? paymentDate;
-    if (data['paymentDate'] is String) {
-      paymentDate = data['paymentDate'] as String;
-      fromConfig.add('paymentDate');
+    String? paymentDayOfMonth;
+    final normalizedPaymentDay =
+        _normalizePaymentDayOfMonth(data['paymentDayOfMonth']);
+    if (normalizedPaymentDay != null) {
+      paymentDayOfMonth = normalizedPaymentDay;
+      fromConfig.add('paymentDayOfMonth');
+    } else if (data['paymentDayOfMonth'] == null &&
+        data.containsKey('paymentDayOfMonth')) {
+      paymentDayOfMonth = null;
+      fromConfig.add('paymentDayOfMonth');
     } else {
-      paymentDate = kDefaultPayrollConfigPaymentDate;
-      fromDefaults.add('paymentDate');
+      final legacyPaymentDay = _parseLegacyPaymentDate(data['paymentDate']);
+      if (legacyPaymentDay != null) {
+        paymentDayOfMonth = legacyPaymentDay;
+        fromConfig.add('paymentDate');
+      } else if (data['paymentDate'] == null && data.containsKey('paymentDate')) {
+        paymentDayOfMonth = null;
+        fromConfig.add('paymentDate');
+      } else {
+        paymentDayOfMonth = kDefaultPayrollConfigPaymentDayOfMonth;
+        fromDefaults.add('paymentDayOfMonth');
+      }
+    }
+
+    final normalizedPaymentMonthOffset =
+        _normalizePaymentMonthOffset(data['paymentMonthOffset']);
+    final paymentMonthOffset = normalizedPaymentMonthOffset ??
+        kDefaultPayrollConfigPaymentMonthOffset;
+    if (normalizedPaymentMonthOffset != null) {
+      fromConfig.add('paymentMonthOffset');
+    } else {
+      fromDefaults.add('paymentMonthOffset');
     }
 
     int? legalHolidayWeekday;
@@ -120,7 +177,8 @@ class PayrollConfigData {
     }
 
     final result = PayrollConfigData(
-      paymentDate: paymentDate,
+      paymentDayOfMonth: paymentDayOfMonth,
+      paymentMonthOffset: paymentMonthOffset,
       bulkPaymentRegistrationEnabled: pick(
         'bulkPaymentRegistrationEnabled',
         data['bulkPaymentRegistrationEnabled'],

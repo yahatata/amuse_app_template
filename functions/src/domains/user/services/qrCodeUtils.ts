@@ -2,8 +2,8 @@ import * as QRCode from "qrcode";
 import * as crypto from "crypto";
 import * as admin from "firebase-admin";
 import { QRCodeData } from "../../../shared/types";
-import { isProductionRuntime } from "../../../shared/runtime";
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { getBusinessSecrets } from "../../../shared/secrets/secretManager";
 
 /**
  * QRコードの有効期限（分）
@@ -17,21 +17,12 @@ const QR_EXPIRY_MINUTES = 10;
  * @param {number} timestamp タイムスタンプ
  * @return {string} セキュリティトークン
  */
-// QR_SECRET_KEY: コマンド/コンソールで設定。本番で未設定時は throw（Phase0A D-12）
-function getQRSecretKey(): string {
-  const secret = process.env.QR_SECRET_KEY;
-  if (isProductionRuntime() && (!secret || !secret.trim())) {
-    throw new Error("QR_SECRET_KEY is not set (required in production)");
-  }
-  return secret ?? "";
-}
-
-function generateSecurityToken(
+async function generateSecurityToken(
   uid: string,
   loginId: string,
   timestamp: number
-): string {
-  const secret = getQRSecretKey();
+): Promise<string> {
+  const { qrSecretKey: secret } = await getBusinessSecrets();
   const data = `${uid}:${loginId}:${timestamp}:${secret}`;
   return crypto.createHash("sha256").update(data).digest("hex");
 }
@@ -43,13 +34,13 @@ function generateSecurityToken(
  * @param {"user" | "staff"} type QRコードの種類
  * @return {QRCodeData} QRコードデータ
  */
-export function generateQRData(
+export async function generateQRData(
   uid: string,
   loginId: string,
   type: "user" | "staff"
-): QRCodeData {
+): Promise<QRCodeData> {
   const timestamp = Date.now();
-  const token = generateSecurityToken(uid, loginId, timestamp);
+  const token = await generateSecurityToken(uid, loginId, timestamp);
 
   return {
     uid,
@@ -191,7 +182,7 @@ async function deleteOldQRCodeFiles(uid: string, type: "user" | "staff"): Promis
  * @param {string} qrDataString QRコードから読み取ったJSON文字列
  * @return {boolean} 検証結果
  */
-export function verifyQRData(qrDataString: string): boolean {
+export async function verifyQRData(qrDataString: string): Promise<boolean> {
   try {
     const data: QRCodeData = JSON.parse(qrDataString);
 
@@ -209,7 +200,7 @@ export function verifyQRData(qrDataString: string): boolean {
     }
 
     // セキュリティトークンの検証
-    const expectedToken = generateSecurityToken(
+    const expectedToken = await generateSecurityToken(
       data.uid,
       data.loginId,
       data.timestamp

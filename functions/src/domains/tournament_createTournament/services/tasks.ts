@@ -1,8 +1,13 @@
 import { CloudTasksClient } from '@google-cloud/tasks';
 import { logger } from 'firebase-functions';
-import { getEnv } from '../../../shared/firebase';
-
-const PROJECT_ID = process.env.PROJECT_ID || 'amuse-app-template';
+import {
+  TOURNAMENT_TASKS_QUEUE,
+  TOURNAMENT_TASKS_REGION,
+  TOURNAMENT_INVOKER_SA_PREFIX,
+  buildInvokerSaEmail,
+} from '../../../shared/config/cloudTasksConfig';
+import { getRequiredProjectId } from '../../../shared/runtime/projectId';
+import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
 const client = new CloudTasksClient();
 
 /**
@@ -17,12 +22,16 @@ export async function enqueueTournamentTask(
   storeId: string,
   enqueueDueAt: Date
 ): Promise<string> {
-  const controlHookUrl = getEnv('CONTROL_HOOK_URL');
-  const tasksQueue = getEnv('TASKS_QUEUE');
-  const tasksLocation = getEnv('TASKS_LOCATION');
-  const tasksInvokerSa = getEnv('TASKS_INVOKER_SA');
+  const projectId = getRequiredProjectId();
+  const { controlHookUrl } = await getTaskEndpoints();
+  const tasksQueue = TOURNAMENT_TASKS_QUEUE;
+  const tasksLocation = TOURNAMENT_TASKS_REGION;
+  const tasksInvokerSa = buildInvokerSaEmail(
+    TOURNAMENT_INVOKER_SA_PREFIX,
+    projectId
+  );
 
-  const queuePath = client.queuePath(PROJECT_ID, tasksLocation, tasksQueue);
+  const queuePath = client.queuePath(projectId, tasksLocation, tasksQueue);
 
   const payload = {
     tournamentId,

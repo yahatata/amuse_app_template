@@ -69,7 +69,7 @@ export const createStaffByApp = onCall(async (request) => {
   });
   const uid = userRecord.uid;
 
-  const qrData = generateQRData(uid, loginId, "staff");
+  const qrData = await generateQRData(uid, loginId, "staff");
   const qrCodeImage = await generateQRImage(qrData);
   const qrCodeUrl = await saveQRCodeToStorage(uid, qrCodeImage, "staff");
 

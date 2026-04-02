@@ -29,7 +29,7 @@ const CLOSE_STEPS = [
 ] as const;
 
 export const closeStoreTerminal = onCall(
-  { region: 'us-central1' },
+  { region: 'asia-northeast1' },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '認証が必要です');

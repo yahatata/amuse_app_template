@@ -7,6 +7,13 @@ import 'package:cloud_functions/cloud_functions.dart';
 class PayrollCallableService {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
 
+  /// 計算タブ用: JST 基準日・当日期間キー・支給予定日（サーバー算出と Callable 共通）
+  Future<Map<String, dynamic>> getPayrollCalcDisplayContext() async {
+    final callable = _functions.httpsCallable('getPayrollCalcDisplayContext');
+    final result = await callable.call<Map<String, dynamic>>();
+    return Map<String, dynamic>.from(result.data);
+  }
+
   Future<Map<String, dynamic>> getPayrollCandidates(
     String paymentPeriodKey,
   ) async {

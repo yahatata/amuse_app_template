@@ -21,7 +21,7 @@ import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const openAssessmentTask = onRequest(
   {
-    region: 'us-central1',
+    region: 'asia-northeast1',
   },
   async (req, res) => {
     try {

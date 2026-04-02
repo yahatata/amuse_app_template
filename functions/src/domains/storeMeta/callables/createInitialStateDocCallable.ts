@@ -10,7 +10,7 @@ const db = getFirestore();
 
 export const createInitialStateDocCallable = onCall(
   {
-    region: 'us-central1',
+    region: 'asia-northeast1',
   },
   async (request) => {
     try {

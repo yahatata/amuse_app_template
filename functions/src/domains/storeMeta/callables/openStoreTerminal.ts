@@ -12,7 +12,7 @@ import { generateJstDateKey } from '../../../shared/time';
 const OPEN_STEPS = ['verifyPreconditions', 'forceCleanup', 'finalizeOpenStateDoc'] as const;
 
 export const openStoreTerminal = onCall(
-  { region: 'us-central1' },
+  { region: 'asia-northeast1' },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '認証が必要です');

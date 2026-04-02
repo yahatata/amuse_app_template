@@ -75,7 +75,7 @@ export const generateQRCode = onCall(
       // 連続生成制限を削除（ユーザーが自由に再生成可能）
 
       // QRコードデータを生成
-      const qrData = generateQRData(uid, loginId, type);
+      const qrData = await generateQRData(uid, loginId, type);
       const qrCodeImage = await generateQRImage(qrData);
       
       // 期限は関数側で決める（ms基準）

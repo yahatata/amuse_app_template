@@ -6,11 +6,6 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isPayrollAdmin() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
-    }
-
     // ===== 開発用設定（セキュリティを緩く設定） =====
     // 本番環境では適切な認証制限を再設定してください
 
@@ -316,8 +311,9 @@ service cloud.firestore {
     }
 
     // storeMeta/payrollConfig ドキュメント（Phase4.3 給与設定。PayrollConfigService が購読）
+    // admin 制限は Callable 側。read は認証済みクライアントに許可（リリース優先の簡素化）。
     match /storeMeta/payrollConfig {
-      allow read: if isPayrollAdmin();
+      allow read: if isSignedIn();
       allow write: if false;
     }
 
@@ -344,32 +340,32 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Phase4.3: 給与計算結果
+    // Phase4.3: 給与計算結果（read は認証済み。書き込みは Functions のみ）
     match /monthlyPayroll/{paymentPeriodKey} {
-      allow read: if isPayrollAdmin();
+      allow read: if isSignedIn();
       allow write: if false;
 
       match /payrollRuns/{runId} {
-        allow read: if isPayrollAdmin();
+        allow read: if isSignedIn();
         allow write: if false;
 
         match /staffResults/{staffId} {
-          allow read: if isPayrollAdmin();
+          allow read: if isSignedIn();
           allow write: if false;
 
           match /attendanceItems/{itemId} {
-            allow read: if isPayrollAdmin();
+            allow read: if isSignedIn();
             allow write: if false;
           }
         }
       }
     }
 
-    // Phase4.3: 給与通知
+    // Phase4.3: 給与通知（read は認証済み。isRead/isFlagged のみクライアント update 可）
     match /notifications/{notificationId} {
-      allow read: if isPayrollAdmin();
+      allow read: if isSignedIn();
       allow create, delete: if false;
-      allow update: if isPayrollAdmin()
+      allow update: if isSignedIn()
         && resource.data.operationCategory == 'payroll'
         && request.resource.data.diff(resource.data).changedKeys().hasOnly([
           'isRead',

@@ -1,23 +1,6 @@
 import * as logger from "firebase-functions/logger";
 import { logOpsError } from "../../../shared/logging/logOpsError";
-import { defineString } from "firebase-functions/params";
-import { isProductionRuntime } from "../../../shared/runtime";
-
-function getLineChannelAccessToken(): string {
-  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  if (isProductionRuntime() && (!token || !token.trim())) {
-    throw new Error("LINE_CHANNEL_ACCESS_TOKEN is not set (required in production)");
-  }
-  return token ?? "";
-}
-
-const staffRichMenuId = defineString("STAFF_RICHMENU_ID", {
-  default: "richmenu-36bb594eadf1c8718bd9c12199c87dbb",
-});
-
-const userRichMenuId = defineString("USER_RICHMENU_ID", {
-  default: "richmenu-31d87049e04ae740ceaa76cf59950f54",
-});
+import { getLineConfig } from "../../../shared/secrets/secretManager";
 
 /**
  * LINE Messaging API でスタッフ用リッチメニューをユーザーにリンクする
@@ -27,11 +10,14 @@ const userRichMenuId = defineString("USER_RICHMENU_ID", {
  */
 export async function linkStaffRichMenu(lineUserId: string): Promise<boolean> {
   try {
-    const channelAccessToken = getLineChannelAccessToken();
-    const richMenuId = staffRichMenuId.value();
+    const lineConfig = await getLineConfig();
+    const channelAccessToken = lineConfig.channelAccessToken;
+    const richMenuId = lineConfig.staffRichMenuId;
 
     if (!channelAccessToken || !richMenuId) {
-      logger.warn("linkStaffRichMenu: LINE_CHANNEL_ACCESS_TOKEN or STAFF_RICHMENU_ID not set");
+      logger.warn(
+        "linkStaffRichMenu: line-config.channelAccessToken or staffRichMenuId not set"
+      );
       return false;
     }
 
@@ -93,11 +79,14 @@ export async function linkStaffRichMenu(lineUserId: string): Promise<boolean> {
  */
 export async function linkUserRichMenu(lineUserId: string): Promise<boolean> {
   try {
-    const channelAccessToken = getLineChannelAccessToken();
-    const richMenuId = userRichMenuId.value();
+    const lineConfig = await getLineConfig();
+    const channelAccessToken = lineConfig.channelAccessToken;
+    const richMenuId = lineConfig.userRichMenuId;
 
     if (!channelAccessToken || !richMenuId) {
-      logger.warn("linkUserRichMenu: LINE_CHANNEL_ACCESS_TOKEN or USER_RICHMENU_ID not set");
+      logger.warn(
+        "linkUserRichMenu: line-config.channelAccessToken or userRichMenuId not set"
+      );
       return false;
     }
 

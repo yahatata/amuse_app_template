@@ -10,11 +10,21 @@ import {
   validateStoreTenantForProduction,
 } from '../../src/shared/runtime';
 
+const mockGetLineConfig = jest.fn();
+const mockGetBusinessSecrets = jest.fn();
+
+jest.mock('../../src/shared/secrets/secretManager', () => ({
+  getLineConfig: () => mockGetLineConfig(),
+  getBusinessSecrets: () => mockGetBusinessSecrets(),
+}));
+
 describe('Phase0A: Config Migration', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     jest.resetModules();
+    mockGetLineConfig.mockReset();
+    mockGetBusinessSecrets.mockReset();
     process.env = { ...originalEnv };
   });
 
@@ -101,20 +111,9 @@ describe('Phase0A: Config Migration', () => {
     });
   });
 
-  describe('D-01: LINE_CHANNEL_ACCESS_TOKEN 未設定時失敗', () => {
-    it('本番で未設定なら sendLinePushMessage が失敗（false を返す）', async () => {
-      delete process.env.FUNCTIONS_EMULATOR;
-      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
-      const { sendLinePushMessage } = await import(
-        '../../src/domains/webhook/services/lineMessaging'
-      );
-      const result = await sendLinePushMessage('user1', 'test');
-      expect(result).toBe(false);
-    });
-
-    it('エミュレータで未設定なら throw せず false を返す', async () => {
-      process.env.FUNCTIONS_EMULATOR = 'true';
-      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  describe('D-01: line-config 未取得時失敗', () => {
+    it('line-config 取得失敗時は sendLinePushMessage が false を返す', async () => {
+      mockGetLineConfig.mockRejectedValue(new Error('line-config missing'));
       const { sendLinePushMessage } = await import(
         '../../src/domains/webhook/services/lineMessaging'
       );
@@ -123,21 +122,17 @@ describe('Phase0A: Config Migration', () => {
     });
   });
 
-  describe('D-12: QR_SECRET_KEY 未設定時失敗', () => {
-    it('本番で未設定なら generateQRData が throw', () => {
-      delete process.env.FUNCTIONS_EMULATOR;
-      delete process.env.QR_SECRET_KEY;
-      const { generateQRData } = require('../../src/domains/user/services/qrCodeUtils');
-      expect(() => generateQRData('uid1', 'login1', 'user')).toThrow(
-        /QR_SECRET_KEY is not set/
+  describe('D-12: business-secrets 未取得時失敗', () => {
+    it('business-secrets 取得失敗時は generateQRData が reject する', async () => {
+      mockGetBusinessSecrets.mockRejectedValue(
+        new Error('business-secrets missing')
       );
-    });
-
-    it('エミュレータで未設定なら throw しない', () => {
-      process.env.FUNCTIONS_EMULATOR = 'true';
-      delete process.env.QR_SECRET_KEY;
-      const { generateQRData } = require('../../src/domains/user/services/qrCodeUtils');
-      expect(() => generateQRData('uid1', 'login1', 'user')).not.toThrow();
+      const { generateQRData } = await import(
+        '../../src/domains/user/services/qrCodeUtils'
+      );
+      await expect(generateQRData('uid1', 'login1', 'user')).rejects.toThrow(
+        /business-secrets missing/
+      );
     });
   });
 });

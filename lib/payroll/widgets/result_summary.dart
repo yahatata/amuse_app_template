@@ -12,6 +12,8 @@ class ResultSummary extends StatelessWidget {
   final int totalLegalOvertimeMinutes;
   final int totalLegalHolidayWorkMinutes;
   final Map<String, dynamic>? anomalyFlags;
+  /// 「計算結果サマリ」横に表示（例: 対象期間：…, 給与支給予定日：…）
+  final String? headerMetaLine;
 
   const ResultSummary({
     super.key,
@@ -21,6 +23,7 @@ class ResultSummary extends StatelessWidget {
     required this.totalLegalOvertimeMinutes,
     required this.totalLegalHolidayWorkMinutes,
     this.anomalyFlags,
+    this.headerMetaLine,
   });
 
   String _minutesToHm(int minutes) {
@@ -42,8 +45,28 @@ class ResultSummary extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('計算結果サマリ',
-                style: Theme.of(context).textTheme.titleMedium),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '計算結果サマリ',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                if (headerMetaLine != null && headerMetaLine!.isNotEmpty) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      headerMetaLine!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      textAlign: TextAlign.end,
+                    ),
+                  ),
+                ],
+              ],
+            ),
             const Divider(),
             _row('対象スタッフ数', '$targetStaffCount 名'),
             _row('総支給額合計', '¥${yenFormat.format(totalGrossPay)}'),

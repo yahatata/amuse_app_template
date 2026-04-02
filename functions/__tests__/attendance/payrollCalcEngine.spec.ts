@@ -13,7 +13,7 @@ import {
   calculateStaffPayroll,
   calculateCarryOverPayroll,
 } from '../../src/domains/attendance/helpers/payrollCalcEngine';
-import { payrollRound } from '../../src/domains/attendance/helpers/payrollRoundingUtils';
+import { roundToYenUnit, truncateTo2Decimals } from '../../src/domains/attendance/helpers/payrollRoundingUtils';
 import type {
   CalcAttendanceInput,
   CalcConfigInput,
@@ -31,7 +31,7 @@ function defaultConfig(overrides: Partial<CalcConfigInput> = {}): CalcConfigInpu
     over60PremiumRate: 0.25,
     legalHolidayPremiumRate: 0.35,
     roundingMethod: 'floor',
-    roundingPrecision: 0,
+    roundingPrecision: 1,
     baseHourlyWage: 1200,
     ...overrides,
   };
@@ -63,33 +63,24 @@ function makeAtt(
 }
 
 // ═══════════════════════════════════════
-// 端数処理テスト (R1〜R5)
+// 端数処理テスト (R1〜R7, T1〜T3)
 // ═══════════════════════════════════════
 
-describe('payrollRound', () => {
-  it('R1: ceil precision=0', () => {
-    expect(payrollRound(123.456, 'ceil', 0)).toBe(124);
-  });
+describe('roundToYenUnit', () => {
+  it('R1: floor unit=1  (12.30 → 12)',       () => expect(roundToYenUnit(12.30, 'floor', 1)).toBe(12));
+  it('R2: ceil  unit=1  (12.30 → 13)',       () => expect(roundToYenUnit(12.30, 'ceil',  1)).toBe(13));
+  it('R3: round unit=1  (12.50 → 13)',       () => expect(roundToYenUnit(12.50, 'round', 1)).toBe(13));
+  it('R4: floor unit=10 (134 → 130)',        () => expect(roundToYenUnit(134,   'floor', 10)).toBe(130));
+  it('R5: floor unit=100 (3134 → 3100)',     () => expect(roundToYenUnit(3134,  'floor', 100)).toBe(3100));
+  it('R6: ceil  unit=100 (3101 → 3200)',     () => expect(roundToYenUnit(3101,  'ceil',  100)).toBe(3200));
+  it('R7: floor unit=1000 (43500 → 43000)', () => expect(roundToYenUnit(43500, 'floor', 1000)).toBe(43000));
+});
 
-  it('R2: floor precision=0', () => {
-    expect(payrollRound(123.456, 'floor', 0)).toBe(123);
-  });
-
-  it('R3: round precision=0 (123.456 → 123)', () => {
-    expect(payrollRound(123.456, 'round', 0)).toBe(123);
-  });
-
-  it('R4: round precision=0 (123.5 → 124)', () => {
-    expect(payrollRound(123.5, 'round', 0)).toBe(124);
-  });
-
-  it('R5: floor precision=-1 (1234 → 1230)', () => {
-    expect(payrollRound(1234, 'floor', -1)).toBe(1230);
-  });
-
-  it('R6: ceil precision=-1 (1234 → 1240)', () => {
-    expect(payrollRound(1234, 'ceil', -1)).toBe(1240);
-  });
+describe('truncateTo2Decimals', () => {
+  it('T1: 小数第3位を四捨五入',  () => expect(truncateTo2Decimals(12.3456)).toBe(12.35));
+  it('T2: 繰り上がり',            () => expect(truncateTo2Decimals(99.999)).toBe(100.00));
+  it('T3: 整数は不変',             () => expect(truncateTo2Decimals(100)).toBe(100));
+  it('T4: 負数',                   () => expect(truncateTo2Decimals(-1.236)).toBe(-1.24));
 });
 
 // ═══════════════════════════════════════
@@ -183,7 +174,8 @@ describe('calcOver60', () => {
 
 describe('calcAmount', () => {
   it('U8: 各金額項目の計算', () => {
-    const config = defaultConfig();
+    // roundingPrecision=1（1円単位）で端数なし → grossPay に丸め差分なし
+    const config = defaultConfig();   // floor, unit=1, wage=1200
     const totals = {
       totalActualWorkMinutes: 2700,
       totalNightWorkMinutes: 120,
@@ -194,18 +186,72 @@ describe('calcAmount', () => {
 
     const result = calcAmount(totals, config);
 
-    // basePay = floor(2700/60 * 1200) = floor(54000) = 54000
-    expect(result.basePay).toBe(54000);
-    // lateNightPremiumPay = floor(120/60 * 1200 * 0.25) = floor(600) = 600
+    // basePayRaw = t2d(2700/60 * 1200) = t2d(54000.00) = 54000
+    expect(result.basePayRaw).toBe(54000);
+    // lateNightPremiumPay = t2d(120/60 * 1200 * 0.25) = t2d(600.00) = 600
     expect(result.lateNightPremiumPay).toBe(600);
-    // overtimePremiumPay = floor(300/60 * 1200 * 0.25) = floor(1500) = 1500
+    // overtimePremiumPay = t2d(300/60 * 1200 * 0.25) = t2d(1500.00) = 1500
     expect(result.overtimePremiumPay).toBe(1500);
     expect(result.over60PremiumPay).toBe(0);
     expect(result.legalHolidayPremiumPay).toBe(0);
+    // grossPayRaw = 54000 + 600 + 1500 = 56100
+    expect(result.grossPayRaw).toBe(56100);
+    // grossPay = floor(56100 / 1) * 1 = 56100（丸め差分 0）
     expect(result.grossPay).toBe(56100);
+    // basePay = basePayRaw + (grossPay - grossPayRaw) = 54000 + 0 = 54000
+    expect(result.basePay).toBe(54000);
   });
 
-  it('U9: roundingMethod の違い', () => {
+  it('U8b: 端数あり → grossPay に丸めを適用し basePay が差分を吸収', () => {
+    // 100/60 * 1000 = 1666.666... → t2d = 1666.67
+    const totals = {
+      totalActualWorkMinutes: 100,
+      totalNightWorkMinutes: 0,
+      totalLegalOvertimeMinutes: 0,
+      over60OvertimeMinutes: 0,
+      totalLegalHolidayWorkMinutes: 0,
+    };
+    const config = defaultConfig({ baseHourlyWage: 1000, roundingMethod: 'floor', roundingPrecision: 1 });
+    const result = calcAmount(totals, config);
+
+    // basePayRaw = t2d(100/60 * 1000) = t2d(1666.666...) = 1666.67
+    expect(result.basePayRaw).toBe(1666.67);
+    // grossPayRaw = 1666.67（他項目 0）
+    expect(result.grossPayRaw).toBe(1666.67);
+    // grossPay = floor(1666.67 / 1) * 1 = 1666
+    expect(result.grossPay).toBe(1666);
+    // basePay = 1666.67 + (1666 - 1666.67) = 1666.67 - 0.67 = 1666.00
+    expect(result.basePay).toBe(1666.00);
+    // basePay + 各割増 = grossPay を確認
+    expect(result.basePay + result.lateNightPremiumPay + result.overtimePremiumPay
+           + result.over60PremiumPay + result.legalHolidayPremiumPay).toBe(result.grossPay);
+  });
+
+  it('U8c: unit=10 で 10円単位の丸め', () => {
+    // 134.99円 → grossPay=130（floor,unit=10）
+    const totals = {
+      totalActualWorkMinutes: 100,
+      totalNightWorkMinutes: 0,
+      totalLegalOvertimeMinutes: 0,
+      over60OvertimeMinutes: 0,
+      totalLegalHolidayWorkMinutes: 0,
+    };
+    // basePayRaw = t2d(100/60 * 80.99) → 約 134.98（端数が出る設定）
+    // 代わりに grossPayRaw が 134.xx になるよう wage を調整
+    // 100/60 * 80.994 ≒ 134.99
+    const config = defaultConfig({ baseHourlyWage: 80.994, roundingMethod: 'floor', roundingPrecision: 10 });
+    const result = calcAmount(totals, config);
+
+    // grossPay = floor(grossPayRaw / 10) * 10
+    expect(result.grossPay % 10).toBe(0);
+    expect(result.grossPay).toBeLessThanOrEqual(result.grossPayRaw);
+    // 整合性: basePay + 割増合計 = grossPay
+    const premiumSum = result.lateNightPremiumPay + result.overtimePremiumPay
+                     + result.over60PremiumPay + result.legalHolidayPremiumPay;
+    expect(Math.round((result.basePay + premiumSum) * 100) / 100).toBe(result.grossPay);
+  });
+
+  it('U9: roundingMethod の違い（unit=1）', () => {
     const totals = {
       totalActualWorkMinutes: 100,
       totalNightWorkMinutes: 0,
@@ -214,16 +260,22 @@ describe('calcAmount', () => {
       totalLegalHolidayWorkMinutes: 0,
     };
 
-    // 100/60 * 1200 = 2000.0 → 端数なし
-    // 端数が出るケース: 100/60 * 1000 = 1666.666...
-    const ceilResult = calcAmount(totals, defaultConfig({ baseHourlyWage: 1000, roundingMethod: 'ceil' }));
-    expect(ceilResult.basePay).toBe(1667);
+    // 100/60 * 1000 = 1666.666... → basePayRaw = 1666.67
+    // grossPayRaw = 1666.67
+    const ceilResult = calcAmount(totals, defaultConfig({ baseHourlyWage: 1000, roundingMethod: 'ceil', roundingPrecision: 1 }));
+    // grossPay = ceil(1666.67) = 1667, basePay = 1666.67 + 0.33 = 1667.00
+    expect(ceilResult.grossPay).toBe(1667);
+    expect(ceilResult.basePay).toBe(1667.00);
+    expect(ceilResult.basePayRaw).toBe(1666.67);
 
-    const floorResult = calcAmount(totals, defaultConfig({ baseHourlyWage: 1000, roundingMethod: 'floor' }));
-    expect(floorResult.basePay).toBe(1666);
+    const floorResult = calcAmount(totals, defaultConfig({ baseHourlyWage: 1000, roundingMethod: 'floor', roundingPrecision: 1 }));
+    // grossPay = floor(1666.67) = 1666, basePay = 1666.67 - 0.67 = 1666.00
+    expect(floorResult.grossPay).toBe(1666);
+    expect(floorResult.basePay).toBe(1666.00);
 
-    const roundResult = calcAmount(totals, defaultConfig({ baseHourlyWage: 1000, roundingMethod: 'round' }));
-    expect(roundResult.basePay).toBe(1667);
+    const roundResult = calcAmount(totals, defaultConfig({ baseHourlyWage: 1000, roundingMethod: 'round', roundingPrecision: 1 }));
+    // grossPay = round(1666.67) = 1667
+    expect(roundResult.grossPay).toBe(1667);
   });
 
   it('U11: 空の attendance → 全集計値 0', () => {

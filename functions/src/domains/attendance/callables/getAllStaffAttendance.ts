@@ -4,7 +4,7 @@ import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const getAllStaffAttendance = onCall(
   {
-    region: "us-central1",
+    region: "asia-northeast1",
     maxInstances: 10,
   },
   async (request) => {
@@ -179,5 +179,4 @@ export const getAllStaffAttendance = onCall(
     }
   }
 );
-
 
