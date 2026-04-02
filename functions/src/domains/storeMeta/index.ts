@@ -10,7 +10,6 @@ export { createInitialStateDocCallable } from './callables/createInitialStateDoc
 export { initializeStoreConfigCallable } from './callables/initializeStoreConfigCallable';
 export { closeAssessmentTask } from './callables/closeAssessmentTask';
 export { openAssessmentTask } from './callables/openAssessmentTask';
-export { weeklyPlanner } from './scheduler/weeklyPlanner';
 // 閉店まわり（Phase2B: close_process から移管）
 export { resetAllTables } from './services/resetAllTables';
 export { resetAllSideGames } from './services/resetAllSideGames';

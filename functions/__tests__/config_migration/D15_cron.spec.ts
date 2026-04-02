@@ -1,74 +1,97 @@
 /**
- * D15 CRON 環境変数テスト（Phase2.1）
+ * phaseC 後の scheduler 移行確認
  *
- * スケジューラが環境変数で上書き可能であり、未設定時はデフォルト値を使用することを
- * ソースコードのパターンで検証する。モジュールインポートは行わない（Firebase/Tasks の初期化を避ける）。
+ * 旧 job 個別 onSchedule + env CRON 上書きを撤去し、
+ * schedulerSupervisor（03:00 JST固定）+ Task Queue Function へ移行したことを
+ * ソースコードパターンで検証する。
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
-const SRC_ROOT = path.resolve(__dirname, '../../src');
+const SRC_ROOT = path.resolve(__dirname, "../../src");
 
-const CRON_SPECS = [
+const MIGRATED_JOB_FILES = [
   {
-    file: 'domains/storeMeta/scheduler/weeklyPlanner.ts',
-    envVar: 'WEEKLY_PLANNER_CRON',
-    defaultCron: '0 11 * * 0', // UTC 11:00 = JST 20:00（日曜）
-    scheduleVar: 'WEEKLY_PLANNER_CRON',
+    file: "domains/storeMeta/scheduler/weeklyPlanner.ts",
+    oldCronEnvVar: "WEEKLY_PLANNER_CRON",
   },
   {
-    file: 'domains/tournament_createTournament/scheduler/GenerateRecurringTournamentsByScheduler.ts',
-    envVar: 'RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON',
-    defaultCron: '0 23 * * 0', // 日曜 23:00 JST
-    scheduleVar: 'SCHEDULE_CRON',
+    file: "domains/tournament_createTournament/scheduler/GenerateRecurringTournamentsByScheduler.ts",
+    oldCronEnvVar: "RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON",
   },
   {
-    file: 'domains/tournament_createTournament/scheduler/EnqueueTournamentTasksByScheduler.ts',
-    envVar: 'ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON',
-    defaultCron: '0 5 * * *', // 毎日 5:00 JST
-    scheduleVar: 'SCHEDULE_CRON',
+    file: "domains/tournament_createTournament/scheduler/EnqueueTournamentTasksByScheduler.ts",
+    oldCronEnvVar: "ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON",
   },
   {
-    file: 'domains/attendance/scheduler/monthlyPayrollTrigger.ts',
-    envVar: 'MONTHLY_PAYROLL_TRIGGER_CRON',
-    defaultCron: '59 23 25 * *', // 毎月25日 23:59 JST
-    scheduleVar: 'MONTHLY_PAYROLL_TRIGGER_CRON',
+    file: "domains/staff/scheduler/scheduledCleanup.ts",
+    oldCronEnvVar: "SCHEDULED_CLEANUP_CRON",
   },
   {
-    file: 'domains/staff/scheduler/scheduledCleanup.ts',
-    envVar: 'SCHEDULED_CLEANUP_CRON',
-    defaultCron: '0 2 * * *', // 毎日 2:00 JST
-    scheduleVar: 'SCHEDULED_CLEANUP_CRON',
+    file: "shared/businessHours/scheduler/scheduleGenerateNextYearBusinessHours.ts",
+    oldCronEnvVar: "SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON",
   },
   {
-    file: 'shared/businessHours/scheduler/scheduleGenerateNextYearBusinessHours.ts',
-    envVar: 'SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON',
-    defaultCron: '25 23 28 1 *', // 毎年1月28日 23:25 JST
-    scheduleVar: 'SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON',
+    file: "domains/attendance/scheduler/payrollNotificationScheduler.ts",
+    oldCronEnvVar: "PAYROLL_NOTIFICATION_SCHEDULER_CRON",
   },
 ] as const;
 
-describe('D15 CRON 環境変数', () => {
-  CRON_SPECS.forEach(({ file, envVar, defaultCron, scheduleVar }) => {
+describe("D15 scheduler CRON migration", () => {
+  MIGRATED_JOB_FILES.forEach(({file, oldCronEnvVar}) => {
     describe(file, () => {
       let content: string;
 
       beforeAll(() => {
-        content = fs.readFileSync(path.join(SRC_ROOT, file), 'utf-8');
+        content = fs.readFileSync(path.join(SRC_ROOT, file), "utf-8");
       });
 
-      it(`${envVar} を参照し、未設定時はデフォルト "${defaultCron}" を使用すること`, () => {
-        const envPattern = new RegExp(
-          `process\\.env\\.${envVar}\\s*\\|\\|\\s*['\"]${defaultCron.replace(/[*]/g, '\\*')}['\"]`
-        );
-        expect(content).toMatch(envPattern);
+      it("旧 onSchedule 実装が残っていないこと", () => {
+        expect(content).not.toMatch(/onSchedule\s*\(/);
       });
 
-      it('onSchedule の schedule に上記の定数が渡されていること', () => {
-        expect(content).toMatch(/onSchedule\s*\(\s*\{/);
-        expect(content).toMatch(new RegExp(`schedule:\\s*${scheduleVar}`));
+      it(`旧 env CRON (${oldCronEnvVar}) を参照しないこと`, () => {
+        expect(content).not.toContain(oldCronEnvVar);
       });
+    });
+  });
+
+  describe("domains/scheduler/supervisor/schedulerSupervisor.ts", () => {
+    let content: string;
+
+    beforeAll(() => {
+      content = fs.readFileSync(
+        path.join(SRC_ROOT, "domains/scheduler/supervisor/schedulerSupervisor.ts"),
+        "utf-8"
+      );
+    });
+
+    it("03:00 JST 固定で onSchedule が定義されていること", () => {
+      expect(content).toContain("const SCHEDULER_SUPERVISOR_CRON = '0 3 * * *'");
+      expect(content).toMatch(/schedule:\s*SCHEDULER_SUPERVISOR_CRON/);
+      expect(content).toMatch(/timeZone:\s*'Asia\/Tokyo'/);
+    });
+
+    it("supervisor の CRON を process.env で上書きしないこと", () => {
+      expect(content).not.toMatch(/process\.env/);
+    });
+  });
+
+  describe("phaseE: monthlyPayrollTrigger removal", () => {
+    const monthlyTriggerPath = path.join(
+      SRC_ROOT,
+      "domains/attendance/scheduler/monthlyPayrollTrigger.ts"
+    );
+    const attendanceIndexPath = path.join(SRC_ROOT, "domains/attendance/index.ts");
+
+    it("monthlyPayrollTrigger 実装ファイルが削除されていること", () => {
+      expect(fs.existsSync(monthlyTriggerPath)).toBe(false);
+    });
+
+    it("attendance index から monthlyPayrollTrigger export が削除されていること", () => {
+      const attendanceIndexContent = fs.readFileSync(attendanceIndexPath, "utf-8");
+      expect(attendanceIndexContent).not.toContain("monthlyPayrollTrigger");
     });
   });
 });

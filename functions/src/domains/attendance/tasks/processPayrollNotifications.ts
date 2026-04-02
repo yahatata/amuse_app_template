@@ -26,6 +26,10 @@ import {
   DEFAULT_PAYROLL_END_DAY,
 } from '../../../shared/config/defaults';
 
+interface ProcessPayrollNotificationsTaskPayload {
+  targetDate?: string;
+}
+
 // ─── Pure types & helpers (Firestore-independent, unit-testable) ───
 
 export interface PeriodInfo {
@@ -185,7 +189,7 @@ export const processPayrollNotifications = onTaskDispatched(
   {
     retryConfig: { maxAttempts: 3, minBackoffSeconds: 10, maxBackoffSeconds: 60 },
   },
-  async () => {
+  async (request) => {
     const db = getFirestore();
 
     const [payrollConfig, storeConfig] = await Promise.all([
@@ -199,15 +203,21 @@ export const processPayrollNotifications = onTaskDispatched(
     const paymentMonthOffset = payrollConfig.paymentMonthOffset;
     const reminderStartDays = payrollConfig.reminderStartDaysAfterPeriodEnd;
 
-    // JST の today を算出
-    const now = new Date();
-    const jstOffsetMs = 9 * 60 * 60 * 1000;
-    const jstDate = new Date(now.getTime() + now.getTimezoneOffset() * 60000 + jstOffsetMs);
-    const todayStr = [
-      jstDate.getFullYear(),
-      String(jstDate.getMonth() + 1).padStart(2, '0'),
-      String(jstDate.getDate()).padStart(2, '0'),
-    ].join('-');
+    const payload = (request.data ?? {}) as ProcessPayrollNotificationsTaskPayload;
+    const todayStr = payload.targetDate && /^\d{4}-\d{2}-\d{2}$/.test(payload.targetDate) ?
+      payload.targetDate :
+      (() => {
+        const now = new Date();
+        const jstOffsetMs = 9 * 60 * 60 * 1000;
+        const jstDate = new Date(
+          now.getTime() + now.getTimezoneOffset() * 60000 + jstOffsetMs
+        );
+        return [
+          jstDate.getFullYear(),
+          String(jstDate.getMonth() + 1).padStart(2, '0'),
+          String(jstDate.getDate()).padStart(2, '0'),
+        ].join('-');
+      })();
 
     // 対象期間: today が属する期間 → その直前の期間
     const activePeriod = getPayrollPeriodRange(todayStr, startDay, endDay);

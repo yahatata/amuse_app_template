@@ -26,16 +26,46 @@ export interface GenerateRecurringTournamentsResult {
   error?: string;
 }
 
+export interface RunGenerateRecurringTournamentsOptions {
+  evaluationDate?: string;
+  windowEndDate?: string;
+  now?: Date;
+}
+
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseJstDateKeyStart(dateKey: string, fieldName: string): Date {
+  if (!DATE_KEY_PATTERN.test(dateKey)) {
+    throw new Error(`Invalid ${fieldName}: ${dateKey}`);
+  }
+  return new Date(`${dateKey}T00:00:00+09:00`);
+}
+
+function parseJstDateKeyEnd(dateKey: string, fieldName: string): Date {
+  if (!DATE_KEY_PATTERN.test(dateKey)) {
+    throw new Error(`Invalid ${fieldName}: ${dateKey}`);
+  }
+  return new Date(`${dateKey}T23:59:59.999+09:00`);
+}
+
 /**
  * 定期開催トーナメントを自動生成する
  * @returns 生成結果
  */
-export async function runGenerateRecurringTournaments(): Promise<GenerateRecurringTournamentsResult> {
+export async function runGenerateRecurringTournaments(
+  options: RunGenerateRecurringTournamentsOptions = {}
+): Promise<GenerateRecurringTournamentsResult> {
   try {
     console.log("=== 定期開催トーナメント自動生成開始 ===");
 
     const db = getFirestore();
-    const now = new Date();
+    const now = options.now ??
+      (options.evaluationDate ?
+        parseJstDateKeyStart(options.evaluationDate, "evaluationDate") :
+        new Date());
+    const planningWindowEndDate = options.windowEndDate ?
+      parseJstDateKeyEnd(options.windowEndDate, "windowEndDate") :
+      new Date(now.getTime() + 3 * 30 * 24 * 60 * 60 * 1000);
 
     // 有効な定期開催を取得
     const recurrencesSnapshot = await db
@@ -98,10 +128,8 @@ export async function runGenerateRecurringTournaments(): Promise<GenerateRecurri
         continue;
       }
 
-      // 終了日を設定（3ヶ月後）
-      const endDate = new Date(
-        now.getTime() + 3 * 30 * 24 * 60 * 60 * 1000
-      );
+      // 終了日を設定（targetScope 指定があればその値、未指定時は評価日+3ヶ月）
+      const endDate = new Date(planningWindowEndDate.getTime());
 
       // 最後に生成されたトーナメントの日付を取得
       const lastGeneratedQuery = await db

@@ -74,7 +74,7 @@ export const createStaffAccount = onCall(
       // QRコードデータを生成
       const { generateQRData, generateQRImage, saveQRCodeToStorage } =
         await import("../../user/services/qrCodeUtils");
-      const qrData = generateQRData(uid, loginId, "staff");
+      const qrData = await generateQRData(uid, loginId, "staff");
       const qrCodeImage = await generateQRImage(qrData);
       const expiresAt = qrData.timestamp + (10 * 60 * 1000); // 10分
 

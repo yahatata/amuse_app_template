@@ -117,18 +117,18 @@ SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON
 | `CLOSE_ASSESSMENT_URL` | **本番主系で利用中** | `weeklyPlanner.ts`・`continueBusinessTerminal.ts` `getEnv` | 閉店認定 HTTP エンドポイント URL | **Secret Manager**（`task-endpoints` JSON に統合） | 同上 | `.env` から削除；SM 参照コードへ書き換え | — | **いいえ** |
 | `OPEN_ASSESSMENT_URL` | **本番主系で利用中** | `weeklyPlanner.ts` のみ `getEnv`（`continueBusinessTerminal` では未使用・**事実**） | 開店認定 HTTP エンドポイント URL | **Secret Manager**（`task-endpoints` JSON に統合） | 同上 | `.env` から削除；SM 参照コードへ書き換え | — | **いいえ** |
 | `WEEKLYPLANNER_TASKS_QUEUE` | **本番主系で利用中** | `weeklyPlanner.ts`・`continueBusinessTerminal.ts` `getEnv` | 開閉店 assessment 用 Cloud Tasks キュー名 | **コード固定**（定数 `OPENCLOSE_TASKS_QUEUE`） | 同上（キュー名は機密でなく全プロジェクト共通） | `.env` から削除；定数 `OPENCLOSE_TASKS_QUEUE` へ置き換え | **実際のキュー名を GCP コンソールで確認** | **いいえ** |
-| `WEEKLYPLANNER_TASKS_LOCATION` | **本番主系で利用中** | 同上 `getEnv` | 上記キューのリージョン | **コード固定**（定数 `OPENCLOSE_TASKS_REGION`） | openclose キューは現在 `us-central1`。フェーズ 7 で `asia-northeast1` へ変更予定 | `.env` から削除；定数 `OPENCLOSE_TASKS_REGION = 'us-central1'` へ置き換え | — | **いいえ** |
+| `WEEKLYPLANNER_TASKS_LOCATION` | **本番主系で利用中** | 同上 `getEnv` | 上記キューのリージョン | **コード固定**（定数 `OPENCLOSE_TASKS_REGION`） | 最終 To-Be は `asia-northeast1` 固定。現状 `us-central1` にある実リソースは移行対象として扱う | `.env` から削除；最終定数 `OPENCLOSE_TASKS_REGION = 'asia-northeast1'` へ置き換え | — | **いいえ** |
 | `LINE_CHANNEL_ACCESS_TOKEN` | **本番主系で利用中** | `lineWebhook.ts`・`lineMessaging.ts`・`lineRichMenu.ts` `process.env` 直接 | LINE Messaging API 認証トークン | **Secret Manager**（`line-config` JSON に統合） | 機密性が高い；漏洩でなりすまし通知 | `.env` から削除；SM 参照コードへ書き換え | — | **いいえ** |
-| `QR_SECRET_KEY` | **本番主系で利用中** | `qrCodeUtils.ts` `process.env` 直接（未設定時 undefined でエラー経路） | QR コード署名・検証用秘密鍵 | **Secret Manager**（`business-secrets` JSON に統合または単体） | 機密性最高；漏洩で偽 QR 生成可能 | `.env` から削除；SM 参照コードへ書き換え | — | **いいえ** |
-| `UNCLOCKED_ATTENDANCE_EDIT_PASSWORD` | **本番主系で利用中** | `verifyUnclockedAttendanceEditPassword.ts`・`updateUnclockedAttendanceWithAuth.ts` `process.env[定数]` | 未退勤修正 Callable のパスワード照合 | **Secret Manager**（`business-secrets` JSON）| devops のみ管理と確定（**確定**） | `.env` から削除；SM 参照コードへ書き換え | — | **いいえ** |
+| `QR_SECRET_KEY` | **本番主系で利用中** | `qrCodeUtils.ts` `process.env` 直接（未設定時 undefined でエラー経路） | QR コード署名・検証用秘密鍵 | **Secret Manager**（`business-secrets` JSON に統合） | 機密性最高；漏洩で偽 QR 生成可能 | `.env` から削除；SM 参照コードへ書き換え | — | **いいえ** |
+| `UNCLOCKED_ATTENDANCE_EDIT_PASSWORD` | **本番主系で利用中** | `verifyUnclockedAttendanceEditPassword.ts`・`updateUnclockedAttendanceWithAuth.ts` `process.env[定数]` | 未退勤修正 Callable のパスワード照合 | **Secret Manager**（`business-secrets` JSON）| 開発している我々が管理すると確定（**確定**） | `.env` から削除；SM 参照コードへ書き換え | — | **いいえ** |
 | `STAFF_RICHMENU_ID` | **本番主系で利用中**（`defineString` 経由） | `lineRichMenu.ts` `defineString` + `.value()` | スタッフ向け LINE リッチメニュー ID | **Secret Manager**（`line-config` JSON）| 店舗ごとに異なることを確定（**確定**）。SM に集約 | `defineString` 廃止；SM 参照コードへ変更 | — | **いいえ** |
 | `USER_RICHMENU_ID` | **本番主系で利用中**（`defineString` 経由） | `lineRichMenu.ts` 同上 | ユーザー向け LINE リッチメニュー ID | **Secret Manager**（`line-config` JSON）| 同上（**確定**） | 同上 | — | **いいえ** |
-| `WEEKLY_PLANNER_CRON` | **本番主系で利用中**（CRON 定義）| `weeklyPlanner.ts` モジュール先頭 `process.env` | 週次 Planner の起動時刻（cron 式） | **削除**（コード固定） | scheduler To-Be により CRON を env 管理から撤退。店舗差分は Firestore `autoOpenClose` で制御済み | env 削除；`onSchedule` の schedule をハードコードへ変更；フォールバックコード削除 | — | **いいえ** |
-| `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON` | **本番主系で利用中**（CRON 定義） | `GenerateRecurringTournamentsByScheduler.ts` モジュール先頭 `process.env` | 定期トーナメント生成スケジュール | **削除**（コード固定） | 同上。ON/OFF は `schedulerConfig.generateRecurringTournamentsEnabled`（**新規追加、確定**）で制御 | 同上；`schedulerConfig` に新フィールド追加 | — | **いいえ** |
-| `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` | **本番主系で利用中**（CRON 定義） | `EnqueueTournamentTasksByScheduler.ts` モジュール先頭 `process.env` | 日次 enqueue スケジュール | **削除**（コード固定） | 同上。ON/OFF は Firestore `features.enqueueSchedulerEnabled` 済み | 同上 | — | **いいえ** |
-| `MONTHLY_PAYROLL_TRIGGER_CRON` | **本番主系で利用中**（CRON 定義） | `monthlyPayrollTrigger.ts` モジュール先頭 `process.env` | 月次給与計算トリガー起動日時 | **削除**（scheduler 再設計） | scheduler To-Be により、日次監視 + Firestore `payrollConfig.payrollEndDay` で発火判定する設計へ変更 | CRON env 削除；毎日定時起動 + Firestore 判定パターンへ改修 | **下記 scheduler To-Be セクション参照** | **いいえ** |
-| `SCHEDULED_CLEANUP_CRON` | **本番主系で利用中**（CRON 定義） | `scheduledCleanup.ts` モジュール先頭 `process.env` | 却下シフト自動削除スケジュール | **削除**（コード固定） | 全店舗共通で同一時刻でよい。ON/OFF は Firestore `schedulerConfig.scheduledCleanupEnabled` 済み | 同上 | — | **いいえ** |
-| `SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON` | **本番主系で利用中**（CRON 定義） | `scheduleGenerateNextYearBusinessHours.ts` モジュール先頭 `process.env` | 翌年営業時間自動生成スケジュール | **削除**（コード固定） | 年1回・全店舗同一時刻でよい。ON/OFF は Firestore `schedulerConfig.*` 済み | 同上 | — | **いいえ** |
+| `WEEKLY_PLANNER_CRON` | **本番主系で利用中**（CRON 定義）| `weeklyPlanner.ts` モジュール先頭 `process.env` | 週次 Planner の起動時刻（cron 式） | **削除**（監視用 scheduler へ統合） | 個別 CRON は廃止し、`schedulerSupervisor` + `storeMeta/schedulerConfig.jobs.weeklyPlanner` で管理する | env 削除；個別 `onSchedule` 前提を廃止し task 実行関数へ移行 | — | **いいえ** |
+| `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON` | **本番主系で利用中**（CRON 定義） | `GenerateRecurringTournamentsByScheduler.ts` モジュール先頭 `process.env` | 定期トーナメント生成スケジュール | **削除**（監視用 scheduler へ統合） | 同上。`storeMeta/schedulerConfig.jobs.generateRecurringTournamentsByScheduler` で管理する | 同上 | — | **いいえ** |
+| `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` | **本番主系で利用中**（CRON 定義） | `EnqueueTournamentTasksByScheduler.ts` モジュール先頭 `process.env` | 日次 enqueue スケジュール | **削除**（監視用 scheduler へ統合） | 同上。`storeMeta/schedulerConfig.jobs.enqueueTournamentTasksByScheduler` で管理する | 同上 | — | **いいえ** |
+| `MONTHLY_PAYROLL_TRIGGER_CRON` | **本番主系で利用中**（CRON 定義） | `monthlyPayrollTrigger.ts` モジュール先頭 `process.env` | 月次給与計算トリガー起動日時 | **削除**（関数削除） | `monthlyPayrollTrigger` は削除方針で確定。自動給与計算の定期実行は採用しない | CRON env 削除；関数・export・関連設定・関連テストを削除 | **下記 scheduler To-Be セクション参照** | **いいえ** |
+| `SCHEDULED_CLEANUP_CRON` | **本番主系で利用中**（CRON 定義） | `scheduledCleanup.ts` モジュール先頭 `process.env` | 却下シフト自動削除スケジュール | **削除**（監視用 scheduler へ統合） | `storeMeta/schedulerConfig.jobs.scheduledCleanup` で管理する | 同上 | — | **いいえ** |
+| `SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON` | **本番主系で利用中**（CRON 定義） | `scheduleGenerateNextYearBusinessHours.ts` モジュール先頭 `process.env` | 翌年営業時間自動生成スケジュール | **削除**（監視用 scheduler へ統合） | `storeMeta/schedulerConfig.jobs.scheduleGenerateNextYearBusinessHours` で管理する | 同上 | — | **いいえ** |
 | `PROJECT_ID` | **本番主系で利用中**（フォールバックあり） | `tasks.ts`・`weeklyPlanner.ts`・`continueBusinessTerminal.ts` `process.env` + フォールバック文字列 `'amuse-app-template'` | Cloud Tasks `queuePath` に使用するプロジェクト ID | **実行環境注入のまま**（フォールバック文字列を削除） | GCP/Firebase が注入する。フォールバックにテンプレ名が残ると本番で誤プロジェクト参照になる | **フォールバック文字列を削除**し、未設定時は `throw new Error(...)` に変更 | — | **いいえ** |
 | `GCLOUD_PROJECT` | **本番主系で利用中** | `weeklyPlanner.ts`・`continueBusinessTerminal.ts`・`logOpsError.ts`・`scripts/check-default-store-tenant.ts` | プロジェクト ID 取得（フォールバック連鎖の一部） | **実行環境注入のまま** | プラットフォームが注入。管理対象にしない | フォールバック文字列削除（`PROJECT_ID` 同様）| — | **いいえ** |
 | `GCP_PROJECT` | **本番主系で利用中** | 同上 | 同上（`GCLOUD_PROJECT` の別名） | **実行環境注入のまま** | 同上 | 同上 | — | **いいえ** |
@@ -167,113 +167,87 @@ SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON
 Cloud Scheduler（固定 CRON・プラットフォーム定義）
     ↓ 定刻に起動
 Cloud Functions: 監視用 scheduler
-    ↓ Firestore を確認（ON/OFF・実行条件・時刻設定）
-条件を満たす → Cloud Tasks にタスクを投入（scheduleTime 指定）
-条件を満たさない → 何もしない（skip ログ）
+    ↓ storeMeta/schedulerConfig を確認
+対象 job ごとに実行計画を作成
+    ↓
+Cloud Tasks に job 別 task を投入（scheduleTime 指定）
     ↓
 Cloud Tasks → 実処理 Function
 ```
 
-### 各 scheduler の To-Be 詳細
+### To-Be 方針（要約）
 
-#### 【グループ A】毎日監視で十分なもの（Firestore 判定あり）
+- 監視用 scheduler（`schedulerSupervisor`）を毎日 `03:00 JST` に実行する。
+- `schedulerSupervisor` は `storeMeta/schedulerConfig` を参照し、今後 7 日分の実行計画を作成する。
+- task 投入は `1関数1queue` とし、queue 命名規約は `scheduled-job-{kebab-case(jobKey)}` とする。
+- 実装では、許可された `jobKey` ごとの固定 map で queue 名を管理する。
+- job を追加する場合は queue 名 map の更新を必須とする。
+- `jobKey` は関数名と同一にし、設定・queue・task 名・ログ識別子を `jobKey` 基準で統一する。
+- 再実行は許容し、deterministic task 名 + `idempotencyKey` で重複を抑止する。
+- `schedulerSupervisor` が担うのは `schedulerConfig` 検証、実行計画作成、`targetScope` 生成、task 作成、dispatch ログ出力、重複 task skip までとする。
+- 各業務ロジック本体、業務データ更新、実行結果に応じた業務補正は各 job の task 実行関数が担う。
+- `monthlyPayrollTrigger` は削除対象のため、本 To-Be の対象外とする。
 
-| scheduler | 現在の CRON env | To-Be CRON（コード固定） | Firestore 判定 | 変更内容 |
-|-----------|---------------|----------------------|--------------|---------|
-| `enqueueTournamentTasksByScheduler` | `ENQUEUE_TOURNAMENT_TASKS_SCHEDULER_CRON` | `'0 5 * * *'`（UTC 05:00 = JST 14:00） | `features.enqueueSchedulerEnabled`（Firestore、実装済み） | CRON env 削除。`process.env... \|\| '...'` パターンを撤去し `onSchedule` に直書き |
-| `scheduledCleanup` | `SCHEDULED_CLEANUP_CRON` | `'0 2 * * *'`（UTC 02:00 = JST 11:00） | `schedulerConfig.scheduledCleanupEnabled`（Firestore、実装済み） | 同上 |
-| `monthlyPayrollTrigger` | `MONTHLY_PAYROLL_TRIGGER_CRON` | `'0 14 * * *'`（UTC 14:00 = JST 23:00） | **新規: Firestore `payrollConfig.payrollEndDay` で発火日を判定**；`schedulerConfig.monthlyPayrollTriggerEnabled` で ON/OFF（実装済み） | 下記「毎日監視型への再設計」参照 |
-|| `payrollNotificationScheduler` | なし（CRON コード固定 `'0 21 * * *'`） | `'0 21 * * *'`（UTC 21:00 = JST 06:00、変更なし） | `schedulerConfig.payrollNotificationEnabled`（**新規追加、確定**）；現在 Firestore ゲートなし | `schedulerConfig` に `payrollNotificationEnabled` を追加；起動直後に Firestore を確認してスキップ |
+### 対象 job とデフォルト実行設定
 
-#### 【グループ B】週次・年次で固定してよいもの
-
-| scheduler | 現在の CRON env | To-Be CRON（コード固定） | Firestore 判定 | 変更内容 |
-|-----------|---------------|----------------------|--------------|---------|
-| `weeklyPlanner` | `WEEKLY_PLANNER_CRON` | `'0 11 * * 0'`（既存デフォルト、UTC Sunday 11:00 = JST 20:00） | `autoOpenClose.enabled`（Firestore、実装済み） | CRON env 削除；コード固定 |
-| `generateRecurringTournamentsByScheduler` | `RECURRING_TOURNAMENT_GENERATION_SCHEDULER_CRON` | `'0 23 * * 0'`（UTC Sun 23:00 = JST Mon 08:00）| `schedulerConfig.generateRecurringTournamentsEnabled`（**新規追加、確定**） | CRON env 削除；`schedulerConfig` に新フィールド追加；起動直後に Firestore を確認してスキップ |
-| `scheduleGenerateNextYearBusinessHours` | `SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_CRON` | `'25 23 28 1 *'`（UTC Jan 28 23:25 = JST Jan 29 08:25）| `schedulerConfig.scheduleGenerateNextYearBusinessHoursEnabled`（実装済み） | CRON env 削除；コード固定 |
-
-> **方針確定**: 全 scheduler の ON/OFF を Firestore で制御する。`generateRecurringTournamentsByScheduler` は `schedulerConfig.generateRecurringTournamentsEnabled` を新規追加し、`payrollNotificationScheduler` は `schedulerConfig.payrollNotificationEnabled` を新規追加する。
-
-
----
+| jobKey | デフォルト実行設定 | 備考 |
+|--------|------------------|------|
+| `weeklyPlanner` | `weekly / 04:40 JST / 木曜` | 木曜早朝に翌週の日曜〜土曜分の開店/閉店認定 task を前倒し計画 |
+| `enqueueTournamentTasksByScheduler` | `daily / 05:00 JST` | `now-6h ～ +14日` の検索範囲は現行維持 |
+| `generateRecurringTournamentsByScheduler` | `weekly / 04:50 JST / 木曜` | 現行どおり条件付き enqueue を残す |
+| `scheduledCleanup` | `daily / 05:00 JST` | 直接 cleanup を実行 |
+| `scheduleGenerateNextYearBusinessHours` | `yearly / 01-29 05:10 JST` | 直接生成処理を実行 |
+| `payrollNotificationScheduler` | `daily / 05:00 JST` | 当日分のみ task 作成 |
 
 ### schedulerConfig Firestore スキーマ（To-Be）
 
-全 scheduler の ON/OFF を `storeMeta/schedulerConfig` で管理する方針に統一する。
+定期実行設定は `storeMeta/schedulerConfig` に一本化する。
 
 ```typescript
-// shared/config/schedulerConfigTypes.ts（更新版）
 export interface SchedulerConfig {
-  // ─── 既存（実装済み） ──────────────────────────────────────────────
-  monthlyPayrollTriggerEnabled?: boolean;
-  scheduledCleanupEnabled?: boolean;
-  scheduleGenerateNextYearBusinessHoursEnabled?: boolean;
-
-  // ─── 新規追加 ──────────────────────────────────────────────────────
-  /** 定期開催トーナメント自動生成（generateRecurringTournamentsByScheduler） */
-  generateRecurringTournamentsEnabled?: boolean;
-  /** 給与通知スケジューラー（payrollNotificationScheduler） */
-  payrollNotificationEnabled?: boolean;
+  schemaVersion: number;
+  updatedAt: Timestamp;
+  supervisorEnabled: boolean;
+  planningHorizonDays: number;
+  jobs: Record<string, {
+    enabled: boolean;
+    scheduleKind: 'daily' | 'weekly' | 'yearly';
+    runAtJst: string;
+    dayOfWeek?: number;
+    month?: number;
+    dayOfMonth?: number;
+    timezone: 'Asia/Tokyo';
+  }>;
 }
 ```
 
-`weeklyPlanner` と `enqueueTournamentTasksByScheduler` の ON/OFF は引き続き `storeMeta/config`（`autoOpenClose.enabled`・`features.enqueueSchedulerEnabled`）で管理する。  
-（業務設定として `storeConfig` に置く方が適切なため、`schedulerConfig` への移動は不要）
+デフォルトで管理対象とする `jobKey` は以下の 6 件とする。
 
-#### `schedulerConfigLoader.ts` の更新内容
+- `weeklyPlanner`
+- `enqueueTournamentTasksByScheduler`
+- `generateRecurringTournamentsByScheduler`
+- `scheduledCleanup`
+- `scheduleGenerateNextYearBusinessHours`
+- `payrollNotificationScheduler`
 
-- `buildSchedulerConfigFromDefaults()` に 2 フィールドを追加
-- `mergeSchedulerConfigWithDefaults()` に 2 フィールドの型チェックを追加
-- `defaults.ts` に以下を追加:
-  ```typescript
-  export const DEFAULT_GENERATE_RECURRING_TOURNAMENTS_ENABLED = true;
-  export const DEFAULT_PAYROLL_NOTIFICATION_ENABLED = true;
-  ```
+### `enqueueTournamentTasksByScheduler` の再計画
 
-#### 【毎日監視型への再設計】`monthlyPayrollTrigger`
-
-**現状の問題点**:
-- CRON `MONTHLY_PAYROLL_TRIGGER_CRON` で毎月 25 日固定。店舗ごとに給与締め日が異なる場合、この CRON 自体を変える必要がある。
-- `payrollConfig.payrollEndDay` が Firestore に存在するにもかかわらず、CRON はそれを参照していない。
-
-**To-Be 設計**（`payrollNotificationScheduler` と対称）:
-
-```
-毎日定時に起動（例: '0 14 * * *' = JST 23:00）
-    ↓
-Firestore `payrollConfig.payrollEndDay` を取得
-    ↓
-今日が payrollEndDay と一致する → 給与計算処理を実行
-一致しない → skip ログのみ
-```
-
-**変更内容**:
-1. `MONTHLY_PAYROLL_TRIGGER_CRON` env を削除
-2. `onSchedule` の schedule を `'0 14 * * *'`（毎日 JST 23:00）に変更
-3. 関数冒頭で `payrollConfig.payrollEndDay` を読み取り
-4. `new Date()` の JST 日付が `payrollEndDay` と一致する日だけ処理実行
-
-**Firestore の責務**:
-
-```
-Firestore: payrollConfig
-├── payrollEndDay: number  // 給与締め日（例: 25）
-├── payrollStartDay: number
-└── schedulerNotificationHour: number  // 通知時刻（既存）
-```
-
-`storeMeta/config` の `payroll.endDay` / `payroll.startDay` として既に設計されているため（`defaults.ts` 確認済み）、ここへの参照を使う。
+- `scheduledTournaments` の `taskSyncNeeded`、`schedulePlanVersion`、`schedulePlanUpdatedAt`、`regEndAt` を用いた整合管理は維持する。
+- スケジュール影響更新時は、更新処理の中で直接重い再計画を行わず、独立コレクション `enqueueTournamentTasksReplanRequests` に再計画要求を集約する。
+- `enqueueTournamentTasksReplanRequests` は固定 doc ID `enqueueTournamentTasksByScheduler` を使い、`requestType`、`projectId`、`requestedAt`、`requestedBy`、`reason`、`isProcessing`、`lastTriggeredAt`、`lastCompletedAt`、`targetRangeStartAt`、`targetRangeEndAt`、`aggregateVersion` を保持する。
+- 再計画実行用の Cloud Tasks は `60秒` 遅延で投入する。
+- 再計画時に task を再作成する範囲は日次処理と同じ `now-6h ～ +14日` とし、30日超の将来 task は作成しない。
+- 30日超の将来分や今回の対象範囲外の分は、後続の日次監視で補完する。
 
 #### Cloud Scheduler と Cloud Tasks と Firestore の責務分離（まとめ）
 
 | 責務 | 担当 |
 |------|------|
-| **「いつ起動するか」の定義** | Cloud Scheduler（コード固定 CRON） |
-| **「動かすか・動かさないか」の判断** | Firestore（schedulerConfig・storeConfig.features） |
+| **「いつ監視を起動するか」の定義** | Cloud Scheduler（`schedulerSupervisor` の固定 CRON） |
+| **「各 job をいつ動かすか / 動かすかどうか」の判断** | Firestore（`storeMeta/schedulerConfig`） |
 | **「実際のタスクをいつ実行するか」の設定** | Cloud Tasks（scheduleTime）|
-| **実処理** | Cloud Functions（HTTP / Task Queue Function） |
-| **業務設定（締め日・時刻オフセット等）** | Firestore（storeMeta/config・payrollConfig） |
+| **実処理** | Cloud Functions（scheduler job は Task Queue Function。既存 downstream task は HTTP 残存可） |
+| **業務設定（時刻オフセット等）** | Firestore |
 
 **ロジックのみのデプロイ時に店舗差分設定を巻き込まないことの担保**:  
 CRON をコード固定にし、業務設定を Firestore に置くことで、「コードのデプロイが店舗設定を上書きする」リスクが構造上排除される。  
@@ -283,7 +257,7 @@ CRON をコード固定にし、業務設定を Firestore に置くことで、�
 
 - `weeklyPlanner`: 既存実装で `task.name` を固定（`open_assessment_{dateKey}` / `close_assessment_{dateKey}`）。ALREADY_EXISTS（code 6）を catch して skip。**継続**。
 - `enqueueTournamentTasksByScheduler`: `enqueueTournamentTask` 内で `${tournamentId}-${taskType}-${planHash}` の deterministic task name。**継続**。
-- `monthlyPayrollTrigger` 再設計後: 同一月の二重起動防止のため、Firestore に `lastExecutedYearMonth` を記録し、同月実行済みならスキップする仕組みを追加する。
+- 監視用 scheduler から投入する job task も deterministic task name + `idempotencyKey` を前提とし、task 名は `{jobKey}_{YYYYMMDDTHHmmssZ}` 形式とする。
 
 ---
 
@@ -300,21 +274,26 @@ SM に入れるほどではなく、かつプロジェクト間で共通また�
 // 全 Firebase プロジェクトで共通のため、コード固定で管理する。
 
 // ── リージョン ────────────────────────────────────────────────────────────
-// ⚠️ 現在 tournament と openclose でリージョンが異なる（詳細は下記「コード固定 To-Be 補足」参照）
-// フェーズ 7 でどちらも asia-northeast1 に統一する
+// 最終 To-Be ではすべて asia-northeast1 に統一する
 export const TOURNAMENT_TASKS_REGION = 'asia-northeast1'; // 確定済み（現状維持）
-export const OPENCLOSE_TASKS_REGION  = 'us-central1';     // フェーズ 7 で asia-northeast1 へ変更
+export const OPENCLOSE_TASKS_REGION  = 'asia-northeast1';
+export const SCHEDULED_JOB_TASKS_REGION = 'asia-northeast1';
 
 // ── キュー名（GCP コンソールで確認済み） ─────────────────────────────────
 export const TOURNAMENT_TASKS_QUEUE = 'tournament-queue';
 export const OPENCLOSE_TASKS_QUEUE  = 'business-date-assessment-queue';
+export const SCHEDULED_JOB_QUEUE_BY_KEY = {
+  weeklyPlanner: 'scheduled-job-weekly-planner',
+  enqueueTournamentTasksByScheduler: 'scheduled-job-enqueue-tournament-tasks-by-scheduler',
+  generateRecurringTournamentsByScheduler: 'scheduled-job-generate-recurring-tournaments-by-scheduler',
+  scheduledCleanup: 'scheduled-job-scheduled-cleanup',
+  scheduleGenerateNextYearBusinessHours: 'scheduled-job-schedule-generate-next-year-business-hours',
+  payrollNotificationScheduler: 'scheduled-job-payroll-notification-scheduler',
+} as const;
 
 // ── SA 名プレフィックス ────────────────────────────────────────────────────
-// 現在は tasks-invoker SA 1 つで両用途を兼用している。
-// SA 分割（tournament / openclose 用を別々に作成）は GCP 側作業が必要。
-// 分割前の移行期は TOURNAMENT_INVOKER_SA_PREFIX = OPENCLOSE_INVOKER_SA_PREFIX = 'tasks-invoker' でよい。
 export const TOURNAMENT_INVOKER_SA_PREFIX = 'tasks-invoker';          // 既存 SA（現状維持）
-export const OPENCLOSE_INVOKER_SA_PREFIX  = 'openclose-tasks-invoker'; // 新規 SA を作成（SA 分割時）
+export const OPENCLOSE_INVOKER_SA_PREFIX  = 'openclose-tasks-invoker';
 
 /**
  * SA メールアドレスを組み立てる
@@ -323,6 +302,12 @@ export const OPENCLOSE_INVOKER_SA_PREFIX  = 'openclose-tasks-invoker'; // 新規
  */
 export function buildInvokerSaEmail(prefix: string, projectId: string): string {
   return `${prefix}@${projectId}.iam.gserviceaccount.com`;
+}
+
+export function getScheduledJobQueueName(
+  jobKey: keyof typeof SCHEDULED_JOB_QUEUE_BY_KEY
+): string {
+  return SCHEDULED_JOB_QUEUE_BY_KEY[jobKey];
 }
 ```
 
@@ -333,13 +318,13 @@ export function buildInvokerSaEmail(prefix: string, projectId: string): string {
 > | キュー | リージョン | 状態 |
 > |--------|-----------|------|
 > | `tournament-queue` | `asia-northeast1`（東京） | **移行済み** |
-> | `business-date-assessment-queue` | `us-central1`（米国） | フェーズ 7 で移行 |
-> | `finalizePayrollRun` | `us-central1` | フェーズ 7 で移行（または廃止） |
-> | `processPayrollNotifications` | `us-central1` | フェーズ 7 で移行（または廃止） |
-> | `processStaffPayroll` | `us-central1` | フェーズ 7 で移行（または廃止） |
+> | `business-date-assessment-queue` | `us-central1`（米国） | フェーズ F で移行 |
+> | `finalizePayrollRun` | `us-central1` | フェーズ F で移行（または廃止） |
+> | `processPayrollNotifications` | `us-central1` | フェーズ F で移行（または廃止） |
+> | `processStaffPayroll` | `us-central1` | フェーズ F で移行（または廃止） |
 >
 > また Cloud Functions のリージョン指定（`region: 'us-central1'`）が **18 ファイル** に直書きされている（事実）。  
-> フェーズ 7 ではキュー移行・Cloud Functions リージョン変更・assessment Cloud Run の再デプロイを一括で行う。
+> 最終 To-Be ではキュー移行・Cloud Functions リージョン変更・assessment Cloud Run の再デプロイを行い、すべて `asia-northeast1` に統一する。
 
 #### 既存コードの置き換え
 
@@ -347,12 +332,20 @@ export function buildInvokerSaEmail(prefix: string, projectId: string): string {
 |-----------|----------|
 | `getEnv('TASKS_QUEUE')` | `TOURNAMENT_TASKS_QUEUE` |
 | `getEnv('WEEKLYPLANNER_TASKS_QUEUE')` | `OPENCLOSE_TASKS_QUEUE` |
-| `getEnv('TASKS_LOCATION')` | `CLOUD_TASKS_REGION` |
-| `getEnv('WEEKLYPLANNER_TASKS_LOCATION')` | `CLOUD_TASKS_REGION` |
-| `getEnv('TASKS_INVOKER_SA')` in `tasks.ts` | `buildInvokerSaEmail(TOURNAMENT_INVOKER_SA_PREFIX, projectId)` |
-| `getEnv('TASKS_INVOKER_SA')` in `weeklyPlanner.ts` / `continueBusinessTerminal.ts` | `buildInvokerSaEmail(OPENCLOSE_INVOKER_SA_PREFIX, projectId)` |
+| `getEnv('TASKS_LOCATION')` | `TOURNAMENT_TASKS_REGION` |
+| `getEnv('WEEKLYPLANNER_TASKS_LOCATION')` | `OPENCLOSE_TASKS_REGION` |
+| `getEnv('TASKS_INVOKER_SA')` in `tasks.ts` | `buildInvokerSaEmail(TOURNAMENT_INVOKER_SA_PREFIX, getRequiredProjectId())` |
+| `getEnv('TASKS_INVOKER_SA')` in `weeklyPlanner.ts` / `continueBusinessTerminal.ts` | `buildInvokerSaEmail(OPENCLOSE_INVOKER_SA_PREFIX, getRequiredProjectId())` |
+| scheduler job queue 名 | `getScheduledJobQueueName(jobKey)` |
 
-> **注意**: `<要確認>` の値は GCP コンソールで実際の Cloud Tasks キュー名・SA 名を確認した上で埋めること。
+> **注意**: `SCHEDULED_JOB_QUEUE_BY_KEY` は許可済み `jobKey` の固定 map で管理する。job 追加時は map 更新を必須とする。
+
+> **関連運用資料**
+>
+> Firebase プロジェクト紐付けの 3 レイヤー整合と、導入時 / リリース時の確認事項は以下を参照する。
+>
+> - `docs/運用時資料/導入時設定/fireBase紐付け/3レイヤー整合_設計方針.md`
+> - `docs/運用時資料/導入時設定/fireBase紐付け/リリース前後チェックリスト.md`
 
 ---
 
@@ -400,6 +393,7 @@ export function buildInvokerSaEmail(prefix: string, projectId: string): string {
 | 対象変数 | URL 3 件のみ。queue 名・SA・location はコード固定に変更 |
 | まとめる理由 | Cloud Run / Cloud Functions エンドポイント URL はプロジェクト単位で異なり、誤設定で別プロジェクトへリクエストが飛ぶ。SM が適切 |
 | SM から除外したもの | `tasksQueue`・`weeklyPlannerTasksQueue`（コード定数）、`tournamentInvokerSa`・`weeklyPlannerInvokerSa`（コード計算）、`location`（コード定数） |
+| 補足 | scheduler job は native Task Queue Function を起動するため、新規の scheduler job 用 URL や scheduler job 用 Invoker SA はここに追加しない |
 | 注意 | URL がプロジェクト間で共通のパターンに乗っている場合は将来的にコード計算化も検討できる。現時点は SM に置き、安全側に倒す |
 
 #### グループ 3: `business-secrets`
@@ -415,7 +409,7 @@ export function buildInvokerSaEmail(prefix: string, projectId: string): string {
 |------|------|
 | 対象変数 | `QR_SECRET_KEY`・`UNCLOCKED_ATTENDANCE_EDIT_PASSWORD` |
 | まとめる理由 | いずれも「アプリ内部でのみ参照する秘密情報」。外部サービスとの連携なし |
-| 確定情報 | `UNCLOCKED_ATTENDANCE_EDIT_PASSWORD` は devops 管理のみ（**確定**）。SM に統合する。 |
+| 確定情報 | `UNCLOCKED_ATTENDANCE_EDIT_PASSWORD` は開発している我々が管理すると確定（**確定**）。`QR_SECRET_KEY` も含めて `business-secrets` に統合する。 |
 
 ---
 
@@ -491,9 +485,7 @@ export function getBusinessSecrets(): Promise<BusinessSecrets> {
 // コールドスタートと並走して SM フェッチを開始 → 最初のリクエスト処理時には取得済み
 // ─────────────────────────────────────────────────────────────────────────────
 export function warmupSecrets(): void {
-  getLineConfig();       // lineWebhook / lineMessaging / lineRichMenu 系
-  getTaskEndpoints();    // weeklyPlanner / continueBusinessTerminal 系
-  getBusinessSecrets();  // qrCode / unclockedAttendance 系
+  getLineConfig(); // lineWebhook / lineMessaging / lineRichMenu 系
 }
 ```
 
@@ -501,7 +493,7 @@ export function warmupSecrets(): void {
 
 | パス種別 | 対応方針 | コード例 |
 |---------|---------|---------|
-| **高頻度（webhook / onCall）** | モジュール先頭で `warmupSecrets()` 呼び出し → handler 内で `await getXxx()` | `warmupSecrets()` をファイル先頭に 1 行追加 |
+| **高頻度（webhook / onCall）** | 初期仕様では `line-config` のみを `warmupSecrets()` で先行取得。その他は遅延取得 | `warmupSecrets()` を必要なファイル先頭に追加 |
 | **低頻度（scheduler / admin callable）** | 遅延取得（handler 内で直接 `await getXxx()`）。コールドスタートレイテンシ許容 | 変更不要 |
 | **テスト** | `jest.mock('../shared/secrets/secretManager')` でモジュールごとモック | モック関数を返すだけの実装に差し替え |
 | **ローカル開発** | `GOOGLE_APPLICATION_CREDENTIALS` を設定して実 SM を参照、または jest モックで代替 | |
@@ -597,229 +589,165 @@ if (!PROJECT_ID) throw new Error('プロジェクト ID が未設定です。実
 
 ## 実装 / 移行タスク
 
-### フェーズ 0: 即時削除（リスクゼロ）
+### フェーズ再設計の考え方
+
+詳細仕様が出そろったため、以後は「仕様カテゴリ」ではなく「安全に実装できる依存順」で進める。  
+特に以下を重視する。
+
+- 外部依存の少ない基盤変更から先に行う
+- 大きい変更は `changeSpec` を分けて局所化する
+- コード変更と GCP / GitHub の人手作業を分けて管理する
+- 各フェーズで `Entry条件` / `Exit条件` / `ロールバック条件` / `ユーザー依頼事項` を持つ
+
+### フェーズ A: 基盤の安全化
+
+対象仕様:
+
+- `実行環境注入のまま使うもの_ToBe_詳細仕様.md`
+- `コード固定_ToBe_詳細仕様.md` の基礎部分
+
+主な作業:
 
 ```
-[ ] .env から以下のキーを削除:
-    TEMPLATE_BUSINESSDATE_CHECK
-    ENABLE_AUTO_OPEN_CLOSE
-    TASK_CLOSE_OFFSET_MINUTES
-    TASK_OPEN_OFFSET_MINUTES
-    ENQUEUE_SCHEDULER_ENABLED
-    LINE_PLAN
-    ENABLE_SETTLEMENT_AGGREGATOR
-    RECURRING_TOURNAMENT_TASKS_QUEUE
-    RECURRING_TOURNAMENT_TASKS_INVOKER_SA
+[ ] `getRequiredProjectId()` を導入し、危険な固定フォールバックを除去
+[ ] 未使用 env / 幽霊キー / 即時削除可能なキーを削除
+[ ] `shared/config/cloudTasksConfig.ts` の基礎定数を導入
+[ ] `buildInvokerSaEmail()` / `getScheduledJobQueueName()` など共通ヘルパーを導入
+[ ] `.env` 依存からコード固定・コード計算への置換を開始
 ```
 
-理由: Firestore 移行済みまたはコード未参照であるため、削除しても本番動作に影響なし。
+主目的:
 
----
+- 後続フェーズの前提となる `projectId` 取得と定数体系を先に安定させる
 
-### フェーズ 1: CRON env 削除 + コード固定（デプロイ 1 回で完了）
+### フェーズ B: scheduler 基盤
 
-```
-[ ] 各 scheduler ファイルの CRON env 参照パターンを削除:
-    weeklyPlanner.ts
-    GenerateRecurringTournamentsByScheduler.ts
-    EnqueueTournamentTasksByScheduler.ts
-    scheduledCleanup.ts
-    scheduleGenerateNextYearBusinessHours.ts
+対象仕様:
 
-[ ] onSchedule({ schedule: '<ハードコード文字列>' }) に変更
+- `scheduler_ToBe_詳細仕様.md` の基盤部分
 
-[ ] .env から *_CRON キーを全削除
-
-[ ] monthlyPayrollTrigger.ts は別途フェーズ 2 で再設計
-```
-
----
-
-### フェーズ 2: PROJECT_ID フォールバック除去（安全性向上）
+主な作業:
 
 ```
-[ ] tasks.ts・weeklyPlanner.ts・continueBusinessTerminal.ts・logOpsError.ts の
-    フォールバック文字列 'amuse-app-template' を削除
-[ ] 未設定時は throw new Error() に変更
-[ ] ローカル開発用 .env に GCLOUD_PROJECT を明示
+[ ] `schedulerSupervisor` を追加
+[ ] `storeMeta/schedulerConfig` の最終スキーマを導入
+[ ] `jobKey` / payload / `targetScope` / `idempotencyKey` / queue 命名を共通化
+[ ] dispatch / execution ログ基盤を追加
+[ ] tournament 再計画 request 基盤を追加
 ```
 
----
+主目的:
 
-### フェーズ 3: Cloud Tasks インフラ定数の導入（SM 移行前に必須）
+- 各 job を移行する前に、scheduler の土台を先に固める
 
-リージョン・キュー名・SA プレフィックスをコード定数に置き換える。  
-**GCP コンソール確認済みの実値を使用する（確認事項 F で解消済み）**。
+### フェーズ C: scheduler 各 job 移行
 
-```
-[ ] shared/config/cloudTasksConfig.ts を作成（内容は「コード固定 To-Be」セクション参照）
-    ・TOURNAMENT_TASKS_REGION = 'asia-northeast1'  （tournament キューのリージョン・確認済み）
-    ・OPENCLOSE_TASKS_REGION  = 'us-central1'       （openclose キューのリージョン・フェーズ 7 で変更）
-    ・TOURNAMENT_TASKS_QUEUE  = 'tournament-queue'  （確認済み）
-    ・OPENCLOSE_TASKS_QUEUE   = 'business-date-assessment-queue'  （確認済み）
-    ・TOURNAMENT_INVOKER_SA_PREFIX = 'tasks-invoker'          （既存 SA）
-    ・OPENCLOSE_INVOKER_SA_PREFIX  = 'openclose-tasks-invoker' （SA 分割完了後）
+対象仕様:
 
-[ ] tasks.ts の getEnv('TASKS_LOCATION') → TOURNAMENT_TASKS_REGION に置き換え
-[ ] weeklyPlanner.ts / continueBusinessTerminal.ts の getEnv('WEEKLYPLANNER_TASKS_LOCATION') → OPENCLOSE_TASKS_REGION に置き換え
+- `scheduler_ToBe_詳細仕様.md` の job 別詳細
 
-[ ] getEnv('TASKS_QUEUE') → TOURNAMENT_TASKS_QUEUE 定数へ置き換え
-[ ] getEnv('WEEKLYPLANNER_TASKS_QUEUE') → OPENCLOSE_TASKS_QUEUE 定数へ置き換え
-[ ] getEnv('TASKS_INVOKER_SA') in tasks.ts → buildInvokerSaEmail(TOURNAMENT_INVOKER_SA_PREFIX, projectId) へ置き換え
-[ ] getEnv('TASKS_INVOKER_SA') in weeklyPlanner.ts / continueBusinessTerminal.ts → buildInvokerSaEmail(OPENCLOSE_INVOKER_SA_PREFIX, projectId) へ置き換え
-
-[ ] .env から TASKS_LOCATION・WEEKLYPLANNER_TASKS_LOCATION・
-    TASKS_QUEUE・WEEKLYPLANNER_TASKS_QUEUE・TASKS_INVOKER_SA を削除
-```
-
----
-
-### フェーズ 4: Secret Manager 移行（メイン作業）
-
-Q2（SA 分割可否）が確定してから実施。
+主な作業:
 
 ```
-[ ] GCP 側で各プロジェクトに SM シークレットを作成:
-    - line-config (JSON)
-      {"channelAccessToken":…, "staffRichMenuId":…, "userRichMenuId":…}
-    - task-endpoints (JSON)  ← 旧 task-infra。URL 3 件のみ
-      {"controlHookUrl":…, "closeAssessmentUrl":…, "openAssessmentUrl":…}
-      ※ queue 名・SA・location はコード固定に変更済みのため SM には含めない
-    - business-secrets (JSON)
-      {"qrSecretKey":…, "unclockedAttendanceEditPassword":…}
-
-[ ] functions/ に @google-cloud/secret-manager をインストール
-
-[ ] shared/secrets/secretManager.ts を実装（SM 読み取り + メモリキャッシュ）
-
-[ ] 各参照箇所を SM 読み取りに書き換え:
-    - lineRichMenu.ts（defineString 廃止）・lineMessaging.ts・lineWebhook.ts → line-config
-    - tasks.ts・weeklyPlanner.ts・continueBusinessTerminal.ts → task-endpoints（URL のみ。queue/SA はコード定数に置き換え済み）
-    - qrCodeUtils.ts → business-secrets
-    - verifyUnclockedAttendanceEditPassword.ts・updateUnclockedAttendanceWithAuth.ts → business-secrets
-
-[ ] .env から削除するキー:
-    SM移行済み: CONTROL_HOOK_URL, CLOSE_ASSESSMENT_URL, OPEN_ASSESSMENT_URL,
-                LINE_CHANNEL_ACCESS_TOKEN, STAFF_RICHMENU_ID, USER_RICHMENU_ID,
-                QR_SECRET_KEY, UNCLOCKED_ATTENDANCE_EDIT_PASSWORD
-    コード固定: TASKS_QUEUE, TASKS_INVOKER_SA, WEEKLYPLANNER_TASKS_QUEUE
-
-[ ] テストのモック更新（SM 読み取り関数を jest.mock で差し替え）
-
-[ ] IAM 設定: 各 Firebase プロジェクトの Functions SA に
-    secretmanager.versions.access を付与
+[ ] `weeklyPlanner` を task 実行関数へ寄せる
+[ ] `generateRecurringTournamentsByScheduler` を移行
+[ ] `enqueueTournamentTasksByScheduler` を移行
+[ ] `scheduledCleanup` を移行
+[ ] `scheduleGenerateNextYearBusinessHours` を移行
+[ ] `payrollNotificationScheduler` を移行
 ```
 
----
+主目的:
 
-### フェーズ 4.5: schedulerConfig スキーマ拡張
+- scheduler 基盤の上に各 job を段階的に載せる
 
-全 scheduler の ON/OFF を Firestore で管理するための事前作業。
+### フェーズ D: Secret Manager 移行
 
-```
-[ ] schedulerConfigTypes.ts に 2 フィールドを追加:
-    generateRecurringTournamentsEnabled?: boolean
-    payrollNotificationEnabled?: boolean
+対象仕様:
 
-[ ] defaults.ts に対応するデフォルト値を追加:
-    DEFAULT_GENERATE_RECURRING_TOURNAMENTS_ENABLED = true
-    DEFAULT_PAYROLL_NOTIFICATION_ENABLED = true
+- `Secret_Manager_ToBe_詳細仕様.md`
 
-[ ] schedulerConfigLoader.ts の buildSchedulerConfigFromDefaults() / mergeSchedulerConfigWithDefaults() を更新
-
-[ ] generateRecurringTournamentsByScheduler.ts に Firestore ゲートを追加:
-    const schedulerConfig = await getSchedulerConfig();
-    if (!schedulerConfig.generateRecurringTournamentsEnabled) { return; }
-
-[ ] payrollNotificationScheduler.ts に Firestore ゲートを追加:
-    const schedulerConfig = await getSchedulerConfig();
-    if (!schedulerConfig.payrollNotificationEnabled) { return; }
-```
-
----
-
-### フェーズ 5: monthlyPayrollTrigger 再設計
+主な作業:
 
 ```
-[ ] 毎日監視 + Firestore 判定パターンへ改修
-[ ] MONTHLY_PAYROLL_TRIGGER_CRON を削除
-[ ] Firestore payrollConfig.payrollEndDay 参照追加
-[ ] 二重起動防止: lastExecutedYearMonth フィールドの追加
-[ ] テスト修正
+[ ] `@google-cloud/secret-manager` を導入
+[ ] `shared/secrets/secretManager.ts` と隣接型定義を実装
+[ ] `line-config` / `task-endpoints` / `business-secrets` を各プロジェクトに作成
+[ ] 既存 `.env` / `defineString` 参照を Secret Manager 参照へ移行
+[ ] Functions 実行 SA に SM 権限を付与
 ```
 
----
+主目的:
 
-### フェーズ 6: unused_function_lib の削除（将来予定）
+- 機密値と URL を Secret Manager に集約し、設定の散在を止める
+
+### フェーズ E: 削除と整理
+
+対象仕様:
+
+- `monthlyPayrollTrigger` 削除方針
+- 削除系の整理事項
+
+主な作業:
 
 ```
-現時点は削除しない方針（**確認済み**）。将来削除時に以下を実施:
-
-[ ] unused_function_lib ディレクトリを削除
-    （STORE_CLOSE_HOUR・WRITE_TODAYS_BILLS_IN_PARALLEL の参照が自動消滅）
-[ ] index.ts で export がないことを確認（現時点では未 export が事実）
+[ ] `monthlyPayrollTrigger` 本体・export・関連設定・関連テストを削除
+[ ] 旧 env / 旧参照 / 旧コメントを削除
+[ ] 不要になった `defineString` / fallback / 死蔵コードを除去
+```
 
 補足:
-- unused_function_lib は index.ts からエクスポートされていない（事実）
-- デプロイ対象関数としては非稼働
-- TypeScript コンパイルは通る（functions.config() の型は v2 でも残存）
-- 現時点でコメントアウト等の対応は不要
-```
 
----
+- `unused_function_lib` は現時点では将来予定のため、本アクティブフェーズから除外する
 
-### フェーズ 7: リージョン移行（`us-central1` → `asia-northeast1`）【確定計画】
+### フェーズ F: 初回リリース前整備
 
-日本専用運用のため `asia-northeast1`（東京）への移行を確定。適切なタイミングで実施する。
+対象仕様:
 
-**GCP コンソール確認済みの現状（事実）**:
+- `GitHub_Actions_ToBe_詳細仕様.md`
+- `リージョン移行_ToBe_詳細仕様.md`
+- `docs/運用時資料/導入時設定/fireBase紐付け/*`
 
-| リソース | 現在のリージョン | フェーズ 7 後 |
-|---------|----------------|-------------|
-| `tournament-queue`（Cloud Tasks） | `asia-northeast1` ✓ | そのまま |
-| `business-date-assessment-queue`（Cloud Tasks） | `us-central1` | `asia-northeast1` へ移行 |
-| `finalizePayrollRun` 他 payroll キュー（Cloud Tasks） | `us-central1` | 移行 or `monthlyPayrollTrigger` 廃止に伴い削除 |
-| Cloud Functions（18 ファイルに `region: 'us-central1'` 直書き） | `us-central1` | `asia-northeast1` へ変更 |
-| `closeAssessmentTask` / `openAssessmentTask`（Cloud Run） | `us-central1`（URL に `uc` 含む） | 新リージョンに再デプロイ・URL 更新 |
-| `controlHookHttp`（Cloud Functions HTTP） | `us-central1`（URL に `us-central1` 含む） | 新リージョンに再デプロイ・URL 更新 |
-
-**作業チェックリスト**:
+主な作業:
 
 ```
-[ ] business-date-assessment-queue を asia-northeast1 に新規作成
-    （旧キューを並走させ、移行・確認後に旧キューを削除）
-[ ] payroll キューは monthlyPayrollTrigger 廃止方針に合わせて削除または移行
-[ ] Cloud Functions 18 ファイルの region: 'us-central1' を 'asia-northeast1' に一括変更
-    ファイル例: continueBusinessTerminal.ts / openStore.ts / closeStore.ts /
-              attendanceCallables 6件 / initializeStoreConfigCallable.ts 等
-[ ] cloudTasksConfig.ts の OPENCLOSE_TASKS_REGION を 'asia-northeast1' に変更
-[ ] closeAssessmentTask / openAssessmentTask を asia-northeast1 Cloud Run に再デプロイ
-[ ] SM `task-endpoints` の closeAssessmentUrl / openAssessmentUrl を新 URL に更新
-[ ] controlHookHttp を asia-northeast1 で再デプロイ
-[ ] SM `task-endpoints` の controlHookUrl を新 URL に更新
-[ ] Cloud Scheduler のリージョン確認（Cloud Scheduler はリージョン指定ではなく time zone 指定のため影響範囲を確認）
-[ ] 動作確認（タスク投入 → 実行の疎通確認）
-[ ] us-central1 の旧 Cloud Tasks キューを削除
+[ ] GitHub Actions workflow を作成し、WIF を設定
+[ ] `project_id` choice を導入し、誤プロジェクトデプロイ防止を有効化
+[ ] `asia-northeast1` へのリージョン一括切替を実施
+[ ] `task-endpoints` の URL を新リージョン実体へ更新
+[ ] 導入時設定資料に従って GitHub / GCP / Firebase 側の手作業を完了
 ```
 
-> **注意**: Cloud Tasks キューとそのキューに投入するクライアント（Cloud Functions）は同一リージョンに揃えること。  
-> `tournament-queue` は既に `asia-northeast1` だが、それを呼ぶ Functions は `us-central1` のため、  
-> 現状は**クロスリージョン呼び出しが発生している（要確認）**。フェーズ 7 で解消する。
+主目的:
 
----
+- 未リリースである利点を活かし、初回リリース前に CI/CD とリージョン正を一気に揃える
 
-### フェーズ 8: GitHub Actions CI/CD 整備（後述）
+### フェーズ G: 最終確認
 
-下記「GitHub Actions To-Be」セクション参照。
+対象仕様:
 
----
+- すべての詳細仕様書
+- 運用資料
 
-### フェーズ 9: ドキュメント更新
+主な作業:
 
 ```
-[ ] 本 To-Be 仕様書の「判断保留」事項が解消されたら確定版に更新
-[ ] 本 To-Be 仕様書の実装済みフェーズを随時「完了」マークに更新
-[ ] .env.amuse-app-template の最終形（SM 移行後は空または最小限）を注記
+[ ] 仕様書と実装の差分確認
+[ ] E2E 的な疎通確認
+[ ] `.env.amuse-app-template` の最終形確認
+[ ] ドキュメント・運用資料・changeSpec の同期更新
+[ ] 次フェーズ / 次タスクへの伝達事項を整理
+```
+
+主目的:
+
+- 実装漏れとドキュメント齟齬を残さず、初回リリース準備を完了させる
+
+### 補足: 将来対応
+
+```
+[ ] `unused_function_lib` の削除は将来対応とする
+[ ] 実施時は別 changeSpec を作成し、現行フェーズとは切り離す
 ```
 
 ---
@@ -833,11 +761,11 @@ Q2（SA 分割可否）が確定してから実施。
 | 1 | `TASKS_LOCATION` / `WEEKLYPLANNER_TASKS_LOCATION` の単位 | **全店舗同一リージョン確定 → コード固定**（SM から除外） |
 | 2 | `TASKS_INVOKER_SA` を用途別に分けるか | **分割確定**（`tournamentInvokerSa` / `weeklyPlannerInvokerSa`）。他 SA も既に用途別分離済み |
 | 3 | `STAFF_RICHMENU_ID` / `USER_RICHMENU_ID` の単位 | **店舗ごとに異なる確定 → SM `line-config` JSON** |
-| 4 | `UNCLOCKED_ATTENDANCE_EDIT_PASSWORD` の管理者 | **devops 管理確定 → SM `business-secrets` JSON** |
+| 4 | `UNCLOCKED_ATTENDANCE_EDIT_PASSWORD` の管理者 | **開発している我々が管理すると確定 → SM `business-secrets` JSON** |
 | 5 | `unused_function_lib` を今削除するか | **現時点は削除しない。将来削除予定。** |
 | 6 | デプロイ方法 | **GitHub Actions（CI/CD）を整備予定。現時点は手動。** |
 | 7 | `generateRecurringTournamentsByScheduler` の ON/OFF ゲート | **全 scheduler の ON/OFF を Firestore 管理に統一**。`schedulerConfig` に 2 フィールド追加 |
-| 8 | リージョン移行のタイミング | **フェーズ 7 として計画に組み込み確定**。全リソースを `asia-northeast1`（東京）へ移行 |
+| 8 | リージョン移行のタイミング | **フェーズ F（初回リリース前整備）として計画に組み込み確定**。全リソースを `asia-northeast1`（東京）へ移行 |
 
 ### 未解消（確認中）
 
@@ -849,7 +777,7 @@ Q2（SA 分割可否）が確定してから実施。
 |---|------|------|
 | 2 | `TASKS_INVOKER_SA` を用途別に分けるか | **分割確定**（`tournamentInvokerSa` / `weeklyPlannerInvokerSa`）。他 SA も既に用途別分離済みであることを確認 |
 | 7 | `generateRecurringTournamentsByScheduler` の ON/OFF ゲート | **全 scheduler の ON/OFF を Firestore 管理に統一**。`schedulerConfig` に 2 フィールド追加 |
-| 8 | リージョン移行のタイミング | **フェーズ 7 として計画に組み込み確定**。全リソースを `asia-northeast1`（東京）へ移行 |
+| 8 | リージョン移行のタイミング | **フェーズ F（初回リリース前整備）として計画に組み込み確定**。全リソースを `asia-northeast1`（東京）へ移行 |
 
 ---
 
@@ -857,14 +785,12 @@ Q2（SA 分割可否）が確定してから実施。
 
 ### 確認事項 A: `warmupSecrets()` の呼び出し方針（確認済み・設計方針決定済み）
 
-SM SDK 直叩き + コールドスタートレイテンシへの懸念は、**Promise レベルキャッシュ + `warmupSecrets()` 事前フェッチ**方式の採用によって解消済み（上記「コード側でのシークレット読み取り方式」参照）。
+SM SDK 直叩き + コールドスタートレイテンシへの懸念は、**Promise レベルキャッシュ + 必要箇所のみ `warmupSecrets()` を使う**方式の採用によって解消する（上記「コード側でのシークレット読み取り方式」参照）。
 
 `defineSecret`（parameterized configuration）や CI/CD での Secret 展開への代替案は不要。
 
-> **残課題**: 高頻度 handler のファイル先頭に `warmupSecrets()` を追加するのはコードレビュー時に気付きにくい。実装時に以下のどちらを選ぶか決める:  
-> - **方式 A**: 各 handler ファイルの先頭で `warmupSecrets()` を明示的に呼ぶ（現行仕様）  
-> - **方式 B**: `index.ts` のモジュール読み込み時に一括 warmup（呼び忘れがない反面、不要なシークレットも初期化される）  
-> 優先度は低く、実装開始時に判断すれば十分。
+> **補足**: 初期仕様では `warmupSecrets()` は `line-config` のみを対象とする。`task-endpoints` / `business-secrets` は遅延取得を基本とし、実測上必要な場合のみ個別 warmup を追加する。  
+> また、高頻度 handler のファイル先頭に `warmupSecrets()` を追加する方式を採用する。
 
 ### 確認事項 B: `.env.amuse-app-template` のコミット状態（**確認済み・方針決定**）
 
@@ -877,39 +803,34 @@ gitignore されているため git 追跡外（コミットに入らない）�
 
 ### 確認事項 C: scheduler CRON コード固定後の値確認（**確認済み・方針決定**）
 
-`.env.amuse-app-template` の実値をそのままコード固定のデフォルト初期値として採用することを確認済み。
+監視用 scheduler は `03:00 JST` 固定とし、各 job の実行時刻は `storeMeta/schedulerConfig` のデフォルト初期値として管理することを確認済み。
 
-| scheduler | コード固定値（.env 実値より） | JST 換算 | Firestore ゲート |
-|-----------|--------------------------|---------|----------------|
-| `weeklyPlanner` | `'0 11 * * 0'` | 日曜 JST 20:00 | `autoOpenClose.enabled`（実装済み） |
-| `generateRecurringTournamentsByScheduler` | `'0 23 * * 0'` | 日曜 JST Mon 08:00 | `schedulerConfig.generateRecurringTournamentsEnabled`（新規追加） |
-| `enqueueTournamentTasksByScheduler` | `'0 5 * * *'` | 毎日 JST 14:00 | `features.enqueueSchedulerEnabled`（実装済み） |
-| `scheduledCleanup` | `'0 2 * * *'` | 毎日 JST 11:00 | `schedulerConfig.scheduledCleanupEnabled`（実装済み） |
-| `scheduleGenerateNextYearBusinessHours` | `'25 23 28 1 *'` | 1/29 JST 08:25 | `schedulerConfig.scheduleGenerateNextYearBusinessHoursEnabled`（実装済み） |
-| `monthlyPayrollTrigger` | 廃止・または手動化（**確認事項 D 参照**） | — | — |
-| `payrollNotificationScheduler` | `'0 21 * * *'`（コード固定済み） | 毎日 JST 06:00 | `schedulerConfig.payrollNotificationEnabled`（新規追加） |
+| jobKey | デフォルト値 | 備考 |
+|-----------|--------------------------|---------|
+| `weeklyPlanner` | `weekly / 04:40 JST / 木曜` | 翌週の日曜〜土曜分を前倒し計画 |
+| `generateRecurringTournamentsByScheduler` | `weekly / 04:50 JST / 木曜` | 木曜早朝に recurring 生成 |
+| `enqueueTournamentTasksByScheduler` | `daily / 05:00 JST` | `now-6h ～ +14日` は現行維持 |
+| `scheduledCleanup` | `daily / 05:00 JST` | 毎朝 cleanup |
+| `scheduleGenerateNextYearBusinessHours` | `yearly / 01-29 05:10 JST` | 翌年営業時間生成 |
+| `monthlyPayrollTrigger` | 削除 | scheduler 対象外 |
+| `payrollNotificationScheduler` | `daily / 05:00 JST` | 当日分のみ task 作成 |
 
-> **注**: `.env` の CRON 値はコードのデフォルト値とは別の「上書き設定」として機能していた。  
-> コード固定後は Cloud Scheduler 上の設定がこの値と一致しているか、**実装開始前に GCP コンソールで最終確認すること**（Cloud Scheduler → ジョブ一覧）。
+> **注**: 旧 `.env` の CRON 値はそのまま踏襲しない。  
+> `schedulerSupervisor` の Cloud Scheduler 設定と `schedulerConfig` の初期投入値を、実装開始前に最終確認すること。
 
 ### 確認事項 D: `monthlyPayrollTrigger` の将来方針（**確認済み・方針決定**）
 
 **現状**: 給与計算は現在手動で実施しており、`monthlyPayrollTrigger` の自動実行は使われていない。
 
-**確定方針**: `monthlyPayrollTrigger` は以下のいずれかの対応を取る（実装フェーズで最終決定）:
-- **削除**: 自動実行は不要と判断した場合、関数ごと削除
-- **確認用トリガーへ変更**: 自動実行ではなく、手動確認用の HTTP Callable に変更
-
-> ⚠️ **仕様書上の注意**: `monthlyPayrollTrigger` の再設計セクション（「毎日監視型への再設計」）は  
-> **大幅変更または削除の可能性が高い**。現時点ではフェーズとして残すが、  
-> 実装着手前に最終方針を確認してから進めること。
+**確定方針**: `monthlyPayrollTrigger` は削除する。  
+関数本体、export、関連設定、関連テストを除去し、自動給与計算の定期実行は採用しない。
 
 `payrollNotificationScheduler`（給与通知）は独立した用途のため、`monthlyPayrollTrigger` の廃止・変更に関わらず継続する。
 
 ### 確認事項 E: デプロイパイプライン（**確認済み・対応方針決定**）
 
 **GitHub Actions による CI/CD デプロイを整備する方針で確定**（現時点は手動）。  
-仕様詳細は下記「GitHub Actions To-Be」セクションを参照。
+仕様詳細は `docs/環境変数きれい化/仕様書/GitHub_Actions_ToBe_詳細仕様.md` を参照。
 
 ### 確認事項 F: Cloud Tasks キュー名・SA プレフィックスの実値（**確認済み・GCP コンソールで確認**）
 
@@ -918,7 +839,7 @@ gitignore されているため git 追跡外（コミットに入らない）�
 | 定数名 | 確定値 | 備考 |
 |--------|--------|------|
 | `TOURNAMENT_TASKS_QUEUE` | `'tournament-queue'` | `asia-northeast1` に存在（確認済み） |
-| `OPENCLOSE_TASKS_QUEUE` | `'business-date-assessment-queue'` | `us-central1` に存在。フェーズ 7 で移行 |
+| `OPENCLOSE_TASKS_QUEUE` | `'business-date-assessment-queue'` | `us-central1` に存在。フェーズ F で移行 |
 | `TOURNAMENT_INVOKER_SA_PREFIX` | `'tasks-invoker'` | 現行 SA（既存、新 SA 作成不要） |
 | `OPENCLOSE_INVOKER_SA_PREFIX` | `'openclose-tasks-invoker'` | **新規作成が必要**（現在未作成） |
 
@@ -930,7 +851,7 @@ gitignore されているため git 追跡外（コミットに入らない）�
 > SA 分割前は `OPENCLOSE_INVOKER_SA_PREFIX = 'tasks-invoker'`（既存 SA を一時的に兼用）として実装を進めてよい。
 
 **また以下のキューが `us-central1` に存在することも確認（payroll 関連）:**  
-`finalizePayrollRun` / `processPayrollNotifications` / `processStaffPayroll` — 環境変数管理外（Firebase 関数名で直接参照）。フェーズ 7 で移行または廃止。
+`finalizePayrollRun` / `processPayrollNotifications` / `processStaffPayroll` — 環境変数管理外（Firebase 関数名で直接参照）。フェーズ F で移行または廃止。
 
 ### 確認事項 G: Cloud Functions / Cloud Tasks のリージョン一括変更（**確認済み・方針決定**）
 
@@ -938,17 +859,18 @@ gitignore されているため git 追跡外（コミットに入らない）�
 - `continueBusinessTerminal.ts` を含む **18 ファイル**に `region: 'us-central1'` が直書きされている（事実）
 - これらは **Cloud Functions 自体のリージョン指定**（Cloud Tasks のリージョンとは別）
 
-**確定方針**: Cloud Tasks リージョンと Cloud Functions リージョンの **両方を `asia-northeast1` に変更**（フェーズ 7）。
+**確定方針**: Cloud Tasks リージョンと Cloud Functions リージョンの **両方を `asia-northeast1` に変更**（フェーズ F）。
 
-> ⚠️ **フェーズ 7 は単純なコード変更ではない**。以下の作業が連動する:
+> ⚠️ **フェーズ F は単純なコード変更ではない**。以下の作業が連動する:
 > - 18 ファイルの `region: 'us-central1'` を `'asia-northeast1'` に変更
-> - Cloud Functions を再デプロイ（新リージョンに新インスタンスが立つ）
-> - `business-date-assessment-queue` など `us-central1` のキューを `asia-northeast1` に新規作成・旧削除
+> - Cloud Functions を `asia-northeast1` で再デプロイ
+> - `business-date-assessment-queue` など `us-central1` のキューを `asia-northeast1` に作成し、動作確認後に旧資産を削除
 > - `CLOSE_ASSESSMENT_URL` / `OPEN_ASSESSMENT_URL`（Cloud Run, `us-central1`）を新リージョンに移行し URL 更新
 > - `CONTROL_HOOK_URL`（`us-central1` Functions URL）を新リージョン URL に更新
 > - フロントエンドの API エンドポイント URL の更新（Functions の URL が変わる場合）
 >
-> **Cloud Functions のリージョン変更は一時的な二重起動を許容するか、ダウンタイムを設けるかを事前に決める必要がある。**
+> **このアプリは未リリースのため、一時的な二重起動は採用しない。**  
+> 一括切替で `asia-northeast1` へ揃える。
 
 ---
 
@@ -960,6 +882,8 @@ gitignore されているため git 追跡外（コミットに入らない）�
 - 誤ったプロジェクトへのデプロイを防ぐ（project ID を明示的に選択する UI）
 - Secret Manager の IAM 権限は Functions SA 側に付与するため、GitHub Actions 自体に SM アクセスは不要
 
+詳細は `docs/環境変数きれい化/仕様書/GitHub_Actions_ToBe_詳細仕様.md` を参照。
+
 ---
 
 ### 設計方針
@@ -968,7 +892,7 @@ gitignore されているため git 追跡外（コミットに入らない）�
 |------|------|
 | トリガー | `workflow_dispatch`（手動実行）+ 将来的にブランチ保護と組み合わせ |
 | プロジェクト選択 | `inputs.project_id` で対話的に Firebase Project ID を選択 |
-| 認証方式 | **Workload Identity Federation**（推奨）または サービスアカウントキー JSON（暫定） |
+| 認証方式 | **Workload Identity Federation**（正式採用） |
 | 必要な権限 | `firebase deploy` に必要な Cloud Build / Firebase 権限（`roles/firebase.admin` 相当） |
 | SM アクセス | 不要（Functions の SA が実行時に SM を読む。デプロイ時は不要） |
 
@@ -1015,8 +939,6 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-          # または暫定的に:
-          # credentials_json: ${{ secrets[format('GCP_SA_KEY_{0}', github.event.inputs.project_id)] }}
 
       - name: Deploy to Firebase
         run: npx firebase-tools deploy --only functions --project=${{ github.event.inputs.project_id }} --non-interactive
@@ -1027,9 +949,9 @@ jobs:
 
 ---
 
-### 認証方式の選択肢
+### 認証方式
 
-#### 推奨: Workload Identity Federation（WIF）
+#### 採用: Workload Identity Federation（WIF）
 
 - **メリット**: 長期間有効なサービスアカウントキー JSON が不要。GitHub Actions から短命なトークンを発行。漏洩リスクが低い。
 - **デメリット**: 初期設定がやや複雑（GCP 側で WIF Provider の設定が必要）
@@ -1037,14 +959,6 @@ jobs:
   1. GCP で Workload Identity Pool + Provider を作成
   2. GitHub Actions の `repo:*/ref:*` に対して SA の impersonation 権限を付与
   3. GitHub Secrets に `WIF_PROVIDER`・`WIF_SERVICE_ACCOUNT` を登録
-
-#### 暫定: サービスアカウントキー JSON
-
-- **メリット**: 設定が簡単
-- **デメリット**: 長期間有効なキーを GitHub Secrets に保管する必要がある。漏洩リスクあり
-- **注意**: 1 プロジェクトにつき 1 キー。複数プロジェクトなら複数のシークレットを登録:
-  - `GCP_SA_KEY_amuse-app-template`
-  - `GCP_SA_KEY_<store-b-project>` 等
 
 ---
 
@@ -1083,6 +997,7 @@ secretmanager.versions.access  on  projects/<projectId>/secrets/business-secrets
 1. `workflow_dispatch` の `inputs.project_id` を `choice` 型にすることで、存在しないプロジェクト ID を入力できない
 2. ワークフロー内で `echo "Deploying to: ${{ github.event.inputs.project_id }}"` でログを出力し、実行前に確認できる
 3. 将来的には `environment` 保護ルール（Required reviewers）を設定し、本番プロジェクトへのデプロイには承認を必須にする
+4. 開発時 / 導入時 / 運用時の操作手順と、人手で必要な GitHub / GCP 操作は `docs/環境変数きれい化/仕様書/GitHub_Actions_ToBe_詳細仕様.md` に従う
 
 ---
 

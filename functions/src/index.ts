@@ -55,11 +55,18 @@ export * from "./domains/webhook";
 // トーナメント時間管理システム（Phase1）
 import { onRequest } from 'firebase-functions/v2/https';
 import { controlHook } from "./shared/http/controlHook";
+import { schedulerSupervisor } from "./domains/scheduler/supervisor/schedulerSupervisor";
+import { registerScheduledJobTaskFunctions } from "./domains/scheduler/tasks/scheduledJobTaskFunctions";
 
 
 
 // HTTP関数としてエクスポート
-export const controlHookHttp = onRequest(controlHook);
+export const controlHookHttp = onRequest(
+  { region: "asia-northeast1" },
+  controlHook
+);
+export { schedulerSupervisor };
+registerScheduledJobTaskFunctions(exports as Record<string, unknown>);
 
 // リモートに存在するがローカルにない関数のスタブ（削除を防ぐため）
 // 注意: この関数はリモートにのみ存在し、ローカルには実装がないため、
@@ -74,4 +81,3 @@ export const processShiftsByStaff = onCall(async (request) => {
 export const updateAdministrativeMenuWithDescription = onCall(async (request) => {
   return { message: "This function is maintained remotely" };
 });
-

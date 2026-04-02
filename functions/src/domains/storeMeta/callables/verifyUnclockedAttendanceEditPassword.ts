@@ -1,7 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
-
-const ENV_PASSWORD_KEY = 'UNCLOCKED_ATTENDANCE_EDIT_PASSWORD';
+import { getBusinessSecrets } from '../../../shared/secrets/secretManager';
 
 export const verifyUnclockedAttendanceEditPassword = onCall(async (request: CallableRequest) => {
   if (!request.auth) {
@@ -13,7 +12,8 @@ export const verifyUnclockedAttendanceEditPassword = onCall(async (request: Call
     throw new HttpsError('invalid-argument', 'パスワードを入力してください');
   }
 
-  const expectedPassword = process.env[ENV_PASSWORD_KEY];
+  const { unclockedAttendanceEditPassword: expectedPassword } =
+    await getBusinessSecrets();
   if (!expectedPassword || expectedPassword !== password) {
     throw new HttpsError('permission-denied', 'パスワードが一致しません');
   }

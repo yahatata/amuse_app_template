@@ -15,6 +15,10 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
   process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
 }
 
+if (!process.env.GCLOUD_PROJECT) {
+  process.env.GCLOUD_PROJECT = 'test-default';
+}
+
 if (!admin.apps.length) {
   admin.initializeApp({ projectId: 'test-default' });
 }

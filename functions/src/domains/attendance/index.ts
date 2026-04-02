@@ -28,7 +28,5 @@ export { registerPaymentStatus } from "./callables/registerPaymentStatus";
 export { processStaffPayroll } from "./tasks/processStaffPayroll";
 export { finalizePayrollRun } from "./tasks/finalizePayrollRun";
 export { seedAttendancesDemo } from "./callables/seedAttendancesDemo";
-export { monthlyPayrollTrigger } from "./scheduler/monthlyPayrollTrigger";
-export { payrollNotificationScheduler } from "./scheduler/payrollNotificationScheduler";
 export { processPayrollNotifications } from "./tasks/processPayrollNotifications";
 export { attendanceOnWrite } from "./triggers/attendanceOnWrite";
