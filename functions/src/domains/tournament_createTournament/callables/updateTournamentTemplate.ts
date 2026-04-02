@@ -1,8 +1,9 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { getFirestore } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { computeRegEndAt } from "../services/enqueueTournamentTasksCore";
 
 const updateTournamentTemplateSchema = z.object({
   templateId: z.string(),
@@ -61,6 +62,21 @@ export const updateTournamentTemplate = onCall(async (request) => {
     if (selectedTournamentIds.length > 0) {
       for (const tournamentId of selectedTournamentIds) {
         const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
+        const tournamentDoc = await tournamentRef.get();
+        if (!tournamentDoc.exists) {
+          continue;
+        }
+        const tournamentData = tournamentDoc.data() as Record<string, unknown>;
+        const existingStartAtRaw = tournamentData.startAt as {toDate?: () => Date} | undefined;
+        const existingStartAt = existingStartAtRaw?.toDate?.() ?? null;
+        const existingSnapshot = (tournamentData.snapshot ?? {}) as Record<string, unknown>;
+        const existingBlindStructure = String(
+          existingSnapshot.blindStructure ?? existingSnapshot.blindStructureId ?? ''
+        );
+        const nextBlindStructure = updateData.blindStructure ?? existingBlindStructure;
+        const hasBlindStructureChange =
+          updateData.blindStructure !== undefined &&
+          nextBlindStructure !== existingBlindStructure;
         
         // 更新されたテンプレートデータでsnapshotを更新
         const snapshotUpdateData = {
@@ -86,12 +102,29 @@ export const updateTournamentTemplate = onCall(async (request) => {
           Object.entries(snapshotUpdateData).filter(([_, value]) => value !== undefined)
         );
 
-        // Step 3: blindStructure 変更時のみ taskSyncNeeded=true（regEndAt 変化の可能性。再計算は Step 4 に委譲）
-        batch.update(tournamentRef, {
+        const tournamentUpdateData: any = {
           snapshot: filteredSnapshotData,
           updatedAt: new Date(),
-          ...(updateData.blindStructure !== undefined && { taskSyncNeeded: true }),
-        });
+        };
+
+        if (hasBlindStructureChange) {
+          if (existingStartAt) {
+            const regEndAtDate = await computeRegEndAt(
+              db,
+              existingStartAt,
+              nextBlindStructure
+            );
+            tournamentUpdateData.regEndAt = Timestamp.fromDate(
+              regEndAtDate ?? existingStartAt
+            );
+          }
+          tournamentUpdateData.schedulePlanVersion = FieldValue.increment(1);
+          tournamentUpdateData.schedulePlanUpdatedAt = Timestamp.now();
+          tournamentUpdateData.taskSyncNeeded = true;
+          tournamentUpdateData.taskSyncReason = ['regEndAtChangedByTemplate'];
+        }
+
+        batch.update(tournamentRef, tournamentUpdateData);
       }
     }
 

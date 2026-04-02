@@ -2,17 +2,16 @@ import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import { logOpsError, truncateForLog } from "../../../shared/logging/logOpsError";
-import { isProductionRuntime } from "../../../shared/runtime";
+import { getLineConfig, warmupSecrets } from "../../../shared/secrets/secretManager";
 import { linkStaffRichMenu, linkUserRichMenu } from "../services/lineRichMenu";
 
 // postback リプライ用。リッチメニューリンクは lineRichMenu サービス経由（ensureStaffRichMenu と同一経路）
-function getLineChannelAccessToken(): string {
-  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  if (isProductionRuntime() && (!token || !token.trim())) {
-    throw new Error("LINE_CHANNEL_ACCESS_TOKEN is not set (required in production)");
-  }
-  return token ?? "";
+async function getLineChannelAccessToken(): Promise<string> {
+  const lineConfig = await getLineConfig();
+  return lineConfig.channelAccessToken;
 }
+
+warmupSecrets();
 
 /**
  * LINE Webhook - リッチメニュー自動切り替え
@@ -66,10 +65,10 @@ export const lineWebhook = onRequest(async (request, response) => {
       eventTypes: events.map(e => e.type)
     });
 
-    const channelAccessToken = getLineChannelAccessToken();
+    const channelAccessToken = await getLineChannelAccessToken();
     if (!channelAccessToken) {
       logOpsError({
-        message: "LINE_CHANNEL_ACCESS_TOKEN is not set",
+        message: "line-config.channelAccessToken is not set",
         failureType: "config",
         functionEntry: "lineWebhook",
         operation: "token",
@@ -294,4 +293,3 @@ export const lineWebhook = onRequest(async (request, response) => {
     response.status(500).json({ error: "Internal server error" });
   }
 });
-

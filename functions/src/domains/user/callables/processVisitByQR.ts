@@ -10,7 +10,7 @@ import { logOpsError } from "../../../shared/logging/logOpsError";
  * 入店処理（QRスキャン起点）
  *
  * When: 端末(店舗用Flutterアプリ)がユーザーのQRをスキャンした直後に呼び出し
- * Where: Callable Function (us-central1)
+ * Where: Callable Function (asia-northeast1)
  * What: QRの正当性を検証し、`users/{uid}` の入店（check-in）のみを処理
  *       既に来店中の場合は更新せずメッセージのみ返却（退店は会計時に別処理）
  *       ログを `users/{uid}/visitLogs` に追加（check-in 時のみ）
@@ -48,7 +48,7 @@ export const processVisitByQR = onCall(async (request) => {
   }
 
   // QRの整合性検証（期限・トークン）
-  const valid = verifyQRData(qrData);
+  const valid = await verifyQRData(qrData);
   if (!valid) {
     return {
       success: false,
@@ -220,4 +220,3 @@ export const processVisitByQR = onCall(async (request) => {
     };
   }
 });
-

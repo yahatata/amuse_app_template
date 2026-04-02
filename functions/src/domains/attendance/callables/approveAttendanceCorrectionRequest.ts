@@ -6,7 +6,7 @@ import { recalculateAttendanceFromBreaks } from "../helpers/recalculateAttendanc
 import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const approveAttendanceCorrectionRequest = onCall(
-  { region: "us-central1", maxInstances: 10 },
+  { region: "asia-northeast1", maxInstances: 10 },
   async (request) => {
     try {
       // 認証チェックをスキップ

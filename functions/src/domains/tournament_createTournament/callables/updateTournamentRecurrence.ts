@@ -3,6 +3,7 @@ import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { computeRegEndAt } from "../services/enqueueTournamentTasksCore";
 
 const updateTournamentRecurrenceSchema = z.object({
   recurrenceId: z.string(),
@@ -66,6 +67,11 @@ export const updateTournamentRecurrence = onCall(async (request) => {
 
       for (const tournamentId of selectedTournamentIds) {
         const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
+        const tournamentDoc = await tournamentRef.get();
+        if (!tournamentDoc.exists) {
+          continue;
+        }
+        const tournamentData = tournamentDoc.data() as Record<string, unknown>;
         
         const tournamentUpdateData: any = {
           updatedAt: new Date(),
@@ -93,26 +99,18 @@ export const updateTournamentRecurrence = onCall(async (request) => {
           };
         }
 
+        const existingStartAtRaw = tournamentData.startAt as {toDate?: () => Date} | undefined;
+        const existingStartAt = existingStartAtRaw?.toDate?.() ?? null;
+        let nextStartAt = existingStartAt;
+
         // startTimeが変更された場合、startAtを更新
-        if (startTime !== undefined) {
-          // 既存のstartAtを取得
-          const tournamentDoc = await tournamentRef.get();
-          if (tournamentDoc.exists) {
-            const existingStartAt = tournamentDoc.data()?.startAt;
-            if (existingStartAt) {
-              // 既存のstartAtから日付部分を保持し、時刻部分を更新
-              const existingDate = existingStartAt.toDate();
-              const [hours, minutes] = startTime.split(':').map(Number);
-              
-              // JST時刻を明示的に作成
-              const jstDate = new Date(existingDate);
-              jstDate.setHours(hours, minutes, 0, 0);
-              
-              // JSTからUTCに変換（-9時間）
-              const newStartAt = new Date(jstDate.getTime() - (9 * 60 * 60 * 1000));
-              tournamentUpdateData.startAt = newStartAt;
-            }
-          }
+        if (startTime !== undefined && existingStartAt) {
+          const [hours, minutes] = startTime.split(':').map(Number);
+          const jstDate = new Date(existingStartAt);
+          jstDate.setHours(hours, minutes, 0, 0);
+          const newStartAt = new Date(jstDate.getTime() - (9 * 60 * 60 * 1000));
+          tournamentUpdateData.startAt = newStartAt;
+          nextStartAt = newStartAt;
         }
 
         // 定期開催が停止された場合
@@ -120,20 +118,42 @@ export const updateTournamentRecurrence = onCall(async (request) => {
           tournamentUpdateData.status = 'cancelled';
         }
 
-        // Step 3: version++ / taskSyncNeeded の条件付き設定
-        const hasStartAtChange = startTime !== undefined;
+        // Step 3: version++ / taskSyncNeeded / regEndAt の同時更新
+        const hasStartAtChange = startTime !== undefined && Boolean(existingStartAt);
         const hasTemplateChange = newTemplateData !== null;
         const hasScheduleChange = hasStartAtChange || hasTemplateChange;
 
         if (hasScheduleChange) {
-          if (hasStartAtChange) {
-            tournamentUpdateData.schedulePlanVersion = FieldValue.increment(1);
-            tournamentUpdateData.schedulePlanUpdatedAt = Timestamp.now();
-            tournamentUpdateData.taskSyncReason = ['startAtChanged'];
-          } else {
-            tournamentUpdateData.taskSyncReason = ['regEndAtChangedByTemplate'];
+          const existingSnapshot = (tournamentData.snapshot ?? {}) as Record<string, unknown>;
+          const existingBlindStructure = String(
+            existingSnapshot.blindStructure ?? existingSnapshot.blindStructureId ?? ''
+          );
+          const templateBlindStructure = hasTemplateChange ?
+            String(
+              newTemplateData?.blindStructure ??
+              newTemplateData?.blindStructureId ??
+              ''
+            ) :
+            existingBlindStructure;
+          const blindStructureForRecalc = templateBlindStructure || existingBlindStructure;
+
+          if (nextStartAt) {
+            const regEndAtDate = await computeRegEndAt(
+              db,
+              nextStartAt,
+              blindStructureForRecalc
+            );
+            tournamentUpdateData.regEndAt = Timestamp.fromDate(
+              regEndAtDate ?? nextStartAt
+            );
           }
+
+          tournamentUpdateData.schedulePlanVersion = FieldValue.increment(1);
+          tournamentUpdateData.schedulePlanUpdatedAt = Timestamp.now();
           tournamentUpdateData.taskSyncNeeded = true;
+          tournamentUpdateData.taskSyncReason = hasStartAtChange ?
+            ['startAtChanged'] :
+            ['regEndAtChangedByTemplate'];
         } else if (isActive === false) {
           tournamentUpdateData.taskSyncNeeded = false;
         }

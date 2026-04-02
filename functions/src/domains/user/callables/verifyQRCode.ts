@@ -34,7 +34,7 @@ export const verifyQRCode = onCall(
 
     try {
       // QRコードデータを検証
-      const isValid = verifyQRData(qrData);
+      const isValid = await verifyQRData(qrData);
 
       if (!isValid) {
         return {

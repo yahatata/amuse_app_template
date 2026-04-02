@@ -8,13 +8,17 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { CloudTasksClient } from '@google-cloud/tasks';
 import { requireAdmin } from '../../../shared/devices';
-import { getEnv } from '../../../shared/firebase';
-
-const PROJECT_ID =
-  process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || process.env.PROJECT_ID || 'amuse-app-template';
+import {
+  OPENCLOSE_TASKS_QUEUE,
+  OPENCLOSE_TASKS_REGION,
+  OPENCLOSE_INVOKER_SA_PREFIX,
+  buildInvokerSaEmail,
+} from '../../../shared/config/cloudTasksConfig';
+import { getRequiredProjectId } from '../../../shared/runtime/projectId';
+import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
 
 export const continueBusinessTerminal = onCall(
-  { region: 'us-central1' },
+  { region: 'asia-northeast1' },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '認証が必要です');
@@ -62,10 +66,14 @@ export const continueBusinessTerminal = onCall(
     const scheduledAtIso = scheduleAt.toISOString();
     const idempotencyKey = `close_assessment_${intendedBusinessDateKey}_${scheduledAtIso}`;
 
-    const closeAssessmentUrl = getEnv('CLOSE_ASSESSMENT_URL');
-    const tasksQueue = getEnv('WEEKLYPLANNER_TASKS_QUEUE');
-    const tasksLocation = getEnv('WEEKLYPLANNER_TASKS_LOCATION');
-    const tasksInvokerSa = getEnv('TASKS_INVOKER_SA');
+    const projectId = getRequiredProjectId();
+    const { closeAssessmentUrl } = await getTaskEndpoints();
+    const tasksQueue = OPENCLOSE_TASKS_QUEUE;
+    const tasksLocation = OPENCLOSE_TASKS_REGION;
+    const tasksInvokerSa = buildInvokerSaEmail(
+      OPENCLOSE_INVOKER_SA_PREFIX,
+      projectId
+    );
 
     await db.runTransaction(async (transaction) => {
       const stateDoc = await transaction.get(stateRef);
@@ -107,10 +115,10 @@ export const continueBusinessTerminal = onCall(
     });
 
     const tasksClient = new CloudTasksClient();
-    const queuePath = tasksClient.queuePath(PROJECT_ID, tasksLocation, tasksQueue);
+    const queuePath = tasksClient.queuePath(projectId, tasksLocation, tasksQueue);
     const scheduleTimeEpochSeconds = Math.floor(scheduleAt.getTime() / 1000);
     const taskId = `close_assessment_reminder_${intendedBusinessDateKey}_${scheduleTimeEpochSeconds}`;
-    const taskName = tasksClient.taskPath(PROJECT_ID, tasksLocation, tasksQueue, taskId);
+    const taskName = tasksClient.taskPath(projectId, tasksLocation, tasksQueue, taskId);
     const taskPayload = {
       action: 'close_assessment',
       intendedBusinessDateKey,

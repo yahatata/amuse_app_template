@@ -16,7 +16,7 @@ const db = getFirestore();
 
 export const openStore = onCall(
   {
-    region: 'us-central1',
+    region: 'asia-northeast1',
   },
   async (request) => {
   // 認証・権限チェック

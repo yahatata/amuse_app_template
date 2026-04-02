@@ -1,4 +1,5 @@
 import { logger } from 'firebase-functions';
+import { getRequiredProjectId } from '../runtime/projectId';
 
 /**
  * 保守運用向けエラーログの粗い分類（第1段階 A）。
@@ -38,12 +39,7 @@ export type LogOpsErrorArgs = {
 };
 
 function resolveProjectId(): string {
-  return (
-    process.env.GCLOUD_PROJECT ||
-    process.env.GCP_PROJECT ||
-    process.env.PROJECT_ID ||
-    'unknown'
-  );
+  return getRequiredProjectId();
 }
 
 function normalizeCause(cause: unknown): { errorMessage?: string; errorName?: string } {

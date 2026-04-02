@@ -218,16 +218,3 @@ export const DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT: Array<{
   { startHour: 19, endHour: 22, requiredCount: 2 },
   { startHour: 10, endHour: 12, requiredCount: 3 },
 ];
-
-// =============================================================================
-// storeMeta/schedulerConfig: スケジューラー ON/OFF
-// =============================================================================
-
-/** 月次給与計算スケジューラーの有効化 */
-export const DEFAULT_MONTHLY_PAYROLL_TRIGGER_ENABLED = true;
-
-/** 却下シフト自動削除スケジューラーの有効化 */
-export const DEFAULT_SCHEDULED_CLEANUP_ENABLED = true;
-
-/** 翌年営業時間自動生成スケジューラーの有効化 */
-export const DEFAULT_SCHEDULE_GENERATE_NEXT_YEAR_BUSINESS_HOURS_ENABLED = true;

@@ -15,7 +15,7 @@ import { logOpsError } from "../../../shared/logging/logOpsError";
  * - success: 成功フラグ
  */
 export const getStaffAttendance = onCall(
-  { region: "us-central1", maxInstances: 10 },
+  { region: "asia-northeast1", maxInstances: 10 },
   async (request) => {
     try {
       // 認証チェック
@@ -98,4 +98,3 @@ export const getStaffAttendance = onCall(
     }
   }
 );
-

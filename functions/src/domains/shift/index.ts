@@ -1,5 +1,10 @@
 // Shift management Cloud Functions
-export { initBusinessHoursForMonth, generateBusinessHoursForMonthFromStyles, generateBusinessHoursForYearFromStyles, setBusinessHoursManualForDay, scheduleGenerateNextYearBusinessHours } from "../../shared/businessHours";
+export {
+  initBusinessHoursForMonth,
+  generateBusinessHoursForMonthFromStyles,
+  generateBusinessHoursForYearFromStyles,
+  setBusinessHoursManualForDay,
+} from "../../shared/businessHours";
 export { initShiftDaysForMonth } from "./callables/initShiftDaysForMonth";
 export { interimConfirmRequests } from "./callables/interimConfirmRequests";
 export { updateDayAssignments } from "./callables/updateDayAssignments";

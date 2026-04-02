@@ -13,7 +13,7 @@ import { getCallerDeviceByUid, hasStoreManagementPermission, isActive } from '..
 const db = getFirestore();
 
 export const closeStore = onCall(
-  { region: 'us-central1' },
+  { region: 'asia-northeast1' },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '認証が必要です');

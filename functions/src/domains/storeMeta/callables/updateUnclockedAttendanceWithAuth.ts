@@ -1,7 +1,7 @@
 /**
  * Phase4 03 拡張: 未退勤 attendance の退勤打刻（簡易パスワード認証付き）
  *
- * 環境変数 UNCLOCKED_ATTENDANCE_EDIT_PASSWORD と一致するパスワードを入力することで、
+ * business-secrets.unclockedAttendanceEditPassword と一致するパスワードを入力することで、
  * 未退勤の attendance に退勤時刻を記録する。
  * terminalHome の未退勤一覧から修正する際に使用。
  */
@@ -16,8 +16,7 @@ import {
   endActiveBreaksForClockOut,
   recalculateAttendanceFromBreaks,
 } from '../../attendance/helpers/recalculateAttendanceFromBreaks';
-
-const ENV_PASSWORD_KEY = 'UNCLOCKED_ATTENDANCE_EDIT_PASSWORD';
+import { getBusinessSecrets } from '../../../shared/secrets/secretManager';
 
 export const updateUnclockedAttendanceWithAuth = onCall(async (request: CallableRequest) => {
   if (!request.auth) {
@@ -43,7 +42,8 @@ export const updateUnclockedAttendanceWithAuth = onCall(async (request: Callable
       throw new HttpsError('invalid-argument', 'パスワードを入力してください');
     }
 
-    const expectedPassword = process.env[ENV_PASSWORD_KEY];
+    const { unclockedAttendanceEditPassword: expectedPassword } =
+      await getBusinessSecrets();
     if (!expectedPassword || expectedPassword !== adminPassword) {
       throw new HttpsError('permission-denied', 'パスワードが一致しません');
     }

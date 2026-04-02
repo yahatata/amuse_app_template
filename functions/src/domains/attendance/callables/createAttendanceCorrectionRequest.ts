@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 import { logOpsError } from "../../../shared/logging/logOpsError";
 
 export const createAttendanceCorrectionRequest = onCall(
-  { region: "us-central1", maxInstances: 10 },
+  { region: "asia-northeast1", maxInstances: 10 },
   async (request) => {
     try {
       console.log('=== createAttendanceCorrectionRequest 開始 ===');

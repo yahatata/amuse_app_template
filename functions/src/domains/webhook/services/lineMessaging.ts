@@ -1,14 +1,10 @@
 import * as logger from "firebase-functions/logger";
 import { logOpsError } from "../../../shared/logging/logOpsError";
-import { isProductionRuntime } from "../../../shared/runtime";
+import { getLineConfig } from "../../../shared/secrets/secretManager";
 
-// LINE_CHANNEL_ACCESS_TOKEN: コマンド/コンソールで設定。本番で未設定時はエラー（Phase0A D-01）
-function getLineChannelAccessToken(): string {
-  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  if (isProductionRuntime() && (!token || !token.trim())) {
-    throw new Error("LINE_CHANNEL_ACCESS_TOKEN is not set (required in production)");
-  }
-  return token ?? "";
+async function getLineChannelAccessToken(): Promise<string> {
+  const lineConfig = await getLineConfig();
+  return lineConfig.channelAccessToken;
 }
 
 /**
@@ -23,11 +19,11 @@ export async function sendLinePushMessage(
   message: string
 ): Promise<boolean> {
   try {
-    const channelAccessToken = getLineChannelAccessToken();
+    const channelAccessToken = await getLineChannelAccessToken();
 
     if (!channelAccessToken) {
       logOpsError({
-        message: "LINE_CHANNEL_ACCESS_TOKEN is not set",
+        message: "line-config.channelAccessToken is not set",
         failureType: "config",
         functionEntry: "sendLinePushMessage",
         operation: "token",
@@ -149,11 +145,11 @@ export async function sendLineButtonMessage(
   buttons: Array<{ label: string; action: { type: string; uri?: string; data?: string } }>
 ): Promise<boolean> {
   try {
-    const channelAccessToken = getLineChannelAccessToken();
+    const channelAccessToken = await getLineChannelAccessToken();
 
     if (!channelAccessToken) {
       logOpsError({
-        message: "LINE_CHANNEL_ACCESS_TOKEN is not set",
+        message: "line-config.channelAccessToken is not set",
         failureType: "config",
         functionEntry: "sendLineButtonMessage",
         operation: "token",
@@ -234,4 +230,3 @@ export async function sendLineButtonMessage(
     return false;
   }
 }
-
