@@ -2,7 +2,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import { logOpsError, truncateForLog } from "../../../shared/logging/logOpsError";
-import { getLineConfig, warmupSecrets } from "../../../shared/secrets/secretManager";
+import { getLineConfig } from "../../../shared/secrets/secretManager";
 import { linkStaffRichMenu, linkUserRichMenu } from "../services/lineRichMenu";
 
 // postback リプライ用。リッチメニューリンクは lineRichMenu サービス経由（ensureStaffRichMenu と同一経路）
@@ -10,8 +10,6 @@ async function getLineChannelAccessToken(): Promise<string> {
   const lineConfig = await getLineConfig();
   return lineConfig.channelAccessToken;
 }
-
-warmupSecrets();
 
 /**
  * LINE Webhook - リッチメニュー自動切り替え
