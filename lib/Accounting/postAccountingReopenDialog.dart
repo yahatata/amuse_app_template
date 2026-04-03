@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import '../utils/business_date_ambiguous_dialog.dart';
 
 class PostAccountingReopenDialog extends StatefulWidget {
@@ -19,7 +19,7 @@ class PostAccountingReopenDialog extends StatefulWidget {
 class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog> {
   final _formKey = GlobalKey<FormState>();
   final _reopenReasonController = TextEditingController();
-  final _functions = FirebaseFunctions.instance;
+  final _functions = FunctionsClient.instance;
   
   bool _isProcessing = false;
 

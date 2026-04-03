@@ -110,7 +110,7 @@ describe('enqueueTournamentTasksReplanTask', () => {
     await enqueueTournamentTasksReplanTask(now);
 
     expect(taskQueue).toHaveBeenCalledWith(
-      'scheduled-job-enqueue-tournament-tasks-by-scheduler'
+      'locations/asia-northeast1/functions/scheduled-job-enqueue-tournament-tasks-by-scheduler'
     );
     expect(enqueue).toHaveBeenCalledTimes(1);
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/rendering.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../Utils/menuItemsManager.dart';
@@ -22,7 +23,7 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
   String? _errorMessage;
   final ScrollController _scrollController = ScrollController();
   bool _showFloatingButton = true;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
 
   @override
   void initState() {

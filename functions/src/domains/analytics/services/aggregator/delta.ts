@@ -21,11 +21,11 @@ export function buildSettlementDelta(bill: BillDoc): MonthlyDailyDelta {
 
   return {
     sales: {
-      grossIncl: amounts.grandTotalRounded,
+      grossSales: amounts.grandTotalRounded,
       category: {
         items: category.items,
         extraCost: category.extraCost,
-        sideGameChips: category.sideGameChips,
+        sideGameChip: category.sideGameChips,
         tournaments: category.tournaments,
       },
     },
@@ -55,11 +55,11 @@ export function buildEventDelta(
 ): MonthlyDailyDelta {
   const delta: MonthlyDailyDelta = {
     sales: {
-      grossIncl: 0,
+      grossSales: 0,
       category: {
         items: 0,
         extraCost: 0,
-        sideGameChips: 0,
+        sideGameChip: 0,
         tournaments: 0,
       },
     },

@@ -54,4 +54,5 @@ gcloud secrets versions list <secret名> --project "$PROJECT_ID"
 ## 6. 旧環境変数の扱い
 
 - Cloud Console 上に残る旧環境変数は、コード参照と突合後に削除する。
-- 削除対象の確定と一括削除手順は phaseE で最終固定する。
+- 削除対象の確定と一括削除は `CloudFunctions環境変数棚卸しと削除手順.md` を使う。
+- 本線運用では `probe*` 関数を除外して判断する。

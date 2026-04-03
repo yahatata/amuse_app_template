@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/globalConstant.dart';
 
@@ -19,7 +19,7 @@ class EditRecurringTournamentPage extends StatefulWidget {
 
 class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPage> {
   final _formKey = GlobalKey<FormState>();
-  final _functions = FirebaseFunctions.instance;
+  final _functions = FunctionsClient.instance;
 
   // 編集可能な項目
   bool _isActive = true;

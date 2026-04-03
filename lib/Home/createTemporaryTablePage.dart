@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 class CreateTemporaryTablePage extends StatefulWidget {
   const CreateTemporaryTablePage({super.key});
@@ -177,7 +177,7 @@ class _CreateTemporaryTablePageState extends State<CreateTemporaryTablePage> {
     });
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('createTemporaryTable');
       
       final result = await callable.call({

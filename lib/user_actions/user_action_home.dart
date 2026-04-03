@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'order_from_user_action_popup.dart';
 import 'bust_and_reentry_popup.dart';
 import 'bust_and_exit_popup.dart';
@@ -14,7 +15,6 @@ import 'tournament_history_popup.dart';
 import 'profile_popup.dart';
 import 'current_seat_popup.dart';
 import 'current_accounting_popup.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 
 /// When: ユーザー行をタップしてアクションを選択したいとき
 /// Where: StayingUsersListPage などユーザー一覧系の画面
@@ -582,7 +582,7 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
             },
           );
           try {
-            final functions = FirebaseFunctions.instance;
+            final functions = FunctionsClient.instance;
             final callable = functions.httpsCallable('leaveSeat');
 
             await callable.call({

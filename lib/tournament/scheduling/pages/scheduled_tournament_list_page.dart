@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
@@ -17,7 +18,7 @@ class ScheduledTournamentListPage extends StatefulWidget {
 
 class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPage> {
   final TournamentService _service = TournamentServiceImpl();
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _isLoading = false;
   List<Map<String, dynamic>> _tournamentTemplates = [];

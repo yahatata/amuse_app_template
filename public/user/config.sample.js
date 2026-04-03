@@ -3,6 +3,9 @@
 window.__CONFIG__ = {
   // LIFF ID（LINE公式アカウントごとに異なる）
   liffId: "REPLACE_WITH_YOUR_LIFF_ID",
+
+  // Cloud Functions 呼び出しリージョン（日本リージョンを推奨）
+  functionsRegion: "asia-northeast1",
   
   // Firebase設定（プロジェクトごとに異なる）
   firebaseConfig: {

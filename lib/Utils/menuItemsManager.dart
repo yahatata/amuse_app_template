@@ -1,4 +1,4 @@
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 // メニューアイテムのデータモデル
@@ -107,7 +107,7 @@ class MenuItemsManager {
       _isLoading = true;
       _lastError = null;
 
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('getMenuItems');
       final result = await callable.call({
         'includeArchived': includeArchived,

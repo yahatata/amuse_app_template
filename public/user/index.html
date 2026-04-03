@@ -15,10 +15,11 @@
       import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
       // 設定ファイルから設定を取得
-      const { firebaseConfig, liffId } = window.__CONFIG__;
+      const { firebaseConfig, liffId, functionsRegion: configuredFunctionsRegion } = window.__CONFIG__;
+      const functionsRegion = configuredFunctionsRegion || "asia-northeast1";
       
       // Cloud Functions URLを動的に生成
-      const functionsUrl = `https://us-central1-${firebaseConfig.projectId}.cloudfunctions.net`;
+      const functionsUrl = `https://${functionsRegion}-${firebaseConfig.projectId}.cloudfunctions.net`;
 
       const app = initializeApp(firebaseConfig);
       const auth = getAuth(app);
@@ -27,6 +28,7 @@
       // グローバルに公開
       window.Firebase = { app, auth, db };
       window.FirebaseAuth = { signInWithCustomToken };
+      window.FunctionsRegion = functionsRegion;
       window.FunctionsUrl = functionsUrl; // グローバルに公開
 
       // LIFFとFirebase認証の初期化関数
@@ -804,7 +806,7 @@
 
           // Firebase Functionsを呼び出してユーザー登録とQRコード生成
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const createUserAccount = httpsCallable(functions, 'createUserAccount');
           
           const result = await createUserAccount({
@@ -874,7 +876,7 @@
       async function updateCheckinStatusUI(userId) {
         try {
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getUserStatus = httpsCallable(functions, 'getUserStatus');
           
           const result = await getUserStatus({ uid: userId });
@@ -999,7 +1001,7 @@
         try {
           // 新しいQRコードを生成してStorageに保存
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const generateQRCode = httpsCallable(functions, 'generateQRCode');
           
           const result = await generateQRCode({ type: 'user' });
@@ -1098,7 +1100,7 @@
         
         try {
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const generateQRCode = httpsCallable(functions, 'generateQRCode');
           
           const result = await generateQRCode({ type: 'user' });
@@ -1124,7 +1126,7 @@
         try {
           // Firebase Functions SDKを使用してCallable Functionを呼び出し
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getMenuItems = httpsCallable(functions, 'getMenuItems');
           
           const result = await getMenuItems({});
@@ -1201,7 +1203,7 @@
             menuItems.innerHTML = '<div class="spinner"></div>';
             try {
             const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-            const functions = getFunctions(window.Firebase.app);
+            const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
             const getMenuItems = httpsCallable(functions, 'getMenuItems');
             
             const result = await getMenuItems({});
@@ -1445,7 +1447,7 @@
           
           // 入店状態を確認
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getUserStatus = httpsCallable(functions, 'getUserStatus');
           
           const statusResult = await getUserStatus({ uid: userId });
@@ -1513,7 +1515,7 @@
           }
 
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getUserOrderHistory = httpsCallable(functions, 'getUserOrderHistory');
           const result = await getUserOrderHistory({});
           const payload = result.data;
@@ -1626,7 +1628,7 @@
           
           // 入店状態を確認
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getUserStatus = httpsCallable(functions, 'getUserStatus');
           
           const statusResult = await getUserStatus({ uid: userId });
@@ -1733,7 +1735,7 @@
           todayTournamentList.innerHTML = '<div class="spinner"></div>';
           
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getTodayTournaments = httpsCallable(functions, 'getTodayTournaments');
           
           const result = await getTodayTournaments({});
@@ -1823,7 +1825,7 @@
           weeklyTournamentList.innerHTML = '<div class="spinner"></div>';
           
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getUpcomingTournaments = httpsCallable(functions, 'getUpcomingTournaments');
           
           const result = await getUpcomingTournaments({});
@@ -1931,7 +1933,7 @@
       window.showTournamentRegistration = async (tournamentId) => {
         try {
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const registerForTournament = httpsCallable(functions, 'registerForTournament');
           
           const result = await registerForTournament({ tournamentId });
@@ -2120,7 +2122,7 @@
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
           
           // 全トーナメントデータを取得
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getUpcomingTournaments = httpsCallable(functions, 'getUpcomingTournaments');
           
           const result = await getUpcomingTournaments({ includeAll: true });

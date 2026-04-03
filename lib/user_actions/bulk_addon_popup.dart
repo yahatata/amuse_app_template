@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 
@@ -326,7 +326,7 @@ Future<void> _processBulkAddon({
     }
 
     // Cloud Function呼び出し
-    final functions = FirebaseFunctions.instance;
+    final functions = FunctionsClient.instance;
     final callable = functions.httpsCallable('bulkAddon');
     
     print('=== Cloud Function呼び出し開始 ===');

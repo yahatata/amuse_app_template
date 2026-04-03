@@ -13,42 +13,82 @@
 
 ## 3. Secret 作成（初回のみ）
 
+### 3.1 必須キー（JSON 例）
+
+```json
+// line-config
+{
+  "channelAccessToken": "<LINE Messaging API channel access token>",
+  "staffRichMenuId": "<staff rich menu id>",
+  "userRichMenuId": "<user rich menu id>"
+}
+```
+
+```json
+// task-endpoints
+{
+  "controlHookUrl": "https://<controlHookHttp service>.a.run.app",
+  "closeAssessmentUrl": "https://<closeAssessmentTask service>.a.run.app",
+  "openAssessmentUrl": "https://<openAssessmentTask service>.a.run.app"
+}
+```
+
+```json
+// business-secrets
+{
+  "qrSecretKey": "<qr secret key>",
+  "unclockedAttendanceEditPassword": "<attendance edit password>"
+}
+```
+
+### 3.2 作成コマンド
+
 ```bash
 PROJECT_ID="<対象projectId>"
 gcloud config set project "$PROJECT_ID"
 
-printf '%s' '<line-configのJSON>' \
-  | gcloud secrets create line-config --data-file=- 2>/dev/null \
-  || printf '%s' '<line-configのJSON>' | gcloud secrets versions add line-config --data-file=-
+printf '%s' '<line-configのJSON>' | \
+  gcloud secrets create line-config --data-file=- --project "$PROJECT_ID" 2>/dev/null || \
+printf '%s' '<line-configのJSON>' | \
+  gcloud secrets versions add line-config --data-file=- --project "$PROJECT_ID"
 
-printf '%s' '<task-endpointsのJSON>' \
-  | gcloud secrets create task-endpoints --data-file=- 2>/dev/null \
-  || printf '%s' '<task-endpointsのJSON>' | gcloud secrets versions add task-endpoints --data-file=-
+printf '%s' '<task-endpointsのJSON>' | \
+  gcloud secrets create task-endpoints --data-file=- --project "$PROJECT_ID" 2>/dev/null || \
+printf '%s' '<task-endpointsのJSON>' | \
+  gcloud secrets versions add task-endpoints --data-file=- --project "$PROJECT_ID"
 
-printf '%s' '<business-secretsのJSON>' \
-  | gcloud secrets create business-secrets --data-file=- 2>/dev/null \
-  || printf '%s' '<business-secretsのJSON>' | gcloud secrets versions add business-secrets --data-file=-
+printf '%s' '<business-secretsのJSON>' | \
+  gcloud secrets create business-secrets --data-file=- --project "$PROJECT_ID" 2>/dev/null || \
+printf '%s' '<business-secretsのJSON>' | \
+  gcloud secrets versions add business-secrets --data-file=- --project "$PROJECT_ID"
 ```
 
 期待結果:
 
 - 3 secret が存在し、`versions/latest` が参照可能になる。
 
-## 4. Functions 実行 SA への権限付与
+## 4. Functions 実行 SA への権限付与（secret単位）
 
 ```bash
 PROJECT_ID="<対象projectId>"
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
 RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:${RUNTIME_SA}" \
-  --role="roles/secretmanager.secretAccessor"
+for s in line-config task-endpoints business-secrets; do
+  gcloud secrets add-iam-policy-binding "$s" \
+    --member="serviceAccount:${RUNTIME_SA}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project "$PROJECT_ID"
+done
 ```
 
 期待結果:
 
-- IAM policy に `roles/secretmanager.secretAccessor` が追加される。
+- 3 secret すべてで、実行 SA に `roles/secretmanager.secretAccessor` が付与される。
+
+補足:
+
+- Functions が custom service account を使う場合は、その SA を `RUNTIME_SA` に設定する。
 
 ## 5. デプロイ後の最低限確認
 

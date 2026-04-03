@@ -6,6 +6,9 @@ window.__CONFIG__ = {
 
   // LIFF ID（ミニアプリ開発用）
   liffId: "2007950789-ZJ7b0JgO",
+
+  // Cloud Functions 呼び出しリージョン
+  functionsRegion: "asia-northeast1",
   
   // Firebase設定
   firebaseConfig: {

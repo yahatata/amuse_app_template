@@ -8,8 +8,8 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import type { CallableRequest } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getFunctions } from 'firebase-admin/functions';
 import { logger } from 'firebase-functions';
+import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue';
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
@@ -63,7 +63,7 @@ export const retryFailedStaffTasks = onCall(async (request: CallableRequest) => 
     .get();
 
   const failedStaffIds: string[] = [];
-  const queue = getFunctions().taskQueue('processStaffPayroll');
+  const queue = getRegionalTaskQueue('processStaffPayroll');
 
   for (const srDoc of staffResultsSnap.docs) {
     const staffId = srDoc.id;

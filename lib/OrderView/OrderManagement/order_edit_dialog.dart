@@ -1,7 +1,7 @@
 import 'dart:async';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 
 class OrderEditDialog extends StatefulWidget {
   final String orderId;
@@ -404,7 +404,7 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
 
     try {
       // Cloud Functions経由で注文を取り消し
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('cancelOrder');
 
       final result = await callable.call({

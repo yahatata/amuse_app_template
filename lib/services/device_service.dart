@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -14,7 +15,7 @@ class DeviceService {
   static const String _deviceRoleKey = 'device_role';
   
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   /// 直近取得したデバイスの簡易キャッシュ（任意）

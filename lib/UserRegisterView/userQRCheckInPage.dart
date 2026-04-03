@@ -1,4 +1,5 @@
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
@@ -51,7 +52,7 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
       // Where: Flutter → Cloud Functions
       // What: 読み取った文字列(raw)を `processVisitByQR` に渡す
       // How: Cloud Functions(Callable)へ httpsCallable で呼び出し
-      final callable = FirebaseFunctions.instance.httpsCallable('processVisitByQR');
+      final callable = FunctionsClient.instance.httpsCallable('processVisitByQR');
       final result = await callable.call({
         'qrData': raw,
         'entranceFee': StoreConfigService.instance.latestData?.entranceFee ?? kDefaultEntranceFee,

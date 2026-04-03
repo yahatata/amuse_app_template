@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
@@ -20,7 +20,7 @@ class AccountingEditDialog extends StatefulWidget {
 class _AccountingEditDialogState extends State<AccountingEditDialog> {
   final _formKey = GlobalKey<FormState>();
   final _reasonController = TextEditingController();
-  final _functions = FirebaseFunctions.instance;
+  final _functions = FunctionsClient.instance;
   final _firestore = FirebaseFirestore.instance;
 
   // 入店料の管理

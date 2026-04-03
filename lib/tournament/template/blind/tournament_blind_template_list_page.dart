@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'create_tournament_blind_basic.dart';
 
 class TournamentBlindTemplateList extends StatefulWidget {
@@ -35,7 +35,7 @@ class _TournamentBlindTemplateListState extends State<TournamentBlindTemplateLis
     });
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('getBlindTemplates');
 
       final result = await callable.call();
@@ -71,7 +71,7 @@ class _TournamentBlindTemplateListState extends State<TournamentBlindTemplateLis
   /// ブラインドテンプレートをアーカイブする
   Future<void> _archiveBlindTemplate(String blindTemplateId) async {
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('archiveBlindTemplate');
 
       final result = await callable.call({'blindTemplateId': blindTemplateId});

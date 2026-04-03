@@ -3,6 +3,7 @@
 // 参照: docs/config_migration/phase1/PHASE1_UPDATE_PATH_DESIGN.md
 
 import 'dart:async';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -16,7 +17,7 @@ class AdminDetailSettingsPage extends StatefulWidget {
 }
 
 class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
   bool _isProcessing = false;
 
   Future<void> _callCallable(String name, String loadingLabel) async {

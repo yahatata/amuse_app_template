@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
@@ -400,7 +400,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
       );
 
       // 1. 終了前検証
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final validateCallable = functions.httpsCallable('validateEndTournament');
       final validateResult = await validateCallable.call({
         'tournamentId': widget.tournamentId,

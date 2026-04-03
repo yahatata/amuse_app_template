@@ -1,4 +1,5 @@
 import 'package:amuse_app_template/Home/close_pre_confirmation_page.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/Home/unclocked_attendance_list_page.dart';
 import 'package:amuse_app_template/Home/stayingUsersListPage.dart';
 import 'package:amuse_app_template/AttendanceManagement/staff_attendance_page_from_terminalHome.dart';
@@ -602,7 +603,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
         loadingShown = true;
       }
 
-      final callable = FirebaseFunctions.instance.httpsCallable('closeStoreTerminal');
+      final callable = FunctionsClient.instance.httpsCallable('closeStoreTerminal');
       final payload = <String, dynamic>{};
       if (runId != null) payload['runId'] = runId;
       if (forceClose) payload['forceClose'] = true;
@@ -707,7 +708,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
         loadingShown = true;
       }
 
-      final callable = FirebaseFunctions.instance.httpsCallable('openStoreTerminal');
+      final callable = FunctionsClient.instance.httpsCallable('openStoreTerminal');
       final payload = runId != null ? <String, dynamic>{'runId': runId} : <String, dynamic>{};
       final result = await callable.call<Map<String, dynamic>>(payload).timeout(
         const Duration(seconds: 60),
@@ -830,7 +831,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       }
 
       // Cloud Function呼び出し
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('createInitialStateDocCallable');
 
       final result = await callable.call({}).timeout(
@@ -934,7 +935,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       // 注意: リージョン指定が必要な場合は、Firebase Functionsのデフォルト設定で
       // リージョンが設定されている場合、instanceForを使用する必要がありますが、
       // 認証トークンが正しく送信されない可能性があるため、まずはinstanceを試します
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('openStore');
 
       final result = await callable.call({}).timeout(
@@ -1038,7 +1039,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       // 注意: リージョン指定が必要な場合は、Firebase Functionsのデフォルト設定で
       // リージョンが設定されている場合、instanceForを使用する必要がありますが、
       // 認証トークンが正しく送信されない可能性があるため、まずはinstanceを試します
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('closeStore');
 
       final result = await callable.call({}).timeout(
@@ -1259,7 +1260,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
                   onPressed: () async {
                     Navigator.of(dialogContext).pop();
                     try {
-                      final callable = FirebaseFunctions.instance.httpsCallable('continueBusinessTerminal');
+                      final callable = FunctionsClient.instance.httpsCallable('continueBusinessTerminal');
                       await callable.call(<String, dynamic>{
                         'intendedBusinessDateKey': targetBusinessDateKey,
                         'hours': selectedHours,

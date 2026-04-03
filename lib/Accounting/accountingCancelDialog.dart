@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 class AccountingCancelDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
@@ -18,7 +18,7 @@ class AccountingCancelDialog extends StatefulWidget {
 class _AccountingCancelDialogState extends State<AccountingCancelDialog> {
   final _formKey = GlobalKey<FormState>();
   final _reasonController = TextEditingController();
-  final _functions = FirebaseFunctions.instance;
+  final _functions = FunctionsClient.instance;
   bool _includeRefund = false;
   int _refundAmount = 0;
   bool _isProcessing = false;

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import '../../services/device_service.dart';
 
 class TournamentActionsHistoryPage extends StatefulWidget {
@@ -77,7 +77,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
     });
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       
       Map<String, dynamic> params = {
         'tournamentId': widget.tournamentId,
@@ -298,7 +298,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
     setState(() => _isRollingBack = true);
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       
       final action = actionLog['action'] as String;
       // 操作履歴は operationLogs のみ。取り消しは常に operationId で指定

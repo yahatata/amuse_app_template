@@ -1,10 +1,10 @@
 import 'dart:math' as Math;
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/user_actions/user_action_home.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
@@ -683,7 +683,7 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
   /// デバッグ用Cloud Functionを呼び出すメソッド
   Future<void> _debugSideGame() async {
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('debugSideGame');
       
       final result = await callable.call({
@@ -846,7 +846,7 @@ class _ParticipantRegistrationDialogState extends State<_ParticipantRegistration
       print('seatNumber: ${widget.seatNumber}');
       print('userId: $_selectedUserId');
 
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('registerForSideGame');
       
       final result = await callable.call({

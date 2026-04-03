@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import '../utils/business_date_ambiguous_dialog.dart';
 
 class PostAccountingRefundDialog extends StatefulWidget {
@@ -20,7 +20,7 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
   final _formKey = GlobalKey<FormState>();
   final _refundAmountController = TextEditingController();
   final _refundReasonController = TextEditingController();
-  final _functions = FirebaseFunctions.instance;
+  final _functions = FunctionsClient.instance;
   
   String _refundMethod = 'cash';
   bool _isProcessing = false;
