@@ -9,6 +9,12 @@
 - `task-endpoints` と実体リージョンを整合させる
 - `fireBase紐付け` 導入時資料を、運用可能なチェックリストへ更新する
 
+進捗メモ（2026-04-02）:
+
+- phaseF.1（リージョン明示化）は完了。
+- `setGlobalOptions` は `functions/src/index.ts` の単一点設定へ是正済み。
+- 以後は phaseF 本体（外部操作最終確認）を継続する。
+
 用語ルール:
 
 - `GitHubリポジトリ名`: 例 `yahatata/amuse_app_template`
@@ -118,7 +124,12 @@ GCP / GitHub / Firebase Console 上の外部操作が必須なもののみ、目
 ## 完了物
 
 - `phaseF/changeSpec.md`
+- `phaseF/phaseF.1_changeSpec_リージョン明示化.md`
 - `phaseF/phaseF_log.md`
 - `phaseF/phaseF_外部操作手順.md`
+- `phaseF/step8_運用時資料判定.md`
+- `phaseF/phaseF_完了サマリとphaseG引き継ぎ.md`
+- `scripts/functions_region_migration_report.sh`
+- `scripts/firebase_deploy_functions_in_batches.sh`
 - `.github/workflows/deploy-functions.yml`
 - 更新済み `fireBase紐付け` 運用資料

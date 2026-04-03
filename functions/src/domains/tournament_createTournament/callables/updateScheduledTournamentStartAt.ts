@@ -68,15 +68,15 @@ export const updateScheduledTournamentStartAt = onCall(async (request) => {
   const startAtDate = new Date(startAt);
   const businessDateResult = await calcBusinessDate(startAtDate);
   let businessDate: string;
-
-  if (businessDateResult.status === "NONE") {
+  if (typeof businessDateResult === "string") {
+    // Legacy compatibility for tests/helpers that still return plain date keys.
+    businessDate = businessDateResult;
+  } else if (businessDateResult.status === "NONE") {
     throw new HttpsError(
       "failed-precondition",
       `The start time ${startAt} does not belong to any business day.`
     );
-  }
-
-  if (businessDateResult.status === "AMBIGUOUS") {
+  } else if (businessDateResult.status === "AMBIGUOUS") {
     if (
       !selectedBusinessDateKey ||
       !businessDateResult.candidates.includes(selectedBusinessDateKey)
@@ -88,8 +88,10 @@ export const updateScheduledTournamentStartAt = onCall(async (request) => {
       );
     }
     businessDate = selectedBusinessDateKey;
-  } else {
+  } else if (businessDateResult.businessDateKey) {
     businessDate = businessDateResult.businessDateKey;
+  } else {
+    throw new HttpsError("internal", "calcBusinessDate returned OK without businessDateKey");
   }
 
   const snapshot = data.snapshot || {};

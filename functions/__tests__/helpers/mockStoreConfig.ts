@@ -156,6 +156,14 @@ jest.mock('../../src/domains/storeMeta/repos/getCurrentBusinessDateKeyOrThrow', 
 
   return {
     ...actual,
-    getCurrentBusinessDateKeyOrThrow: jest.fn(async () => legacyCalcBusinessDate()),
+    getCurrentBusinessDateKeyOrThrow: jest.fn(async () => {
+      try {
+        // Prefer the real implementation when storeMeta/currentBusinessDay is prepared in tests.
+        return await actual.getCurrentBusinessDateKeyOrThrow();
+      } catch {
+        // Fallback for legacy tests that do not seed storeMeta/currentBusinessDay.
+        return legacyCalcBusinessDate();
+      }
+    }),
   };
 });
