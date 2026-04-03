@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../Utils/menuItemsManager.dart';
 import '../services/store_config_defaults.dart';
@@ -251,7 +252,7 @@ Future<void> _showQuantityAndConfirm({
 
                               debugPrint('[OrderPop] confirm order for item=${item.id} qty=$quantity billId=$billId clientNonce=$clientNonce');
                               try {
-                                final functions = FirebaseFunctions.instance;
+                                final functions = FunctionsClient.instance;
                                 final callable = functions.httpsCallable('placeOrder');
                                 final resp = await callable.call({
                                   'billId': billId,

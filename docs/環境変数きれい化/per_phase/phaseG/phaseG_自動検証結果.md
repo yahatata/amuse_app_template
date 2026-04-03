@@ -118,3 +118,53 @@
 
 - 安全修正で解消できる失敗は解消済み（11 suite fail -> 3 suite fail）。
 - 残件は仕様・設計判断を要するため、ユーザー判断待ちとして `phaseG_要修正事項一覧.md` に切り分け済み。
+
+## 6. 追補（2026-04-03: J-001/J-002 反映後の再検証）
+
+実施日: 2026-04-03  
+方針: ユーザー判断に基づき、J-001/J-002 を実装・テスト反映して再検証。
+
+### 6.1 実行コマンド
+
+- 対象テスト:
+  - `firebase emulators:exec --only firestore "cd functions && npm test -- --runInBand __tests__/tournament_createTournament/step3_taskSyncNeeded.spec.ts __tests__/analytics/aggregator.spec.ts"`
+- Functions 全体:
+  - `firebase emulators:exec --only firestore "cd functions && npm test -- --runInBand --json --outputFile=/tmp/functions-jest-results-after-j001-j002.json"`
+
+### 6.2 結果
+
+- 対象テスト:
+  - `2 passed / 0 failed (suite)`、`7 passed / 0 failed (test)`
+- Functions 全体:
+  - `1 failed / 105 passed / 1 skipped (suite)`
+  - `1 failed / 975 passed / 3 skipped (test)`
+  - 失敗は `step5_enqueueAfterCreate.spec.ts` のみ（J-003）
+  - JSON 出力: `/tmp/functions-jest-results-after-j001-j002.json`
+
+### 6.3 判定
+
+- J-001 / J-002 は解消済み。
+- 現在の Functions テスト残件は J-003 のみ。
+
+## 7. 追補（2026-04-03: J-003/J-004/J-005 方針確定後）
+
+実施日: 2026-04-03  
+方針:
+- J-003: スコープ外クローズ（別ブランチで改修中）
+- J-004: 不要テスト削除でクローズ
+- J-005: スコープ外クローズ（既存負債対応は別トラック）
+
+### 7.1 実施内容
+
+- `test/widget_test.dart` を削除。
+- `flutter test` を再実行。
+- `flutter analyze` を再実行（現状値の確認のみ）。
+
+### 7.2 結果
+
+- `flutter test`: 成功
+- `flutter analyze`: `1024 issues found`
+
+### 7.3 判定
+
+- phaseG の J-003〜J-005 は、ユーザー判断に沿ってクローズ済み。

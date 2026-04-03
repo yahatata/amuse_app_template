@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
@@ -10,7 +11,7 @@ class AttendanceCorrectionRequestsPage extends StatefulWidget {
 }
 
 class _AttendanceCorrectionRequestsPageState extends State<AttendanceCorrectionRequestsPage> {
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
   
   List<Map<String, dynamic>> _correctionRequests = [];
   bool _isLoading = true;

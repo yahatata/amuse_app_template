@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/AttendanceManagement/qrScanPage.dart';
@@ -205,7 +206,7 @@ class _StaffAttendancePageState extends State<StaffAttendancePage>
 
   Future<void> _verifyAndOpenAdminPage(String password) async {
     try {
-      final callable = FirebaseFunctions.instance
+      final callable = FunctionsClient.instance
           .httpsCallable('verifyUnclockedAttendanceEditPassword');
       await callable.call({'password': password});
       if (!mounted) return;

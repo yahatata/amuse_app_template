@@ -1,4 +1,5 @@
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'dart:convert';
 
 /// 時刻を日本時間の文字列に変換するユーティリティ関数
@@ -23,7 +24,7 @@ String formatToJST(String? timeString) {
 }
 
 class AttendanceService {
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
 
   /// 出勤打刻（Phase4 01: clockIn Callable）
   Future<ClockInResult> clockIn(
@@ -467,7 +468,7 @@ class AttendanceService {
     required int endDay,
   }) async {
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('getAllStaffAttendance');
+      final callable = FunctionsClient.instance.httpsCallable('getAllStaffAttendance');
       final result = await callable.call({
         'month': month,
         'year': year,
@@ -489,7 +490,7 @@ class AttendanceService {
     required int endDay,
   }) async {
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('getPayrollData');
+      final callable = FunctionsClient.instance.httpsCallable('getPayrollData');
       
       final result = await callable.call({
         'month': month,

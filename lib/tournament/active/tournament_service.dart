@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -83,7 +84,7 @@ abstract class TournamentService {
 
 // 実装クラス
 class TournamentServiceImpl implements TournamentService {
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
 
   @override
   Future<Map<String, dynamic>> createScheduledTournament({

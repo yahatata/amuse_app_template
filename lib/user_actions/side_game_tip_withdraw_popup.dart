@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 
 /// SideGame用Tip引き出しポップアップ
 Future<void> showSideGameTipWithdrawDialog({
@@ -253,7 +253,7 @@ class _SideGameTipWithdrawDialogState
     );
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('withdrawTip');
 
       final result = await callable.call({

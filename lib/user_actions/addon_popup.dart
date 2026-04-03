@@ -1,7 +1,7 @@
 import 'dart:async'; // For TimeoutException
 import 'dart:math';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 
@@ -284,7 +284,7 @@ Future<void> _executeAddon({
 
     final device = await DeviceService().getCurrentDevice();
     final deviceName = device?.name;
-    final functions = FirebaseFunctions.instance;
+    final functions = FunctionsClient.instance;
     final callable = functions.httpsCallable('addon');
 
     final result = await callable.call({

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import '../utils/business_date_ambiguous_dialog.dart';
 
 class PostAccountingAdjustmentDialog extends StatefulWidget {
@@ -22,7 +22,7 @@ class _PostAccountingAdjustmentDialogState extends State<PostAccountingAdjustmen
   final _formKey = GlobalKey<FormState>();
   final _adjustmentAmountController = TextEditingController();
   final _adjustmentReasonController = TextEditingController();
-  final _functions = FirebaseFunctions.instance;
+  final _functions = FunctionsClient.instance;
   
   bool _isProcessing = false;
 

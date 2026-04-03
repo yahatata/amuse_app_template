@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
@@ -355,7 +356,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
       _isLoading = true;
     });
     try {
-      final callable = FirebaseFunctions.instance
+      final callable = FunctionsClient.instance
           .httpsCallable('updateScheduledTournamentStatus');
       final result = await callable.call({
         'tournamentId': tournamentId,
@@ -453,7 +454,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
       _isLoading = true;
     });
     try {
-      final callable = FirebaseFunctions.instance
+      final callable = FunctionsClient.instance
           .httpsCallable('updateScheduledTournamentStartAt');
       final result = await callable.call({
         'tournamentId': tournament['id'],
@@ -472,7 +473,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
             context: context,
             candidates: candidates,
             onSelected: (selectedKey) async {
-              final callable = FirebaseFunctions.instance
+              final callable = FunctionsClient.instance
                   .httpsCallable('updateScheduledTournamentStartAt');
               await callable.call({
                 'tournamentId': tournament['id'],
@@ -512,7 +513,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
   Future<void> _loadTournamentTemplates() async {
     try {
       debugPrint('=== テンプレート読み込み開始 ===');
-      final result = await FirebaseFunctions.instance
+      final result = await FunctionsClient.instance
           .httpsCallable('getTournamentTemplates')
           .call();
 
@@ -748,7 +749,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
       };
       debugPrint('完全なリクエストデータ: ${requestData.toString()}');
 
-      final result = await FirebaseFunctions.instance
+      final result = await FunctionsClient.instance
           .httpsCallable('createScheduledTournament')
           .call(requestData);
 

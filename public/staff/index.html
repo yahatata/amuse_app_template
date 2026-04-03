@@ -26,19 +26,21 @@
 
       if (window._debugLog) window._debugLog('2. Firebaseモジュール開始');
       // 設定ファイルから設定を取得
-      const { firebaseConfig, liffId } = window.__CONFIG__;
+      const { firebaseConfig, liffId, functionsRegion: configuredFunctionsRegion } = window.__CONFIG__;
+      const functionsRegion = configuredFunctionsRegion || "asia-northeast1";
       if (window._debugLog) window._debugLog('2a. __CONFIG__取得済み');
       
       // Cloud Functions URLを動的に生成
-      const functionsUrl = `https://us-central1-${firebaseConfig.projectId}.cloudfunctions.net`;
+      const functionsUrl = `https://${functionsRegion}-${firebaseConfig.projectId}.cloudfunctions.net`;
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
-       const functions = getFunctions(app);
+       const functions = getFunctions(app, functionsRegion);
 
        // グローバルに公開（DOMContentLoaded発火前に必ず代入するため、loadLinePlanFromFirestoreより先に実行）
        window.Firebase = { app, auth, db, functions };
+       window.FunctionsRegion = functionsRegion;
     window.FirebaseAuth = { signInWithCustomToken };
        window.FirebaseFunctions = { httpsCallable };
       
@@ -967,7 +969,7 @@
 
       // Cloud Functionを呼び出してスタッフアカウントを作成
       const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-      const functions = getFunctions(window.Firebase.app);
+      const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
       const createStaffAccount = httpsCallable(functions, 'createStaffAccount');
       
       const result = await createStaffAccount({
@@ -1099,7 +1101,7 @@
         try {
           // 新しいQRコードを生成
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const generateQRCode = httpsCallable(functions, 'generateQRCode');
           
           const result = await generateQRCode({ type: 'staff' });
@@ -1509,7 +1511,7 @@
 
         // 2) フォールバック: getShifts（遅い可能性あり）
         const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-        const functions = getFunctions(window.Firebase.app);
+        const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
         const getShifts = httpsCallable(functions, "getShifts");
         const result = await getShifts({ userId });
         if (!result?.data?.success) return [];
@@ -2332,7 +2334,7 @@
         
         try {
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           
           // 既存の申請があるものと新規作成するものを分ける
           const shiftsToUpdate = [];
@@ -2592,7 +2594,7 @@
 
           // Cloud Functionを使用して複数シフトを一括申請
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const createMultipleShifts = httpsCallable(functions, 'createMultipleShifts');
           
           const result = await createMultipleShifts({ shifts: pendingShifts });
@@ -2636,7 +2638,7 @@
 
       async function fetchAllShiftsViaGetShifts(uid) {
         const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-        const functions = getFunctions(window.Firebase.app);
+        const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
         const getShifts = httpsCallable(functions, "getShifts");
         const result = await getShifts({ userId: uid });
         if (!result?.data?.success) {
@@ -2704,7 +2706,7 @@
             (async () => {
               try {
                 const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-                const functions = getFunctions(window.Firebase.app);
+                const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
                 const confirmShiftRequest = httpsCallable(functions, 'confirmShiftRequest');
                 await confirmShiftRequest({ requestId: requestId });
               } catch (error) {
@@ -4062,7 +4064,7 @@
           
           // Cloud Functionを呼び出して勤怠データを取得
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app);
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getStaffAttendance = httpsCallable(functions, 'getStaffAttendance');
           
           

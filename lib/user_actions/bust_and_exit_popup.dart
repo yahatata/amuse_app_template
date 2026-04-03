@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 
 /// Bust&退席確認ダイアログ
@@ -131,7 +131,7 @@ Future<void> _executeBustAndExit({
     print('=== ローディングダイアログ表示完了 ===');
 
     // Cloud Function呼び出し（タイムアウト付き）
-    final functions = FirebaseFunctions.instance;
+    final functions = FunctionsClient.instance;
     final callable = functions.httpsCallable('bustAndExit');
     
     print('=== Bust&退席Cloud Function呼び出し開始 ===');

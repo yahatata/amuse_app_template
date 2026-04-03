@@ -1,4 +1,5 @@
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/HomeBackAction.dart';
 
@@ -39,7 +40,7 @@ class _CreateUserAccountState extends State<CreateUserAccount> {
     final birthDay = _birthMonthDayController.text.trim();
 
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('createUserByApp');
+      final callable = FunctionsClient.instance.httpsCallable('createUserByApp');
       await callable.call({
         'pokerName': name,
         'email': email,

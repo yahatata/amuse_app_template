@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/Accounting/accountingHistoryPage.dart';
@@ -61,7 +62,7 @@ class AccountingPage extends StatefulWidget {
 
 class _AccountingPageState extends State<AccountingPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
   
   List<Map<String, dynamic>> _activeBills = [];
   List<Map<String, dynamic>> _settledBills = [];

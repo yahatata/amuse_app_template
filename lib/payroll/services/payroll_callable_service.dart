@@ -3,9 +3,10 @@
 // 参照: 04_CALLABLE_API_SPEC §2,3,6,7
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 class PayrollCallableService {
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
 
   /// 計算タブ用: JST 基準日・当日期間キー・支給予定日（サーバー算出と Callable 共通）
   Future<Map<String, dynamic>> getPayrollCalcDisplayContext() async {

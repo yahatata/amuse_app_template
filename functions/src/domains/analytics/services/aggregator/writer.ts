@@ -23,11 +23,11 @@ export async function applyMonthlyDailyDelta(
 
   // 月次 doc 更新
   const monthlyUpdate: Record<string, any> = {
-    'sales.grossIncl': admin.firestore.FieldValue.increment(delta.sales.grossIncl),
-    'sales.category.items': admin.firestore.FieldValue.increment(delta.sales.category.items),
-    'sales.category.extraCost': admin.firestore.FieldValue.increment(delta.sales.category.extraCost),
-    'sales.category.sideGameChips': admin.firestore.FieldValue.increment(delta.sales.category.sideGameChips),
-    'sales.category.tournaments': admin.firestore.FieldValue.increment(delta.sales.category.tournaments),
+    itemsSales: admin.firestore.FieldValue.increment(delta.sales.category.items),
+    sideGameChipSales: admin.firestore.FieldValue.increment(delta.sales.category.sideGameChip),
+    extraCostSales: admin.firestore.FieldValue.increment(delta.sales.category.extraCost),
+    tournamentsSales: admin.firestore.FieldValue.increment(delta.sales.category.tournaments),
+    grossSales: admin.firestore.FieldValue.increment(delta.sales.grossSales),
     'events.totalRefundedIncl': admin.firestore.FieldValue.increment(delta.events.totalRefundedIncl),
     'events.totalAdjustmentsIncl': admin.firestore.FieldValue.increment(delta.events.totalAdjustmentsIncl),
     'events.unattributedRefundsIncl': admin.firestore.FieldValue.increment(delta.events.unattributedRefundsIncl),
@@ -38,7 +38,7 @@ export async function applyMonthlyDailyDelta(
 
   // paymentTotals を動的に追加
   for (const [method, amount] of Object.entries(delta.cashflow.paymentTotals)) {
-    monthlyUpdate[`cashflow.paymentTotals.${method}`] = admin.firestore.FieldValue.increment(amount);
+    monthlyUpdate[`paymentTotals.${method}`] = admin.firestore.FieldValue.increment(amount);
   }
 
   // refundsByMethod を動的に追加
@@ -50,10 +50,14 @@ export async function applyMonthlyDailyDelta(
   const monthlyDoc = await monthlyRef.get();
   if (!monthlyDoc.exists) {
     await monthlyRef.set({
-      sales: {
-        grossIncl: 0,
-        category: { items: 0, extraCost: 0, sideGameChips: 0, tournaments: 0 },
-      },
+      itemsSales: 0,
+      sideGameChipSales: 0,
+      extraCostSales: 0,
+      tournamentsSales: 0,
+      grossSales: 0,
+      orderCount: 0,
+      dailySales: {},
+      paymentTotals: {},
       events: {
         totalRefundedIncl: 0,
         totalAdjustmentsIncl: 0,
@@ -61,7 +65,6 @@ export async function applyMonthlyDailyDelta(
         unattributedAdjustmentsIncl: 0,
       },
       cashflow: {
-        paymentTotals: {},
         refundsByMethod: {},
       },
       net: {
@@ -80,10 +83,14 @@ export async function applyMonthlyDailyDelta(
   const dailyDoc = await dailyRef.get();
   if (!dailyDoc.exists) {
     await dailyRef.set({
-      sales: {
-        grossIncl: 0,
-        category: { items: 0, extraCost: 0, sideGameChips: 0, tournaments: 0 },
-      },
+      itemsSales: 0,
+      sideGameChipSales: 0,
+      extraCostSales: 0,
+      tournamentsSales: 0,
+      grossSales: 0,
+      orderCount: 0,
+      byCategory: {},
+      byPaymentMethod: {},
       events: {
         totalRefundedIncl: 0,
         totalAdjustmentsIncl: 0,
@@ -91,7 +98,6 @@ export async function applyMonthlyDailyDelta(
         unattributedAdjustmentsIncl: 0,
       },
       cashflow: {
-        paymentTotals: {},
         refundsByMethod: {},
       },
       net: {

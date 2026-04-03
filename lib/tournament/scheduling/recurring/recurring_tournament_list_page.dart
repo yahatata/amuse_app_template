@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/tournament/scheduling/recurring/create_recurring_tournament_page.dart';
@@ -31,7 +31,7 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
 
     try {
       debugPrint('=== 定期開催トーナメント一覧読み込み開始 ===');
-      final result = await FirebaseFunctions.instance
+      final result = await FunctionsClient.instance
           .httpsCallable('getTournamentRecurrences')
           .call();
 
@@ -157,7 +157,7 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
   /// 定期開催を削除
   Future<void> _deleteRecurrence(String recurrenceId) async {
     try {
-      final result = await FirebaseFunctions.instance
+      final result = await FunctionsClient.instance
           .httpsCallable('deleteTournamentRecurrence')
           .call({'recurrenceId': recurrenceId});
 

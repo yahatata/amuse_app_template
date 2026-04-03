@@ -1,4 +1,5 @@
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:amuse_app_template/HomeBackAction.dart';
@@ -41,7 +42,7 @@ class _CreateStaffAccountState extends State<CreateStaffAccount> {
     final phoneNumber = _phoneNumberController.text.trim();
 
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('createStaffByApp');
+      final callable = FunctionsClient.instance.httpsCallable('createStaffByApp');
       await callable.call({
         'fullName': fullName,
         'fullNameKana': fullNameKana,

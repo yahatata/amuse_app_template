@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -32,7 +33,7 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
       StoreConfigService.instance.latestData?.menuCategories ?? kDefaultMenuCategories;
 
   final ImagePicker _picker = ImagePicker();
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
 
   @override
   void initState() {

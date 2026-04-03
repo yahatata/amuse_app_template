@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import '../../Utils/menuItemsManager.dart';
 
 /// SideGame用Chip購入ポップアップ
@@ -246,7 +246,7 @@ class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog
     );
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('placeOrder');
 
       final result = await callable.call({

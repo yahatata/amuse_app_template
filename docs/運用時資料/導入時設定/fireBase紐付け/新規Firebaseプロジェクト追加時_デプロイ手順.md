@@ -31,6 +31,7 @@ gcloud services enable \
   cloudbuild.googleapis.com \
   artifactregistry.googleapis.com \
   run.googleapis.com \
+  secretmanager.googleapis.com \
   eventarc.googleapis.com \
   pubsub.googleapis.com \
   storage.googleapis.com \
@@ -146,13 +147,47 @@ for s in line-config task-endpoints business-secrets; do
 done
 ```
 
-### 5.2 `asia-northeast1` 側 queue 確認
+補足:
+
+- Functions が custom service account を使う場合は、`COMPUTE_SA` ではなく実行 SA へ付与する。
+
+### 5.2 `asia-northeast1` 側 queue 作成・確認
+
+最低限、次の 2 queue は導入時に明示的に用意する。
+
+- `tournament-queue`
+- `business-date-assessment-queue`
 
 ```bash
-gcloud tasks queues list --location="asia-northeast1" --project "$PROJECT_ID"
+for q in tournament-queue business-date-assessment-queue; do
+  gcloud tasks queues describe "$q" \
+    --location="asia-northeast1" \
+    --project "$PROJECT_ID" >/dev/null 2>&1 || \
+  gcloud tasks queues create "$q" \
+    --location="asia-northeast1" \
+    --project "$PROJECT_ID"
+done
+
+gcloud tasks queues list \
+  --location="asia-northeast1" \
+  --project "$PROJECT_ID"
 ```
 
-### 5.3 `task-endpoints` 更新
+補足:
+
+- `scheduled-job-*` や `processStaffPayroll` など、task queue trigger 関数に対応する queue は deploy 時に自動作成される。
+
+## 6. デプロイ実行
+
+GitHub Actions:
+
+1. `Deploy Firebase Functions` を開く
+2. `project_id` に対象 Firebase Project ID を選択
+3. 実行し、`Deploy complete!` を確認
+
+## 7. `task-endpoints` 更新（デプロイ後）
+
+### 7.1 新URL取得
 
 ```bash
 CONTROL_HOOK_URL="$(gcloud functions describe controlHookHttp \
@@ -166,7 +201,11 @@ CLOSE_ASSESSMENT_URL="$(gcloud functions describe closeAssessmentTask \
 OPEN_ASSESSMENT_URL="$(gcloud functions describe openAssessmentTask \
   --v2 --region="asia-northeast1" --project "$PROJECT_ID" \
   --format='value(serviceConfig.uri)')"
+```
 
+### 7.2 Secret version 追加
+
+```bash
 TASK_ENDPOINTS_JSON="$(cat <<EOF
 {
   "controlHookUrl": "${CONTROL_HOOK_URL}",
@@ -182,15 +221,60 @@ printf '%s' "$TASK_ENDPOINTS_JSON" | \
   --project "$PROJECT_ID"
 ```
 
-## 6. デプロイ実行
+### 7.3 反映確認
 
-GitHub Actions:
+```bash
+gcloud secrets versions access latest \
+  --secret="task-endpoints" \
+  --project "$PROJECT_ID"
+```
 
-1. `Deploy Firebase Functions` を開く
-2. `project_id` に対象 Firebase Project ID を選択
-3. 実行し、`Deploy complete!` を確認
+## 8. Cloud Tasks の OIDC 呼び出し SA 整合
 
-## 7. 完了判定
+### 8.1 OIDC 用 SA 作成（未作成時）
+
+```bash
+for sa in tasks-invoker openclose-tasks-invoker; do
+  gcloud iam service-accounts describe "${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --project "$PROJECT_ID" >/dev/null 2>&1 || \
+  gcloud iam service-accounts create "$sa" \
+    --project "$PROJECT_ID" \
+    --display-name "$sa"
+done
+```
+
+### 8.2 Cloud Run 実体への `roles/run.invoker` 付与
+
+```bash
+TASKS_INVOKER_SA="tasks-invoker@${PROJECT_ID}.iam.gserviceaccount.com"
+OPENCLOSE_INVOKER_SA="openclose-tasks-invoker@${PROJECT_ID}.iam.gserviceaccount.com"
+
+CONTROL_HOOK_SERVICE="$(gcloud functions describe controlHookHttp \
+  --v2 --region="asia-northeast1" --project "$PROJECT_ID" \
+  --format='value(serviceConfig.service)' | awk -F/ '{print $NF}')"
+CLOSE_ASSESSMENT_SERVICE="$(gcloud functions describe closeAssessmentTask \
+  --v2 --region="asia-northeast1" --project "$PROJECT_ID" \
+  --format='value(serviceConfig.service)' | awk -F/ '{print $NF}')"
+OPEN_ASSESSMENT_SERVICE="$(gcloud functions describe openAssessmentTask \
+  --v2 --region="asia-northeast1" --project "$PROJECT_ID" \
+  --format='value(serviceConfig.service)' | awk -F/ '{print $NF}')"
+
+gcloud run services add-iam-policy-binding "$CONTROL_HOOK_SERVICE" \
+  --region="asia-northeast1" \
+  --project "$PROJECT_ID" \
+  --member="serviceAccount:${TASKS_INVOKER_SA}" \
+  --role="roles/run.invoker"
+
+for svc in "$CLOSE_ASSESSMENT_SERVICE" "$OPEN_ASSESSMENT_SERVICE"; do
+  gcloud run services add-iam-policy-binding "$svc" \
+    --region="asia-northeast1" \
+    --project "$PROJECT_ID" \
+    --member="serviceAccount:${OPENCLOSE_INVOKER_SA}" \
+    --role="roles/run.invoker"
+done
+```
+
+## 9. 完了判定
 
 ```bash
 gcloud functions list --v2 --regions="us-central1,asia-northeast1" --project "$PROJECT_ID" \
@@ -203,7 +287,12 @@ gcloud functions list --v2 --regions="us-central1,asia-northeast1" --project "$P
 - `task-endpoints` の3URLが新リージョン実体を参照
 - 想定外の `us-central1` 依存が残っていない
 
-## 8. 代表的な失敗と対処観点
+追加確認:
+
+- `tournament-queue` と `business-date-assessment-queue` が `asia-northeast1` に存在する
+- `tasks-invoker@...` / `openclose-tasks-invoker@...` が存在し、対象 Cloud Run service に `roles/run.invoker` を持つ
+
+## 10. 代表的な失敗と対処観点
 
 - `Caller is missing permission 'iam.serviceaccounts.actAs'`
   - `roles/iam.serviceAccountUser` を deploy SA に付与（`COMPUTE_SA` / `APPSPOT_SA`）
@@ -211,3 +300,7 @@ gcloud functions list --v2 --regions="us-central1,asia-northeast1" --project "$P
   - deploy SA に `roles/cloudtasks.admin` を付与
 - `Failed to upsert schedule function ...`
   - deploy SA に `roles/cloudscheduler.admin` を付与
+- `Queue does not exist`
+  - `tournament-queue` / `business-date-assessment-queue` を `asia-northeast1` に作成する
+- `403 PERMISSION_DENIED`（Cloud Tasks -> Cloud Run）
+  - `tasks-invoker` / `openclose-tasks-invoker` の `roles/run.invoker` 付与先サービスを確認する

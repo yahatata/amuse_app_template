@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
@@ -10,7 +11,7 @@ import '../models/device.dart';
 /// シフト管理のRepository層（Firestore read + Callable write）
 class ShiftRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
   final DeviceService _deviceService = DeviceService();
 
   /// installationIdを取得（admin操作用）

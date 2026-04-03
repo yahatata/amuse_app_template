@@ -1,9 +1,9 @@
 import 'dart:async';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 
@@ -217,7 +217,7 @@ Future<void> _executeBustAndReentry({
     final device = await DeviceService().getCurrentDevice();
     final deviceName = device?.name;
 
-    final functions = FirebaseFunctions.instance;
+    final functions = FunctionsClient.instance;
     final callable = functions.httpsCallable('bustAndReentry');
 
     print('=== Cloud Function呼び出し実行中 ===');

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'tournament_blind_template_list_page.dart';
 
 class CreateTournamentBlindDetail extends StatefulWidget {
@@ -252,7 +252,7 @@ class _CreateTournamentBlindDetailState extends State<CreateTournamentBlindDetai
     });
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       
       // 編集モードかどうかで呼び出す関数を分ける
       final isEditMode = widget.existingBlindTemplate != null;

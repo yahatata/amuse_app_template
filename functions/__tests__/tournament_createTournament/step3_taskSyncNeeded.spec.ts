@@ -6,7 +6,7 @@
  * - updateTournamentTemplate: blindStructure 変更なし（名前等のみ）→ taskSyncNeeded は更新されない
  * - updateTournamentRecurrence: startAt 変更時 → version++, taskSyncNeeded=true, taskSyncReason: startAtChanged
  * - updateTournamentRecurrence: cancelled のみ → taskSyncNeeded=false
- * - updateTournamentRecurrence: template 変更時 → taskSyncNeeded=true（version++ なし）
+ * - updateTournamentRecurrence: template 変更時 → taskSyncNeeded=true（version++, schedulePlanUpdatedAt 更新）
  *
  * 事前に Firestore Emulator を起動すること:
  *   firebase emulators:start --only firestore
@@ -299,7 +299,7 @@ describe('Step 3: taskSyncNeeded / version++ 条件付き設定', () => {
     expect(doc.data()?.status).toBe('cancelled');
   });
 
-  it('観点5: template 変更時 → taskSyncNeeded=true（version++, schedulePlanUpdatedAt は更新しない）', async () => {
+  it('観点5: template 変更時 → taskSyncNeeded=true（version++, schedulePlanUpdatedAt 更新）', async () => {
     await clearAndSeed(async () => {
       await seedBase();
       await db.collection('tournamentRecurrences').doc(REC_ID).set({
@@ -349,8 +349,9 @@ describe('Step 3: taskSyncNeeded / version++ 条件付き設定', () => {
     expect(data?.taskSyncNeeded).toBe(true);
     expect(data?.taskSyncReason).toEqual(['regEndAtChangedByTemplate']);
     expect(data?.templateId).toBe(TPL_ID_ALT);
-    expect(data?.schedulePlanVersion).toBe(5);
-    expect(data?.schedulePlanUpdatedAt?.toMillis?.()).toBe(
+    expect(data?.schedulePlanVersion).toBe(6);
+    expect(data?.schedulePlanUpdatedAt).toBeDefined();
+    expect(data?.schedulePlanUpdatedAt?.toMillis?.()).toBeGreaterThan(
       new Date('2026-01-01T00:00:00.000Z').getTime()
     );
   });
