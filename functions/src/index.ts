@@ -10,9 +10,12 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 import * as admin from "firebase-admin";
+import { onCall, onRequest } from "firebase-functions/v2/https";
+import { setGlobalOptions } from "firebase-functions/v2/options";
 
 // Firebase Admin SDKの初期化
 admin.initializeApp();
+setGlobalOptions({ region: "asia-northeast1" });
 
 // 給与検証用デモデータ（開発）
 export * from "./demo_data";
@@ -53,7 +56,6 @@ export * from "./domains/webhook";
 // トリガ関連（bills）は domains/bills 経由で export
 
 // トーナメント時間管理システム（Phase1）
-import { onRequest } from 'firebase-functions/v2/https';
 import { controlHook } from "./shared/http/controlHook";
 import { schedulerSupervisor } from "./domains/scheduler/supervisor/schedulerSupervisor";
 import { registerScheduledJobTaskFunctions } from "./domains/scheduler/tasks/scheduledJobTaskFunctions";
@@ -71,8 +73,6 @@ registerScheduledJobTaskFunctions(exports as Record<string, unknown>);
 // リモートに存在するがローカルにない関数のスタブ（削除を防ぐため）
 // 注意: この関数はリモートにのみ存在し、ローカルには実装がないため、
 // デプロイ時に削除されないように一時的なスタブとして追加
-import { onCall } from 'firebase-functions/v2/https';
-　　
 
 export const processShiftsByStaff = onCall(async (request) => {
   return { message: "This function is maintained remotely" };

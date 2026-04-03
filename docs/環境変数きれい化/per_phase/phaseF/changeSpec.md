@@ -1,7 +1,7 @@
 # phaseF changeSpec（初回リリース前整備）
 
 作成日: 2026-04-01  
-ステータス: 実装中
+ステータス: 実装中（phaseF.1: 全関数リージョン明示化を実施）
 
 用語ルール:
 
@@ -177,3 +177,43 @@
 
 3. 再確認
 - task enqueue から実行まで疎通確認を再実施する。
+
+## 11. phaseF.1 追補（2026-04-02 最終）
+
+### 11.1 実施理由
+
+- `us-central1` 直書き除去だけでは、region 未指定関数がデフォルト `us-central1` に残るため。
+- phaseF の To-Be（全関数 `asia-northeast1`）を満たすため、リージョン既定の明示化が必要だった。
+
+### 11.2 実装方針の是正
+
+- 初回は「関数定義ファイルごとに `setGlobalOptions(...)`」を実装したが、deploy 時に  
+  `Calling setGlobalOptions twice leads to undefined behavior` 警告が大量発生。
+- 最終的に方針を変更し、`setGlobalOptions` は `functions/src/index.ts` で1回のみ実行する設計へ是正。
+- 実装後、`setGlobalOptions` 呼び出しは `functions/src` 全体で 1 箇所のみ。
+
+### 11.3 検証結果（phaseF.1 最終）
+
+- `cd functions && npm run build`: 成功
+- `cd functions && npm run lint`: 成功
+- `rg -n "setGlobalOptions\\(" functions/src | wc -l`: `1`
+- `rg -n "us-central1" functions/src`: 0 件
+- 単体 deploy 検証:
+  - `controlHookHttp(asia-northeast1)` の update deploy 成功（2026-04-02）
+- リージョン差分検証:
+  - `scripts/functions_region_migration_report.sh --project amuse-app-template --from us-central1 --to asia-northeast1`
+  - `us-central1=0`, `asia-northeast1=169`, `only_in_us-central1=0`
+
+### 11.4 追加スクリプト
+
+- `scripts/functions_region_migration_report.sh`
+  - 旧/新リージョン比較、重複分だけの安全削除
+- `scripts/firebase_deploy_functions_in_batches.sh`
+  - 関数名リスト入力で `firebase deploy --only ...` を分割実行（429 回避）
+
+### 11.5 phaseF 本体への復帰
+
+- phaseF.1 は完了。以後は phaseF 本体へ戻り、以下を継続する:
+  1. `task-endpoints` の最新 URL 整合確認
+  2. scheduler / openclose / tournament の疎通最終確認
+  3. ステップ8〜9の完了化（運用時資料判定・完了サマリ）
