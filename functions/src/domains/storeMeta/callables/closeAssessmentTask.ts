@@ -18,6 +18,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 type ManualOverrideLike = {
   type?: string;
@@ -76,7 +77,11 @@ export const closeAssessmentTask = onRequest(
         const stateDoc = await transaction.get(stateDocRef);
 
         if (!stateDoc.exists) {
-          throw new Error('storeMeta/currentBusinessDay が見つかりません');
+          throw new FunctionCustomError({
+            errorKey: 'STORE_STATE_DOC_MISSING',
+            message: 'storeMeta/currentBusinessDay が見つかりません',
+            context: { reason: 'closeAssessmentTask_tx' },
+          });
         }
 
         const stateData = stateDoc.data()!;

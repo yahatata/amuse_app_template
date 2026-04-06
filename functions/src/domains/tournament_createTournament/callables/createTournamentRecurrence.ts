@@ -3,6 +3,7 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { logger } from "firebase-functions";
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { validateStoreTenantForProduction } from "../../../shared/runtime";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
@@ -143,6 +144,16 @@ export const createTournamentRecurrence = onCall(async (request) => {
     };
 
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: '定期開催トーナメント作成エラー:',
+        failureType: 'business',
+        functionEntry: 'createTournamentRecurrence',
+        operation: 'createTournamentRecurrenceCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     logOpsError({
       message: '定期開催トーナメント作成エラー:',
       failureType: 'business',

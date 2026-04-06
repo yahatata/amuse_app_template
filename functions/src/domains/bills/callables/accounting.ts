@@ -8,6 +8,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 支払い方法の表示名を取得するヘルパー関数
 function _getPaymentMethodDisplayName(paymentMethod: string): string {
@@ -262,10 +263,11 @@ export const startAccounting = onCall(async (request) => {
     }, 0);
 
     if (Math.abs(totalPaid - totalExpected) > 1) {
-      throw new HttpsError(
-        'failed-precondition',
-        `支払い総額が一致しません。入力合計: ${totalPaid}円, 伝票合計: ${totalExpected}円`,
-      );
+      throw new FunctionCustomError({
+        errorKey: 'ACCOUNTING_PAYMENT_TOTAL_MISMATCH',
+        message: `支払い総額が一致しません。入力合計: ${totalPaid}円, 伝票合計: ${totalExpected}円`,
+        context: { billId, totalPaid, totalExpected },
+      });
     }
 
     // ポイント/サイドゲームチップで支払う場合の残高確認と差し引き処理
@@ -290,10 +292,11 @@ export const startAccounting = onCall(async (request) => {
           const currentBalance = userData[fieldName] || 0;
           if (currentBalance < amount) {
             const unit = fieldName === 'sideGameChip' ? '枚' : '円';
-            throw new HttpsError(
-              'failed-precondition',
-              `${_getPaymentMethodDisplayName(fieldName)}の残高が不足しています。現在の残高: ${currentBalance}${unit}、必要な金額: ${amount}${unit}`,
-            );
+            throw new FunctionCustomError({
+              errorKey: 'ACCOUNTING_INSUFFICIENT_BALANCE',
+              message: `${_getPaymentMethodDisplayName(fieldName)}の残高が不足しています。現在の残高: ${currentBalance}${unit}、必要な金額: ${amount}${unit}`,
+              context: { billId, userId, fieldName, currentBalance, required: amount },
+            });
           }
         }
       }
@@ -347,13 +350,16 @@ export const startAccounting = onCall(async (request) => {
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
     }
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }
     logOpsError({
       message: '会計開始エラー:',
-      failureType: 'business',
       functionEntry: 'startAccounting',
+      operation: 'runAccountingTransaction',
       cause: error,
     });
     throw new HttpsError('internal', '会計開始に失敗しました', error.message);
@@ -409,12 +415,20 @@ export const completeAccounting = onCall(async (request) => {
 
     // 会計開始していない場合はエラー
     if (!billData.accountingStartedAt) {
-      throw new HttpsError('failed-precondition', 'この請求書はまだ会計開始されていません');
+      throw new FunctionCustomError({
+        errorKey: 'ACCOUNTING_NOT_STARTED',
+        message: 'この請求書はまだ会計開始されていません',
+        context: { billId, legacy: true },
+      });
     }
-    
+
     // 既に会計済みの場合はエラー
     if (currentStatus === 'settled') {
-      throw new HttpsError('failed-precondition', 'この請求書は既に会計済みです');
+      throw new FunctionCustomError({
+        errorKey: 'ACCOUNTING_ALREADY_SETTLED',
+        message: 'この請求書は既に会計済みです',
+        context: { billId, legacy: true, currentStatus },
+      });
     }
 
     // 会計履歴を作成
@@ -497,13 +511,22 @@ export const completeAccounting = onCall(async (request) => {
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
     }
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: '会計完了エラー:',
+        functionEntry: 'completeAccounting',
+        operation: 'completeAccountingCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }
     logOpsError({
       message: '会計完了エラー:',
-      failureType: 'business',
       functionEntry: 'completeAccounting',
+      operation: 'completeAccountingCatch',
       cause: error,
     });
     throw new HttpsError('internal', '会計完了に失敗しました', error.message);
@@ -556,12 +579,20 @@ export const completeAccountingV2 = onCall(async (request) => {
 
     // ガード: ops.accountingStartedAt が無いなら failed-precondition
     if (!billData.ops?.accountingStartedAt) {
-      throw new HttpsError('failed-precondition', 'この請求書はまだ会計開始されていません');
+      throw new FunctionCustomError({
+        errorKey: 'ACCOUNTING_NOT_STARTED',
+        message: 'この請求書はまだ会計開始されていません',
+        context: { billId },
+      });
     }
 
     // 既に会計済みの場合はエラー
     if (currentStatus === 'settled') {
-      throw new HttpsError('failed-precondition', 'この請求書は既に会計済みです');
+      throw new FunctionCustomError({
+        errorKey: 'ACCOUNTING_ALREADY_SETTLED',
+        message: 'この請求書は既に会計済みです',
+        context: { billId, currentStatus },
+      });
     }
 
     // status を 'settled' に更新（Settlement Trigger を起動）
@@ -635,13 +666,22 @@ export const completeAccountingV2 = onCall(async (request) => {
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
     }
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: '会計完了エラー:',
+        functionEntry: 'completeAccountingV2',
+        operation: 'completeAccountingV2Catch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }
     logOpsError({
       message: '会計完了エラー:',
-      failureType: 'business',
       functionEntry: 'completeAccountingV2',
+      operation: 'completeAccountingV2Catch',
       cause: error,
     });
     throw new HttpsError('internal', '会計完了に失敗しました', error.message);

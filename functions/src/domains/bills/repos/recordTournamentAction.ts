@@ -13,6 +13,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { shouldDualWrite, legacyRecordTournamentActionUpdate } from './dualWrite';
 
@@ -95,11 +96,11 @@ export async function recordTournamentAction(request: RecordTournamentActionRequ
       if (idemSnap.exists) {
         const prevHash = idemSnap.data()?.requestHash;
         if (prevHash && prevHash !== requestHash) {
-          // ハッシュ不一致 → failed-precondition
-          throw new HttpsError(
-            'failed-precondition',
-            'idempotency requestHash mismatch'
-          );
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_IDEMPOTENCY_MISMATCH',
+            message: 'idempotency requestHash mismatch',
+            context: { billId, templateId, op: 'recordTournamentAction' },
+          });
         }
         // ハッシュ一致 → 既存docを返却（親updatedAtは更新しない）
         reused = true;
@@ -150,7 +151,11 @@ export async function recordTournamentAction(request: RecordTournamentActionRequ
       // 許可: open/in_progress、拒否: settling/settled/voided
       const allowed = status === 'open' || status === 'in_progress';
       if (!allowed) {
-        throw new HttpsError('failed-precondition', `Cannot record tournament action for bill with status: ${status}`);
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+          message: `Cannot record tournament action for bill with status: ${status}`,
+          context: { billId, billStatus: status, op: 'recordTournamentAction' },
+        });
       }
 
       // 3) /bills/{billId}/tournaments/{tplId} を読み込み（存在チェック）
@@ -324,6 +329,9 @@ export async function recordTournamentAction(request: RecordTournamentActionRequ
       },
     });
 
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }

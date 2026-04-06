@@ -1,10 +1,11 @@
-import { onCall } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { z } from "zod";
 import { recordTournamentAction } from "../../bills/repos/recordTournamentAction";
 import * as crypto from "crypto";
 import { writeSingleOperationLog, toErrorSummary } from "../../logs/lib/operationLog";
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
 
 // 入力スキーマ
 const registerForTournamentSchema = z.object({
@@ -18,7 +19,7 @@ export const registerForTournament = onCall(async (request) => {
     
     // 認証確認
     if (!request.auth) {
-      throw new Error('認証が必要です');
+      throw new HttpsError('unauthenticated', '認証が必要です');
     }
     
     const userId = request.auth.uid;
@@ -34,7 +35,11 @@ export const registerForTournament = onCall(async (request) => {
     const tournamentDoc = await tournamentRef.get();
     
     if (!tournamentDoc.exists) {
-      throw new Error('トーナメントが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントが存在しません',
+        context: { tournamentId },
+      });
     }
     
     const tournamentData = tournamentDoc.data()!;
@@ -43,11 +48,19 @@ export const registerForTournament = onCall(async (request) => {
     const snapshot = tournamentData.snapshot;
     
     if (!snapshot) {
-      throw new Error('トーナメントのスナップショット情報が存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントのスナップショット情報が存在しません',
+        context: { tournamentId, reason: 'snapshot_missing' },
+      });
     }
-    
+
     if (!templateId) {
-      throw new Error('トーナメントのtemplateIdが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントのtemplateIdが存在しません',
+        context: { tournamentId, reason: 'templateId_missing' },
+      });
     }
     
     const templateName = snapshot.name;
@@ -58,14 +71,22 @@ export const registerForTournament = onCall(async (request) => {
     const activeStayDoc = await activeStayRef.get();
     
     if (!activeStayDoc.exists) {
-      throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `ユーザー ${userId} のactiveStaysドキュメントが存在しません`,
+        context: { tournamentId, userId, reason: 'active_stay_missing' },
+      });
     }
-    
+
     const activeStayData = activeStayDoc.data()!;
     const billId = activeStayData.billId as string;
-    
+
     if (!billId) {
-      throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`,
+        context: { tournamentId, userId, reason: 'billId_missing_on_active_stay' },
+      });
     }
     
     // pokerNameはactiveStaysから取得（todaysBillsには依存しない）
@@ -75,7 +96,11 @@ export const registerForTournament = onCall(async (request) => {
     const billTournamentRef = db.collection('bills').doc(billId).collection('tournaments').doc(templateId);
     const existingTournamentDoc = await billTournamentRef.get();
     if (existingTournamentDoc.exists) {
-      throw new Error('既にこのトーナメントに登録済みです');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_ALREADY_REGISTERED',
+        message: '既にこのトーナメントに登録済みです',
+        context: { tournamentId, userId },
+      });
     }
     
     // トランザクションで登録処理を実行
@@ -90,7 +115,11 @@ export const registerForTournament = onCall(async (request) => {
       
       const viewsMainDoc = await transaction.get(viewsMainRef);
       if (!viewsMainDoc.exists) {
-        throw new Error('トーナメントのviews/mainドキュメントが存在しません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントのviews/mainドキュメントが存在しません',
+          context: { tournamentId, reason: 'views_main_missing' },
+        });
       }
       
       const viewsMainData = viewsMainDoc.data()!;
@@ -211,8 +240,8 @@ export const registerForTournament = onCall(async (request) => {
     } catch (error) {
       logOpsError({
       message: 'Failed to record tournament action via recordTournamentAction helper:',
-      failureType: 'business',
       functionEntry: 'registerForTournament',
+      operation: 'recordTournamentAction',
       cause: error,
     });
       // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
@@ -255,8 +284,8 @@ export const registerForTournament = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== LIFF用トーナメント参加登録エラー ===',
-      failureType: 'business',
       functionEntry: 'registerForTournament',
+      operation: 'registerTournamentFlow',
       cause: error,
     });
 
@@ -276,8 +305,8 @@ export const registerForTournament = onCall(async (request) => {
     } catch (logErr) {
       logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'registerForTournament',
+      operation: 'recordFailureOperationLog',
       cause: logErr,
     });
     }
@@ -288,6 +317,10 @@ export const registerForTournament = onCall(async (request) => {
         error: '入力検証エラー',
         details: error.errors,
       };
+    }
+
+    if (error instanceof HttpsError) {
+      throw error;
     }
 
     return {

@@ -6,6 +6,7 @@ import { recordTournamentAction } from '../../bills/repos/recordTournamentAction
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 const bulkAddonSchema = z.object({
   tournamentId: z.string(),
@@ -51,7 +52,7 @@ export const bulkAddon = onCall(async (request) => {
     // dataがundefinedまたは無効な場合の処理
     if (!data || typeof data !== 'object') {
       console.log('dataが無効です:', data);
-      throw new Error('無効なデータが送信されました');
+      throw new HttpsError('invalid-argument', '無効なデータが送信されました');
     }
 
     console.log('処理対象データ:', {
@@ -72,7 +73,11 @@ export const bulkAddon = onCall(async (request) => {
     const tournamentDoc = await tournamentRef.get();
 
     if (!tournamentDoc.exists) {
-      throw new Error('トーナメントが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントが存在しません',
+        context: { tournamentId, reason: 'tournament_not_found' },
+      });
     }
 
     const tournamentData = tournamentDoc.data();
@@ -89,11 +94,19 @@ export const bulkAddon = onCall(async (request) => {
     console.log('addonStack:', addonStack);
 
     if (!isAddon) {
-      throw new Error('このトーナメントではAddonができません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_ADDON_NOT_ALLOWED',
+        message: 'このトーナメントではAddonができません',
+        context: { tournamentId },
+      });
     }
 
     if (!templateId) {
-      throw new Error('トーナメントのtemplateIdが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントのtemplateIdが存在しません',
+        context: { tournamentId, reason: 'templateId_missing' },
+      });
     }
 
     // scheduledTournaments/views/mainを取得
@@ -106,7 +119,11 @@ export const bulkAddon = onCall(async (request) => {
     const viewsMainDoc = await viewsMainRef.get();
 
     if (!viewsMainDoc.exists) {
-      throw new Error('トーナメントのviews/mainドキュメントが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントのviews/mainドキュメントが存在しません',
+        context: { tournamentId, reason: 'views_main_missing' },
+      });
     }
 
     const viewsMainData = viewsMainDoc.data();
@@ -154,11 +171,19 @@ export const bulkAddon = onCall(async (request) => {
     }
 
     if (missingUsers.length > 0) {
-      throw new Error(`以下のユーザーのactiveStaysドキュメントが見つからないか、billIdが設定されていません: ${missingUsers.join(', ')}`);
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `以下のユーザーのactiveStaysドキュメントが見つからないか、billIdが設定されていません: ${missingUsers.join(', ')}`,
+        context: { tournamentId, userNames: missingUsers, reason: 'active_stay_or_bill_missing' },
+      });
     }
 
     if (availableUsers.length === 0) {
-      throw new Error('処理可能なユーザーがいません（全員既にAddon済みです）');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_ADDON_ALREADY_DONE',
+        message: '処理可能なユーザーがいません（全員既にAddon済みです）',
+        context: { tournamentId },
+      });
     }
 
     // トランザクションで処理を実行

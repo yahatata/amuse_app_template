@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 会計キャンセルのスキーマ（pre-settlement 専用）
 const CancelAccountingSchema = z.object({
@@ -70,10 +71,11 @@ export const cancelAccounting = onCall(async (request) => {
       // 2) pre-settlement 状態のみ許可（open, in_progress, settling）
       const allowedStatuses = ['open', 'in_progress', 'settling'];
       if (!allowedStatuses.includes(currentStatus)) {
-        throw new HttpsError(
-          'failed-precondition',
-          `会計開始取り消しは pre-settlement 状態のみ可能です。現在の状態: ${currentStatus}。許可された状態: ${allowedStatuses.join(', ')}`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+          message: `会計開始取り消しは pre-settlement 状態のみ可能です。現在の状態: ${currentStatus}。許可された状態: ${allowedStatuses.join(', ')}`,
+          context: { billId, currentStatus, allowedStatuses, op: 'cancelAccounting' },
+        });
       }
 
       const now = admin.firestore.Timestamp.now();
@@ -109,6 +111,15 @@ export const cancelAccounting = onCall(async (request) => {
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
+    }
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'cancelAccounting failed',
+        functionEntry: 'cancelAccounting',
+        operation: 'cancelAccountingCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
     }
     if (error instanceof HttpsError) {
       throw error;

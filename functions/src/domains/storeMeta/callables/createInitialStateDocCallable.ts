@@ -5,6 +5,7 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 const db = getFirestore();
 
@@ -46,6 +47,13 @@ export const createInitialStateDocCallable = onCall(
         exists: false,
       };
     } catch (error) {
+      logOpsError({
+        message: 'createInitialStateDocCallable failed',
+        functionEntry: 'createInitialStateDocCallable',
+        operation: 'createInitialStateDoc',
+        cause: error,
+        sourceProductHint: 'firestore',
+      });
       throw new HttpsError(
         'internal',
         `Failed to create initial state doc: ${error instanceof Error ? error.message : String(error)}`

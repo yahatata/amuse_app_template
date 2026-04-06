@@ -8,6 +8,8 @@ import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { requireAdmin } from '../../../shared/devices';
 import { acquireProcessing, extendProcessing, releaseProcessing } from '../services/processingLease';
 import { generateJstDateKey } from '../../../shared/time';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 const OPEN_STEPS = ['verifyPreconditions', 'forceCleanup', 'finalizeOpenStateDoc'] as const;
 
@@ -24,21 +26,36 @@ export const openStoreTerminal = onCall(
 
     const stateRef = db.collection('storeMeta').doc('currentBusinessDay');
     const stateSnap = await stateRef.get();
-    if (!stateSnap.exists) {
-      throw new HttpsError(
-        'invalid-argument',
-        'storeMeta/currentBusinessDay が存在しません。初期化を実行してください。'
-      );
-    }
+    try {
+      if (!stateSnap.exists) {
+        throw new FunctionCustomError({
+          errorKey: 'STORE_STATE_DOC_MISSING',
+          message: 'storeMeta/currentBusinessDay が存在しません。初期化を実行してください。',
+          context: { phase: 'open_terminal_preflight' },
+        });
+      }
 
-    const stateData = stateSnap.data()!;
-    const status = stateData.status as string | undefined;
+      const stateData = stateSnap.data()!;
+      const status = stateData.status as string | undefined;
 
-    if (status !== 'closed' && status !== 'error') {
-      throw new HttpsError(
-        'invalid-argument',
-        `開店可能な状態ではありません。status: ${status}`
-      );
+      if (status !== 'closed' && status !== 'error') {
+        throw new FunctionCustomError({
+          errorKey: 'STORE_INVALID_STATE',
+          message: `開店可能な状態ではありません。status: ${status}`,
+          context: { status, phase: 'open_terminal_preflight' },
+        });
+      }
+    } catch (e) {
+      if (e instanceof FunctionCustomError) {
+        logOpsError({
+          message: 'openStoreTerminal preflight failed',
+          functionEntry: 'openStoreTerminal',
+          operation: 'openTerminalPreflight',
+          cause: e,
+        });
+        throw new HttpsError(mapFunctionCustomErrorToHttpsCode(e.errorKey), e.message);
+      }
+      throw e;
     }
 
     const data = request.data as { runId?: string; businessDateKey?: string } | undefined;
@@ -61,6 +78,15 @@ export const openStoreTerminal = onCall(
     try {
       await acquireProcessing(db, { runId, kind: 'open', requestRunId: requestRunId ?? null });
     } catch (e) {
+      if (e instanceof FunctionCustomError) {
+        logOpsError({
+          message: 'acquireProcessing failed',
+          functionEntry: 'openStoreTerminal',
+          operation: 'acquireProcessingLease',
+          cause: e,
+        });
+        throw new HttpsError(mapFunctionCustomErrorToHttpsCode(e.errorKey), e.message);
+      }
       if (e instanceof HttpsError) throw e;
       throw new HttpsError('internal', `processing 獲得に失敗しました: ${e}`);
     }
@@ -113,7 +139,11 @@ export const openStoreTerminal = onCall(
           const snap = await stateRef.get();
           const s = snap.data()?.status as string | undefined;
           if (s !== 'closed' && s !== 'error') {
-            throw new HttpsError('invalid-argument', `開店前提条件を満たしません。status: ${s}`);
+            throw new FunctionCustomError({
+              errorKey: 'STORE_INVALID_STATE',
+              message: `開店前提条件を満たしません。status: ${s}`,
+              context: { status: s, phase: 'open_terminal_verifyPreconditions' },
+            });
           }
           await openRunsRef.update({
             lastCompletedStep: stepName,
@@ -182,7 +212,12 @@ export const openStoreTerminal = onCall(
       } catch (stepError) {
         const err = stepError instanceof Error ? stepError : new Error(String(stepError));
         const errMsg = err.message.slice(0, 200);
-        const errCode = stepError instanceof HttpsError ? stepError.code : 'internal';
+        const errCode =
+          stepError instanceof HttpsError
+            ? stepError.code
+            : stepError instanceof FunctionCustomError
+              ? mapFunctionCustomErrorToHttpsCode(stepError.errorKey)
+              : 'internal';
 
         await attemptRef.update({
           result: 'failed',
@@ -201,7 +236,11 @@ export const openStoreTerminal = onCall(
         await releaseProcessing(db, { runId });
 
         throw new HttpsError(
-          stepError instanceof HttpsError ? stepError.code : 'internal',
+          stepError instanceof HttpsError
+            ? stepError.code
+            : stepError instanceof FunctionCustomError
+              ? mapFunctionCustomErrorToHttpsCode(stepError.errorKey)
+              : 'internal',
           `開店処理がステップ「${stepName}」で失敗しました。再開可能です。${errMsg}`,
           { runId }
         );

@@ -15,6 +15,8 @@ import * as admin from "firebase-admin";
 import { getActiveBillByUser } from "../../bills/repos/getActiveBillByUser";
 import { appendItem } from "../../bills/repos/appendItem";
 import { resolveMenuItem } from "../../bills/repos/resolveMenuItem";
+import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 
 export const placeOrderByUser = onCall(async (request) => {
   const db = getFirestore();
@@ -175,6 +177,23 @@ export const placeOrderByUser = onCall(async (request) => {
     };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'placeOrderByUser failed',
+        functionEntry: 'placeOrderByUser',
+        operation: 'placeOrderCatch',
+        cause: error,
+        sourceProductHint: 'firestore',
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+    logOpsError({
+      message: 'placeOrderByUser failed',
+      functionEntry: 'placeOrderByUser',
+      operation: 'placeOrderCatch',
+      cause: error,
+      sourceProductHint: 'firestore',
+    });
     throw new HttpsError("internal", (error as Error)?.message || "注文の登録に失敗しました");
   }
 });

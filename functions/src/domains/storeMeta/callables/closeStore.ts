@@ -8,6 +8,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { getCallerDeviceByUid, hasStoreManagementPermission, isActive } from '../../../shared/devices';
 
 const db = getFirestore();
@@ -32,16 +33,22 @@ export const closeStore = onCall(
         const docRef = db.collection('storeMeta').doc('currentBusinessDay');
         const doc = await transaction.get(docRef);
         if (!doc.exists) {
-          throw new HttpsError(
-            'failed-precondition',
-            'storeMeta/currentBusinessDay document does not exist. Please run initialization script.'
-          );
+          throw new FunctionCustomError({
+            errorKey: 'STORE_STATE_DOC_MISSING',
+            message:
+              'storeMeta/currentBusinessDay document does not exist. Please run initialization script.',
+            context: { phase: 'manual_close' },
+          });
         }
         const currentData = doc.data();
         const currentStatus = currentData?.status;
         const currentBusinessDateKey = currentData?.currentBusinessDateKey;
         if (currentStatus === 'closed') {
-          throw new HttpsError('failed-precondition', 'Store is already closed');
+          throw new FunctionCustomError({
+            errorKey: 'STORE_ALREADY_CLOSED',
+            message: 'Store is already closed',
+            context: { currentStatus },
+          });
         }
         if (currentStatus === 'running' && currentBusinessDateKey !== null) {
           lastClosedBusinessDateKey = currentBusinessDateKey;
@@ -54,16 +61,28 @@ export const closeStore = onCall(
             lastError: null,
           });
         } else {
-          throw new HttpsError(
-            'failed-precondition',
-            `Store is not in a valid state to close. Current status: ${currentStatus}, currentBusinessDateKey: ${currentBusinessDateKey}`
-          );
+          throw new FunctionCustomError({
+            errorKey: 'STORE_INVALID_STATE',
+            message: `Store is not in a valid state to close. Current status: ${currentStatus}, currentBusinessDateKey: ${currentBusinessDateKey}`,
+            context: { currentStatus, currentBusinessDateKey, phase: 'manual_close' },
+          });
         }
       });
       logger.info('closeStore succeeded', { uid: callerUid, lastClosedBusinessDateKey });
       return { success: true, lastClosedBusinessDateKey, status: 'closed' };
     } catch (error) {
       if (error instanceof HttpsError) throw error;
+      if (error instanceof FunctionCustomError) {
+        logOpsError({
+          message: 'closeStore failed',
+          failureType: 'business',
+          functionEntry: 'closeStore',
+          operation: 'closeStoreCatch',
+          cause: error,
+          context: { uid: callerUid },
+        });
+        throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+      }
       logOpsError({
         message: 'closeStore failed',
         failureType: 'business',

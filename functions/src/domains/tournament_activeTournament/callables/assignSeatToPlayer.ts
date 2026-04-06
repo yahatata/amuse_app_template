@@ -7,6 +7,7 @@ import type { DeviceDoc } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
 const assignSeatToPlayerSchema = z.object({
@@ -60,19 +61,31 @@ export const assignSeatToPlayer = onCall(async (request) => {
       
       const tableSeatDoc = await transaction.get(tableSeatRef);
       if (!tableSeatDoc.exists) {
-        throw new Error('テーブルが存在しません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'テーブルが存在しません',
+          context: { tournamentId, tableId, reason: 'table_seat_doc_missing' },
+        });
       }
-      
+
       const tableSeatData = tableSeatDoc.data()!;
       if (!tableSeatData.isEnabled) {
-        throw new Error('テーブルが無効です');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'テーブルが無効です',
+          context: { tournamentId, tableId, reason: 'table_disabled' },
+        });
       }
       
       // 2. 指定されたシートが空いているかチェック（新しい構造）
       const seatNumberStr = seatNumber.toString().padStart(2, '0');
       const seatUserIdKey = `seat${seatNumberStr}UserId`;
       if (tableSeatData.seats[seatUserIdKey] !== null) {
-        throw new Error('指定されたシートは既に使用中です');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: '指定されたシートは既に使用中です',
+          context: { tournamentId, tableId, seatNumber, reason: 'seat_occupied' },
+        });
       }
       
       // 3. 待機者リストから該当ユーザーを削除
@@ -89,14 +102,22 @@ export const assignSeatToPlayer = onCall(async (request) => {
       const activeStayDoc = await transaction.get(activeStayRef);
       
       if (!activeStayDoc.exists) {
-        throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: `ユーザー ${userId} のactiveStaysドキュメントが存在しません`,
+          context: { tournamentId, userId, reason: 'active_stay_missing' },
+        });
       }
-      
+
       const activeStayData = activeStayDoc.data()!;
       const billId = activeStayData.billId as string;
-      
+
       if (!billId) {
-        throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`,
+          context: { tournamentId, userId, reason: 'billId_missing_on_active_stay' },
+        });
       }
       
       // 5. ユーザー情報を取得（pokerNameはactiveStaysから取得、todaysBillsには依存しない）
@@ -215,6 +236,25 @@ export const assignSeatToPlayer = onCall(async (request) => {
     return transactionResult;
     
   } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    if (error instanceof z.ZodError) {
+      throw new HttpsError('invalid-argument', error.errors.map((e) => e.message).join(', '));
+    }
+
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: '=== 待機者着席エラー ===',
+        failureType: 'business',
+        functionEntry: 'assignSeatToPlayer',
+        operation: 'assignSeatToPlayerCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+
     logOpsError({
       message: '=== 待機者着席エラー ===',
       failureType: 'business',
@@ -245,9 +285,6 @@ export const assignSeatToPlayer = onCall(async (request) => {
       }
     }
     
-    if (error instanceof Error) {
-      throw new HttpsError('internal', error.message);
-    }
-    throw new HttpsError('internal', '待機者着席に失敗しました');
+    throw new HttpsError('internal', error instanceof Error ? error.message : '待機者着席に失敗しました');
   }
 });

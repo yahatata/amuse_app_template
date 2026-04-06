@@ -14,6 +14,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { getCurrentBusinessDateKeyOrThrow } from '../repos/getCurrentBusinessDateKeyOrThrow';
 import { requireAdmin } from '../../../shared/devices';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 const ALLOWED_STATUSES = ['open', 'in_progress', 'settling'] as const;
 const LAST_CLOSE_RUN_ID_STEP2 = 'step2-manual';
@@ -187,6 +189,15 @@ export const applyCloseSnapshot = onCall(async (request) => {
   try {
     closedBusinessDate = await getCurrentBusinessDateKeyOrThrow();
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'applyCloseSnapshot: 営業日取得',
+        functionEntry: 'applyCloseSnapshot',
+        operation: 'getClosedBusinessDate',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) throw error;
     throw new HttpsError(
       'failed-precondition',

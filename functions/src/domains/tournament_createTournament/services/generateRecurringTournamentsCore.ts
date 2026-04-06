@@ -13,6 +13,7 @@
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
 import { isProductionRuntime, validateStoreTenantForProduction } from "../../../shared/runtime";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { runEnqueueTournamentTasks } from "./enqueueTournamentTasksCore";
@@ -36,14 +37,22 @@ const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseJstDateKeyStart(dateKey: string, fieldName: string): Date {
   if (!DATE_KEY_PATTERN.test(dateKey)) {
-    throw new Error(`Invalid ${fieldName}: ${dateKey}`);
+    throw new FunctionCustomError({
+      errorKey: 'TOURNAMENT_INVALID_STATE',
+      message: `Invalid ${fieldName}: ${dateKey}`,
+      context: { fieldName, dateKey, phase: 'recurring_generate', reason: 'invalid_date_key' },
+    });
   }
   return new Date(`${dateKey}T00:00:00+09:00`);
 }
 
 function parseJstDateKeyEnd(dateKey: string, fieldName: string): Date {
   if (!DATE_KEY_PATTERN.test(dateKey)) {
-    throw new Error(`Invalid ${fieldName}: ${dateKey}`);
+    throw new FunctionCustomError({
+      errorKey: 'TOURNAMENT_INVALID_STATE',
+      message: `Invalid ${fieldName}: ${dateKey}`,
+      context: { fieldName, dateKey, phase: 'recurring_generate', reason: 'invalid_date_key' },
+    });
   }
   return new Date(`${dateKey}T23:59:59.999+09:00`);
 }

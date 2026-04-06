@@ -10,6 +10,7 @@ import { Firestore, getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 import { getCurrentBusinessDateKeyOrThrow } from '../repos/getCurrentBusinessDateKeyOrThrow';
 import { requireAdmin } from '../../../shared/devices';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 export type UnclosedTournamentItem = {
   tournamentId: string;
@@ -173,6 +174,13 @@ export const getUnclosedTournamentsForClose = onCall(async (request) => {
     };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
+    logOpsError({
+      message: 'getUnclosedTournamentsForClose failed',
+      functionEntry: 'getUnclosedTournamentsForClose',
+      operation: 'unclosedTournamentsQuery',
+      cause: error,
+      sourceProductHint: 'firestore',
+    });
     throw new HttpsError(
       'internal',
       `未 close トーナメントの取得に失敗しました: ${error instanceof Error ? error.message : String(error)}`

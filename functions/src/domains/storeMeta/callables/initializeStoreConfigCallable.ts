@@ -23,6 +23,7 @@ import {
   DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT,
 } from '../../../shared/config/defaults';
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 const db = getFirestore();
 
@@ -141,6 +142,13 @@ export const initializeStoreConfigCallable = onCall(
         updated: updated.length > 0 ? updated : undefined,
       };
     } catch (error) {
+      logOpsError({
+        message: 'initializeStoreConfigCallable failed',
+        functionEntry: 'initializeStoreConfigCallable',
+        operation: 'initStoreMetaConfig',
+        cause: error,
+        sourceProductHint: 'firestore',
+      });
       throw new HttpsError(
         'internal',
         `storeMeta の初期化に失敗しました: ${error instanceof Error ? error.message : String(error)}`

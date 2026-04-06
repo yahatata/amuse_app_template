@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
 const removeTableFromTournamentSchema = z.object({
@@ -58,7 +59,11 @@ export const removeTableFromTournament = onCall(async (request) => {
       ]);
 
       if (!tournamentTableDoc.exists) {
-        throw new Error('トーナメントに該当する卓が見つかりません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントに該当する卓が見つかりません',
+          context: { tournamentId, tableId, reason: 'tournament_table_not_found' },
+        });
       }
       const tableData = tournamentTableDoc.data()!;
       const seats = (tableData.seats as { [key: string]: string | null } | undefined) ?? {};
@@ -70,11 +75,19 @@ export const removeTableFromTournament = onCall(async (request) => {
         }
       );
       if (hasOccupiedSeats) {
-        throw new Error('着席しているユーザーがいるため、卓を削除できません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: '着席しているユーザーがいるため、卓を削除できません',
+          context: { tournamentId, tableId, reason: 'seats_occupied' },
+        });
       }
 
       if (!tableDoc.exists) {
-        throw new Error('テーブルが存在しません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'テーブルが存在しません',
+          context: { tournamentId, tableId, reason: 'table_doc_missing' },
+        });
       }
 
       // 2. 読み取りの後に書き込み
@@ -93,19 +106,32 @@ export const removeTableFromTournament = onCall(async (request) => {
     };
     
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: '=== 卓削除エラー ===',
+        failureType: 'business',
+        functionEntry: 'removeTableFromTournament',
+        operation: 'removeTableFromTournamentCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+
+    if (error instanceof z.ZodError) {
+      throw new HttpsError('invalid-argument', error.errors.map((e) => e.message).join(', '));
+    }
+
     logOpsError({
       message: '=== 卓削除エラー ===',
       failureType: 'business',
       functionEntry: 'removeTableFromTournament',
       cause: error,
     });
-    
-    // エラーメッセージを適切に返す
+
     if (error instanceof Error) {
       throw new HttpsError('internal', error.message);
-    } else {
-      throw new HttpsError('internal', '卓削除に失敗しました');
     }
+    throw new HttpsError('internal', '卓削除に失敗しました');
   }
 });
 

@@ -13,6 +13,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { resolveMenuItem } from './resolveMenuItem';
 import { shouldDualWrite, legacyAppendItemUpdate } from './dualWrite';
@@ -98,11 +99,11 @@ export async function appendItemCore(
   if (idemSnap.exists) {
     const prevHash = idemSnap.data()?.requestHash;
     if (prevHash && prevHash !== requestHash) {
-      // ハッシュ不一致 → failed-precondition
-      throw new HttpsError(
-        'failed-precondition',
-        'idempotency requestHash mismatch'
-      );
+      throw new FunctionCustomError({
+        errorKey: 'ACCOUNTING_IDEMPOTENCY_MISMATCH',
+        message: 'idempotency requestHash mismatch',
+        context: { billId, op: 'appendItemCore' },
+      });
     }
     // ハッシュ一致 → 既存docを返却（親updatedAtは更新しない）
     
@@ -149,7 +150,11 @@ export async function appendItemCore(
   // 許可: open/in_progress、拒否: settling/settled/voided
   const allowed = status === 'open' || status === 'in_progress';
   if (!allowed) {
-    throw new HttpsError('failed-precondition', `Cannot append item to bill with status: ${status}`);
+    throw new FunctionCustomError({
+      errorKey: 'ACCOUNTING_INVALID_STATE',
+      message: `Cannot append item to bill with status: ${status}`,
+      context: { billId, billStatus: status, op: 'appendItem' },
+    });
   }
 
   // 3) メニューアイテムは既に解決済み（params.resolved を使用）
@@ -352,6 +357,9 @@ export async function appendItem(request: AppendItemRequest): Promise<AppendItem
       },
     });
 
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }
@@ -616,6 +624,9 @@ export async function appendItemWithOrderProjection(
       },
     });
 
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }

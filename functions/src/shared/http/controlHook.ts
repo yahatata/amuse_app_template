@@ -97,9 +97,8 @@ export const controlHook = async (req: Request, res: Response) => {
   } catch (error) {
     logOpsError({
       message: 'controlHook: Error processing request',
-      failureType: 'internal',
-      functionEntry: 'controlHook',
-      operation: 'request',
+      functionEntry: 'controlHookHttp',
+      operation: 'validateControlHookRequest',
       cause: error,
     });
     res.status(500).json({
@@ -300,10 +299,10 @@ async function handleNewPayload(
     }
     logOpsError({
       message: 'controlHook: Error processing new payload',
-      failureType: 'internal',
-      functionEntry: 'controlHook',
-      operation: 'newPayload',
+      functionEntry: 'controlHookHttp',
+      operation: 'executeNewPayloadTask',
       cause: err,
+      sourceProductHint: 'firestore',
     });
     res.status(500).json({
       error: 'Internal server error',
@@ -439,10 +438,10 @@ async function handleOldPayload(
   } catch (error) {
     logOpsError({
       message: 'controlHook: Error processing legacy request',
-      failureType: 'internal',
-      functionEntry: 'controlHook',
-      operation: 'legacyPayload',
+      functionEntry: 'controlHookHttp',
+      operation: 'executeLegacyPayloadTask',
       cause: error,
+      sourceProductHint: 'firestore',
     });
     res.status(500).json({
       error: 'Internal server error',

@@ -16,6 +16,8 @@ import {
 } from '../../../shared/config/cloudTasksConfig';
 import { getRequiredProjectId } from '../../../shared/runtime/projectId';
 import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
+import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 type OpenAssessmentLike = {
   result?: string;
@@ -83,6 +85,7 @@ async function createAssessmentTask(params: {
 export const continueBusinessTerminal = onCall(
   { region: 'asia-northeast1' },
   async (request) => {
+    try {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '認証が必要です');
     }
@@ -112,16 +115,21 @@ export const continueBusinessTerminal = onCall(
     const stateRef = db.collection('storeMeta').doc('currentBusinessDay');
     const stateSnap = await stateRef.get();
     if (!stateSnap.exists) {
-      throw new HttpsError('failed-precondition', 'storeMeta/currentBusinessDay が存在しません。');
+      throw new FunctionCustomError({
+        errorKey: 'STORE_STATE_DOC_MISSING',
+        message: 'storeMeta/currentBusinessDay が存在しません。',
+        context: { phase: 'continue_business' },
+      });
     }
 
     const stateData = stateSnap.data()!;
     const status = stateData.status as string | undefined;
     if (status !== 'running') {
-      throw new HttpsError(
-        'failed-precondition',
-        `営業継続は status が running のときのみ実行できます。現在: ${status}`
-      );
+      throw new FunctionCustomError({
+        errorKey: 'STORE_NOT_RUNNING',
+        message: `営業継続は status が running のときのみ実行できます。現在: ${status}`,
+        context: { status, phase: 'continue_business' },
+      });
     }
 
     const now = new Date();
@@ -145,7 +153,11 @@ export const continueBusinessTerminal = onCall(
     await db.runTransaction(async (transaction) => {
       const stateDoc = await transaction.get(stateRef);
       if (!stateDoc.exists) {
-        throw new HttpsError('failed-precondition', 'storeMeta/currentBusinessDay が存在しません。');
+        throw new FunctionCustomError({
+          errorKey: 'STORE_STATE_DOC_MISSING',
+          message: 'storeMeta/currentBusinessDay が存在しません。',
+          context: { phase: 'continue_business_tx' },
+        });
       }
 
       const blockers: string[] = [];
@@ -283,10 +295,26 @@ export const continueBusinessTerminal = onCall(
         });
       }
     } catch (error: unknown) {
-      throw new HttpsError(
-        'internal',
-        `営業継続のリマインド予約に失敗しました。${error instanceof Error ? error.message : String(error)}`
-      );
+      const err = error as { code?: number };
+      if (err?.code === 6) {
+        // ALREADY_EXISTS: 同一タスクが既に存在する場合は成功扱い
+      } else {
+        logOpsError({
+          message: 'continueBusinessTerminal: createTask failed',
+          functionEntry: 'continueBusinessTerminal',
+          operation: 'cloudTasksCreateTask',
+          cause: error,
+          sourceProductHint: 'cloud_tasks',
+          context: {
+            intendedBusinessDateKey,
+            scheduledAt: scheduledAtIso,
+          },
+        });
+        throw new HttpsError(
+          'internal',
+          `営業継続のリマインド予約に失敗しました。${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     }
 
     return {
@@ -297,5 +325,16 @@ export const continueBusinessTerminal = onCall(
       scheduledAt: scheduledAtIso,
       message: `${hours} 時間後に閉店確認のリマインドを予約しました。`,
     };
+    } catch (error) {
+      if (error instanceof FunctionCustomError) {
+        logOpsError({
+          message: 'continueBusinessTerminal failed',
+          functionEntry: 'continueBusinessTerminal',
+          cause: error,
+        });
+        throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+      }
+      throw error;
+    }
   }
 );

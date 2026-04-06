@@ -27,6 +27,8 @@ import {
 import { getRequiredProjectId } from '../../../shared/runtime/projectId';
 import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
 import { generateJstDateKey } from '../../../shared/time';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 const CLOSE_STEPS = [
   'UNSETTLED_MARK',
@@ -113,31 +115,48 @@ export const closeStoreTerminal = onCall(
 
     const stateRef = db.collection('storeMeta').doc('currentBusinessDay');
     const stateSnap = await stateRef.get();
-    if (!stateSnap.exists) {
-      throw new HttpsError(
-        'invalid-argument',
-        'storeMeta/currentBusinessDay が存在しません。初期化を実行してください。'
-      );
-    }
+    let closedBusinessDate: string;
+    try {
+      if (!stateSnap.exists) {
+        throw new FunctionCustomError({
+          errorKey: 'STORE_STATE_DOC_MISSING',
+          message: 'storeMeta/currentBusinessDay が存在しません。初期化を実行してください。',
+          context: { phase: 'close_terminal_preflight' },
+        });
+      }
 
-    const stateData = stateSnap.data()!;
-    const status = stateData.status as string | undefined;
-    const currentBusinessDateKey = stateData.currentBusinessDateKey as string | null | undefined;
+      const stateData = stateSnap.data()!;
+      const status = stateData.status as string | undefined;
+      const currentBusinessDateKey = stateData.currentBusinessDateKey as string | null | undefined;
 
-    if (status !== 'running') {
-      throw new HttpsError(
-        'invalid-argument',
-        `閉店可能な状態ではありません。status: ${status}`
-      );
-    }
-    if (currentBusinessDateKey == null || typeof currentBusinessDateKey !== 'string' || currentBusinessDateKey.trim() === '') {
-      throw new HttpsError(
-        'invalid-argument',
-        'currentBusinessDateKey が設定されていません。'
-      );
-    }
+      if (status !== 'running') {
+        throw new FunctionCustomError({
+          errorKey: 'STORE_NOT_RUNNING',
+          message: `閉店可能な状態ではありません。status: ${status}`,
+          context: { status, phase: 'close_terminal_preflight' },
+        });
+      }
+      if (currentBusinessDateKey == null || typeof currentBusinessDateKey !== 'string' || currentBusinessDateKey.trim() === '') {
+        throw new FunctionCustomError({
+          errorKey: 'STORE_BUSINESS_DATE_UNAVAILABLE',
+          message: 'currentBusinessDateKey が設定されていません。',
+          context: { status, phase: 'close_terminal_preflight' },
+        });
+      }
 
-    const closedBusinessDate = currentBusinessDateKey.trim();
+      closedBusinessDate = currentBusinessDateKey.trim();
+    } catch (e) {
+      if (e instanceof FunctionCustomError) {
+        logOpsError({
+          message: 'closeStoreTerminal preflight failed',
+          functionEntry: 'closeStoreTerminal',
+          operation: 'closeTerminalPreflight',
+          cause: e,
+        });
+        throw new HttpsError(mapFunctionCustomErrorToHttpsCode(e.errorKey), e.message);
+      }
+      throw e;
+    }
     const reqData = request.data != null && typeof request.data === 'object' ? (request.data as { runId?: string; forceClose?: boolean }) : {};
     const requestRunId = typeof reqData.runId === 'string' ? reqData.runId.trim() : undefined;
     const forceClose = reqData.forceClose === true;
@@ -149,6 +168,15 @@ export const closeStoreTerminal = onCall(
     try {
       await acquireProcessing(db, { runId, kind: 'close', requestRunId: requestRunId ?? null });
     } catch (e) {
+      if (e instanceof FunctionCustomError) {
+        logOpsError({
+          message: 'acquireProcessing failed',
+          functionEntry: 'closeStoreTerminal',
+          operation: 'acquireProcessingLease',
+          cause: e,
+        });
+        throw new HttpsError(mapFunctionCustomErrorToHttpsCode(e.errorKey), e.message);
+      }
       if (e instanceof HttpsError) throw e;
       throw new HttpsError('internal', `processing 獲得に失敗しました: ${e}`);
     }

@@ -6,6 +6,7 @@ import { validateStoreTenantForProduction } from "../../../shared/runtime";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { logger } from "firebase-functions";
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
 
 // 入力スキーマの定義
@@ -77,21 +78,22 @@ export const createScheduledTournament = onCall(async (request) => {
     let businessDate: string;
     
     if (businessDateResult.status === 'NONE') {
-      throw new HttpsError(
-        'failed-precondition',
-        `The start time ${startAt} does not belong to any business day.`
-      );
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_SCHEDULE_NO_BUSINESS_DAY',
+        message: `The start time ${startAt} does not belong to any business day.`,
+        context: { startAt, op: 'createScheduledTournament' },
+      });
     }
     
     if (businessDateResult.status === 'AMBIGUOUS') {
       // AMBIGUOUSの場合は、UIでどちらの営業日に属するデータなのかを選択させる
       // リクエストにselectedBusinessDateKeyが含まれている場合はそれを使用
       if (!selectedBusinessDateKey || !businessDateResult.candidates.includes(selectedBusinessDateKey)) {
-        throw new HttpsError(
-          'failed-precondition',
-          `The start time ${startAt} is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
-          { candidates: businessDateResult.candidates }
-        );
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_SCHEDULE_AMBIGUOUS',
+          message: `The start time ${startAt} is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
+          context: { candidates: businessDateResult.candidates, startAt, op: 'createScheduledTournament' },
+        });
       }
       businessDate = selectedBusinessDateKey;
       logger.warn('calcBusinessDate returned AMBIGUOUS, using selected candidate', {
@@ -116,10 +118,11 @@ export const createScheduledTournament = onCall(async (request) => {
         .limit(1)
         .get();
       if (!sameTemplateSameDayQuery.empty) {
-        throw new HttpsError(
-          "failed-precondition",
-          "同一営業日に同じテンプレートのトーナメントは作成できません。"
-        );
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_SCHEDULE_DUPLICATE_TEMPLATE_SAME_DAY',
+          message: '同一営業日に同じテンプレートのトーナメントは作成できません。',
+          context: { templateId, businessDate, op: 'createScheduledTournament' },
+        });
       }
     }
 
@@ -155,7 +158,11 @@ export const createScheduledTournament = onCall(async (request) => {
     
     // テンプレートが利用可能かチェック
     if (templateData.isArchived === true) {
-      throw new HttpsError('failed-precondition', 'アーカイブされたテンプレートは使用できません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_TEMPLATE_ARCHIVED',
+        message: 'アーカイブされたテンプレートは使用できません',
+        context: { templateId, phase: 'create_scheduled' },
+      });
     }
 
     // トーナメントIDを生成（一意性を保証）
@@ -386,21 +393,32 @@ export const createScheduledTournament = onCall(async (request) => {
     };
 
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new HttpsError('invalid-argument', `入力検証エラー: ${error.errors.map(e => e.message).join(', ')}`);
+    }
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'スケジュール済みトーナメント作成エラー:',
+        failureType: 'business',
+        functionEntry: 'createScheduledTournament',
+        operation: 'createScheduledTournamentCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+
     logOpsError({
       message: 'スケジュール済みトーナメント作成エラー:',
       failureType: 'business',
       functionEntry: 'createScheduledTournament',
       cause: error,
     });
-    
-    if (error instanceof z.ZodError) {
-      throw new HttpsError('invalid-argument', `入力検証エラー: ${error.errors.map(e => e.message).join(', ')}`);
-    }
-    
-    if (error instanceof HttpsError) {
-      throw error;
-    }
-    
+
     throw new HttpsError('internal', 'スケジュール済みトーナメントの作成に失敗しました');
   }
 });

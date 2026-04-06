@@ -7,6 +7,7 @@ import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import type { DeviceDoc } from '../../../shared/devices';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 // 入力データの検証スキーマ
 const bustAndExitSchema = z.object({
@@ -83,23 +84,39 @@ export const bustAndExit = onCall(async (request) => {
 
     // バリデーション
     if (!tableSeatDoc.exists) {
-      throw new Error(`テーブル ${tableId} が存在しません`);
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `テーブル ${tableId} が存在しません`,
+        context: { tournamentId, tableId, reason: 'table_seat_missing' },
+      });
     }
 
     if (!viewsMainDoc.exists) {
-      throw new Error('トーナメントのviews/mainドキュメントが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントのviews/mainドキュメントが存在しません',
+        context: { tournamentId, reason: 'views_main_missing' },
+      });
     }
 
     // activeStaysの存在チェック（本callable側の責務）
     if (!activeStayDoc.exists) {
-      throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `ユーザー ${userId} のactiveStaysドキュメントが存在しません`,
+        context: { tournamentId, userId, reason: 'active_stay_missing' },
+      });
     }
 
     const activeStayData = activeStayDoc.data()!;
     const billId = activeStayData.billId as string;
 
     if (!billId) {
-      throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`,
+        context: { tournamentId, userId, reason: 'billId_missing_on_active_stay' },
+      });
     }
 
     const tableSeatData = tableSeatDoc.data()!;
@@ -112,7 +129,11 @@ export const bustAndExit = onCall(async (request) => {
 
     const currentUserId = seats[seatUserIdKey];
     if (currentUserId !== userId) {
-      throw new Error(`シート ${seatNumber} には別のユーザーが座っています`);
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `シート ${seatNumber} には別のユーザーが座っています`,
+        context: { tournamentId, tableId, seatNumber, userId, reason: 'seat_user_mismatch' },
+      });
     }
 
     const viewsMainData = viewsMainDoc.data()!;

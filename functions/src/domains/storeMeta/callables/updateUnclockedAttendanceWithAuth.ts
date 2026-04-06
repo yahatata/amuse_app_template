@@ -17,6 +17,7 @@ import {
   recalculateAttendanceFromBreaks,
 } from '../../attendance/helpers/recalculateAttendanceFromBreaks';
 import { getBusinessSecrets } from '../../../shared/secrets/secretManager';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 export const updateUnclockedAttendanceWithAuth = onCall(async (request: CallableRequest) => {
   if (!request.auth) {
@@ -120,6 +121,13 @@ export const updateUnclockedAttendanceWithAuth = onCall(async (request: Callable
     };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
+    logOpsError({
+      message: 'updateUnclockedAttendanceWithAuth failed',
+      functionEntry: 'updateUnclockedAttendanceWithAuth',
+      operation: 'passwordClockOutUpdate',
+      cause: error,
+      sourceProductHint: 'firestore',
+    });
     throw new HttpsError(
       'internal',
       `退勤記録の更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`

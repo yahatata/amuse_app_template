@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 export const getRankingData = onCall(async (request) => {
   try {
@@ -28,7 +29,11 @@ export const getRankingData = onCall(async (request) => {
     
     // プライズプールの存在確認
     if (!mainViewData?.prizePool) {
-      throw new HttpsError('failed-precondition', 'プライズの確定が行われていないため、先にプライズ確定を行ってください');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_PRIZE_NOT_CONFIRMED',
+        message: 'プライズの確定が行われていないため、先にプライズ確定を行ってください',
+        context: { tournamentId },
+      });
     }
     
     // バストプレイヤーデータを取得
@@ -65,17 +70,28 @@ export const getRankingData = onCall(async (request) => {
     };
     
   } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'getRankingData error:',
+        failureType: 'business',
+        functionEntry: 'getRankingData',
+        operation: 'getRankingDataCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+
     logOpsError({
       message: 'getRankingData error:',
       failureType: 'business',
       functionEntry: 'getRankingData',
       cause: error,
     });
-    
-    if (error instanceof HttpsError) {
-      throw error;
-    }
-    
+
     throw new HttpsError('internal', 'Internal server error');
   }
 });

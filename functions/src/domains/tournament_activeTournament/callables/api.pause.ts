@@ -3,6 +3,7 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマの定義
 const pauseTournamentSchema = z.object({
@@ -60,16 +61,28 @@ export const pauseTournament = onCall(async (request) => {
 
       // 現在のステータスをチェック
       if (tournamentData.status !== 'running') {
-        throw new HttpsError('failed-precondition', `Tournament is not running. Current status: ${tournamentData.status}`);
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: `Tournament is not running. Current status: ${tournamentData.status}`,
+          context: { tournamentId, phase: 'pause', field: 'tournament.status' },
+        });
       }
 
       if (runtimeData.status !== 'running') {
-        throw new HttpsError('failed-precondition', `Runtime is not running. Current status: ${runtimeData.status}`);
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: `Runtime is not running. Current status: ${runtimeData.status}`,
+          context: { tournamentId, phase: 'pause', field: 'runtime.status' },
+        });
       }
 
       // 既に一時停止中でないことを確認
       if (runtimeData.pausedAt) {
-        throw new HttpsError('failed-precondition', 'Tournament is already paused');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_ALREADY_PAUSED',
+          message: 'Tournament is already paused',
+          context: { tournamentId },
+        });
       }
 
       // トーナメントとruntimeの両方を一時停止状態に更新
@@ -93,21 +106,32 @@ export const pauseTournament = onCall(async (request) => {
     };
 
   } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    if (error instanceof z.ZodError) {
+      throw new HttpsError('invalid-argument', `Validation error: ${error.errors.map(e => e.message).join(', ')}`);
+    }
+
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'pauseTournament error:',
+        failureType: 'business',
+        functionEntry: 'pauseTournament',
+        operation: 'pauseTournamentCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+
     logOpsError({
       message: 'pauseTournament error:',
       failureType: 'business',
       functionEntry: 'pauseTournament',
       cause: error,
     });
-    
-    if (error instanceof HttpsError) {
-      throw error;
-    }
-    
-    if (error instanceof z.ZodError) {
-      throw new HttpsError('invalid-argument', `Validation error: ${error.errors.map(e => e.message).join(', ')}`);
-    }
-    
+
     throw new HttpsError('internal', 'トーナメントの一時停止に失敗しました');
   }
 });

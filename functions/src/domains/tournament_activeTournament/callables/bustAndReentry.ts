@@ -8,6 +8,7 @@ import { recordTournamentAction } from '../../bills/repos/recordTournamentAction
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
 const bustAndReentrySchema = z.object({
@@ -57,41 +58,61 @@ export const bustAndReentry = onCall(async (request) => {
       const tournamentDoc = await transaction.get(tournamentRef);
       
       if (!tournamentDoc.exists) {
-        throw new Error('トーナメントが存在しません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントが存在しません',
+          context: { tournamentId, reason: 'tournament_not_found' },
+        });
       }
-      
+
       const tournamentData = tournamentDoc.data()!;
       const templateId = tournamentData.templateId;
       const reentryFee = tournamentData.snapshot?.reentryFee || 0;
       const maxReentriesPerPlayer = tournamentData.snapshot?.maxReentriesPerPlayer;
       const templateName = tournamentData.snapshot?.name || '';
       const startAt = tournamentData.startAt;
-      
+
       if (!templateId) {
-        throw new Error('トーナメントのtemplateIdが存在しません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントのtemplateIdが存在しません',
+          context: { tournamentId, reason: 'templateId_missing' },
+        });
       }
-      
+
       // 2. テンプレート情報を取得
       const templateRef = db.collection('tournamentTemplates').doc(templateId);
       const templateDoc = await transaction.get(templateRef);
-      
+
       if (!templateDoc.exists) {
-        throw new Error('トーナメントテンプレートが存在しません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントテンプレートが存在しません',
+          context: { tournamentId, templateId, reason: 'template_doc_missing' },
+        });
       }
-      
+
       // 3. activeStaysからbillIdを取得（存在チェックは本callable側の責務）
       const activeStayRef = db.collection('activeStays').doc(userId);
       const activeStayDoc = await transaction.get(activeStayRef);
-      
+
       if (!activeStayDoc.exists) {
-        throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: `ユーザー ${userId} のactiveStaysドキュメントが存在しません`,
+          context: { tournamentId, userId, reason: 'active_stay_missing' },
+        });
       }
-      
+
       const activeStayData = activeStayDoc.data()!;
       const billId = activeStayData.billId as string;
-      
+
       if (!billId) {
-        throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`,
+          context: { tournamentId, userId, reason: 'billId_missing_on_active_stay' },
+        });
       }
       
       // pokerNameはactiveStaysから取得（todaysBillsには依存しない）
@@ -110,20 +131,28 @@ export const bustAndReentry = onCall(async (request) => {
       
       // 5. リエントリー制限チェック
       if (maxReentriesPerPlayer != null && currentReentryCount >= maxReentriesPerPlayer) {
-        throw new Error('リエントリー制限に達しています');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_REENTRY_LIMIT_REACHED',
+          message: 'リエントリー制限に達しています',
+          context: { tournamentId, userId, currentReentryCount, maxReentriesPerPlayer },
+        });
       }
-      
+
       // 6. テーブルシート情報を取得
       const tableSeatRef = db
         .collection('scheduledTournaments')
         .doc(tournamentId)
         .collection('tablesSeat')
         .doc(tableId);
-      
+
       const tableSeatDoc = await transaction.get(tableSeatRef);
-      
+
       if (!tableSeatDoc.exists) {
-        throw new Error('テーブルシート情報が存在しません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'テーブルシート情報が存在しません',
+          context: { tournamentId, tableId, reason: 'table_seat_missing' },
+        });
       }
       
       const tableSeatData = tableSeatDoc.data()!;
@@ -135,19 +164,27 @@ export const bustAndReentry = onCall(async (request) => {
       
       // 7. シートにユーザーが座っているかチェック
       if (seats[seatUserIdKey] !== userId) {
-        throw new Error('指定されたシートにユーザーが座っていません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: '指定されたシートにユーザーが座っていません',
+          context: { tournamentId, tableId, seatNumber, userId, reason: 'seat_user_mismatch' },
+        });
       }
-      
+
       // 8. scheduledTournaments/views/mainを取得
       const viewsMainRef = db
         .collection('scheduledTournaments')
         .doc(tournamentId)
         .collection('views')
         .doc('main');
-      
+
       const viewsMainDoc = await transaction.get(viewsMainRef);
       if (!viewsMainDoc.exists) {
-        throw new Error('トーナメントのviews/mainドキュメントが存在しません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントのviews/mainドキュメントが存在しません',
+          context: { tournamentId, reason: 'views_main_missing' },
+        });
       }
       
       const viewsMainData = viewsMainDoc.data()!;

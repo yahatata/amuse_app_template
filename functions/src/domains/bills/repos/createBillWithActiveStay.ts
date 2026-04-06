@@ -19,6 +19,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { dualWriteTodaysBillsSkeleton, shouldDualWrite } from './dualWrite';
 import { getCurrentBusinessDateKeyOrThrow } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
@@ -93,21 +94,20 @@ export async function createBillWithActiveStay(
     entranceFeeDescription: entranceFeeDescription || null,
   });
 
-  // 営業日計算（サーバ専任、state docから取得）
-  // Phase1: state docのcurrentBusinessDateKeyを使用（店舗が閉店中の場合はエラー）
-  const now = new Date();
-  const businessDate = await getCurrentBusinessDateKeyOrThrow();
-
-  // expiresAt = now + 48h
-  const expiresAt = Timestamp.fromDate(new Date(now.getTime() + 48 * 60 * 60 * 1000));
-
-  // デュアルライトフラグ取得
-  const dualWriteEnabled = await shouldDualWrite();
-
   let reused = false;
   let dualWriteResult: 'success' | 'failed' | 'skipped' = 'skipped';
 
   try {
+    // 営業日計算（サーバ専任、state docから取得）
+    const now = new Date();
+    const businessDate = await getCurrentBusinessDateKeyOrThrow();
+
+    // expiresAt = now + 48h
+    const expiresAt = Timestamp.fromDate(new Date(now.getTime() + 48 * 60 * 60 * 1000));
+
+    // デュアルライトフラグ取得
+    const dualWriteEnabled = await shouldDualWrite();
+
     // 単一トランザクション内で原子的に処理
     const result: CreateBillWithActiveStayResponse = await db.runTransaction(async (tx) => {
       // 1) idempotency チェック（replay対応 + ハッシュ一致検証）
@@ -115,11 +115,11 @@ export async function createBillWithActiveStay(
       if (idemSnap.exists) {
         const prevHash = idemSnap.data()?.requestHash;
         if (prevHash && prevHash !== requestHash) {
-          // ハッシュ不一致 → failed-precondition
-          throw new HttpsError(
-            'failed-precondition',
-            'idempotency requestHash mismatch'
-          );
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_IDEMPOTENCY_MISMATCH',
+            message: 'idempotency requestHash mismatch',
+            context: { billId },
+          });
         }
         // ハッシュ一致 → 既存docを返却（updatedAt は変更しない）
         reused = true;
@@ -148,10 +148,11 @@ export async function createBillWithActiveStay(
       // 2) 重複入店チェック（activeStays/{uid} が既に存在し isActive==true の場合）
       const staySnap = await tx.get(activeStayRef);
       if (staySnap.exists && staySnap.data()?.isActive === true) {
-        throw new HttpsError(
-          'failed-precondition',
-          'user already has an active stay'
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_ACTIVE_STAY_CONFLICT',
+          message: 'user already has an active stay',
+          context: { userId, billId },
+        });
       }
 
       // 3) bills/{billId} 作成（サーバ専任 businessDate）
@@ -243,13 +244,29 @@ export async function createBillWithActiveStay(
 
     return result;
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'createBillWithActiveStay: failed',
+        functionEntry: 'createBillWithActiveStay',
+        operation: operationForCreateBillKey(error.errorKey),
+        cause: error,
+        context: {
+          billId,
+          userId,
+          idempKey: idempotencyKeyFull,
+          result: 'fail',
+          requestHash8: requestHash.substring(0, 8),
+        },
+      });
+      throw error;
+    }
+
     logOpsError({
       message: 'createBillWithActiveStay: failed',
-      failureType: 'business',
       functionEntry: 'createBillWithActiveStay',
+      operation: 'runCreateBillTransaction',
       cause: error,
       context: {
-        op: 'createBillWithActiveStay',
         billId,
         userId,
         idempKey: idempotencyKeyFull,
@@ -263,5 +280,16 @@ export async function createBillWithActiveStay(
       throw error;
     }
     throw new HttpsError('internal', 'Failed to create bill with active stay');
+  }
+}
+
+function operationForCreateBillKey(key: string): string {
+  switch (key) {
+    case 'ACCOUNTING_ACTIVE_STAY_CONFLICT':
+      return 'checkActiveStayConflict';
+    case 'ACCOUNTING_IDEMPOTENCY_MISMATCH':
+      return 'validateIdempotencyRequest';
+    default:
+      return 'runCreateBillTransaction';
   }
 }

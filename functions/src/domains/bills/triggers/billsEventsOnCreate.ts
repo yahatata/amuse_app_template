@@ -13,6 +13,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 /**
  * イベント差分トリガ
@@ -98,10 +99,11 @@ export const billsEventsOnCreate = onDocumentCreated(
 
         // 許可された status でない場合はエラー
         if (!allowedStatuses.includes(currentStatus)) {
-          throw new HttpsError(
-            'failed-precondition',
-            `Event type '${eventType}' cannot be applied to status '${currentStatus}'. Allowed statuses: ${allowedStatuses.join(', ')}`
-          );
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_INVALID_STATE',
+            message: `Event type '${eventType}' cannot be applied to status '${currentStatus}'. Allowed statuses: ${allowedStatuses.join(', ')}`,
+            context: { billId, eventId, eventType, currentStatus, allowedStatuses },
+          });
         }
 
         // 4) イベント種別ごとの差分計算
@@ -159,19 +161,21 @@ export const billsEventsOnCreate = onDocumentCreated(
 
         // バリデーション: netSalesIncl が負にならないことを確認
         if (netSalesIncl < 0) {
-          throw new HttpsError(
-            'failed-precondition',
-            `Event would result in negative netSalesIncl: ${netSalesIncl}`
-          );
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_NEGATIVE_TOTALS',
+            message: `Event would result in negative netSalesIncl: ${netSalesIncl}`,
+            context: { billId, eventId, eventType, netSalesIncl },
+          });
         }
 
         // バリデーション: balanceDueIncl が負にならないことを確認
         const finalBalanceDueIncl = updateData['paymentsSummary.balanceDueIncl'] || paymentsSummary.balanceDueIncl || 0;
         if (finalBalanceDueIncl < 0) {
-          throw new HttpsError(
-            'failed-precondition',
-            `Event would result in negative balanceDueIncl: ${finalBalanceDueIncl}`
-          );
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_NEGATIVE_TOTALS',
+            message: `Event would result in negative balanceDueIncl: ${finalBalanceDueIncl}`,
+            context: { billId, eventId, eventType, finalBalanceDueIncl },
+          });
         }
 
         // 6) 親docを更新
@@ -208,7 +212,12 @@ export const billsEventsOnCreate = onDocumentCreated(
           billId,
           eventId,
           type: eventDoc.type,
-          code: error instanceof HttpsError ? error.code : 'internal',
+          code:
+            error instanceof HttpsError
+              ? error.code
+              : error instanceof FunctionCustomError
+                ? error.errorKey
+                : 'internal',
         },
       });
 

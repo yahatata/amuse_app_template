@@ -105,10 +105,10 @@ export async function getStoreConfig(db?: Firestore): Promise<StoreConfig> {
       }
       logOpsError({
         message: 'config_read_error',
-        failureType: 'config',
         functionEntry: 'getStoreConfig',
         operation: 'config_read',
         cause: lastError,
+        sourceProductHint: 'firestore',
         context: {
           code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
           reason: 'read_error',

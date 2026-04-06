@@ -24,7 +24,6 @@ export async function sendLinePushMessage(
     if (!channelAccessToken) {
       logOpsError({
         message: "line-config.channelAccessToken is not set",
-        failureType: "config",
         functionEntry: "sendLinePushMessage",
         operation: "token",
       });
@@ -34,7 +33,6 @@ export async function sendLinePushMessage(
     if (!userId || !message) {
       logOpsError({
         message: "Invalid parameters for sendLinePushMessage",
-        failureType: "config",
         functionEntry: "sendLinePushMessage",
         operation: "validate",
         context: { userId, hasMessage: !!message },
@@ -63,9 +61,12 @@ export async function sendLinePushMessage(
       const errorText = await response.text();
       logOpsError({
         message: "Failed to send LINE push message",
-        failureType: "external_api",
         functionEntry: "sendLinePushMessage",
         operation: "push",
+        errorSource: "external_api",
+        sourceProduct: "line_api",
+        httpStatus: response.status,
+        detailReason: errorText.slice(0, 200),
         context: {
           userId,
           status: response.status,
@@ -80,9 +81,10 @@ export async function sendLinePushMessage(
   } catch (error) {
     logOpsError({
       message: "Error sending LINE push message",
-      failureType: "external_api",
       functionEntry: "sendLinePushMessage",
       operation: "push",
+      errorSource: "external_api",
+      sourceProduct: "line_api",
       cause: error,
       context: { userId },
     });
@@ -105,7 +107,6 @@ export function formatDateToJapanese(dateString: string): string {
   } catch (error) {
     logOpsError({
       message: "Error formatting date",
-      failureType: "internal",
       functionEntry: "formatDateToJapanese",
       cause: error,
       context: { dateString },
@@ -150,7 +151,6 @@ export async function sendLineButtonMessage(
     if (!channelAccessToken) {
       logOpsError({
         message: "line-config.channelAccessToken is not set",
-        failureType: "config",
         functionEntry: "sendLineButtonMessage",
         operation: "token",
       });
@@ -160,7 +160,6 @@ export async function sendLineButtonMessage(
     if (!userId || !message || !buttons || buttons.length === 0) {
       logOpsError({
         message: "Invalid parameters for sendLineButtonMessage",
-        failureType: "config",
         functionEntry: "sendLineButtonMessage",
         operation: "validate",
         context: {
@@ -204,9 +203,12 @@ export async function sendLineButtonMessage(
       const errorText = await response.text();
       logOpsError({
         message: "Failed to send LINE button message",
-        failureType: "external_api",
         functionEntry: "sendLineButtonMessage",
         operation: "push",
+        errorSource: "external_api",
+        sourceProduct: "line_api",
+        httpStatus: response.status,
+        detailReason: errorText.slice(0, 200),
         context: {
           userId,
           status: response.status,
@@ -221,9 +223,10 @@ export async function sendLineButtonMessage(
   } catch (error) {
     logOpsError({
       message: "Error sending LINE button message",
-      failureType: "external_api",
       functionEntry: "sendLineButtonMessage",
       operation: "push",
+      errorSource: "external_api",
+      sourceProduct: "line_api",
       cause: error,
       context: { userId },
     });

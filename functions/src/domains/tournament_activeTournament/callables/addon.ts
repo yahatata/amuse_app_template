@@ -8,6 +8,7 @@ import { recordTournamentAction } from '../../bills/repos/recordTournamentAction
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 const addonSchema = z.object({
   operationId: z.string().min(1, 'operationId は必須です'),
@@ -53,7 +54,7 @@ export const addon = onCall(async (request) => {
     // dataがundefinedまたは無効な場合の処理
     if (!data || typeof data !== 'object') {
       console.log('dataが無効です:', data);
-      throw new Error('無効なデータが送信されました');
+      throw new HttpsError('invalid-argument', '無効なデータが送信されました');
     }
 
     console.log('処理対象データ:', {
@@ -75,7 +76,11 @@ export const addon = onCall(async (request) => {
     const tournamentDoc = await tournamentRef.get();
 
     if (!tournamentDoc.exists) {
-      throw new Error('トーナメントが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントが存在しません',
+        context: { tournamentId, reason: 'tournament_not_found' },
+      });
     }
 
     const tournamentData = tournamentDoc.data();
@@ -92,11 +97,19 @@ export const addon = onCall(async (request) => {
     console.log('addonStack:', addonStack);
 
     if (!isAddon) {
-      throw new Error('このトーナメントではAddonができません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_ADDON_NOT_ALLOWED',
+        message: 'このトーナメントではAddonができません',
+        context: { tournamentId },
+      });
     }
 
     if (!templateId) {
-      throw new Error('トーナメントのtemplateIdが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントのtemplateIdが存在しません',
+        context: { tournamentId, reason: 'templateId_missing' },
+      });
     }
 
     // activeStaysからbillIdを取得（存在チェックは本callable側の責務）
@@ -104,14 +117,22 @@ export const addon = onCall(async (request) => {
     const activeStayDoc = await activeStayRef.get();
 
     if (!activeStayDoc.exists) {
-      throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `ユーザー ${userId} のactiveStaysドキュメントが存在しません`,
+        context: { tournamentId, userId, reason: 'active_stay_missing' },
+      });
     }
 
     const activeStayData = activeStayDoc.data()!;
     const billId = activeStayData.billId as string;
 
     if (!billId) {
-      throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`,
+        context: { tournamentId, userId, reason: 'billId_missing_on_active_stay' },
+      });
     }
 
     // 既にAddon済みかチェック（/bills/{billId}/tournaments/{templateId} を確認）
@@ -129,7 +150,11 @@ export const addon = onCall(async (request) => {
           existingAddonCount,
           tournamentInfoKeys: Object.keys(tournamentInfo),
         });
-        throw new Error('既にAddon処理済みです');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_ADDON_ALREADY_DONE',
+          message: '既にAddon処理済みです',
+          context: { billId, templateId, userId },
+        });
       }
     }
 
@@ -143,7 +168,11 @@ export const addon = onCall(async (request) => {
     const viewsMainDoc = await viewsMainRef.get();
 
     if (!viewsMainDoc.exists) {
-      throw new Error('トーナメントのviews/mainドキュメントが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントのviews/mainドキュメントが存在しません',
+        context: { tournamentId, reason: 'views_main_missing' },
+      });
     }
 
     const viewsMainData = viewsMainDoc.data();
