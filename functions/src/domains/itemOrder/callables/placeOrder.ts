@@ -17,6 +17,7 @@ import { resolveMenuItem } from "../../bills/repos/resolveMenuItem";
 import { addLogEntry } from "../../user/services/logUtils";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 
 export const placeOrder = onCall(async (request) => {
   const db = getFirestore();
@@ -182,19 +183,25 @@ export const placeOrder = onCall(async (request) => {
       };
     }
   } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'placeOrder エラー:',
+        failureType: 'business',
+        functionEntry: 'placeOrder',
+        operation: 'placeOrderCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     logOpsError({
       message: 'placeOrder エラー:',
       failureType: 'business',
       functionEntry: 'placeOrder',
       cause: error,
     });
-    
-    // HttpsError の場合はそのまま throw
-    if (error instanceof HttpsError) {
-      throw error;
-    }
-    
-    // その他のエラーは internal エラーとして throw
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new HttpsError('internal', errorMessage || "注文の登録に失敗しました");
   }

@@ -12,6 +12,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { calcBusinessDate } from './calcBusinessDate';
 
 export interface PostEventRefundRequest {
@@ -122,10 +123,11 @@ export async function postEventRefund(request: PostEventRefundRequest): Promise<
       // post-settlement 状態のみ許可（refund/adjustment: settled, partially_refunded, refunded）
       const allowedStatuses = ['settled', 'partially_refunded', 'refunded'];
       if (!allowedStatuses.includes(currentStatus)) {
-        throw new HttpsError(
-          'failed-precondition',
-          `Cannot process refund. Current status: ${currentStatus}. Allowed statuses: ${allowedStatuses.join(', ')}`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+          message: `Cannot process refund. Current status: ${currentStatus}. Allowed statuses: ${allowedStatuses.join(', ')}`,
+          context: { billId, currentStatus, op: 'postEventRefund' },
+        });
       }
 
       // 3) 金額バリデーション
@@ -137,20 +139,22 @@ export async function postEventRefund(request: PostEventRefundRequest): Promise<
       const currentTotalAdjustmentsIncl = billData.postEvents?.totalAdjustmentsIncl || 0;
 
       if (newTotalRefunded > grandTotalRounded) {
-        throw new HttpsError(
-          'failed-precondition',
-          `Total refund amount (${newTotalRefunded}) exceeds grand total (${grandTotalRounded})`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+          message: `Total refund amount (${newTotalRefunded}) exceeds grand total (${grandTotalRounded})`,
+          context: { billId, newTotalRefunded, grandTotalRounded, op: 'postEventRefund' },
+        });
       }
 
       // balanceDueIncl が負にならないことを確認
       // ただし、全額返金の場合（newTotalRefunded >= grandTotalRounded）は許容
       const newBalanceDueIncl = grandTotalRounded - paidTotalIncl - newTotalRefunded + currentTotalAdjustmentsIncl;
       if (newBalanceDueIncl < 0 && newTotalRefunded < grandTotalRounded) {
-        throw new HttpsError(
-          'failed-precondition',
-          `Refund would result in negative balanceDueIncl: ${newBalanceDueIncl}`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_NEGATIVE_TOTALS',
+          message: `Refund would result in negative balanceDueIncl: ${newBalanceDueIncl}`,
+          context: { billId, newBalanceDueIncl, op: 'postEventRefund' },
+        });
       }
 
       // 4) businessDate の取得
@@ -166,21 +170,22 @@ export async function postEventRefund(request: PostEventRefundRequest): Promise<
       } else {
         const businessDateResult = await calcBusinessDate();
         if (businessDateResult.status === 'NONE') {
-          throw new HttpsError(
-            'failed-precondition',
-            'The event time does not belong to any business day.'
-          );
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_BUSINESS_DATE_UNRESOLVED',
+            message: 'The event time does not belong to any business day.',
+            context: { reason: 'NONE', billId, op: 'postEventRefund' },
+          });
         }
         if (businessDateResult.status === 'AMBIGUOUS') {
           // AMBIGUOUSの場合は、UIでどちらの営業日に属するデータなのかを選択させる
           // リクエストにselectedBusinessDateKeyが含まれている場合はそれを使用
           const selectedBusinessDateKey = request.selectedBusinessDateKey;
           if (!selectedBusinessDateKey || !businessDateResult.candidates.includes(selectedBusinessDateKey)) {
-            throw new HttpsError(
-              'failed-precondition',
-              `The event time is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
-              { candidates: businessDateResult.candidates }
-            );
+            throw new FunctionCustomError({
+              errorKey: 'ACCOUNTING_BUSINESS_DATE_UNRESOLVED',
+              message: `The event time is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
+              context: { reason: 'AMBIGUOUS', candidates: businessDateResult.candidates, billId, op: 'postEventRefund' },
+            });
           }
           finalEventBusinessDate = selectedBusinessDateKey;
         } else {
@@ -263,6 +268,9 @@ export async function postEventRefund(request: PostEventRefundRequest): Promise<
       },
     });
 
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }

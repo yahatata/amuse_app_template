@@ -5,6 +5,7 @@ import { calculatePaymentSplit } from '../services/paymentSplitCalculator';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_POINT_PRIORITY } from '../../../shared/config/defaults';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
 const VerifyPaymentSplitSchema = z.object({
@@ -158,6 +159,16 @@ export const verifyPaymentSplit = onCall(async (request) => {
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
+    }
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: '支払い分割照合エラー:',
+        failureType: 'business',
+        functionEntry: 'verifyPaymentSplit',
+        operation: 'verifyPaymentSplitCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
     }
     if (error instanceof HttpsError) {
       throw error;

@@ -12,6 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 const GetBillPreviewTotalsSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
@@ -177,6 +178,13 @@ export const getBillPreviewTotals = onCall(async (request) => {
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', `入力データが不正です: ${error.message}`);
     }
+    logOpsError({
+      message: 'getBillPreviewTotals failed',
+      functionEntry: 'getBillPreviewTotals',
+      operation: 'previewTotalsCatch',
+      cause: error,
+      sourceProductHint: 'firestore',
+    });
     throw new HttpsError('internal', `プレビュー情報の取得に失敗しました: ${error}`);
   }
 });

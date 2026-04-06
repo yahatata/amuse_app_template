@@ -10,6 +10,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { shouldDualWrite } from './dualWrite';
 
@@ -79,11 +80,11 @@ export async function appendExtraCore(
   if (idemSnap.exists) {
     const prevHash = idemSnap.data()?.requestHash;
     if (prevHash && prevHash !== requestHash) {
-      // ハッシュ不一致 → failed-precondition
-      throw new HttpsError(
-        'failed-precondition',
-        `Idempotency key conflict: ${idempotencyKey} (hash mismatch)`
-      );
+      throw new FunctionCustomError({
+        errorKey: 'ACCOUNTING_IDEMPOTENCY_MISMATCH',
+        message: `Idempotency key conflict: ${idempotencyKey} (hash mismatch)`,
+        context: { billId, idempotencyKey, op: 'appendExtraCore' },
+      });
     }
     // ハッシュ一致 → 再利用
     const extraId = idemSnap.data()?.extraId as string | undefined;
@@ -119,7 +120,11 @@ export async function appendExtraCore(
   // 許可: open/in_progress、拒否: settling/settled/voided
   const allowed = status === 'open' || status === 'in_progress';
   if (!allowed) {
-    throw new HttpsError('failed-precondition', `Cannot append extra to bill with status: ${status}`);
+    throw new FunctionCustomError({
+      errorKey: 'ACCOUNTING_INVALID_STATE',
+      message: `Cannot append extra to bill with status: ${status}`,
+      context: { billId, billStatus: status, op: 'appendExtra' },
+    });
   }
 
   // 3) /bills/{billId}/extras/{extraId} を作成（extraId = idempotencyKey）
@@ -267,6 +272,9 @@ export async function appendExtra(request: AppendExtraRequest): Promise<AppendEx
       },
     });
     
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }

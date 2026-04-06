@@ -1,9 +1,11 @@
 import { logger } from 'firebase-functions';
 import { getRequiredProjectId } from '../runtime/projectId';
+import { FunctionCustomError } from './functionCustomError';
+import { extractExternalFromCause, type SourceProductId } from './externalFromCause';
+import { resolveServiceForFunctionEntry } from './serviceByFunctionEntry';
 
 /**
- * 保守運用向けエラーログの粗い分類（第1段階 A）。
- * 細かいドメイン区分は functionEntry / operation に寄せる。
+ * 過去互換。新規参照しない（changeSpec）。
  */
 export type OpsFailureType =
   | 'config'
@@ -14,28 +16,33 @@ export type OpsFailureType =
   | 'webhook'
   | 'internal';
 
+export type ErrorSource = 'external_api' | 'function_common' | 'function_custom';
+
 export type LogOpsErrorArgs = {
-  /** Cloud Logging 上で見やすい運用者向け短文（従来 logger.error の第1引数） */
+  /** Cloud Logging 上で見やすい運用者向け短文 */
   message: string;
-  failureType: OpsFailureType;
   /**
-   * Cloud Functions のエクスポート名を原則とする。
-   * repo / helper 等は呼び出し元エントリに紐づく既存の処理名で揃える。
+   * 過去互換。省略時は payload に含めない（差分仕様 §5.5）。
    */
+  failureType?: OpsFailureType;
   functionEntry: string;
-  /** 同一エントリ内の区別（任意） */
   operation?: string;
-  /** 未指定時は GCLOUD_PROJECT 等から解決 */
   projectId?: string;
-  /** 正規化して errorMessage / errorName に反映 */
   cause?: unknown;
-  /** cause より優先（設定不備など cause が無い場合） */
   errorMessage?: string;
   errorName?: string;
-  /**
-   * 既存ログの安全な補助フィールドのみ（機微・全文 payload は載せない）
-   */
   context?: Record<string, unknown>;
+  /** 明示時は最優先（差分仕様 §7） */
+  errorSource?: ErrorSource;
+  errorKey?: string;
+  sourceProduct?: SourceProductId;
+  sdkCode?: string;
+  httpStatus?: number | string;
+  detailReason?: string;
+  /**
+   * shape だけでは sourceProduct が決まらない単一 API 専用 catch での補助（差分仕様 §15.3）
+   */
+  sourceProductHint?: SourceProductId;
 };
 
 function resolveProjectId(): string {
@@ -46,26 +53,91 @@ function normalizeCause(cause: unknown): { errorMessage?: string; errorName?: st
   if (cause === undefined || cause === null) {
     return {};
   }
+  if (cause instanceof FunctionCustomError) {
+    return { errorMessage: cause.message, errorName: cause.name };
+  }
   if (cause instanceof Error) {
     return { errorMessage: cause.message, errorName: cause.name };
   }
   return { errorMessage: String(cause) };
 }
 
+function resolveErrorSource(args: LogOpsErrorArgs, cause: unknown): ErrorSource {
+  if (args.errorSource) {
+    return args.errorSource;
+  }
+  if (args.errorKey) {
+    return 'function_custom';
+  }
+  if (cause instanceof FunctionCustomError) {
+    return 'function_custom';
+  }
+  const ext = extractExternalFromCause(cause, args.sourceProductHint);
+  if (ext && ext.sourceProduct) {
+    return 'external_api';
+  }
+  return 'function_common';
+}
+
+function resolveService(args: LogOpsErrorArgs): string {
+  return resolveServiceForFunctionEntry(args.functionEntry);
+}
+
 /**
  * 既存 logger.error を共通形式へ寄せる（1 呼び出し = 1 ログ行）。
+ * context はネストのまま payload.context に載せる（差分仕様 §14.3）。
  */
 export function logOpsError(args: LogOpsErrorArgs): void {
   const projectId = args.projectId ?? resolveProjectId();
-  const fromCause = args.cause !== undefined ? normalizeCause(args.cause) : {};
-  const errorMessage = args.errorMessage ?? fromCause.errorMessage;
-  const errorName = args.errorName ?? fromCause.errorName;
+  const cause = args.cause;
+
+  let errorMessage = args.errorMessage;
+  let errorName = args.errorName;
+  let errorKey: string | undefined = args.errorKey;
+  let mergedContext: Record<string, unknown> | undefined = args.context ? { ...args.context } : undefined;
+
+  if (cause instanceof FunctionCustomError) {
+    const fromC = normalizeCause(cause);
+    errorMessage = args.errorMessage ?? fromC.errorMessage;
+    errorName = args.errorName ?? fromC.errorName;
+    errorKey = args.errorKey ?? cause.errorKey;
+    if (cause.context && Object.keys(cause.context).length > 0) {
+      mergedContext = { ...cause.context, ...mergedContext };
+    }
+  } else {
+    const fromCause = cause !== undefined ? normalizeCause(cause) : {};
+    errorMessage = args.errorMessage ?? fromCause.errorMessage;
+    errorName = args.errorName ?? fromCause.errorName;
+  }
+
+  const errorSource = resolveErrorSource(args, cause);
+  const service = resolveService(args);
+
+  let sourceProduct = args.sourceProduct;
+  let sdkCode = args.sdkCode;
+  let httpStatus = args.httpStatus;
+  let detailReason = args.detailReason;
+
+  if (errorSource === 'external_api') {
+    const ext = extractExternalFromCause(cause, args.sourceProductHint);
+    if (ext) {
+      sourceProduct = sourceProduct ?? ext.sourceProduct;
+      sdkCode = sdkCode ?? ext.sdkCode;
+      httpStatus = httpStatus ?? ext.httpStatus;
+      detailReason = detailReason ?? ext.detailReason;
+    }
+  }
 
   const payload: Record<string, unknown> = {
-    failureType: args.failureType,
+    errorSource,
+    service,
     functionEntry: args.functionEntry,
     projectId,
   };
+
+  if (args.failureType !== undefined) {
+    payload.failureType = args.failureType;
+  }
 
   if (args.operation !== undefined) {
     payload.operation = args.operation;
@@ -77,11 +149,26 @@ export function logOpsError(args: LogOpsErrorArgs): void {
     payload.errorName = errorName;
   }
 
-  if (args.context) {
-    for (const [key, value] of Object.entries(args.context)) {
-      if (value !== undefined) {
-        payload[key] = value;
-      }
+  if (mergedContext !== undefined && Object.keys(mergedContext).length > 0) {
+    payload.context = mergedContext;
+  }
+
+  if (errorSource === 'function_custom' && errorKey !== undefined) {
+    payload.errorKey = errorKey;
+  }
+
+  if (errorSource === 'external_api') {
+    if (sourceProduct !== undefined) {
+      payload.sourceProduct = sourceProduct;
+    }
+    if (sdkCode !== undefined) {
+      payload.sdkCode = sdkCode;
+    }
+    if (httpStatus !== undefined) {
+      payload.httpStatus = httpStatus;
+    }
+    if (detailReason !== undefined) {
+      payload.detailReason = detailReason;
     }
   }
 

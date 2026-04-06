@@ -5,6 +5,7 @@ import * as crypto from "crypto";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { createBillWithActiveStay } from "../../bills/repos/createBillWithActiveStay";
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
 
 /**
  * 手動チェックイン（店舗端末でのログインID + PIN 認証）
@@ -158,9 +159,14 @@ export const manualCheckIn = onCall(async (request) => {
     };
 
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      return {
+        success: false,
+        error: 'ログイン処理に失敗しました',
+      };
+    }
     logOpsError({
       message: '手動チェックインエラー:',
-      failureType: 'business',
       functionEntry: 'manualCheckIn',
       cause: error,
     });

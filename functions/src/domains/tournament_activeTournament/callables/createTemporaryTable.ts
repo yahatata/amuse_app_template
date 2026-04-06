@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
 const createTemporaryTableSchema = z.object({
@@ -49,7 +50,11 @@ export const createTemporaryTable = onCall(async (request) => {
       const existingTableDoc = await transaction.get(existingTableRef);
       
       if (existingTableDoc.exists) {
-        throw new Error(`テーブル名 "${tableName}" は既に使用されています`);
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: `テーブル名 "${tableName}" は既に使用されています`,
+          context: { tableName, reason: 'duplicate_table_name' },
+        });
       }
       
       // 2. シート情報を動的に生成（新しい構造）
@@ -104,18 +109,35 @@ export const createTemporaryTable = onCall(async (request) => {
     return result;
     
   } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    if (error instanceof z.ZodError) {
+      throw new HttpsError('invalid-argument', error.errors.map((e) => e.message).join(', '));
+    }
+
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: '=== 一時テーブル作成エラー ===',
+        failureType: 'business',
+        functionEntry: 'createTemporaryTable',
+        operation: 'createTemporaryTableCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+
     logOpsError({
       message: '=== 一時テーブル作成エラー ===',
       failureType: 'business',
       functionEntry: 'createTemporaryTable',
       cause: error,
     });
-    
-    // エラーメッセージを適切に返す
-    if (error instanceof Error) {
-      throw new HttpsError('internal', error.message);
-    } else {
-      throw new HttpsError('internal', '一時テーブル作成に失敗しました');
-    }
+
+    throw new HttpsError(
+      'internal',
+      error instanceof Error ? error.message : '一時テーブル作成に失敗しました'
+    );
   }
 });

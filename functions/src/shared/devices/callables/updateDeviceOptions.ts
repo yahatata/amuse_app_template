@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
+import { logOpsError } from "../../logging/logOpsError";
 
 const db = getFirestore();
 
@@ -93,6 +94,13 @@ export const updateDeviceOptions = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
+    logOpsError({
+      message: 'updateDeviceOptions failed',
+      functionEntry: 'updateDeviceOptions',
+      operation: 'updateDeviceOptionsCatch',
+      cause: error,
+      sourceProductHint: 'firestore',
+    });
     throw new HttpsError("internal", "デバイスオプション更新に失敗しました");
   }
 });

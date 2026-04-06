@@ -12,6 +12,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { calcBusinessDate } from './calcBusinessDate';
 
 export interface PostEventAdjustmentRequest {
@@ -124,10 +125,11 @@ export async function postEventAdjustment(request: PostEventAdjustmentRequest): 
       // post-settlement 状態のみ許可（refund/adjustment: settled, partially_refunded, refunded）
       const allowedStatuses = ['settled', 'partially_refunded', 'refunded'];
       if (!allowedStatuses.includes(currentStatus)) {
-        throw new HttpsError(
-          'failed-precondition',
-          `Cannot process adjustment. Current status: ${currentStatus}. Allowed statuses: ${allowedStatuses.join(', ')}`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+          message: `Cannot process adjustment. Current status: ${currentStatus}. Allowed statuses: ${allowedStatuses.join(', ')}`,
+          context: { billId, currentStatus, op: 'postEventAdjustment' },
+        });
       }
 
       // 3) businessDate の取得
@@ -143,21 +145,22 @@ export async function postEventAdjustment(request: PostEventAdjustmentRequest): 
       } else {
         const businessDateResult = await calcBusinessDate();
         if (businessDateResult.status === 'NONE') {
-          throw new HttpsError(
-            'failed-precondition',
-            'The event time does not belong to any business day.'
-          );
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_BUSINESS_DATE_UNRESOLVED',
+            message: 'The event time does not belong to any business day.',
+            context: { reason: 'NONE', billId, op: 'postEventAdjustment' },
+          });
         }
         if (businessDateResult.status === 'AMBIGUOUS') {
           // AMBIGUOUSの場合は、UIでどちらの営業日に属するデータなのかを選択させる
           // リクエストにselectedBusinessDateKeyが含まれている場合はそれを使用
           const selectedBusinessDateKey = request.selectedBusinessDateKey;
           if (!selectedBusinessDateKey || !businessDateResult.candidates.includes(selectedBusinessDateKey)) {
-            throw new HttpsError(
-              'failed-precondition',
-              `The event time is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
-              { candidates: businessDateResult.candidates }
-            );
+            throw new FunctionCustomError({
+              errorKey: 'ACCOUNTING_BUSINESS_DATE_UNRESOLVED',
+              message: `The event time is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
+              context: { reason: 'AMBIGUOUS', candidates: businessDateResult.candidates, billId, op: 'postEventAdjustment' },
+            });
           }
           finalEventBusinessDate = selectedBusinessDateKey;
         } else {
@@ -195,10 +198,11 @@ export async function postEventAdjustment(request: PostEventAdjustmentRequest): 
 
       // バリデーション: netSalesIncl が負にならないことを確認
       if (netSalesIncl < 0) {
-        throw new HttpsError(
-          'failed-precondition',
-          `Adjustment would result in negative netSalesIncl: ${netSalesIncl}`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_NEGATIVE_TOTALS',
+          message: `Adjustment would result in negative netSalesIncl: ${netSalesIncl}`,
+          context: { billId, netSalesIncl, op: 'postEventAdjustment' },
+        });
       }
 
       // balanceDueIncl の計算（暫定）
@@ -207,10 +211,11 @@ export async function postEventAdjustment(request: PostEventAdjustmentRequest): 
 
       // バリデーション: balanceDueIncl が負にならないことを確認
       if (balanceDueIncl < 0) {
-        throw new HttpsError(
-          'failed-precondition',
-          `Adjustment would result in negative balanceDueIncl: ${balanceDueIncl}`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_NEGATIVE_TOTALS',
+          message: `Adjustment would result in negative balanceDueIncl: ${balanceDueIncl}`,
+          context: { billId, balanceDueIncl, op: 'postEventAdjustment' },
+        });
       }
 
       return {
@@ -254,6 +259,9 @@ export async function postEventAdjustment(request: PostEventAdjustmentRequest): 
       },
     });
 
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }

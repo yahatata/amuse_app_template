@@ -225,7 +225,7 @@
   <!-- グローバルローディングオーバーレイ（処理中表示用） -->
   <div id="global-loading-overlay" class="global-loading-overlay" style="display: none;">
     <div class="global-loading-content">
-      <div class="spinner"></div>
+    <div class="spinner"></div>
     </div>
   </div>
 
@@ -4649,7 +4649,7 @@
 
     if (window._debugLog) window._debugLog(isRetry ? '4-RETRY. 再試行開始（signOut済み）' : '4. DOMContentLoaded発火');
     errorEl.style.display = 'none';
-    loadingEl.style.display = 'block';
+          loadingEl.style.display = 'block';
     const loadingRetryContainer = document.getElementById('loading-retry-container');
     if (loadingRetryContainer) { loadingRetryContainer.innerHTML = ''; loadingRetryContainer.style.display = 'none'; }
     if (typeof window.updateInitProgress === 'function') window.updateInitProgress(0);
@@ -4680,7 +4680,7 @@
 
       if (window._debugLog) window._debugLog('4b. initLiffAndFirebaseAuth呼び出し');
       try {
-        await window.initLiffAndFirebaseAuth();
+          await window.initLiffAndFirebaseAuth();
         if (window._debugLog) window._debugLog('4c. initLiffAndFirebaseAuth完了');
       } catch (liffError) {
         clearInitTimers();
@@ -4692,7 +4692,7 @@
 
       if (window._debugLog) window._debugLog('4d. checkStaffRegistration呼び出し');
       try {
-        await checkStaffRegistration();
+      await checkStaffRegistration();
         if (window._debugLog) window._debugLog('4e. checkStaffRegistration完了→showPage実行済み');
       } catch (checkError) {
         clearInitTimers();

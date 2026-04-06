@@ -8,6 +8,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { getCallerDeviceByUid, hasStoreManagementPermission, isActive } from '../../../shared/devices';
 import { generateJstDateKey } from '../../../shared/time';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -58,17 +59,23 @@ export const openStore = onCall(
       const doc = await transaction.get(docRef);
 
       if (!doc.exists) {
-        throw new HttpsError(
-          'failed-precondition',
-          'storeMeta/currentBusinessDay document does not exist. Please run initialization script.'
-        );
+        throw new FunctionCustomError({
+          errorKey: 'STORE_STATE_DOC_MISSING',
+          message:
+            'storeMeta/currentBusinessDay document does not exist. Please run initialization script.',
+          context: { phase: 'manual_open' },
+        });
       }
 
       const currentData = doc.data();
       const currentStatus = currentData?.status;
 
       if (currentStatus === 'running') {
-        throw new HttpsError('failed-precondition', 'Store is already running');
+        throw new FunctionCustomError({
+          errorKey: 'STORE_ALREADY_OPEN',
+          message: 'Store is already running',
+          context: { currentStatus },
+        });
       }
 
       // status === 'closed' または 'error' の場合のみ更新
@@ -93,6 +100,20 @@ export const openStore = onCall(
     // トランザクションエラー時のエラーハンドリング
     if (error instanceof HttpsError) {
       throw error;
+    }
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'openStore failed',
+        failureType: 'business',
+        functionEntry: 'openStore',
+        operation: 'openStoreCatch',
+        cause: error,
+        context: {
+          uid: callerUid,
+          businessDateKey: (request.data as any)?.businessDateKey || 'auto-generated',
+        },
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
     }
 
     logOpsError({

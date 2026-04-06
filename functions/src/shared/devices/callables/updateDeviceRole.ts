@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
+import { logOpsError } from "../../logging/logOpsError";
 
 const db = getFirestore();
 
@@ -65,6 +66,13 @@ export const updateDeviceRole = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
+    logOpsError({
+      message: 'updateDeviceRole failed',
+      functionEntry: 'updateDeviceRole',
+      operation: 'updateDeviceRoleCatch',
+      cause: error,
+      sourceProductHint: 'firestore',
+    });
     throw new HttpsError("internal", "デバイスrole更新に失敗しました");
   }
 });

@@ -2,10 +2,10 @@
 
 ## 文書情報
 
-- 根拠仕様: `エラーログ重要度判定.md` §14（`service` 正式一覧および §14.3 補足）
+- 根拠仕様: `../logOpsError実装/保守運用時のエラーログ.md` および `./エラーログ拡張仕様書_差分実装版.md`（`service` の観点）
 - 根拠コード: `functions/src/index.ts` および各 `domains/*/index.ts`・`shared/*/index.ts`・`demo_data/index.ts` の **export 名**（= 原則 `functionEntry`）
 - 補足: 本表は **デプロイ対象の Cloud Functions エントリ**（`onCall` / `onRequest` / トリガ等に紐づく export）を対象とする。`shared/firebase` の `getEnv` はユーティリティの re-export であり CF 名ではないため **本表に含めない**。**ログ上の `functionEntry` だけが export 名と異なるもの**は §「export 外の functionEntry 対応表」を参照。
-- 件数: **167**（上記コードベースと一致）
+- 件数: **167**（主表・Cloud Functions export 名）。**export 外**の行は §「export 外の functionEntry 対応表」を参照（マップ `SERVICE_BY_FUNCTION_ENTRY` に含める）。
 
 ---
 
@@ -75,8 +75,8 @@
 | `finalizeMonth` | `shift` | |
 | `finalizePayrollRun` | `payroll` | |
 | `finalizeUnsettledBillAfterAccounting` | `close_process` | 会計後の閉店整合（`storeMeta` 実装・仕様上 `close_process`） |
-| `generateBusinessHoursForMonthFromStyles` | `business_hours` | §14.3 |
-| `generateBusinessHoursForYearFromStyles` | `business_hours` | §14.3 |
+| `generateBusinessHoursForMonthFromStyles` | `business_hours` | 営業時間系 |
+| `generateBusinessHoursForYearFromStyles` | `business_hours` | 営業時間系 |
 | `generateDummyData` | `analytics` | |
 | `generateQRCode` | `user` | |
 | `generateRecurringTournaments` | `tournament_schedule` | |
@@ -109,7 +109,7 @@
 | `getUpcomingTournaments` | `tournament` | |
 | `getUserOrderHistory` | `orders` | |
 | `getUserStatus` | `user` | |
-| `initBusinessHoursForMonth` | `business_hours` | §14.3 |
+| `initBusinessHoursForMonth` | `business_hours` | 営業時間系 |
 | `initShiftDaysForMonth` | `shift` | |
 | `interimConfirmRequests` | `shift` | |
 | `initializeStoreConfigCallable` | `store` | |
@@ -144,12 +144,12 @@
 | `retryFailedStaffTasks` | `payroll` | |
 | `rollbackAction` | `audit_log` | |
 | `reseatAllPlayers` | `tournament` | |
-| `scheduleGenerateNextYearBusinessHours` | `business_hours` | §14.3 |
+| `scheduleGenerateNextYearBusinessHours` | `business_hours` | 営業時間系 |
 | `scheduledCleanup` | `staff` | |
 | `seedAttendancesDemo` | `payroll` | |
 | `seedPayrollDemoData` | `payroll` | `demo_data` |
 | `sendRecruitmentNotification` | `shift` | |
-| `setBusinessHoursManualForDay` | `business_hours` | §14.3 |
+| `setBusinessHoursManualForDay` | `business_hours` | 営業時間系 |
 | `setPrizeData` | `tournament` | |
 | `setRankingData` | `tournament` | |
 | `setSufficientOverride` | `shift` | |
@@ -193,15 +193,54 @@
 
 | functionEntry | service | 備考 |
 |---------------|---------|------|
+| `appendExtraCallable` | `accounting` | `appendExtra.ts` のログ用（export 名 `appendExtra` と区別）。 |
 | `appendItem` | `orders` | `functions/src/domains/bills/repos/appendItem.ts`。個別指定第1弾候補。requestHash mismatch は `IDEMPOTENCY_CONFLICT` 寄りで扱う前提。 |
 | `appendItemWithOrderProjection` | `orders` | `appendItem.ts` 内の関連 functionEntry。items / orders 不整合は `DATA_INCONSISTENCY` 候補。 |
-| `getStoreConfig` | `platform` | `functions/src/shared/config/configLoader.ts`。config 失敗は `platform` 固定。主候補 errorKey は `CONFIG_ERROR`。 |
+| `appendSideGameChip` | `accounting` | `appendSideGameChip.ts`。 |
+| `buildStagesFromTemplate` | `tournament_schedule` | `unused_function_lib/serverStage.ts` 等。 |
+| `calcBusinessDate` | `accounting` | `calcBusinessDate.ts`。 |
+| `calculateLateRegCloseTime` | `tournament_schedule` | `serverStage.ts`。 |
+| `createBillWithActiveStay` | `user` | `createBillWithActiveStay.ts`。 |
+| `createClockInRecord` | `attendance` | helper（未使用ライブラリ含む）。 |
+| `createInitialStateDoc` | `store` | `storeMeta/scripts/createInitialStateDoc.ts`。 |
+| `createPayrollNotification` | `payroll` | helper。参考 functionEntry。 |
+| `createScheduledTournamentFromRecurrence` | `tournament_schedule` | 定期生成内の部分失敗を表す helper / core 側 functionEntry。後回し候補。 |
+| `deleteOldQRCodeFiles` | `user` | `qrCodeUtils.ts`。 |
+| `determineAttendanceMode` | `attendance` | helper（未使用ライブラリ含む）。 |
+| `formatDateToJapanese` | `line` | `lineMessaging.ts` ヘルパ。 |
+| `getAccountingHistory` | `accounting` | helper（未使用ライブラリ含む）。 |
 | `getCurrentBusinessDateKeyOrThrow` | `store` | `functions/src/domains/storeMeta/repos/getCurrentBusinessDateKeyOrThrow.ts`。初期化不足は `CONFIG_ERROR`、状態未達は `FAILED_PRECONDITION`。 |
+| `getCurrentStage` | `tournament` | `serverStage.ts`。 |
+| `getPayrollConfig` | `payroll` | `payrollConfigLoader.ts`。 |
+| `getRequiredStaffByTimeSlot` | `shift` | `shift/services/helpers.ts`。 |
+| `getScheduledTournaments` | `tournament_schedule` | 旧 to_be_deleted 等。 |
+| `getSchedulerConfig` | `platform` | `schedulerConfigLoader.ts`。 |
+| `getStoreConfig` | `platform` | `functions/src/shared/config/configLoader.ts`。config 失敗は `platform` 固定。主候補 errorKey は `CONFIG_ERROR`。 |
+| `linkStaffRichMenu` | `line` | `lineRichMenu.ts`。 |
+| `linkUserRichMenu` | `line` | `lineRichMenu.ts`。 |
+| `postEventAdjustment` | `accounting` | `postEventAdjustment.ts`。 |
+| `postEventCancel` | `accounting` | `postEventCancel.ts`。 |
+| `postEventRefund` | `accounting` | `postEventRefund.ts`。 |
+| `postEventReopen` | `accounting` | `postEventReopen.ts`。 |
+| `recordTournamentAction` | `accounting` | `recordTournamentAction.ts`。 |
 | `runEnqueueTournamentTasks` | `tournament_schedule` | `functions/src/domains/tournament_createTournament/services/enqueueTournamentTasksCore.ts`。個別指定第1弾候補。 |
 | `runGenerateRecurringTournaments` | `tournament_schedule` | 定期生成全体失敗を表す functionEntry。旧 `unknown` から整理済み。個別指定第1弾候補。 |
-| `createScheduledTournamentFromRecurrence` | `tournament_schedule` | 定期生成内の部分失敗を表す helper / core 側 functionEntry。後回し候補。 |
-| `createPayrollNotification` | `payroll` | helper。参考 functionEntry。 |
+| `saveQRCodeToStorage` | `user` | `qrCodeUtils.ts`。 |
+| `schedulerSupervisor` | `platform` | `scheduler/supervisor/schedulerSupervisor.ts`。 |
+| `sendLineButtonMessage` | `line` | `lineMessaging.ts`。 |
 | `sendLinePushMessage` | `line` | helper。参考 functionEntry。 |
+| `undoAddon` | `tournament` | `logs/services/undoAddon.ts`。 |
+| `undoAssignSeatToPlayer` | `tournament` | `logs/services/undoAssignSeatToPlayer.ts`。 |
+| `undoBulkAddon` | `tournament` | `logs/services/undoBulkAddon.ts`。 |
+| `undoBustAndExit` | `tournament` | `logs/services/undoBustAndExit.ts`。 |
+| `undoBustAndReentry` | `tournament` | `logs/services/undoBustAndReentry.ts`。 |
+| `undoRegisterForTournament` | `tournament` | `logs/services/undoRegisterForTournament.ts`。 |
+| `undoRegisterParticipants` | `tournament` | `logs/services/undoRegisterParticipants.ts`。 |
+| `undoReseatAllPlayers` | `tournament` | `logs/services/undoReseatAllPlayers.ts`。 |
+| `updateBill` | `accounting` | `updateBill.ts`。 |
+| `updateClockOutRecord` | `attendance` | helper（未使用ライブラリ含む）。 |
+| `updatePlace` | `accounting` | `updatePlace.ts`。 |
+| `verifyLineIdToken` | `user` | `lineAuth.ts`。 |
 
 ### 位置付け
 
@@ -237,6 +276,3 @@
 - **tournament**: `addTableToTournament`, `addon`, `assignSeatToPlayer`, `bulkAddon`, `bustAndExit`, `bustAndReentry`, `createTemporaryTable`, `endTournament`, `getAvailableTables`, `getPrizeData`, `getRankingData`, `getTodayTournaments`, `getUpcomingTournaments`, `pauseTournament`, `registerForTournament`, `registerParticipants`, `removeTableFromTournament`, `resumeTournament`, `reseatAllPlayers`, `setPrizeData`, `setRankingData`, `validateEndTournament`
 - **tournament_schedule**: `archiveBlindTemplate`, `archiveTournamentTemplate`, `createBlindTemplate`, `createScheduledTournament`, `createTournamentRecurrence`, `createTournamentTemplate`, `deleteTournamentRecurrence`, `enqueueTournamentTasks`, `enqueueTournamentTasksByScheduler`, `generateRecurringTournaments`, `generateRecurringTournamentsByScheduler`, `getBlindTemplates`, `getScheduledTournamentsForEdit`, `getTournamentRecurrences`, `getTournamentTemplates`, `updateBlindTemplate`, `updateScheduledTournamentStartAt`, `updateScheduledTournamentStatus`, `updateTournamentRecurrence`, `updateTournamentTemplate`
 - **user**: `createUserAccount`, `createUserByApp`, `generateQRCode`, `getFirebaseCustomToken`, `getUserStatus`, `manualCheckIn`, `processVisitByQR`, `verifyQRCode`
-
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-StrReplace

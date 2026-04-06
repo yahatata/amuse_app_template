@@ -91,3 +91,10 @@
 ## 7. 検証
 
 - `cd functions && npm run build`（`tsc`）**成功**（2026-03-26 時点のワークスペース）。
+
+---
+
+## 8. 関連ドキュメント
+
+- 実装サマリ B: [`logOpsError実装サマリB.md`](./logOpsError実装サマリB.md)
+- As-is 分類・仕様本文: [`../04_仕様書/logOpsError実装/`](../04_仕様書/logOpsError実装/)（`As-is_…`、`保守運用時のエラーログ.md`）

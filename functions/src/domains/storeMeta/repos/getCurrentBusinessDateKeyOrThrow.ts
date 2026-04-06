@@ -8,6 +8,7 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { generateJstDateKey } from '../../../shared/time';
 
 const db = getFirestore();
@@ -77,18 +78,21 @@ export async function getCurrentBusinessDateKeyOrThrow(): Promise<string> {
     const doc = await docRef.get();
 
     if (!doc.exists) {
-      throw new HttpsError(
-        'failed-precondition',
-        'storeMeta/currentBusinessDay document does not exist. Please run initialization script.'
-      );
+      throw new FunctionCustomError({
+        errorKey: 'STORE_STATE_DOC_MISSING',
+        message:
+          'storeMeta/currentBusinessDay document does not exist. Please run initialization script.',
+        context: { reason: 'doc_missing' },
+      });
     }
 
     const data = doc.data();
     if (!data) {
-      throw new HttpsError(
-        'failed-precondition',
-        'storeMeta/currentBusinessDay document exists but has no data.'
-      );
+      throw new FunctionCustomError({
+        errorKey: 'STORE_INVALID_STATE',
+        message: 'storeMeta/currentBusinessDay document exists but has no data.',
+        context: { reason: 'empty_data' },
+      });
     }
 
     const status = data.status;
@@ -98,20 +102,25 @@ export async function getCurrentBusinessDateKeyOrThrow(): Promise<string> {
       return currentBusinessDateKey;
     }
 
-    throw new HttpsError(
-      'failed-precondition',
-      `Store is not running. Current status: ${status}, currentBusinessDateKey: ${currentBusinessDateKey}`
-    );
+    throw new FunctionCustomError({
+      errorKey: 'STORE_BUSINESS_DATE_UNAVAILABLE',
+      message: `Store is not running. Current status: ${status}, currentBusinessDateKey: ${currentBusinessDateKey}`,
+      context: { status, currentBusinessDateKey },
+    });
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      throw error;
+    }
     if (error instanceof HttpsError) {
       throw error;
     }
 
     logOpsError({
       message: 'getCurrentBusinessDateKeyOrThrow failed',
-      failureType: 'datastore',
       functionEntry: 'getCurrentBusinessDateKeyOrThrow',
+      operation: 'loadFirestoreStateDoc',
       cause: error,
+      sourceProductHint: 'firestore',
     });
     throw new HttpsError(
       'internal',

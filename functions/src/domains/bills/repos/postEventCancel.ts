@@ -13,6 +13,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { calcBusinessDate } from './calcBusinessDate';
 
 export interface PostEventCancelRequest {
@@ -94,10 +95,11 @@ export async function postEventCancel(request: PostEventCancelRequest): Promise<
 
       // postEventCancel は settled のときだけ許可
       if (currentStatus !== 'settled') {
-        throw new HttpsError(
-          'failed-precondition',
-          `Cannot cancel. Current status: ${currentStatus}. Only 'settled' status is allowed for postEventCancel`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+          message: `Cannot cancel. Current status: ${currentStatus}. Only 'settled' status is allowed for postEventCancel`,
+          context: { billId, currentStatus, op: 'postEventCancel' },
+        });
       }
 
       // 3) 支払い・返金が一切ない状態のみ許可
@@ -105,10 +107,11 @@ export async function postEventCancel(request: PostEventCancelRequest): Promise<
       const totalRefundedIncl = billData.postEvents?.totalRefundedIncl || 0;
 
       if (paidTotalIncl !== 0 || totalRefundedIncl !== 0) {
-        throw new HttpsError(
-          'failed-precondition',
-          `Cannot cancel. paidTotalIncl (${paidTotalIncl}) or totalRefundedIncl (${totalRefundedIncl}) is not zero. Refund must be processed first.`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+          message: `Cannot cancel. paidTotalIncl (${paidTotalIncl}) or totalRefundedIncl (${totalRefundedIncl}) is not zero. Refund must be processed first.`,
+          context: { billId, paidTotalIncl, totalRefundedIncl, op: 'postEventCancel' },
+        });
       }
 
       // 4) businessDate の取得
@@ -124,21 +127,22 @@ export async function postEventCancel(request: PostEventCancelRequest): Promise<
       } else {
         const businessDateResult = await calcBusinessDate();
         if (businessDateResult.status === 'NONE') {
-          throw new HttpsError(
-            'failed-precondition',
-            'The event time does not belong to any business day.'
-          );
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_BUSINESS_DATE_UNRESOLVED',
+            message: 'The event time does not belong to any business day.',
+            context: { reason: 'NONE', billId, op: 'postEventCancel' },
+          });
         }
         if (businessDateResult.status === 'AMBIGUOUS') {
           // AMBIGUOUSの場合は、UIでどちらの営業日に属するデータなのかを選択させる
           // リクエストにselectedBusinessDateKeyが含まれている場合はそれを使用
           const selectedBusinessDateKey = request.selectedBusinessDateKey;
           if (!selectedBusinessDateKey || !businessDateResult.candidates.includes(selectedBusinessDateKey)) {
-            throw new HttpsError(
-              'failed-precondition',
-              `The event time is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
-              { candidates: businessDateResult.candidates }
-            );
+            throw new FunctionCustomError({
+              errorKey: 'ACCOUNTING_BUSINESS_DATE_UNRESOLVED',
+              message: `The event time is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
+              context: { reason: 'AMBIGUOUS', candidates: businessDateResult.candidates, billId, op: 'postEventCancel' },
+            });
           }
           finalEventBusinessDate = selectedBusinessDateKey;
         } else {
@@ -192,6 +196,9 @@ export async function postEventCancel(request: PostEventCancelRequest): Promise<
       },
     });
 
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }

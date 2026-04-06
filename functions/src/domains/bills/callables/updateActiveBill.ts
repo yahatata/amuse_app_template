@@ -17,6 +17,7 @@ import { shouldDualWrite } from '../repos/dualWrite';
 import { resolveMenuItem } from '../repos/resolveMenuItem';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入店料のスキーマ
 const ExtraCostSchema = z.object({
@@ -97,14 +98,19 @@ export const updateActiveBill = onCall(async (request) => {
 
     // 実行条件: status in {'open','in_progress'} かつ ops.accountingStartedAt == null
     if (currentStatus !== 'open' && currentStatus !== 'in_progress') {
-      throw new HttpsError(
-        'failed-precondition',
-        `会計開始前の請求書のみ修正可能です。現在のステータス: ${currentStatus}`
-      );
+      throw new FunctionCustomError({
+        errorKey: 'ACCOUNTING_INVALID_STATE',
+        message: `会計開始前の請求書のみ修正可能です。現在のステータス: ${currentStatus}`,
+        context: { billId, currentStatus, reason: 'invalid_status_for_updateActiveBill' },
+      });
     }
 
     if (accountingStartedAt) {
-      throw new HttpsError('failed-precondition', '会計開始前の請求書のみ修正可能です');
+      throw new FunctionCustomError({
+        errorKey: 'ACCOUNTING_ALREADY_STARTED',
+        message: '会計開始前の請求書のみ修正可能です',
+        context: { billId, reason: 'accounting_already_started_for_updateActiveBill' },
+      });
     }
 
     // items の resolveMenuItem を事前に実行（トランザクション外）
@@ -324,6 +330,20 @@ export const updateActiveBill = onCall(async (request) => {
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
+    }
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'updateActiveBill failed',
+        functionEntry: 'updateActiveBill',
+        operation: 'updateActiveBillCatch',
+        cause: error,
+        context: {
+          op: 'updateActiveBill',
+          billId: request.data?.billId,
+          result: 'fail',
+        },
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
     }
     if (error instanceof HttpsError) {
       throw error;

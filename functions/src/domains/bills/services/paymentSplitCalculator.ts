@@ -10,6 +10,7 @@ import {
   DEFAULT_CATEGORY_PAYMENT_METHODS,
   DEFAULT_POINT_PRIORITY as _DEFAULT_POINT_PRIORITY,
 } from '../../../shared/config/defaults';
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 export const DEFAULT_POINT_PRIORITY = _DEFAULT_POINT_PRIORITY;
 
@@ -174,9 +175,11 @@ export function calculatePaymentSplit(params: CalculatePaymentSplitParams): Paym
   }
 
   if (totalCalculated !== totalBill) {
-    throw new Error(
-      `計算結果の整合性エラー: 計算合計(${totalCalculated}) != 元の合計(${totalBill})`,
-    );
+    throw new FunctionCustomError({
+      errorKey: 'ACCOUNTING_PAYMENT_TOTAL_MISMATCH',
+      message: `計算結果の整合性エラー: 計算合計(${totalCalculated}) != 元の合計(${totalBill})`,
+      context: { totalCalculated, totalBill },
+    });
   }
 
   return result;

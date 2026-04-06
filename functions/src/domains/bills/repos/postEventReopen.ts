@@ -12,6 +12,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { calcBusinessDate } from './calcBusinessDate';
 
 export interface PostEventReopenRequest {
@@ -93,10 +94,11 @@ export async function postEventReopen(request: PostEventReopenRequest): Promise<
 
       // postEventReopen は settled のときだけ許可
       if (currentStatus !== 'settled') {
-        throw new HttpsError(
-          'failed-precondition',
-          `Cannot reopen. Current status: ${currentStatus}. Only 'settled' status is allowed for postEventReopen`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+          message: `Cannot reopen. Current status: ${currentStatus}. Only 'settled' status is allowed for postEventReopen`,
+          context: { billId, currentStatus, op: 'postEventReopen' },
+        });
       }
 
       // 3) businessDate の取得
@@ -112,21 +114,22 @@ export async function postEventReopen(request: PostEventReopenRequest): Promise<
       } else {
         const businessDateResult = await calcBusinessDate();
         if (businessDateResult.status === 'NONE') {
-          throw new HttpsError(
-            'failed-precondition',
-            'The event time does not belong to any business day.'
-          );
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_BUSINESS_DATE_UNRESOLVED',
+            message: 'The event time does not belong to any business day.',
+            context: { reason: 'NONE', billId, op: 'postEventReopen' },
+          });
         }
         if (businessDateResult.status === 'AMBIGUOUS') {
           // AMBIGUOUSの場合は、UIでどちらの営業日に属するデータなのかを選択させる
           // リクエストにselectedBusinessDateKeyが含まれている場合はそれを使用
           const selectedBusinessDateKey = request.selectedBusinessDateKey;
           if (!selectedBusinessDateKey || !businessDateResult.candidates.includes(selectedBusinessDateKey)) {
-            throw new HttpsError(
-              'failed-precondition',
-              `The event time is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
-              { candidates: businessDateResult.candidates }
-            );
+            throw new FunctionCustomError({
+              errorKey: 'ACCOUNTING_BUSINESS_DATE_UNRESOLVED',
+              message: `The event time is ambiguous. Please select a business date from candidates: ${businessDateResult.candidates.join(', ')}`,
+              context: { reason: 'AMBIGUOUS', candidates: businessDateResult.candidates, billId, op: 'postEventReopen' },
+            });
           }
           finalEventBusinessDate = selectedBusinessDateKey;
         } else {
@@ -180,6 +183,9 @@ export async function postEventReopen(request: PostEventReopenRequest): Promise<
       },
     });
 
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }

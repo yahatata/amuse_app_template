@@ -5,6 +5,7 @@
 
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import type { ProcessingLeaseDoc } from '../repos/types';
 
 const LEASE_SECONDS = 120;
@@ -72,26 +73,31 @@ export async function acquireProcessing(
     // (2) processing が存在し、有効 (now <= leaseExpiresAt)
     if (valid) {
       if (!hasRequestRunId) {
-        throw new HttpsError(
-          'failed-precondition',
-          kind === 'close'
-            ? '閉店処理が他の操作で実行中です。完了するまでお待ちください。'
-            : '開店処理が実行中です。完了するまでお待ちください。'
-        );
+        throw new FunctionCustomError({
+          errorKey: 'STORE_PROCESSING_LEASE_CONFLICT',
+          message:
+            kind === 'close'
+              ? '閉店処理が他の操作で実行中です。完了するまでお待ちください。'
+              : '開店処理が実行中です。完了するまでお待ちください。',
+          context: { kind, runId: processing.runId },
+        });
       }
       if (processing.runId !== requestRunId) {
-        throw new HttpsError(
-          'failed-precondition',
-          kind === 'close'
-            ? '閉店処理が他の操作で実行中です。完了するまでお待ちください。'
-            : '開店処理が実行中です。完了するまでお待ちください。'
-        );
+        throw new FunctionCustomError({
+          errorKey: 'STORE_PROCESSING_LEASE_CONFLICT',
+          message:
+            kind === 'close'
+              ? '閉店処理が他の操作で実行中です。完了するまでお待ちください。'
+              : '開店処理が実行中です。完了するまでお待ちください。',
+          context: { kind, runId: processing.runId, requestRunId },
+        });
       }
       if (processing.kind !== kind) {
-        throw new HttpsError(
-          'invalid-argument',
-          `processing.kind (${processing.kind}) がリクエスト (${kind}) と一致しません`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'STORE_PROCESSING_KIND_MISMATCH',
+          message: `processing.kind (${processing.kind}) がリクエスト (${kind}) と一致しません`,
+          context: { actualKind: processing.kind, expectedKind: kind, runId: processing.runId },
+        });
       }
       return { acquired: true as const, resumed: true, staleTakeover: false };
     }

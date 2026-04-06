@@ -14,6 +14,7 @@ import { HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { shouldDualWrite, legacyUpdatePlaceUpdate } from './dualWrite';
 
 export interface UpdatePlaceRequest {
@@ -78,7 +79,11 @@ export async function updatePlace(request: UpdatePlaceRequest): Promise<UpdatePl
 
       // status ガード: settled の場合は更新不可
       if (status === 'settled') {
-        throw new HttpsError('failed-precondition', 'Cannot update place for settled bill');
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+          message: 'Cannot update place for settled bill',
+          context: { billId, billStatus: status, op: 'updatePlace' },
+        });
       }
 
       // 座席情報を更新
@@ -190,6 +195,9 @@ export async function updatePlace(request: UpdatePlaceRequest): Promise<UpdatePl
       },
     });
 
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }

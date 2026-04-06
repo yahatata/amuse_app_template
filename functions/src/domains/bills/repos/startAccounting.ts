@@ -13,6 +13,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { shouldDualWrite, legacyStartAccountingUpdate } from './dualWrite';
 
@@ -80,10 +81,14 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
         const existingRequestHash = idemData.requestHash;
         
         if (existingRequestHash && existingRequestHash !== requestHash) {
-          throw new HttpsError(
-            'failed-precondition',
-            `requestHash mismatch. Expected: ${existingRequestHash.substring(0, 8)}, got: ${requestHash.substring(0, 8)}`
-          );
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_IDEMPOTENCY_MISMATCH',
+            message: `requestHash mismatch. Expected: ${existingRequestHash.substring(0, 8)}, got: ${requestHash.substring(0, 8)}`,
+            context: {
+              expectedHash8: existingRequestHash.substring(0, 8),
+              gotHash8: requestHash.substring(0, 8),
+            },
+          });
         }
         
         // 既存の idempotency ドキュメントから情報を取得
@@ -129,18 +134,20 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
 
       // status が open または in_progress の場合のみ許可
       if (currentStatus !== 'open' && currentStatus !== 'in_progress') {
-        throw new HttpsError(
-          'failed-precondition',
-          `Cannot start accounting. Current status: ${currentStatus}. Allowed statuses: open, in_progress`
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+          message: `Cannot start accounting. Current status: ${currentStatus}. Allowed statuses: open, in_progress`,
+          context: { currentStatus, allowedStatuses: ['open', 'in_progress'] },
+        });
       }
 
       // 3) 既に accountingStartedAt が設定されている場合はエラー（重複開始防止）
       if (billData.ops?.accountingStartedAt) {
-        throw new HttpsError(
-          'failed-precondition',
-          'Accounting has already been started'
-        );
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_ALREADY_STARTED',
+          message: 'Accounting has already been started',
+          context: { billId },
+        });
       }
 
       const now = admin.firestore.Timestamp.now();
@@ -227,13 +234,27 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
 
     return result;
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'startAccounting failed',
+        functionEntry: 'startAccounting',
+        operation: operationForStartAccountingKey(error.errorKey),
+        cause: error,
+        context: {
+          billId,
+          idempKey: idempotencyKey,
+          result: 'fail',
+        },
+      });
+      throw error;
+    }
+
     logOpsError({
       message: 'startAccounting failed',
-      failureType: 'business',
       functionEntry: 'startAccounting',
+      operation: 'runAccountingTransaction',
       cause: error,
       context: {
-        op: 'startAccounting',
         billId,
         idempKey: idempotencyKey,
         result: 'fail',
@@ -245,6 +266,18 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
       throw error;
     }
     throw new HttpsError('internal', `startAccounting failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function operationForStartAccountingKey(key: string): string {
+  switch (key) {
+    case 'ACCOUNTING_ALREADY_STARTED':
+    case 'ACCOUNTING_INVALID_STATE':
+      return 'validateAccountingState';
+    case 'ACCOUNTING_IDEMPOTENCY_MISMATCH':
+      return 'validateIdempotencyRequest';
+    default:
+      return 'runAccountingTransaction';
   }
 }
 

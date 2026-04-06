@@ -6,6 +6,7 @@ import { recordTournamentAction } from '../../bills/repos/recordTournamentAction
 import * as crypto from 'crypto';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
 const registerParticipantsSchema = z.object({
@@ -70,20 +71,32 @@ export const registerParticipants = onCall(async (request) => {
     const tournamentDoc = await tournamentRef.get();
     
     if (!tournamentDoc.exists) {
-      throw new Error('トーナメントが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントが存在しません',
+        context: { tournamentId, reason: 'tournament_not_found' },
+      });
     }
-    
+
     const tournamentData = tournamentDoc.data()!;
     const templateId = tournamentData.templateId;
     const startAt = tournamentData.startAt;
     const snapshot = tournamentData.snapshot;
-    
+
     if (!snapshot) {
-      throw new Error('トーナメントのスナップショット情報が存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントのスナップショット情報が存在しません',
+        context: { tournamentId, reason: 'snapshot_missing' },
+      });
     }
-    
+
     if (!templateId) {
-      throw new Error('トーナメントのtemplateIdが存在しません');
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントのtemplateIdが存在しません',
+        context: { tournamentId, reason: 'templateId_missing' },
+      });
     }
     
     const templateName = snapshot.name;
@@ -102,14 +115,22 @@ export const registerParticipants = onCall(async (request) => {
           const activeStayDoc = await transaction.get(activeStayRef);
           
           if (!activeStayDoc.exists) {
-            throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
+            throw new FunctionCustomError({
+              errorKey: 'TOURNAMENT_INVALID_STATE',
+              message: `ユーザー ${userId} のactiveStaysドキュメントが存在しません`,
+              context: { tournamentId, userId, reason: 'active_stay_missing' },
+            });
           }
-          
+
           const activeStayData = activeStayDoc.data()!;
           const billId = activeStayData.billId as string;
-          
+
           if (!billId) {
-            throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+            throw new FunctionCustomError({
+              errorKey: 'TOURNAMENT_INVALID_STATE',
+              message: `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`,
+              context: { tournamentId, userId, reason: 'billId_missing_on_active_stay' },
+            });
           }
           
           // pokerNameはactiveStaysから取得（billsには依存しない）
@@ -124,7 +145,11 @@ export const registerParticipants = onCall(async (request) => {
           
           const viewsMainDoc = await transaction.get(viewsMainRef);
           if (!viewsMainDoc.exists) {
-            throw new Error('トーナメントのviews/mainドキュメントが存在しません');
+            throw new FunctionCustomError({
+              errorKey: 'TOURNAMENT_INVALID_STATE',
+              message: 'トーナメントのviews/mainドキュメントが存在しません',
+              context: { tournamentId, reason: 'views_main_missing' },
+            });
           }
           
           const viewsMainData = viewsMainDoc.data()!;

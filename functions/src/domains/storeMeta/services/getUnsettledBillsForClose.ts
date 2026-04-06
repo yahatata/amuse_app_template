@@ -12,6 +12,7 @@ import { Firestore, getFirestore } from 'firebase-admin/firestore';
 import { getCurrentBusinessDateKeyOrThrow } from '../repos/getCurrentBusinessDateKeyOrThrow';
 import { requireAdmin } from '../../../shared/devices';
 import { computeDisplayAmount } from './computeDisplayAmount';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 /** 1件あたりの表示用金額算出上限（管理画面手動実行のため、極端な件数暴走を防ぐ） */
 const MAX_UNSETTLED_BILLS_RETURNED = 100;
@@ -92,6 +93,13 @@ export const getUnsettledBillsForClose = onCall(async (request) => {
     };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
+    logOpsError({
+      message: 'getUnsettledBillsForClose failed',
+      functionEntry: 'getUnsettledBillsForClose',
+      operation: 'unsettledBillsQuery',
+      cause: error,
+      sourceProductHint: 'firestore',
+    });
     throw new HttpsError(
       'internal',
       `未会計billsの取得に失敗しました: ${error instanceof Error ? error.message : String(error)}`

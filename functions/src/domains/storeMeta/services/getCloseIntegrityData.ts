@@ -12,6 +12,7 @@ import { requireAdmin } from '../../../shared/devices';
 import { getUnsettledBillsForCloseCore } from './getUnsettledBillsForClose';
 import { getUnclockedStaffForCloseCore } from './getUnclockedStaffForClose';
 import { getUnclosedTournamentsForCloseCore } from './getUnclosedTournamentsForClose';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 export const getCloseIntegrityData = onCall(async (request) => {
   if (!request.auth) {
@@ -47,6 +48,13 @@ export const getCloseIntegrityData = onCall(async (request) => {
     };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
+    logOpsError({
+      message: 'getCloseIntegrityData failed',
+      functionEntry: 'getCloseIntegrityData',
+      operation: 'closeIntegrityAggregate',
+      cause: error,
+      sourceProductHint: 'firestore',
+    });
     throw new HttpsError(
       'internal',
       `閉店前確認データの取得に失敗しました: ${error instanceof Error ? error.message : String(error)}`

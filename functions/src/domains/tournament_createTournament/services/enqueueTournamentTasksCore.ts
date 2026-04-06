@@ -9,6 +9,7 @@ import * as crypto from 'crypto';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { validateStoreTenantForProduction, isProductionRuntime } from '../../../shared/runtime';
 import { enqueueTournamentTask } from './tasks';
 
@@ -239,11 +240,11 @@ async function processTournament(
       } catch (err) {
         logOpsError({
           message: 'enqueueTournamentTask failed',
-          failureType: 'business',
           functionEntry: 'runEnqueueTournamentTasks',
           operation: 'enqueueTournamentTask',
           cause: err,
           context: { tournamentId, taskType },
+          sourceProductHint: 'cloud_tasks',
         });
         await idxRef.update({
           enqueueState: 'failed',
@@ -290,7 +291,11 @@ export async function runEnqueueTournamentTasks(
     (options.rangeStartAt && !options.rangeEndAt) ||
     (!options.rangeStartAt && options.rangeEndAt)
   ) {
-    throw new Error("Both rangeStartAt and rangeEndAt are required when explicit range is used");
+    throw new FunctionCustomError({
+      errorKey: 'TOURNAMENT_INVALID_STATE',
+      message: 'Both rangeStartAt and rangeEndAt are required when explicit range is used',
+      context: { phase: 'enqueue', reason: 'range_partial' },
+    });
   }
   const hasExplicitRange = Boolean(options.rangeStartAt && options.rangeEndAt);
   const rangeStart = hasExplicitRange ?
@@ -301,10 +306,18 @@ export async function runEnqueueTournamentTasks(
     new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000);
 
   if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
-    throw new Error("Invalid enqueue rangeStartAt/rangeEndAt");
+    throw new FunctionCustomError({
+      errorKey: 'TOURNAMENT_INVALID_STATE',
+      message: 'Invalid enqueue rangeStartAt/rangeEndAt',
+      context: { phase: 'enqueue', reason: 'range_parse' },
+    });
   }
   if (rangeStart.getTime() >= rangeEnd.getTime()) {
-    throw new Error("enqueue rangeStartAt must be before rangeEndAt");
+    throw new FunctionCustomError({
+      errorKey: 'TOURNAMENT_INVALID_STATE',
+      message: 'enqueue rangeStartAt must be before rangeEndAt',
+      context: { phase: 'enqueue', reason: 'range_order' },
+    });
   }
 
   const thirtyDaysFromNow = new Date(now.getTime() + THIRTY_DAYS_MS);

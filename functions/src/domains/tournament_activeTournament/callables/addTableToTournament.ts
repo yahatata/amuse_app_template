@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
 const addTableToTournamentSchema = z.object({
@@ -54,12 +55,20 @@ export const addTableToTournament = onCall(async (request) => {
       const tableDoc = await transaction.get(tableRef);
       
       if (!tableDoc.exists) {
-        throw new Error('テーブルが存在しません');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'テーブルが存在しません',
+          context: { tournamentId, tableId, reason: 'table_doc_missing' },
+        });
       }
-      
+
       const tableData = tableDoc.data()!;
       if (tableData.status !== 'open') {
-        throw new Error('テーブルは使用中です');
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'テーブルは使用中です',
+          context: { tournamentId, tableId, status: tableData.status, reason: 'table_not_open' },
+        });
       }
       
       // 2. テーブルステータスをtournamentに変更
@@ -114,18 +123,35 @@ export const addTableToTournament = onCall(async (request) => {
     return result;
     
   } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    if (error instanceof z.ZodError) {
+      throw new HttpsError('invalid-argument', error.errors.map((e) => e.message).join(', '));
+    }
+
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: '=== 卓追加エラー ===',
+        failureType: 'business',
+        functionEntry: 'addTableToTournament',
+        operation: 'addTableToTournamentCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+
     logOpsError({
       message: '=== 卓追加エラー ===',
       failureType: 'business',
       functionEntry: 'addTableToTournament',
       cause: error,
     });
-    
-    // エラーメッセージを適切に返す
+
     if (error instanceof Error) {
       throw new HttpsError('internal', error.message);
-    } else {
-      throw new HttpsError('internal', '卓追加に失敗しました');
     }
+    throw new HttpsError('internal', '卓追加に失敗しました');
   }
 });

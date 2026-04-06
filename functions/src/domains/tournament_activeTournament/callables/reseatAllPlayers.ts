@@ -7,6 +7,7 @@ import type { DeviceDoc } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
 const reseatAllPlayersSchema = z.object({
@@ -84,14 +85,22 @@ export const reseatAllPlayers = onCall(async (request) => {
         const activeStayDoc = await transaction.get(activeStayRef);
         
         if (!activeStayDoc.exists) {
-          throw new Error(`ユーザー ${userId} のactiveStaysドキュメントが存在しません`);
+          throw new FunctionCustomError({
+            errorKey: 'TOURNAMENT_INVALID_STATE',
+            message: `ユーザー ${userId} のactiveStaysドキュメントが存在しません`,
+            context: { tournamentId, userId, reason: 'active_stay_missing' },
+          });
         }
-        
+
         const activeStayData = activeStayDoc.data()!;
         const billId = activeStayData.billId as string;
-        
+
         if (!billId) {
-          throw new Error(`ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
+          throw new FunctionCustomError({
+            errorKey: 'TOURNAMENT_INVALID_STATE',
+            message: `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`,
+            context: { tournamentId, userId, reason: 'billId_missing_on_active_stay' },
+          });
         }
         
         // pokerNameはactiveStaysから取得（todaysBillsには依存しない）
@@ -263,6 +272,25 @@ export const reseatAllPlayers = onCall(async (request) => {
     return { success: true, playerCount: result.playerCount };
     
   } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    if (error instanceof z.ZodError) {
+      throw new HttpsError('invalid-argument', error.errors.map((e) => e.message).join(', '));
+    }
+
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: '=== 全員リシートエラー ===',
+        failureType: 'business',
+        functionEntry: 'reseatAllPlayers',
+        operation: 'reseatAllPlayersCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+
     logOpsError({
       message: '=== 全員リシートエラー ===',
       failureType: 'business',
@@ -293,9 +321,6 @@ export const reseatAllPlayers = onCall(async (request) => {
       }
     }
     
-    if (error instanceof Error) {
-      throw new HttpsError('internal', error.message);
-    }
-    throw new HttpsError('internal', '全員リシートに失敗しました');
+    throw new HttpsError('internal', error instanceof Error ? error.message : '全員リシートに失敗しました');
   }
 });

@@ -9,6 +9,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { Firestore, getFirestore } from 'firebase-admin/firestore';
 import { requireAdmin } from '../../../shared/devices';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 /** 未退勤スタッフ取得のコアロジック。getCloseIntegrityData からも利用。営業日フィルタなし。 */
 export async function getUnclockedStaffForCloseCore(
@@ -56,6 +57,13 @@ export const getUnclockedStaffForClose = onCall(async (request) => {
     };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
+    logOpsError({
+      message: 'getUnclockedStaffForClose failed',
+      functionEntry: 'getUnclockedStaffForClose',
+      operation: 'unclockedStaffQuery',
+      cause: error,
+      sourceProductHint: 'firestore',
+    });
     throw new HttpsError(
       'internal',
       `未退勤スタッフの取得に失敗しました: ${error instanceof Error ? error.message : String(error)}`

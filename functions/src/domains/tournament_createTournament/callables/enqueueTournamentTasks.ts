@@ -8,6 +8,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { runEnqueueTournamentTasks } from '../services/enqueueTournamentTasksCore';
 import { logOpsError } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 export const enqueueTournamentTasks = onCall(async (request) => {
   if (!request.auth) {
@@ -36,6 +37,16 @@ export const enqueueTournamentTasks = onCall(async (request) => {
     }
     return result;
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'enqueueTournamentTasks エラー:',
+        failureType: 'business',
+        functionEntry: 'enqueueTournamentTasks',
+        operation: 'enqueueTournamentTasksCatch',
+        cause: error,
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
     logOpsError({
       message: 'enqueueTournamentTasks エラー:',
       failureType: 'business',
