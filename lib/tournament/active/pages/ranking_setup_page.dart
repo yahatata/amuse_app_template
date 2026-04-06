@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/globalConstant.dart';
 
 class RankingSetupPage extends StatefulWidget {
@@ -15,7 +15,7 @@ class RankingSetupPage extends StatefulWidget {
 }
 
 class _RankingSetupPageState extends State<RankingSetupPage> {
-  final _functions = FirebaseFunctions.instance;
+  final _functions = FunctionsClient.instance;
   
   // データ
   Map<String, dynamic>? _mainViewData;

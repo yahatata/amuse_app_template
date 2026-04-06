@@ -8,9 +8,9 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import type { CallableRequest } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getFunctions } from 'firebase-admin/functions';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue';
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
@@ -138,7 +138,7 @@ export const executeMonthlyPayroll = onCall(
 
     // staff ごとに staffResults 作成 + Cloud Tasks 投入
     try {
-      const queue = getFunctions().taskQueue('processStaffPayroll');
+      const queue = getRegionalTaskQueue('processStaffPayroll');
 
       for (const group of staffGroups) {
         const staffResultRef = runRef.collection('staffResults').doc(group.staffId);

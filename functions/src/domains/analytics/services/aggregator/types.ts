@@ -49,11 +49,11 @@ export interface EventDoc {
 
 export interface MonthlyDailyDelta {
   sales: {
-    grossIncl: number;
+    grossSales: number;
     category: {
       items: number;
       extraCost: number;
-      sideGameChips: number;
+      sideGameChip: number;
       tournaments: number;
     };
   };

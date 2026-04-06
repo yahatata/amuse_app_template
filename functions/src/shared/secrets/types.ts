@@ -13,4 +13,5 @@ export type TaskEndpoints = {
 export type BusinessSecrets = {
   qrSecretKey: string;
   unclockedAttendanceEditPassword: string;
+  openBusinessDateAdjustmentPassword: string;
 };

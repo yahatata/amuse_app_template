@@ -7,9 +7,9 @@
 
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getFunctions } from 'firebase-admin/functions';
 import { logger } from 'firebase-functions';
 import { logOpsError } from '../../../shared/logging/logOpsError';
+import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue';
 
 import { calculateStaffPayroll, calculateCarryOverPayroll } from '../helpers/payrollCalcEngine';
 import { buildCalcConfigFromSnapshot } from '../helpers/payrollRunHelpers';
@@ -291,7 +291,7 @@ export const processStaffPayroll = onTaskDispatched(
 
       // 13. 完了判定
       if (completedCount + failedCount >= targetCount) {
-        const finalizeQueue = getFunctions().taskQueue('finalizePayrollRun');
+        const finalizeQueue = getRegionalTaskQueue('finalizePayrollRun');
         await finalizeQueue.enqueue({ runId, paymentPeriodKey });
         logger.info('processStaffPayroll: dispatched finalizePayrollRun', { runId });
       }
@@ -343,7 +343,7 @@ export const processStaffPayroll = onTaskDispatched(
         });
 
         if (completedCount + failedCount >= targetCount) {
-          const finalizeQueue = getFunctions().taskQueue('finalizePayrollRun');
+          const finalizeQueue = getRegionalTaskQueue('finalizePayrollRun');
           await finalizeQueue.enqueue({ runId, paymentPeriodKey });
         }
       } catch (trxError) {

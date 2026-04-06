@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 class RefundProcessingDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
@@ -19,7 +19,7 @@ class _RefundProcessingDialogState extends State<RefundProcessingDialog> {
   final _formKey = GlobalKey<FormState>();
   final _refundAmountController = TextEditingController();
   final _refundReasonController = TextEditingController();
-  final _functions = FirebaseFunctions.instance;
+  final _functions = FunctionsClient.instance;
   
   String _refundMethod = 'cash';
 

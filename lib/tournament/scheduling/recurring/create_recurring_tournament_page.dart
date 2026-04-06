@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart' show kDevPlaceholderStoreId, kDevPlaceholderTenantId;
 
@@ -66,7 +66,7 @@ class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamen
   Future<void> _loadTournamentTemplates() async {
     try {
       debugPrint('=== テンプレート読み込み開始 ===');
-      final result = await FirebaseFunctions.instance
+      final result = await FunctionsClient.instance
           .httpsCallable('getTournamentTemplates')
           .call();
 
@@ -163,7 +163,7 @@ class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamen
 
       debugPrint('送信データ: $requestData');
 
-      final result = await FirebaseFunctions.instance
+      final result = await FunctionsClient.instance
           .httpsCallable('createTournamentRecurrence')
           .call(requestData);
 

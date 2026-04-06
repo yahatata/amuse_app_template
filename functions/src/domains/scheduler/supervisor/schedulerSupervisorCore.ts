@@ -1,5 +1,4 @@
 import * as crypto from 'crypto';
-import { getFunctions } from 'firebase-admin/functions';
 import { logger } from 'firebase-functions';
 import { getScheduledJobQueueName } from '../../../shared/config/cloudTasksConfig';
 import { getSchedulerConfig } from '../../../shared/config/schedulerConfigLoader';
@@ -21,6 +20,7 @@ import {
   type SchedulerTargetScope,
 } from './schedulerTargetScope';
 import { writeSchedulerDispatchLogBestEffort } from './schedulerLogs';
+import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue';
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -144,7 +144,7 @@ export class FirebaseTaskQueueEnqueueClient implements ScheduledJobEnqueueClient
   async enqueue<K extends SchedulerJobKey>(
     input: ScheduledJobEnqueueInput<K>
   ): Promise<void> {
-    const queue = getFunctions().taskQueue(input.queueName);
+    const queue = getRegionalTaskQueue(input.queueName);
     await queue.enqueue(input.payload, {
       id: input.taskId,
       scheduleTime: input.scheduleTime,
@@ -327,4 +327,3 @@ export async function runSchedulerSupervisorCore(
     failedCount,
   };
 }
-

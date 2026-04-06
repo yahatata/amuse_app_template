@@ -1,4 +1,5 @@
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,7 +22,7 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
   final TextEditingController _loginIdController = TextEditingController();
   final TextEditingController _pinController = TextEditingController();
   bool _isLoading = false;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
 
   void _showSnackbar(BuildContext context, String message) {
     WidgetsBinding.instance.addPostFrameCallback((_) {

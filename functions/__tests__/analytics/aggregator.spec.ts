@@ -72,13 +72,13 @@ describe('Analytics Aggregator', () => {
         .doc('2025-10')
         .get();
 
-      expect(monthlyDoc.data()?.sales.grossIncl).toBe(5000);
-      expect(monthlyDoc.data()?.sales.category.items).toBe(3000);
-      expect(monthlyDoc.data()?.sales.category.extraCost).toBe(500);
-      expect(monthlyDoc.data()?.sales.category.sideGameChips).toBe(1000);
-      expect(monthlyDoc.data()?.sales.category.tournaments).toBe(500);
-      expect(monthlyDoc.data()?.cashflow.paymentTotals.cash).toBe(3000);
-      expect(monthlyDoc.data()?.cashflow.paymentTotals.credit_card).toBe(2000);
+      expect(monthlyDoc.data()?.grossSales).toBe(5000);
+      expect(monthlyDoc.data()?.itemsSales).toBe(3000);
+      expect(monthlyDoc.data()?.extraCostSales).toBe(500);
+      expect(monthlyDoc.data()?.sideGameChipSales).toBe(1000);
+      expect(monthlyDoc.data()?.tournamentsSales).toBe(500);
+      expect(monthlyDoc.data()?.paymentTotals.cash).toBe(3000);
+      expect(monthlyDoc.data()?.paymentTotals.credit_card).toBe(2000);
 
       const markerDoc = await getFirestore()
         .collection('analyticsMonthly')
@@ -98,7 +98,7 @@ describe('Analytics Aggregator', () => {
         .get();
 
       // 値が増えていないことを確認
-      expect(monthlyDoc2.data()?.sales.grossIncl).toBe(5000);
+      expect(monthlyDoc2.data()?.grossSales).toBe(5000);
     });
   });
 

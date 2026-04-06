@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../Utils/menuItemsManager.dart';
@@ -17,7 +18,7 @@ class _MenuListPageState extends State<MenuListPage> {
   List<MenuItem> menuItems = [];
   bool _isLoading = false;
   String? _errorMessage;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
   // ✅ ページが開いている間は固定の clientNonce（画面セッションで固定）
   late final String _clientNonce;
   /// `placeOrder` 送信中（ダイアログを閉じた後の全画面ロック＋CPI）

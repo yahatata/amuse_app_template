@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/globalConstant.dart';
@@ -20,7 +20,7 @@ class EditTournamentTemplatePage extends StatefulWidget {
 
 class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage> {
   final _formKey = GlobalKey<FormState>();
-  final _functions = FirebaseFunctions.instance;
+  final _functions = FunctionsClient.instance;
 
   // 基本設定
   final _nameController = TextEditingController();

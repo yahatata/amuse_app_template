@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/tournament/template/blind/tournament_blind_template_list_page.dart';
 import 'create_tournament_template_page.dart';
 import 'edit_tournament_template_page.dart';
@@ -30,7 +30,7 @@ class _TournamentTemplateListState extends State<TournamentTemplateList> {
     });
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('getTournamentTemplates');
 
       final result = await callable.call();
@@ -70,7 +70,7 @@ class _TournamentTemplateListState extends State<TournamentTemplateList> {
   /// テンプレートをアーカイブする
   Future<void> _archiveTemplate(String templateId) async {
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('archiveTournamentTemplate');
       
       final result = await callable.call({'tournamentTemplateId': templateId});

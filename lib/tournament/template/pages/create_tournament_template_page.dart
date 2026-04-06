@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:amuse_app_template/tournament/template/blind/tournament_blind_template_list_page.dart';
 import 'package:amuse_app_template/globalConstant.dart';
@@ -129,7 +129,7 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
     });
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('getBlindTemplates');
 
       final result = await callable.call();
@@ -264,7 +264,7 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
     });
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('createTournamentTemplate');
 
       final tournamentTemplateData = {

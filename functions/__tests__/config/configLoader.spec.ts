@@ -14,6 +14,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStoreConfig, buildFromDefaults } from '../../src/shared/config/configLoader';
 import {
   DEFAULT_AUTO_OPEN_CLOSE_ENABLED,
+  DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES,
   DEFAULT_ENTRANCE_FEE,
   DEFAULT_LINE_PLAN,
   DEFAULT_MENU_CATEGORIES,
@@ -50,6 +51,8 @@ describe('configLoader', () => {
     it('デフォルト値で StoreConfig を構築する', () => {
       const config = buildFromDefaults();
       expect(config.autoOpenClose?.enabled).toBe(DEFAULT_AUTO_OPEN_CLOSE_ENABLED);
+      expect(config.autoOpenClose?.alreadyRunningDifferentDateRecheckMinutes)
+        .toBe(DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES);
       expect(config.billing?.entranceFee).toBe(DEFAULT_ENTRANCE_FEE);
       expect(config.linePlan).toBe(DEFAULT_LINE_PLAN);
       expect(config.features?.dualWriteEnabled).toBe(false);
@@ -89,13 +92,18 @@ describe('configLoader', () => {
 
     itWithEmulator('storeMeta/config が存在する場合はマージ結果を返す', async () => {
       await db.collection('storeMeta').doc('config').set({
-        autoOpenClose: { enabled: false, taskCloseOffsetMinutes: 90 },
+        autoOpenClose: {
+          enabled: false,
+          taskCloseOffsetMinutes: 90,
+          alreadyRunningDifferentDateRecheckMinutes: 20,
+        },
         billing: { entranceFee: 2000 },
       });
 
       const config = await getStoreConfig(db);
       expect(config.autoOpenClose?.enabled).toBe(false);
       expect(config.autoOpenClose?.taskCloseOffsetMinutes).toBe(90);
+      expect(config.autoOpenClose?.alreadyRunningDifferentDateRecheckMinutes).toBe(20);
       expect(config.billing?.entranceFee).toBe(2000);
       expect(config.linePlan).toBe(DEFAULT_LINE_PLAN);
     });

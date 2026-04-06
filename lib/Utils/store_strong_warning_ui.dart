@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/services/device_service.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
 import 'package:amuse_app_template/utils/store_warning_first_dialog_prefs.dart';
 
@@ -11,6 +13,7 @@ class StrongWarningGate extends StatelessWidget {
   final String message;
   final String targetBusinessDateKey;
   final StrongWarningType type;
+  final int recheckMinutes;
   final VoidCallback? onCloseStore;
   final VoidCallback? onBusinessContinue;
 
@@ -19,6 +22,7 @@ class StrongWarningGate extends StatelessWidget {
     required this.message,
     required this.targetBusinessDateKey,
     required this.type,
+    this.recheckMinutes = 15,
     this.onCloseStore,
     this.onBusinessContinue,
   });
@@ -50,8 +54,11 @@ class StrongWarningGate extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(Icons.warning_amber_rounded,
-                        size: 48, color: Colors.orange),
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      size: 48,
+                      color: Colors.orange,
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       message,
@@ -76,7 +83,13 @@ class StrongWarningGate extends StatelessWidget {
                     if (onBusinessContinue != null)
                       OutlinedButton(
                         onPressed: onBusinessContinue,
-                        child: const Text('営業継続'),
+                        child: Text(
+                          type ==
+                                  StrongWarningType
+                                      .already_running_different_date
+                              ? '緊急一時解除（$recheckMinutes分）'
+                              : '営業継続',
+                        ),
                       ),
                   ],
                 ),
@@ -106,21 +119,16 @@ class StrongWarningBanner extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
-              const Icon(Icons.warning_amber_rounded,
-                  color: Colors.orange, size: 24),
+              const Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.orange,
+                size: 24,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  message,
+                  '営業状態の警告があります。管理者に確認してください。',
                   style: const TextStyle(fontSize: 13),
-                ),
-              ),
-              const Text(
-                '管理者へ依頼してください。',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.brown,
                 ),
               ),
             ],
@@ -136,6 +144,7 @@ class StrongWarningBanner extends StatelessWidget {
 class StoreStrongWarningOverlay extends StatefulWidget {
   final Widget child;
   final bool isStoreManagement;
+  final int recheckMinutes;
   final VoidCallback? onCloseStore;
   final VoidCallback? onBusinessContinue;
 
@@ -143,6 +152,7 @@ class StoreStrongWarningOverlay extends StatefulWidget {
     super.key,
     required this.child,
     required this.isStoreManagement,
+    this.recheckMinutes = 15,
     this.onCloseStore,
     this.onBusinessContinue,
   });
@@ -178,6 +188,7 @@ class _StoreStrongWarningOverlayState extends State<StoreStrongWarningOverlay> {
                   message: info.message,
                   targetBusinessDateKey: info.targetBusinessDateKey,
                   type: info.type,
+                  recheckMinutes: widget.recheckMinutes,
                   onCloseStore: widget.onCloseStore,
                   onBusinessContinue: widget.onBusinessContinue,
                 ),
@@ -187,8 +198,10 @@ class _StoreStrongWarningOverlayState extends State<StoreStrongWarningOverlay> {
         }
 
         // 非 store management: 初回のみ永続キーで未表示ならダイアログ表示（表示した時点で保存）
-        final needCheck = _lastCheckedDialogKey?.type != info.type ||
-            _lastCheckedDialogKey?.targetBusinessDateKey != info.targetBusinessDateKey;
+        final needCheck =
+            _lastCheckedDialogKey?.type != info.type ||
+            _lastCheckedDialogKey?.targetBusinessDateKey !=
+                info.targetBusinessDateKey;
         if (needCheck) {
           _lastCheckedDialogKey = info;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -213,23 +226,27 @@ class _StoreStrongWarningOverlayState extends State<StoreStrongWarningOverlay> {
   }
 
   Future<void> _checkAndShowFirstDialogIfNeeded(
-      BuildContext context, StrongWarningInfo info) async {
+    BuildContext context,
+    StrongWarningInfo info,
+  ) async {
     final already = await hasStrongWarningFirstDialogBeenShown(
-        info.type, info.targetBusinessDateKey);
+      info.type,
+      info.targetBusinessDateKey,
+    );
     if (already) return;
     if (!mounted) return;
     // 表示した時点で永続化（dismiss を待たない）
     await markStrongWarningFirstDialogShown(
-        info.type, info.targetBusinessDateKey);
+      info.type,
+      info.targetBusinessDateKey,
+    );
     if (!mounted) return;
     showDialog<void>(
       context: context,
       barrierDismissible: true,
       builder: (ctx) => AlertDialog(
         title: const Text('営業状態の確認'),
-        content: SingleChildScrollView(
-          child: Text(info.message),
-        ),
+        content: const SingleChildScrollView(child: Text('管理者に確認してください。')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -256,12 +273,19 @@ class StoreStrongWarningWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final recheckMinutes =
+        StoreConfigService
+            .instance
+            .latestData
+            ?.alreadyRunningDifferentDateRecheckMinutes ??
+        kDefaultAlreadyRunningDifferentDateRecheckMinutes;
     return FutureBuilder<bool>(
       future: DeviceService().isStoreManagement(),
       builder: (context, snap) {
         if (!snap.hasData) return child;
         return StoreStrongWarningOverlay(
           isStoreManagement: snap.data!,
+          recheckMinutes: recheckMinutes,
           onCloseStore: onCloseStore,
           onBusinessContinue: onBusinessContinue,
           child: child,

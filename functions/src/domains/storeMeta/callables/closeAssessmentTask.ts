@@ -20,6 +20,32 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { logOpsError } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
+type ManualOverrideLike = {
+  type?: string;
+  intendedBusinessDateKey?: string;
+  overrideUntil?: { toMillis?: () => number } | Date;
+} | null;
+
+function getOverrideUntilMillis(value: ManualOverrideLike): number | null {
+  if (!value?.overrideUntil) return null;
+  if (value.overrideUntil instanceof Date) return value.overrideUntil.getTime();
+  if (typeof value.overrideUntil?.toMillis === 'function') {
+    return value.overrideUntil.toMillis();
+  }
+  return null;
+}
+
+function isCloseOverrideActive(
+  value: ManualOverrideLike,
+  intendedBusinessDateKey: string,
+  nowMillis: number
+): boolean {
+  if (!value || value.type !== 'close_skip') return false;
+  if (value.intendedBusinessDateKey !== intendedBusinessDateKey) return false;
+  const untilMillis = getOverrideUntilMillis(value);
+  return untilMillis != null && untilMillis >= nowMillis;
+}
+
 export const closeAssessmentTask = onRequest(
   {
     region: 'asia-northeast1',
@@ -107,7 +133,14 @@ export const closeAssessmentTask = onRequest(
         const status = stateData.status as string;
         const currentBusinessDateKey = stateData.currentBusinessDateKey as string | null;
         const lastClosedBusinessDateKey = stateData.lastClosedBusinessDateKey as string | null;
-        const manualOverride = stateData.manualOverride as any;
+        const manualOverride = stateData.manualOverride as ManualOverrideLike;
+        const manualOverrides = stateData.manualOverrides as
+          | { open?: ManualOverrideLike; close?: ManualOverrideLike }
+          | null
+          | undefined;
+        const closeOverride =
+          manualOverrides?.close ?? (manualOverride?.type === 'close_skip' ? manualOverride : null);
+        const nowMillis = now.getTime();
 
         // 既に閉店済みか確認
         if (status === 'closed' && lastClosedBusinessDateKey === payload.intendedBusinessDateKey) {
@@ -172,12 +205,7 @@ export const closeAssessmentTask = onRequest(
         let lastSuppressedAt: Timestamp | undefined;
         let suppressedByOverride: boolean | undefined;
 
-        if (
-          manualOverride &&
-          manualOverride.type === 'close_skip' &&
-          manualOverride.intendedBusinessDateKey === payload.intendedBusinessDateKey &&
-          manualOverride.overrideUntil.toMillis() >= now.getTime()
-        ) {
+        if (isCloseOverrideActive(closeOverride, payload.intendedBusinessDateKey, nowMillis)) {
           result = 'needs_manual_close_suppressed';
           lastSuppressedAt = Timestamp.now();
           suppressedByOverride = true;

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 /// トーナメント管理用のコントロールウィジェット
 /// Pause/Resume機能を提供
@@ -120,7 +120,7 @@ class _AdminControlsState extends State<AdminControls> {
     });
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('pauseTournament');
       
       final result = await callable.call({
@@ -168,7 +168,7 @@ class _AdminControlsState extends State<AdminControls> {
     });
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('resumeTournament');
       
       final result = await callable.call({

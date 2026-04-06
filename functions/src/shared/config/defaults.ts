@@ -61,6 +61,9 @@ export const DEFAULT_TASK_CLOSE_OFFSET_MINUTES = 120;
 /** 開店認定タスクの発火オフセット（分）。開店時刻の何分前にタスクを実行するか（負数で「前」） */
 export const DEFAULT_TASK_OPEN_OFFSET_MINUTES = -30;
 
+/** already_running_different_date の緊急一時解除後、再評価するまでの分数 */
+export const DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES = 15;
+
 // =============================================================================
 // R-10: 営業時間スタイル
 // =============================================================================

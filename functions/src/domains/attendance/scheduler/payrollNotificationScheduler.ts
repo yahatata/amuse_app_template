@@ -1,6 +1,6 @@
-import { getFunctions } from "firebase-admin/functions";
 import { logOpsError } from "../../../shared/logging/logOpsError";
 import { getPayrollConfig } from "../../../shared/config/payrollConfigLoader";
+import { getRegionalTaskQueue } from "../../../shared/tasks/getRegionalTaskQueue";
 
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -55,7 +55,7 @@ export async function runPayrollNotificationSchedulerTask(
     );
     scheduleTimeUtc = scheduleUtc.toISOString();
 
-    const queue = getFunctions().taskQueue("processPayrollNotifications");
+    const queue = getRegionalTaskQueue("processPayrollNotifications");
     await queue.enqueue(
       {
         targetDate: input.targetDate,

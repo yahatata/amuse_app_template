@@ -113,16 +113,18 @@ export async function postEventReopen(request: PostEventReopenRequest): Promise<
         finalEventBusinessDate = eventBusinessDate;
       } else {
         const businessDateResult = await calcBusinessDate();
-        if (businessDateResult.status === 'NONE') {
+        if (typeof businessDateResult === 'string') {
+          // Legacy compatibility for tests/helpers that still return plain date keys.
+          finalEventBusinessDate = businessDateResult;
+        } else if (businessDateResult.status === 'NONE') {
           throw new FunctionCustomError({
             errorKey: 'ACCOUNTING_BUSINESS_DATE_UNRESOLVED',
             message: 'The event time does not belong to any business day.',
             context: { reason: 'NONE', billId, op: 'postEventReopen' },
           });
-        }
-        if (businessDateResult.status === 'AMBIGUOUS') {
+        } else if (businessDateResult.status === 'AMBIGUOUS') {
           // AMBIGUOUSの場合は、UIでどちらの営業日に属するデータなのかを選択させる
-          // リクエストにselectedBusinessDateKeyが含まれている場合はそれを使用
+          // リクエストにselectedBusinessDateKeyが含まれていればそれを使用
           const selectedBusinessDateKey = request.selectedBusinessDateKey;
           if (!selectedBusinessDateKey || !businessDateResult.candidates.includes(selectedBusinessDateKey)) {
             throw new FunctionCustomError({
@@ -132,9 +134,10 @@ export async function postEventReopen(request: PostEventReopenRequest): Promise<
             });
           }
           finalEventBusinessDate = selectedBusinessDateKey;
-        } else {
-          // OKの場合
+        } else if (businessDateResult.businessDateKey) {
           finalEventBusinessDate = businessDateResult.businessDateKey;
+        } else {
+          throw new HttpsError('internal', 'calcBusinessDate returned OK without businessDateKey');
         }
       }
 
@@ -192,4 +195,3 @@ export async function postEventReopen(request: PostEventReopenRequest): Promise<
     throw new HttpsError('internal', `postEventReopen failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
-

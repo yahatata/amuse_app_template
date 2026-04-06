@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
@@ -18,7 +19,7 @@ class StaffDetailPage extends StatefulWidget {
 
 class _StaffDetailPageState extends State<StaffDetailPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
   final TextEditingController _hourlyWageController = TextEditingController();
   
   // 銀行口座情報用のコントローラー

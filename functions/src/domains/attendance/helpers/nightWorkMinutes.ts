@@ -21,18 +21,18 @@ export function calculateNightWorkMinutes(
   nightWorkEndHour: number
 ): number {
   const jstOffset = 9 * 60 * 60 * 1000;
-  const clockInJST = new Date(clockIn.toDate().getTime() + jstOffset);
-  const clockOutJST = new Date(clockOut.toDate().getTime() + jstOffset);
+  const clockInMs = clockIn.toDate().getTime();
+  const clockOutMs = clockOut.toDate().getTime();
 
   let nightMinutes = 0;
-  let currentTime = new Date(clockInJST);
-
-  while (currentTime < clockOutJST) {
-    const hour = currentTime.getHours();
+  let currentMs = clockInMs;
+  while (currentMs < clockOutMs) {
+    // Convert each minute point to JST in a timezone-independent way.
+    const hour = new Date(currentMs + jstOffset).getUTCHours();
     if (hour >= nightWorkStartHour || hour < nightWorkEndHour) {
       nightMinutes++;
     }
-    currentTime.setMinutes(currentTime.getMinutes() + 1);
+    currentMs += 60 * 1000;
   }
 
   return nightMinutes;

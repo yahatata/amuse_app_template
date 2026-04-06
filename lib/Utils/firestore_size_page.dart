@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 /// Firestoreのサイズ計算結果を表示する画面
@@ -10,7 +11,7 @@ class FirestoreSizePage extends StatefulWidget {
 }
 
 class _FirestoreSizePageState extends State<FirestoreSizePage> {
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FunctionsClient.instance;
   bool _isCalculating = false;
   Map<String, dynamic>? _result;
 

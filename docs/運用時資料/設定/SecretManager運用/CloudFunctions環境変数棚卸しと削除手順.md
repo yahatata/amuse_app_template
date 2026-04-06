@@ -4,6 +4,7 @@
 
 - Cloud Functions v2（Cloud Run service）に残っている旧環境変数の棚卸しと削除。
 - 目的は、コードで参照されないキーのみを安全に削除すること。
+- 本手順は本線関数を対象にする。`probe*` 関数は保留対象として扱う。
 
 ## 2. 前提
 
@@ -40,7 +41,7 @@ cd /Users/yahatayuusei/Documents/GitHub/amuse_app_template
 
 scripts/functions_env_inventory_and_cleanup.sh \
   --project amuse-app-template \
-  --regions us-central1,asia-northeast1 \
+  --regions asia-northeast1 \
   --work-dir /tmp/functions-env-cleanup-check
 ```
 
@@ -49,6 +50,7 @@ scripts/functions_env_inventory_and_cleanup.sh \
 - `remove_candidates.filtered.keys` が削除対象キー一覧。
 - `remove_candidates.filtered.by_function.tsv` が関数単位の削除候補。
 - この段階では変更は発生しない。
+- `probe` で始まる関数が削除候補に含まれていないことを確認する。
 
 ## 5. 本適用
 
@@ -57,7 +59,7 @@ cd /Users/yahatayuusei/Documents/GitHub/amuse_app_template
 
 scripts/functions_env_inventory_and_cleanup.sh \
   --project amuse-app-template \
-  --regions us-central1,asia-northeast1 \
+  --regions asia-northeast1 \
   --work-dir /tmp/functions-env-cleanup-apply \
   --apply
 ```
@@ -71,7 +73,7 @@ cd /Users/yahatayuusei/Documents/GitHub/amuse_app_template
 
 scripts/functions_env_inventory_and_cleanup.sh \
   --project amuse-app-template \
-  --regions us-central1,asia-northeast1 \
+  --regions asia-northeast1 \
   --work-dir /tmp/functions-env-cleanup-final-verify
 ```
 
@@ -79,6 +81,7 @@ scripts/functions_env_inventory_and_cleanup.sh \
 
 - `filtered_candidate_keys=0`
 - `filtered_candidate_rows=0`
+- `remove_candidates.filtered.by_function.tsv` に `probe*` が含まれていない
 
 補足:
 
@@ -94,3 +97,9 @@ scripts/functions_env_inventory_and_cleanup.sh \
 
 - 削除したキーが必要だった場合は、対象 service に env を再設定する。
 - 変更前の値が必要なため、適用前にキー/値のバックアップを残してから実施する。
+
+## 9. 補足（`us-central1` を含める場合）
+
+- 旧リージョン資産の棚卸しが目的で `--regions us-central1,asia-northeast1` を使う場合でも、
+  そのまま `--apply` は実行しない。
+- まず dry-run 結果を確認し、`probe*` を除外する運用判断を行ってから適用する。

@@ -32,6 +32,7 @@ import {
   DEFAULT_AUTO_OPEN_CLOSE_ENABLED,
   DEFAULT_TASK_CLOSE_OFFSET_MINUTES,
   DEFAULT_TASK_OPEN_OFFSET_MINUTES,
+  DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES,
   DEFAULT_BUSINESS_HOURS_STYLES,
   DEFAULT_CATEGORY_PAYMENT_METHODS,
   DEFAULT_POINT_PRIORITY,
@@ -146,6 +147,8 @@ export function buildFromDefaults(): StoreConfig {
       enabled: DEFAULT_AUTO_OPEN_CLOSE_ENABLED,
       taskCloseOffsetMinutes: DEFAULT_TASK_CLOSE_OFFSET_MINUTES,
       taskOpenOffsetMinutes: DEFAULT_TASK_OPEN_OFFSET_MINUTES,
+      alreadyRunningDifferentDateRecheckMinutes:
+        DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES,
     },
     businessDay: {
       calcBufferMinutes: DEFAULT_CALC_BUSINESS_DATE_BUFFER_MINUTES,
@@ -281,6 +284,26 @@ function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
       result.autoOpenClose!.taskOpenOffsetMinutes = autoOpenClose.taskOpenOffsetMinutes;
       fromConfig.push('autoOpenClose.taskOpenOffsetMinutes');
     } else fb('autoOpenClose.taskOpenOffsetMinutes', 'field_missing', result.autoOpenClose!.taskOpenOffsetMinutes);
+    if (
+      typeof autoOpenClose.alreadyRunningDifferentDateRecheckMinutes === 'number' &&
+      Number.isInteger(autoOpenClose.alreadyRunningDifferentDateRecheckMinutes) &&
+      autoOpenClose.alreadyRunningDifferentDateRecheckMinutes >= 1 &&
+      autoOpenClose.alreadyRunningDifferentDateRecheckMinutes <= 180
+    ) {
+      result.autoOpenClose!.alreadyRunningDifferentDateRecheckMinutes =
+        autoOpenClose.alreadyRunningDifferentDateRecheckMinutes;
+      fromConfig.push('autoOpenClose.alreadyRunningDifferentDateRecheckMinutes');
+    } else {
+      const hasField = Object.prototype.hasOwnProperty.call(
+        autoOpenClose,
+        'alreadyRunningDifferentDateRecheckMinutes'
+      );
+      fb(
+        'autoOpenClose.alreadyRunningDifferentDateRecheckMinutes',
+        hasField ? 'invalid_value' : 'field_missing',
+        result.autoOpenClose!.alreadyRunningDifferentDateRecheckMinutes
+      );
+    }
   } else {
     fb('autoOpenClose', 'field_missing', result.autoOpenClose);
   }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 
 /// SideGame用Tip預入ポップアップ
 Future<void> showSideGameTipDepositDialog({
@@ -274,7 +274,7 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
     );
 
     try {
-      final functions = FirebaseFunctions.instance;
+      final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('depositTip');
 
       // 1. Tip預入処理

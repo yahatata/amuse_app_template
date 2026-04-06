@@ -8,6 +8,9 @@ window.__CONFIG__ = {
   liffId: "2008640140-kWpQ25Jp",
   // ユーザー用LIFF ID（「ユーザーに切り替え」で開く先。LINE Developersのユーザー用LIFFのIDと一致させる）
   userLiffId: "2007950789-ZJ7b0JgO",
+
+  // Cloud Functions 呼び出しリージョン
+  functionsRegion: "asia-northeast1",
   
   // Firebase設定
   firebaseConfig: {

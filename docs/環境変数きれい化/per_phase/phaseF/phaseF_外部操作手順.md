@@ -243,7 +243,7 @@ gcloud iam workload-identity-pools providers describe "<PROVIDER_ID>" \
 - `WIF_SERVICE_ACCOUNT` は `xxx@${PROJECT_ID}.iam.gserviceaccount.com` 形式
 
 ### 4.6 WIF 側の権限確認（ローカル端末）
-に
+
 `<...>` をあなたの環境値に置き換えて実行する。
 
 ```bash
@@ -280,7 +280,7 @@ gcloud iam service-accounts get-iam-policy "$DEPLOY_SA_EMAIL" \
 
 ```bash
 cd /Users/yahatayuusei/Documents/GitHub/amuse_app_template
-firebase deploy --only functions --project "$PROJECT_ID"
+FIREBASE_SKIP_UPDATE_CHECK=true firebase deploy --only functions --project "$PROJECT_ID"
 ```
 
 ## 6. リージョン整合確認（ローカル端末）
@@ -304,6 +304,58 @@ gcloud functions list --v2 --regions="us-central1,$REGION_NEW" --project "$PROJE
 - `asia-northeast1` 側の対象関数が `ACTIVE`
 - 意図せず `us-central1` 側のみで生きている関数がない
 
+### 6.3 旧リージョン削除の dry-run / バッチ実行
+
+phaseF.1 で追加した比較スクリプトを使う。
+
+dry-run:
+
+```bash
+scripts/functions_region_migration_report.sh \
+  --project "$PROJECT_ID" \
+  --from us-central1 \
+  --to "$REGION_NEW"
+```
+
+確認:
+
+- `only_in_us-central1.txt`:
+  - まだ新リージョンへ未展開の関数
+- `in_both.txt`:
+  - 旧リージョン削除候補（新リージョンにも同名関数あり）
+- `only_in_us-central1.txt` が 0 行の場合:
+  - 旧リージョン残件はないため、削除操作は不要
+
+旧リージョン削除（疎通確認後のみ）:
+
+```bash
+scripts/functions_region_migration_report.sh \
+  --project "$PROJECT_ID" \
+  --from us-central1 \
+  --to "$REGION_NEW" \
+  --apply-delete-old
+```
+
+### 6.4 429 回避の分割 deploy（必要時）
+
+Functions 全量 deploy で mutation quota 429 が出る場合は、分割実行を使う。
+
+1. まず dry-run で未展開一覧を取得する。  
+2. `only_in_us-central1.txt` を入力に分割 deploy する。  
+
+```bash
+scripts/firebase_deploy_functions_in_batches.sh \
+  --project "$PROJECT_ID" \
+  --functions-file "/tmp/functions-region-migration-<timestamp>/only_in_us-central1.txt" \
+  --batch-size 15 \
+  --pause-seconds 120
+```
+
+補足:
+
+- 実際に使う `only_in_us-central1.txt` は、6.3 の dry-run 出力 `work_dir` 配下のファイルを指定する。
+- 2026-04-02 時点の `amuse-app-template` は `us-central1=0` のため、この分割 deploy は再発時の運用手段として保持する。
+
 ## 7. Cloud Tasks Queue 整合（ローカル端末）
 
 ### 7.1 open/close 用 queue の存在確認と必要時作成
@@ -321,6 +373,65 @@ gcloud tasks queues create business-date-assessment-queue \
 
 ```bash
 gcloud tasks queues list --location="$REGION_NEW" --project "$PROJECT_ID"
+```
+
+### 7.3 旧リージョン queue に残タスクがある場合の移設
+
+`business-date-assessment-queue` に未実行タスクが残っている場合は、削除前に移設する。
+
+旧リージョン残タスク確認:
+
+```bash
+gcloud tasks list \
+  --queue="business-date-assessment-queue" \
+  --location="us-central1" \
+  --project "$PROJECT_ID" \
+  --format="table(name.basename(),scheduleTime,httpRequest.url)"
+```
+
+移設（URL の `-uc.a.run.app` を `-an.a.run.app` へ変換して新 queue に再作成）:
+
+```bash
+TMP_JSON="/tmp/us_business_queue_tasks.json"
+gcloud tasks list \
+  --queue="business-date-assessment-queue" \
+  --location="us-central1" \
+  --project "$PROJECT_ID" \
+  --format=json > "$TMP_JSON"
+
+jq -c '.[] | {id:(.name|split("/")|last), scheduleTime, url:.httpRequest.url, audience:.httpRequest.oidcToken.audience, sa:.httpRequest.oidcToken.serviceAccountEmail}' "$TMP_JSON" | \
+while IFS= read -r row; do
+  id="$(echo "$row" | jq -r '.id')"
+  schedule="$(echo "$row" | jq -r '.scheduleTime')"
+  sa="$(echo "$row" | jq -r '.sa')"
+  old_url="$(echo "$row" | jq -r '.url')"
+  old_aud="$(echo "$row" | jq -r '.audience')"
+  new_url="$(echo "$old_url" | sed 's/-uc\\.a\\.run\\.app/-an.a.run.app/g')"
+  new_aud="$(echo "$old_aud" | sed 's/-uc\\.a\\.run\\.app/-an.a.run.app/g')"
+
+  gcloud tasks create-http-task "$id" \
+    --project "$PROJECT_ID" \
+    --location "$REGION_NEW" \
+    --queue "business-date-assessment-queue" \
+    --url "$new_url" \
+    --method POST \
+    --schedule-time "$schedule" \
+    --oidc-service-account-email "$sa" \
+    --oidc-token-audience "$new_aud"
+done
+```
+
+### 7.4 旧リージョン queue の削除
+
+移設後かつ空を確認後に削除する（phaseF の整理対象）。
+
+```bash
+for q in business-date-assessment-queue business-date-assessment-queue-test finalizePayrollRun processPayrollNotifications processStaffPayroll tournament-queue; do
+  gcloud tasks queues delete "$q" \
+    --location="us-central1" \
+    --project "$PROJECT_ID" \
+    --quiet
+done
 ```
 
 ## 8. `task-endpoints` 更新（ローカル端末）
@@ -409,4 +520,5 @@ done
 2. `gcloud functions list --v2 --regions="us-central1,asia-northeast1"` で新リージョン側が `ACTIVE`
 3. `task-endpoints` の3URLが新リージョン実体を指している
 4. `business-date-assessment-queue` が `asia-northeast1` に存在する
-5. 実運用経路（scheduler / openclose / tournament）の task 起動が成功する
+5. `us-central1` の queue / scheduler job が不要分として整理済み
+6. 実運用経路（scheduler / openclose / tournament）の task 起動が成功する

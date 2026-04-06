@@ -183,6 +183,8 @@ export const openStoreTerminal = onCall(
             processing: FieldValue.delete(),
             // 正常開店時は開店認定のみクリアする（closeAssessment はクリアしない）
             openAssessment: null,
+            manualOverrides: FieldValue.delete(),
+            manualOverride: FieldValue.delete(),
           });
           await openRunsRef.update({
             status: 'completed',

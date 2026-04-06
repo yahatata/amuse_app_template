@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:amuse_app_template/tournament/active/pages/tournament_home_page.dart';
@@ -54,7 +55,7 @@ class _ClosePreConfirmationPageState extends State<ClosePreConfirmationPage> {
       }
 
       final callable =
-          FirebaseFunctions.instance.httpsCallable('getCloseIntegrityData');
+          FunctionsClient.instance.httpsCallable('getCloseIntegrityData');
       final result =
           await callable.call<Map<String, dynamic>>({}).timeout(
                 const Duration(seconds: 120),

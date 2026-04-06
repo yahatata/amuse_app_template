@@ -1,9 +1,9 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
-import { getFunctions } from 'firebase-admin/functions';
 import * as crypto from 'crypto';
 import { logger } from 'firebase-functions';
 import { getScheduledJobQueueName } from '../../../shared/config/cloudTasksConfig';
 import { getRequiredProjectId } from '../../../shared/runtime/projectId';
+import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue';
 import {
   assertValidScheduledJobTaskPayload,
   createIdempotencyKey,
@@ -114,7 +114,7 @@ export async function enqueueTournamentTasksReplanTask(now: Date = new Date()): 
   assertValidScheduledJobTaskPayload(payload);
 
   const queueName = getScheduledJobQueueName('enqueueTournamentTasksByScheduler');
-  const queue = getFunctions().taskQueue(queueName);
+  const queue = getRegionalTaskQueue(queueName);
   try {
     await queue.enqueue(payload, {
       id: taskId,

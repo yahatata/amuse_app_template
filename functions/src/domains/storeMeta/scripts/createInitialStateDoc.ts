@@ -38,6 +38,10 @@ async function createInitialStateDoc() {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       source: 'initial',
       lastError: null,
+      closeAssessment: null,
+      openAssessment: null,
+      manualOverrides: null,
+      manualOverride: null,
     };
 
     await docRef.set(initialState);

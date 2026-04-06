@@ -20,6 +20,34 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { logOpsError } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
+type OpenAssessmentAction = 'open_assessment' | 'open_assessment_recheck';
+
+type ManualOverrideLike = {
+  type?: string;
+  intendedBusinessDateKey?: string;
+  overrideUntil?: { toMillis?: () => number } | Date;
+} | null;
+
+function getOverrideUntilMillis(value: ManualOverrideLike): number | null {
+  if (!value?.overrideUntil) return null;
+  if (value.overrideUntil instanceof Date) return value.overrideUntil.getTime();
+  if (typeof value.overrideUntil?.toMillis === 'function') {
+    return value.overrideUntil.toMillis();
+  }
+  return null;
+}
+
+function isOpenOverrideActive(
+  value: ManualOverrideLike,
+  intendedBusinessDateKey: string,
+  nowMillis: number
+): boolean {
+  if (!value || value.type !== 'open_skip') return false;
+  if (value.intendedBusinessDateKey !== intendedBusinessDateKey) return false;
+  const untilMillis = getOverrideUntilMillis(value);
+  return untilMillis != null && untilMillis >= nowMillis;
+}
+
 export const openAssessmentTask = onRequest(
   {
     region: 'asia-northeast1',
@@ -32,8 +60,23 @@ export const openAssessmentTask = onRequest(
         scheduledAt: string;
       };
 
-      if (payload.action !== 'open_assessment') {
+      const action = payload.action as OpenAssessmentAction;
+      if (action !== 'open_assessment' && action !== 'open_assessment_recheck') {
         res.status(400).json({ error: 'Invalid action' });
+        return;
+      }
+      if (
+        typeof payload.intendedBusinessDateKey !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(payload.intendedBusinessDateKey)
+      ) {
+        res.status(400).json({ error: 'Invalid intendedBusinessDateKey' });
+        return;
+      }
+      if (
+        typeof payload.scheduledAt !== 'string' ||
+        payload.scheduledAt.trim().length === 0
+      ) {
+        res.status(400).json({ error: 'Invalid scheduledAt' });
         return;
       }
 
@@ -43,7 +86,7 @@ export const openAssessmentTask = onRequest(
       const serverNowJst = jstNow;
 
       // idempotencyKeyの生成
-      const idempotencyKey = `open_assessment_${payload.intendedBusinessDateKey}_${payload.scheduledAt}`;
+      const idempotencyKey = `${action}_${payload.intendedBusinessDateKey}_${payload.scheduledAt}`;
 
       // トランザクション内で認定処理を実行
       await db.runTransaction(async (transaction) => {
@@ -67,48 +110,63 @@ export const openAssessmentTask = onRequest(
           return;  // no-op
         }
 
-        // businessDateKeyの許容範囲検証
-        const d = new Date(serverNowJst);
-        d.setHours(0, 0, 0, 0);
-        const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const tomorrowKey = new Date(d);
-        tomorrowKey.setDate(tomorrowKey.getDate() + 1);
-        const tomorrowKeyStr = `${tomorrowKey.getFullYear()}-${String(tomorrowKey.getMonth() + 1).padStart(2, '0')}-${String(tomorrowKey.getDate()).padStart(2, '0')}`;
+        // businessDateKeyの許容範囲検証（通常評価のみ。再評価では日付範囲スキップ）
+        if (action === 'open_assessment') {
+          const d = new Date(serverNowJst);
+          d.setHours(0, 0, 0, 0);
+          const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const tomorrowKey = new Date(d);
+          tomorrowKey.setDate(tomorrowKey.getDate() + 1);
+          const tomorrowKeyStr = `${tomorrowKey.getFullYear()}-${String(tomorrowKey.getMonth() + 1).padStart(2, '0')}-${String(tomorrowKey.getDate()).padStart(2, '0')}`;
 
-        if (payload.intendedBusinessDateKey !== todayKey && payload.intendedBusinessDateKey !== tomorrowKeyStr) {
-          // 許容範囲外
-          const decidedAt = Timestamp.now();
-          transaction.update(stateDocRef, {
-            openAssessment: {
-              idempotencyKey,
+          if (payload.intendedBusinessDateKey !== todayKey && payload.intendedBusinessDateKey !== tomorrowKeyStr) {
+            // 許容範囲外
+            const decidedAt = Timestamp.now();
+            transaction.update(stateDocRef, {
+              openAssessment: {
+                idempotencyKey,
+                intendedBusinessDateKey: payload.intendedBusinessDateKey,
+                decidedAt,
+                result: 'skipped',
+                blockers: ['date_out_of_range'],
+                source: 'task',
+                scheduledAt: payload.scheduledAt,
+              },
+            });
+            const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
+            transaction.set(logRef, {
+              type: 'open',
+              action,
               intendedBusinessDateKey: payload.intendedBusinessDateKey,
-              decidedAt,
+              scheduledAt: payload.scheduledAt,
               result: 'skipped',
               blockers: ['date_out_of_range'],
+              decidedAt,
               source: 'task',
-              scheduledAt: payload.scheduledAt,
-            },
-          });
-          const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
-          transaction.set(logRef, {
-            type: 'open',
-            intendedBusinessDateKey: payload.intendedBusinessDateKey,
-            scheduledAt: payload.scheduledAt,
-            result: 'skipped',
-            blockers: ['date_out_of_range'],
-            decidedAt,
-            source: 'task',
-            idempotencyKey,
-            createdAt: decidedAt,
-          });
-          return;
+              idempotencyKey,
+              createdAt: decidedAt,
+            });
+            return;
+          }
         }
 
         const status = stateData.status as string;
         const currentBusinessDateKey = stateData.currentBusinessDateKey as string | null;
         const lastClosedBusinessDateKey = stateData.lastClosedBusinessDateKey as string | null;
         const lastError = stateData.lastError as any;
-        const manualOverride = stateData.manualOverride as any;
+        const manualOverride = stateData.manualOverride as ManualOverrideLike;
+        const manualOverrides = stateData.manualOverrides as
+          | { open?: ManualOverrideLike; close?: ManualOverrideLike }
+          | null
+          | undefined;
+        const openOverride =
+          manualOverrides?.open ?? (manualOverride?.type === 'open_skip' ? manualOverride : null);
+        const nowMillis = now.getTime();
+        const openOverrideActive = isOpenOverrideActive(
+          openOverride,
+          payload.intendedBusinessDateKey,
+          nowMillis
+        );
 
         // 既に営業中か確認
         if (status === 'running' && currentBusinessDateKey === payload.intendedBusinessDateKey) {
@@ -127,6 +185,7 @@ export const openAssessmentTask = onRequest(
           const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
           transaction.set(logRef, {
             type: 'open',
+            action,
             intendedBusinessDateKey: payload.intendedBusinessDateKey,
             scheduledAt: payload.scheduledAt,
             result: 'already_running',
@@ -142,6 +201,7 @@ export const openAssessmentTask = onRequest(
         // 営業中に別日付の開店が走ることを防止
         if (status === 'running' && currentBusinessDateKey !== payload.intendedBusinessDateKey) {
           const decidedAt = Timestamp.now();
+          const lastSuppressedAt = openOverrideActive ? Timestamp.now() : undefined;
           transaction.update(stateDocRef, {
             openAssessment: {
               idempotencyKey,
@@ -151,11 +211,14 @@ export const openAssessmentTask = onRequest(
               blockers: ['already_running_different_date'],
               source: 'task',
               scheduledAt: payload.scheduledAt,
+              ...(lastSuppressedAt && { lastSuppressedAt }),
+              ...(openOverrideActive ? { suppressedByOverride: true } : {}),
             },
           });
           const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
-          transaction.set(logRef, {
+          const logData: Record<string, unknown> = {
             type: 'open',
+            action,
             intendedBusinessDateKey: payload.intendedBusinessDateKey,
             scheduledAt: payload.scheduledAt,
             result: 'skipped',
@@ -164,7 +227,11 @@ export const openAssessmentTask = onRequest(
             source: 'task',
             idempotencyKey,
             createdAt: decidedAt,
-          });
+          };
+          if (openOverrideActive) {
+            logData.suppressedByOverride = true;
+          }
+          transaction.set(logRef, logData);
           return;
         }
 
@@ -197,13 +264,8 @@ export const openAssessmentTask = onRequest(
           result = 'skipped';
         }
 
-        // manualOverrideの確認
-        if (
-          manualOverride &&
-          manualOverride.type === 'open_skip' &&
-          manualOverride.intendedBusinessDateKey === payload.intendedBusinessDateKey &&
-          manualOverride.overrideUntil.toMillis() >= now.getTime()
-        ) {
+        // manualOverrideの確認（manualOverrides.open を優先、旧manualOverrideはfallback）
+        if (openOverrideActive) {
           lastSuppressedAt = Timestamp.now();
           suppressedByOverride = true;
           // resultは維持（needs_manual_openのまま）
@@ -227,6 +289,7 @@ export const openAssessmentTask = onRequest(
         const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
         const logData: Record<string, unknown> = {
           type: 'open',
+          action,
           intendedBusinessDateKey: payload.intendedBusinessDateKey,
           scheduledAt: payload.scheduledAt,
           result,

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
@@ -18,7 +18,7 @@ class PrizeSetupPage extends StatefulWidget {
 }
 
 class _PrizeSetupPageState extends State<PrizeSetupPage> {
-  final _functions = FirebaseFunctions.instance;
+  final _functions = FunctionsClient.instance;
   
   // データ
   Map<String, dynamic>? _tournamentData;
