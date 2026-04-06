@@ -5,6 +5,7 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { CloudTasksClient } from '@google-cloud/tasks';
 import { logger } from 'firebase-functions';
 import { requireAdmin } from '../../../shared/devices';
 import { acquireProcessing, extendProcessing, releaseProcessing } from '../services/processingLease';
@@ -17,6 +18,15 @@ import { runMigrateSettledBillsForBusinessDay } from '../../analytics/callables/
 import { getUnclosedTournamentsForCloseCore } from '../services/getUnclosedTournamentsForClose';
 import { endActiveBreaksForClockOut } from '../../attendance/helpers/recalculateAttendanceFromBreaks';
 import { writeAttendanceLog } from '../../attendance/helpers/attendanceLogs';
+import {
+  OPENCLOSE_TASKS_QUEUE,
+  OPENCLOSE_TASKS_REGION,
+  OPENCLOSE_INVOKER_SA_PREFIX,
+  buildInvokerSaEmail,
+} from '../../../shared/config/cloudTasksConfig';
+import { getRequiredProjectId } from '../../../shared/runtime/projectId';
+import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
+import { generateJstDateKey } from '../../../shared/time';
 
 const CLOSE_STEPS = [
   'UNSETTLED_MARK',
@@ -27,6 +37,68 @@ const CLOSE_STEPS = [
   'migrateMissedSettlements',
   'finalizeCloseStateDoc',
 ] as const;
+
+async function enqueueOpenAssessmentRecheckTask(params: {
+  projectId: string;
+  intendedBusinessDateKey: string;
+  scheduledAtIso: string;
+}): Promise<void> {
+  const { projectId, intendedBusinessDateKey, scheduledAtIso } = params;
+  const tasksClient = new CloudTasksClient();
+  const queuePath = tasksClient.queuePath(
+    projectId,
+    OPENCLOSE_TASKS_REGION,
+    OPENCLOSE_TASKS_QUEUE
+  );
+  const scheduleTimeEpochSeconds = Math.floor(new Date(scheduledAtIso).getTime() / 1000);
+  const taskId = `open_assessment_recheck_after_close_${intendedBusinessDateKey}_${scheduleTimeEpochSeconds}`;
+  const taskName = tasksClient.taskPath(
+    projectId,
+    OPENCLOSE_TASKS_REGION,
+    OPENCLOSE_TASKS_QUEUE,
+    taskId
+  );
+  const tasksInvokerSa = buildInvokerSaEmail(
+    OPENCLOSE_INVOKER_SA_PREFIX,
+    projectId
+  );
+  const { openAssessmentUrl } = await getTaskEndpoints();
+  const taskPayload = {
+    action: 'open_assessment_recheck',
+    intendedBusinessDateKey,
+    scheduledAt: scheduledAtIso,
+  };
+
+  try {
+    await tasksClient.createTask({
+      parent: queuePath,
+      task: {
+        name: taskName,
+        httpRequest: {
+          httpMethod: 'POST',
+          url: openAssessmentUrl,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: Buffer.from(JSON.stringify(taskPayload)).toString('base64'),
+          oidcToken: {
+            serviceAccountEmail: tasksInvokerSa,
+          },
+        },
+        scheduleTime: {
+          seconds: scheduleTimeEpochSeconds,
+        },
+      },
+    });
+  } catch (error: unknown) {
+    const err = error as { code?: number };
+    if (err?.code === 6) {
+      // ALREADY_EXISTS: 同一タスクが既に存在する場合は成功扱い
+      return;
+    }
+    throw error;
+  }
+}
 
 export const closeStoreTerminal = onCall(
   { region: 'asia-northeast1' },
@@ -301,26 +373,38 @@ export const closeStoreTerminal = onCall(
             completedAt: Timestamp.now(),
             updatedAt: FieldValue.serverTimestamp(),
           });
-          // openAssessment の blockers に already_running_different_date がある場合のみ、
-          // そのブロッカーを削除し result を ready_to_open にする（強警告ゲート解消）。
-          // 閉店時 null にする assessment は closeAssessment のみという仕様は変えない。
-          const openAssessment = stateData.openAssessment as
-            | { result?: string; blockers?: string[]; [k: string]: unknown }
-            | null
+          // 正常閉店後は openAssessment を直接編集せず、即時再評価 task で上書きする。
+          const latestState = (await stateRef.get()).data() as
+            | { openAssessment?: { intendedBusinessDateKey?: string | null } | null }
             | undefined;
-          const hasAlreadyRunningDifferentDate =
-            openAssessment &&
-            Array.isArray(openAssessment.blockers) &&
-            (openAssessment.blockers as string[]).includes('already_running_different_date');
-          const openAssessmentUpdate = hasAlreadyRunningDifferentDate
-            ? {
-                ...openAssessment,
-                result: 'ready_to_open',
-                blockers: (openAssessment!.blockers as string[]).filter(
-                  (b: string) => b !== 'already_running_different_date'
-                ),
-              }
-            : undefined;
+          const intendedFromAssessment =
+            latestState?.openAssessment?.intendedBusinessDateKey?.trim();
+          const intendedBusinessDateKeyForRecheck =
+            intendedFromAssessment && /^\d{4}-\d{2}-\d{2}$/.test(intendedFromAssessment)
+              ? intendedFromAssessment
+              : generateJstDateKey();
+          const recheckScheduledAtIso = new Date().toISOString();
+          let recheckEnqueued = false;
+          let recheckEnqueueError: string | null = null;
+
+          try {
+            await enqueueOpenAssessmentRecheckTask({
+              projectId: getRequiredProjectId(),
+              intendedBusinessDateKey: intendedBusinessDateKeyForRecheck,
+              scheduledAtIso: recheckScheduledAtIso,
+            });
+            recheckEnqueued = true;
+          } catch (enqueueError) {
+            recheckEnqueueError = enqueueError instanceof Error
+              ? enqueueError.message
+              : String(enqueueError);
+            logger.error('openAssessment recheck enqueue failed after close', {
+              runId,
+              closedBusinessDate,
+              intendedBusinessDateKeyForRecheck,
+              recheckEnqueueError,
+            });
+          }
 
           await stateRef.update({
             status: 'closed',
@@ -332,7 +416,21 @@ export const closeStoreTerminal = onCall(
             processing: FieldValue.delete(),
             // 正常閉店時は閉店認定のみクリアする（openAssessment はクリアしない）
             closeAssessment: null,
-            ...(openAssessmentUpdate !== undefined && { openAssessment: openAssessmentUpdate }),
+            manualOverrides: FieldValue.delete(),
+            manualOverride: FieldValue.delete(),
+          });
+          const recheckLogRef = stateRef
+            .collection('assessmentLogs')
+            .doc(`open_recheck_after_close_${Date.now()}`);
+          await recheckLogRef.set({
+            type: 'open_recheck_after_close',
+            action: 'open_assessment_recheck',
+            intendedBusinessDateKey: intendedBusinessDateKeyForRecheck,
+            scheduledAt: recheckScheduledAtIso,
+            source: 'terminal',
+            enqueueSucceeded: recheckEnqueued,
+            enqueueError: recheckEnqueueError,
+            createdAt: Timestamp.now(),
           });
           await closeRunsRef.update({
             status: 'completed',

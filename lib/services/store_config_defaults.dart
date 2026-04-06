@@ -21,6 +21,7 @@ const int? kDefaultAttendanceTimeAdjustmentMaxPastMinutes = null;
 const bool kDefaultAutoOpenCloseEnabled = true;
 const int kDefaultTaskCloseOffsetMinutes = 120;
 const int kDefaultTaskOpenOffsetMinutes = -30;
+const int kDefaultAlreadyRunningDifferentDateRecheckMinutes = 15;
 
 // businessDay
 const int kDefaultCalcBufferMinutes = 70;
@@ -44,7 +45,13 @@ const Map<String, List<String>> kDefaultCategoryPaymentMethods = {
     'pointB',
     'sideGameChip',
   ],
-  'tournaments': ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB'],
+  'tournaments': [
+    'cash',
+    'credit_card',
+    'electronic_money',
+    'pointA',
+    'pointB',
+  ],
 };
 
 // businessHoursStyles

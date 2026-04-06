@@ -34,6 +34,7 @@ export const createInitialStateDocCallable = onCall(
         lastError: null,
         closeAssessment: null,
         openAssessment: null,
+        manualOverrides: null,
         manualOverride: null,
       };
 
