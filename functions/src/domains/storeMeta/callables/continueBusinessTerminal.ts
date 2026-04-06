@@ -7,7 +7,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { CloudTasksClient } from '@google-cloud/tasks';
-import { requireAdmin } from '../../../shared/devices';
+import { getCallerDeviceByUid, requireAdmin } from '../../../shared/devices';
 import {
   OPENCLOSE_TASKS_QUEUE,
   OPENCLOSE_TASKS_REGION,
@@ -16,6 +16,69 @@ import {
 } from '../../../shared/config/cloudTasksConfig';
 import { getRequiredProjectId } from '../../../shared/runtime/projectId';
 import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
+
+type OpenAssessmentLike = {
+  result?: string;
+  blockers?: unknown;
+  intendedBusinessDateKey?: string;
+  [k: string]: unknown;
+};
+
+async function createAssessmentTask(params: {
+  tasksClient: CloudTasksClient;
+  projectId: string;
+  tasksLocation: string;
+  tasksQueue: string;
+  tasksInvokerSa: string;
+  url: string;
+  taskId: string;
+  payload: Record<string, unknown>;
+  scheduleTimeEpochSeconds: number;
+}): Promise<void> {
+  const {
+    tasksClient,
+    projectId,
+    tasksLocation,
+    tasksQueue,
+    tasksInvokerSa,
+    url,
+    taskId,
+    payload,
+    scheduleTimeEpochSeconds,
+  } = params;
+  const queuePath = tasksClient.queuePath(projectId, tasksLocation, tasksQueue);
+  const taskName = tasksClient.taskPath(projectId, tasksLocation, tasksQueue, taskId);
+
+  try {
+    await tasksClient.createTask({
+      parent: queuePath,
+      task: {
+        name: taskName,
+        httpRequest: {
+          httpMethod: 'POST',
+          url,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: Buffer.from(JSON.stringify(payload)).toString('base64'),
+          oidcToken: {
+            serviceAccountEmail: tasksInvokerSa,
+          },
+        },
+        scheduleTime: {
+          seconds: scheduleTimeEpochSeconds,
+        },
+      },
+    });
+  } catch (error: unknown) {
+    const err = error as { code?: number };
+    if (err?.code === 6) {
+      // ALREADY_EXISTS: 同一タスクが既に存在する場合は成功扱い
+      return;
+    }
+    throw error;
+  }
+}
 
 export const continueBusinessTerminal = onCall(
   { region: 'asia-northeast1' },
@@ -65,15 +128,19 @@ export const continueBusinessTerminal = onCall(
     const scheduleAt = new Date(now.getTime() + hours * 60 * 60 * 1000);
     const scheduledAtIso = scheduleAt.toISOString();
     const idempotencyKey = `close_assessment_${intendedBusinessDateKey}_${scheduledAtIso}`;
+    const continueLogId = `continue_business_${intendedBusinessDateKey}_${scheduledAtIso}`;
 
     const projectId = getRequiredProjectId();
-    const { closeAssessmentUrl } = await getTaskEndpoints();
+    const { closeAssessmentUrl, openAssessmentUrl } = await getTaskEndpoints();
     const tasksQueue = OPENCLOSE_TASKS_QUEUE;
     const tasksLocation = OPENCLOSE_TASKS_REGION;
     const tasksInvokerSa = buildInvokerSaEmail(
       OPENCLOSE_INVOKER_SA_PREFIX,
       projectId
     );
+    const callerDevice = await getCallerDeviceByUid(adminId);
+
+    let openOverrideIntendedBusinessDateKey: string | null = null;
 
     await db.runTransaction(async (transaction) => {
       const stateDoc = await transaction.get(stateRef);
@@ -92,75 +159,140 @@ export const continueBusinessTerminal = onCall(
       }
 
       const overrideUntil = Timestamp.fromMillis(scheduleAt.getTime());
-
-      transaction.update(stateRef, {
-        manualOverride: {
+      const decidedAt = Timestamp.now();
+      const currentManualOverrides = stateDoc.data()?.manualOverrides as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      const manualOverrides: Record<string, unknown> = {
+        ...(currentManualOverrides && typeof currentManualOverrides === 'object'
+          ? currentManualOverrides
+          : {}),
+        close: {
           type: 'close_skip',
           intendedBusinessDateKey,
           overrideUntil,
         },
+      };
+
+      const openAssessment = stateDoc.data()?.openAssessment as OpenAssessmentLike | null | undefined;
+      const openBlockers = Array.isArray(openAssessment?.blockers)
+        ? (openAssessment?.blockers as string[])
+        : [];
+      const shouldAlsoSuppressOpen =
+        openAssessment?.result === 'skipped' &&
+        openBlockers.includes('already_running_different_date') &&
+        typeof openAssessment?.intendedBusinessDateKey === 'string' &&
+        openAssessment.intendedBusinessDateKey.trim().length > 0;
+      if (shouldAlsoSuppressOpen) {
+        openOverrideIntendedBusinessDateKey =
+          openAssessment!.intendedBusinessDateKey!.trim();
+        manualOverrides.open = {
+          type: 'open_skip',
+          intendedBusinessDateKey: openOverrideIntendedBusinessDateKey,
+          overrideUntil,
+        };
+      }
+
+      transaction.update(stateRef, {
+        manualOverrides,
+        manualOverride: FieldValue.delete(),
         closeAssessment: {
           idempotencyKey,
           intendedBusinessDateKey,
-          decidedAt: Timestamp.now(),
+          decidedAt,
           result: 'needs_manual_close_suppressed',
           blockers,
           source: 'terminal',
           scheduledAt: scheduledAtIso,
-          lastSuppressedAt: Timestamp.now(),
+          lastSuppressedAt: decidedAt,
           suppressedByOverride: true,
         },
+        ...(shouldAlsoSuppressOpen
+          ? {
+              openAssessment: {
+                ...openAssessment,
+                lastSuppressedAt: decidedAt,
+                suppressedByOverride: true,
+              },
+            }
+          : {}),
         updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      const continueLogRef = stateRef.collection('assessmentLogs').doc(continueLogId);
+      transaction.set(continueLogRef, {
+        type: 'continue_business',
+        action: 'continue_business_terminal',
+        intendedBusinessDateKey,
+        hours,
+        scheduledAt: scheduledAtIso,
+        overrideUntil,
+        decidedAt,
+        source: 'terminal',
+        createdAt: decidedAt,
+        performedByUid: adminId,
+        performedByRole: callerDevice?.role ?? null,
+        performedByDeviceId: callerDevice?.id ?? null,
+        openOverrideApplied: shouldAlsoSuppressOpen,
+        openOverrideIntendedBusinessDateKey: shouldAlsoSuppressOpen
+          ? openOverrideIntendedBusinessDateKey
+          : null,
       });
     });
 
     const tasksClient = new CloudTasksClient();
-    const queuePath = tasksClient.queuePath(projectId, tasksLocation, tasksQueue);
     const scheduleTimeEpochSeconds = Math.floor(scheduleAt.getTime() / 1000);
-    const taskId = `close_assessment_reminder_${intendedBusinessDateKey}_${scheduleTimeEpochSeconds}`;
-    const taskName = tasksClient.taskPath(projectId, tasksLocation, tasksQueue, taskId);
-    const taskPayload = {
+    const closeTaskId = `close_assessment_reminder_${intendedBusinessDateKey}_${scheduleTimeEpochSeconds}`;
+    const closeTaskPayload = {
       action: 'close_assessment',
       intendedBusinessDateKey,
       scheduledAt: scheduledAtIso,
     };
 
     try {
-      await tasksClient.createTask({
-        parent: queuePath,
-        task: {
-          name: taskName,
-          httpRequest: {
-            httpMethod: 'POST',
-            url: closeAssessmentUrl,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: Buffer.from(JSON.stringify(taskPayload)).toString('base64'),
-            oidcToken: {
-              serviceAccountEmail: tasksInvokerSa,
-            },
-          },
-          scheduleTime: {
-            seconds: scheduleTimeEpochSeconds,
-          },
-        },
+      await createAssessmentTask({
+        tasksClient,
+        projectId,
+        tasksLocation,
+        tasksQueue,
+        tasksInvokerSa,
+        url: closeAssessmentUrl,
+        taskId: closeTaskId,
+        payload: closeTaskPayload,
+        scheduleTimeEpochSeconds,
       });
-    } catch (error: unknown) {
-      const err = error as { code?: number };
-      if (err?.code === 6) {
-        // ALREADY_EXISTS: 同一タスクが既に存在する場合は成功扱い
-      } else {
-        throw new HttpsError(
-          'internal',
-          `営業継続のリマインド予約に失敗しました。${error instanceof Error ? error.message : String(error)}`
-        );
+
+      if (openOverrideIntendedBusinessDateKey != null) {
+        const openTaskId = `open_assessment_recheck_${openOverrideIntendedBusinessDateKey}_${scheduleTimeEpochSeconds}`;
+        const openTaskPayload = {
+          action: 'open_assessment_recheck',
+          intendedBusinessDateKey: openOverrideIntendedBusinessDateKey,
+          scheduledAt: scheduledAtIso,
+        };
+        await createAssessmentTask({
+          tasksClient,
+          projectId,
+          tasksLocation,
+          tasksQueue,
+          tasksInvokerSa,
+          url: openAssessmentUrl,
+          taskId: openTaskId,
+          payload: openTaskPayload,
+          scheduleTimeEpochSeconds,
+        });
       }
+    } catch (error: unknown) {
+      throw new HttpsError(
+        'internal',
+        `営業継続のリマインド予約に失敗しました。${error instanceof Error ? error.message : String(error)}`
+      );
     }
 
     return {
       success: true,
       intendedBusinessDateKey,
+      openOverrideIntendedBusinessDateKey,
       hours,
       scheduledAt: scheduledAtIso,
       message: `${hours} 時間後に閉店確認のリマインドを予約しました。`,

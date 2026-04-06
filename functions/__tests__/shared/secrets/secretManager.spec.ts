@@ -125,6 +125,22 @@ describe("shared/secrets/secretManager", () => {
     await expect(getBusinessSecrets()).rejects.not.toThrow(sensitiveValue);
   });
 
+  it("business-secrets の required key を全て取得できる", async () => {
+    mockAccessSecretVersion.mockResolvedValueOnce(
+      buildSecretPayload({
+        qrSecretKey: "qr-key",
+        unclockedAttendanceEditPassword: "unclocked-pass",
+        openBusinessDateAdjustmentPassword: "open-adjust-pass",
+      })
+    );
+
+    await expect(getBusinessSecrets()).resolves.toEqual({
+      qrSecretKey: "qr-key",
+      unclockedAttendanceEditPassword: "unclocked-pass",
+      openBusinessDateAdjustmentPassword: "open-adjust-pass",
+    });
+  });
+
   it("task-endpoints を取得できる", async () => {
     mockAccessSecretVersion.mockResolvedValueOnce(
       buildSecretPayload({

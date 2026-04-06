@@ -105,6 +105,11 @@ async function loadBusinessSecrets(): Promise<BusinessSecrets> {
       "unclockedAttendanceEditPassword",
       "business-secrets"
     ),
+    openBusinessDateAdjustmentPassword: assertRequiredString(
+      raw,
+      "openBusinessDateAdjustmentPassword",
+      "business-secrets"
+    ),
   };
 }
 

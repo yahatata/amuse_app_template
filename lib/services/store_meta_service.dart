@@ -155,6 +155,30 @@ class ManualOverrideDoc {
   }
 }
 
+/// close/open 用に分離した manualOverrides（close/open）
+class ManualOverridesDoc {
+  final ManualOverrideDoc? close;
+  final ManualOverrideDoc? open;
+
+  ManualOverridesDoc({this.close, this.open});
+
+  static ManualOverridesDoc? fromMap(Map<String, dynamic>? map) {
+    if (map == null) return null;
+    return ManualOverridesDoc(
+      close: ManualOverrideDoc.fromMap(
+        map['close'] != null
+            ? Map<String, dynamic>.from(map['close'] as Map)
+            : null,
+      ),
+      open: ManualOverrideDoc.fromMap(
+        map['open'] != null
+            ? Map<String, dynamic>.from(map['open'] as Map)
+            : null,
+      ),
+    );
+  }
+}
+
 /// storeMeta/currentBusinessDay の1ドキュメント分のスナップショットを保持するデータクラス。
 /// 参照: functions/src/helpers/stateDoc/types.ts (CurrentBusinessDayDoc)
 /// Step4: closeAssessment / openAssessment / manualOverride / lastError / processing を追加（changeSpec §1）
@@ -183,6 +207,9 @@ class StoreMetaData {
   /// Step4: 手動スキップ／営業継続
   final ManualOverrideDoc? manualOverride;
 
+  /// ToBe: close/open 分離 override
+  final ManualOverridesDoc? manualOverrides;
+
   StoreMetaData({
     this.status,
     this.currentBusinessDateKey,
@@ -192,9 +219,12 @@ class StoreMetaData {
     this.closeAssessment,
     this.openAssessment,
     this.manualOverride,
+    this.manualOverrides,
   });
 
-  factory StoreMetaData.fromDocument(DocumentSnapshot<Map<String, dynamic>> doc) {
+  factory StoreMetaData.fromDocument(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     if (!doc.exists) return StoreMetaData();
     final data = doc.data();
     if (data == null) return StoreMetaData();
@@ -226,6 +256,11 @@ class StoreMetaData {
       manualOverride: ManualOverrideDoc.fromMap(
         data['manualOverride'] != null
             ? Map<String, dynamic>.from(data['manualOverride'] as Map)
+            : null,
+      ),
+      manualOverrides: ManualOverridesDoc.fromMap(
+        data['manualOverrides'] != null
+            ? Map<String, dynamic>.from(data['manualOverrides'] as Map)
             : null,
       ),
     );
@@ -260,15 +295,15 @@ class StoreMetaService {
         .doc('currentBusinessDay')
         .snapshots()
         .listen(
-      (snapshot) {
-        final data = StoreMetaData.fromDocument(snapshot);
-        _latestData = data;
-        _streamController.add(data);
-      },
-      onError: (error) {
-        _streamController.addError(error);
-      },
-    );
+          (snapshot) {
+            final data = StoreMetaData.fromDocument(snapshot);
+            _latestData = data;
+            _streamController.add(data);
+          },
+          onError: (error) {
+            _streamController.addError(error);
+          },
+        );
   }
 
   /// 現在の storeMeta/currentBusinessDay の最新スナップショット（営業継続ダイアログ等で使用）

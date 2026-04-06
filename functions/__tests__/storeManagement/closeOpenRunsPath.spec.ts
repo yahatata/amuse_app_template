@@ -102,7 +102,7 @@ describe('closeRuns / openRuns path (storeMeta/closeRuns, storeMeta/openRuns)', 
       expect(oldPathSnap.exists).toBe(false);
     });
 
-    it('閉店時 openAssessment.blockers に already_running_different_date がある場合のみ result を ready_to_open にしブロッカーを削除する', async () => {
+    it('閉店時は openAssessment を直接書き換えず、open 再評価予約ログを記録する', async () => {
       if (!emulatorAvailable) return;
       const businessDate = '2026-02-09';
       await db.collection('storeMeta').doc('currentBusinessDay').set({
@@ -133,9 +133,19 @@ describe('closeRuns / openRuns path (storeMeta/closeRuns, storeMeta/openRuns)', 
       expect(state?.closeAssessment).toBeNull();
       const open = state?.openAssessment;
       expect(open).toBeDefined();
-      expect(open?.result).toBe('ready_to_open');
+      expect(open?.result).toBe('skipped');
       expect(Array.isArray(open?.blockers)).toBe(true);
-      expect((open?.blockers as string[]).includes('already_running_different_date')).toBe(false);
+      expect((open?.blockers as string[]).includes('already_running_different_date')).toBe(true);
+
+      const logsSnap = await db
+        .collection('storeMeta')
+        .doc('currentBusinessDay')
+        .collection('assessmentLogs')
+        .where('type', '==', 'open_recheck_after_close')
+        .limit(1)
+        .get();
+      expect(logsSnap.empty).toBe(false);
+      expect(logsSnap.docs[0].data()?.action).toBe('open_assessment_recheck');
     });
   });
 

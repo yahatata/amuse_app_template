@@ -35,6 +35,7 @@ export interface StoreConfig {
     enabled?: boolean;
     taskCloseOffsetMinutes?: number;
     taskOpenOffsetMinutes?: number;
+    alreadyRunningDifferentDateRecheckMinutes?: number;
   };
   businessDay?: {
     calcBufferMinutes?: number;

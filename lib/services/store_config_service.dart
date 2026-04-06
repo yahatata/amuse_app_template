@@ -30,6 +30,7 @@ class StoreConfigData {
   final bool autoOpenCloseEnabled;
   final int taskCloseOffsetMinutes;
   final int taskOpenOffsetMinutes;
+  final int alreadyRunningDifferentDateRecheckMinutes;
   final int calcBufferMinutes;
   final int entranceFee;
   final String entranceFeeDescription;
@@ -59,7 +60,8 @@ class StoreConfigData {
     this.enqueueSchedulerEnabled = kDefaultEnqueueSchedulerEnabled,
     this.templateBusinessDateCheck = kDefaultTemplateBusinessDateCheck,
     this.settlementAggregatorEnabled = kDefaultSettlementAggregatorEnabled,
-    this.tableDeviceRegistrationEnabled = kDefaultTableDeviceRegistrationEnabled,
+    this.tableDeviceRegistrationEnabled =
+        kDefaultTableDeviceRegistrationEnabled,
     this.createAttendanceByManual = kDefaultCreateAttendanceByManual,
     this.attendanceTimeAdjustmentEnabled =
         kDefaultAttendanceTimeAdjustmentEnabled,
@@ -70,6 +72,8 @@ class StoreConfigData {
     this.autoOpenCloseEnabled = kDefaultAutoOpenCloseEnabled,
     this.taskCloseOffsetMinutes = kDefaultTaskCloseOffsetMinutes,
     this.taskOpenOffsetMinutes = kDefaultTaskOpenOffsetMinutes,
+    this.alreadyRunningDifferentDateRecheckMinutes =
+        kDefaultAlreadyRunningDifferentDateRecheckMinutes,
     this.calcBufferMinutes = kDefaultCalcBufferMinutes,
     this.entranceFee = kDefaultEntranceFee,
     this.entranceFeeDescription = kDefaultEntranceFeeDescription,
@@ -93,23 +97,31 @@ class StoreConfigData {
     String? tournamentPrizeRoundingMethod,
     int? tournamentPrizeRoundingUnit,
     Map<int, List<double>>? tournamentPrizeDistribution,
-  })  : businessHoursStyles =
-            businessHoursStyles ?? Map<String, Map<String, dynamic>>.from(kDefaultBusinessHoursStyles),
-        categoryPaymentMethods =
-            categoryPaymentMethods ?? Map<String, List<String>>.from(kDefaultCategoryPaymentMethods),
-        pointPriority = pointPriority ?? List<String>.from(kDefaultPointPriority),
-        menuCategories = menuCategories ?? List<String>.from(kDefaultMenuCategories),
-        sideGameTypes = sideGameTypes ?? List<String>.from(kDefaultSideGameTypes),
-        tournamentDefaultPrizeRatio =
-            tournamentDefaultPrizeRatio ?? kDefaultTournamentPrizeRatio,
-        tournamentPrizeReceiverPercentage =
-            tournamentPrizeReceiverPercentage ?? kDefaultTournamentPrizeReceiverPercentage,
-        tournamentPrizeRoundingMethod =
-            tournamentPrizeRoundingMethod ?? kDefaultTournamentPrizeRoundingMethod,
-        tournamentPrizeRoundingUnit =
-            tournamentPrizeRoundingUnit ?? kDefaultTournamentPrizeRoundingUnit,
-        tournamentPrizeDistribution =
-            tournamentPrizeDistribution ?? Map<int, List<double>>.from(kDefaultTournamentPrizeDistribution);
+  }) : businessHoursStyles =
+           businessHoursStyles ??
+           Map<String, Map<String, dynamic>>.from(kDefaultBusinessHoursStyles),
+       categoryPaymentMethods =
+           categoryPaymentMethods ??
+           Map<String, List<String>>.from(kDefaultCategoryPaymentMethods),
+       pointPriority =
+           pointPriority ?? List<String>.from(kDefaultPointPriority),
+       menuCategories =
+           menuCategories ?? List<String>.from(kDefaultMenuCategories),
+       sideGameTypes =
+           sideGameTypes ?? List<String>.from(kDefaultSideGameTypes),
+       tournamentDefaultPrizeRatio =
+           tournamentDefaultPrizeRatio ?? kDefaultTournamentPrizeRatio,
+       tournamentPrizeReceiverPercentage =
+           tournamentPrizeReceiverPercentage ??
+           kDefaultTournamentPrizeReceiverPercentage,
+       tournamentPrizeRoundingMethod =
+           tournamentPrizeRoundingMethod ??
+           kDefaultTournamentPrizeRoundingMethod,
+       tournamentPrizeRoundingUnit =
+           tournamentPrizeRoundingUnit ?? kDefaultTournamentPrizeRoundingUnit,
+       tournamentPrizeDistribution =
+           tournamentPrizeDistribution ??
+           Map<int, List<double>>.from(kDefaultTournamentPrizeDistribution);
 
   static StoreConfigData fromDefaults() => StoreConfigData();
 
@@ -120,7 +132,8 @@ class StoreConfigData {
   /// [onParseComplete] が指定された場合、パース完了時に fromConfig/fromDefaults を渡す。
   factory StoreConfigData.fromMap(
     Map<String, dynamic>? data, {
-    void Function(List<String> fromConfig, List<String> fromDefaults)? onParseComplete,
+    void Function(List<String> fromConfig, List<String> fromDefaults)?
+    onParseComplete,
   }) {
     if (data == null || data.isEmpty) {
       if (onParseComplete != null) onParseComplete([], ['*']);
@@ -144,7 +157,8 @@ class StoreConfigData {
     final businessDay = data['businessDay'] as Map<String, dynamic>?;
     final billing = data['billing'] as Map<String, dynamic>?;
     final paymentPolicy = billing?['paymentPolicy'] as Map<String, dynamic>?;
-    final roundingUnits = paymentPolicy?['roundingUnits'] as Map<String, dynamic>?;
+    final roundingUnits =
+        paymentPolicy?['roundingUnits'] as Map<String, dynamic>?;
     final shift = data['shift'] as Map<String, dynamic>?;
     final payroll = data['payroll'] as Map<String, dynamic>?;
     final tournament = data['tournament'] as Map<String, dynamic>?;
@@ -160,7 +174,10 @@ class StoreConfigData {
       for (final e in v.entries) {
         if (e.value is Map) {
           final m = e.value as Map;
-          if (m['styleId'] is String && m['openMinute'] is num && m['closeMinute'] is num && m['isClosed'] is bool) {
+          if (m['styleId'] is String &&
+              m['openMinute'] is num &&
+              m['closeMinute'] is num &&
+              m['isClosed'] is bool) {
             result[e.key.toString()] = {
               'styleId': m['styleId'] as String,
               'openMinute': (m['openMinute'] as num).toInt(),
@@ -178,8 +195,9 @@ class StoreConfigData {
       final result = <String, List<String>>{};
       for (final e in v.entries) {
         if (e.value is List) {
-          result[e.key.toString()] =
-              (e.value as List).map((x) => x.toString()).toList();
+          result[e.key.toString()] = (e.value as List)
+              .map((x) => x.toString())
+              .toList();
         }
       }
       return result.isNotEmpty ? result : null;
@@ -211,31 +229,32 @@ class StoreConfigData {
     final result = StoreConfigData(
       dualWriteEnabled:
           parseBool(features?['dualWriteEnabled']) ?? kDefaultDualWriteEnabled,
-      enqueueSchedulerEnabled: parseBool(features?['enqueueSchedulerEnabled']) ??
+      enqueueSchedulerEnabled:
+          parseBool(features?['enqueueSchedulerEnabled']) ??
           kDefaultEnqueueSchedulerEnabled,
       templateBusinessDateCheck:
           parseBool(features?['templateBusinessDateCheck']) ??
-              kDefaultTemplateBusinessDateCheck,
+          kDefaultTemplateBusinessDateCheck,
       settlementAggregatorEnabled:
           parseBool(features?['settlementAggregatorEnabled']) ??
-              kDefaultSettlementAggregatorEnabled,
+          kDefaultSettlementAggregatorEnabled,
       tableDeviceRegistrationEnabled:
           parseBool(features?['tableDeviceRegistrationEnabled']) ??
-              kDefaultTableDeviceRegistrationEnabled,
+          kDefaultTableDeviceRegistrationEnabled,
       createAttendanceByManual:
           parseBool(features?['createAttendanceByManual']) ??
-              kDefaultCreateAttendanceByManual,
+          kDefaultCreateAttendanceByManual,
       attendanceTimeAdjustmentEnabled:
           parseBool(attendanceTimeAdjustment?['enabled']) ??
-              kDefaultAttendanceTimeAdjustmentEnabled,
+          kDefaultAttendanceTimeAdjustmentEnabled,
       attendanceTimeAdjustmentMaxFutureMinutes:
           attendanceTimeAdjustment?['maxFutureMinutes'] == null
-              ? null
-              : parseInt(attendanceTimeAdjustment?['maxFutureMinutes']),
+          ? null
+          : parseInt(attendanceTimeAdjustment?['maxFutureMinutes']),
       attendanceTimeAdjustmentMaxPastMinutes:
           attendanceTimeAdjustment?['maxPastMinutes'] == null
-              ? null
-              : parseInt(attendanceTimeAdjustment?['maxPastMinutes']),
+          ? null
+          : parseInt(attendanceTimeAdjustment?['maxPastMinutes']),
       autoOpenCloseEnabled: () {
         final v = parseBool(autoOpenClose?['enabled']);
         final r = v ?? kDefaultAutoOpenCloseEnabled;
@@ -244,57 +263,79 @@ class StoreConfigData {
       }(),
       taskCloseOffsetMinutes:
           parseInt(autoOpenClose?['taskCloseOffsetMinutes']) ??
-              kDefaultTaskCloseOffsetMinutes,
+          kDefaultTaskCloseOffsetMinutes,
       taskOpenOffsetMinutes:
           parseInt(autoOpenClose?['taskOpenOffsetMinutes']) ??
-              kDefaultTaskOpenOffsetMinutes,
+          kDefaultTaskOpenOffsetMinutes,
+      alreadyRunningDifferentDateRecheckMinutes: () {
+        final v = parseInt(
+          autoOpenClose?['alreadyRunningDifferentDateRecheckMinutes'],
+        );
+        final ok = v != null && v >= 1 && v <= 180;
+        track('autoOpenClose.alreadyRunningDifferentDateRecheckMinutes', ok);
+        return ok ? v : kDefaultAlreadyRunningDifferentDateRecheckMinutes;
+      }(),
       calcBufferMinutes:
-          parseInt(businessDay?['calcBufferMinutes']) ?? kDefaultCalcBufferMinutes,
+          parseInt(businessDay?['calcBufferMinutes']) ??
+          kDefaultCalcBufferMinutes,
       entranceFee: parseInt(billing?['entranceFee']) ?? kDefaultEntranceFee,
-      entranceFeeDescription: parseString(billing?['entranceFeeDescription']) ??
+      entranceFeeDescription:
+          parseString(billing?['entranceFeeDescription']) ??
           kDefaultEntranceFeeDescription,
       chargeEntranceFeeOnReentry:
           parseBool(billing?['chargeEntranceFeeOnReentry']) ??
-              kDefaultChargeEntranceFeeOnReentry,
+          kDefaultChargeEntranceFeeOnReentry,
       sideGameChipRate:
           parseDouble(billing?['sideGameChipRate']) ?? kDefaultSideGameChipRate,
       categoryPaymentMethods:
-          parseCategoryPaymentMethods(billing?['paymentPolicy']?['categoryPaymentMethods']) ??
-              kDefaultCategoryPaymentMethods,
+          parseCategoryPaymentMethods(
+            billing?['paymentPolicy']?['categoryPaymentMethods'],
+          ) ??
+          kDefaultCategoryPaymentMethods,
       pointPriority:
           (paymentPolicy?['pointPriority'] as List<dynamic>?)
-                  ?.map((e) => e.toString())
-                  .toList() ??
-              kDefaultPointPriority,
+              ?.map((e) => e.toString())
+              .toList() ??
+          kDefaultPointPriority,
       pointABRoundingUnit:
           parseInt(roundingUnits?['pointAB']) ?? kDefaultPointABRoundingUnit,
       sideGameChipRoundingUnit:
           parseInt(roundingUnits?['sideGameChip']) ??
-              kDefaultSideGameChipRoundingUnit,
-      businessHoursStyles: _parseBusinessHoursStyles(data['businessHoursStyles']),
-      linePlan: (parseString(data['linePlan']) != null &&
+          kDefaultSideGameChipRoundingUnit,
+      businessHoursStyles: _parseBusinessHoursStyles(
+        data['businessHoursStyles'],
+      ),
+      linePlan:
+          (parseString(data['linePlan']) != null &&
               ['communication', 'light', 'standard'].contains(data['linePlan']))
           ? data['linePlan'] as String
           : kDefaultLinePlan,
       shiftSubmissionStartDay:
-          parseInt(shift?['submissionStartDay']) ?? kDefaultShiftSubmissionStartDay,
+          parseInt(shift?['submissionStartDay']) ??
+          kDefaultShiftSubmissionStartDay,
       shiftSubmissionEndDay:
           parseInt(shift?['submissionEndDay']) ?? kDefaultShiftSubmissionEndDay,
       shiftSchedulingStartDay:
-          parseInt(shift?['schedulingStartDay']) ?? kDefaultShiftSchedulingStartDay,
-      payrollStartDay: parseInt(payroll?['startDay']) ?? kDefaultPayrollStartDay,
+          parseInt(shift?['schedulingStartDay']) ??
+          kDefaultShiftSchedulingStartDay,
+      payrollStartDay:
+          parseInt(payroll?['startDay']) ?? kDefaultPayrollStartDay,
       payrollEndDay: parseInt(payroll?['endDay']) ?? kDefaultPayrollEndDay,
       menuCategories: () {
         final raw = data['menuCategories'] as List<dynamic>?;
         final ok = raw != null && (raw as List).isNotEmpty;
         track('menuCategories', ok);
-        return ok ? (raw as List).map((e) => e.toString()).toList() : kDefaultMenuCategories;
+        return ok
+            ? (raw as List).map((e) => e.toString()).toList()
+            : kDefaultMenuCategories;
       }(),
       sideGameTypes: () {
         final raw = data['sideGameTypes'] as List<dynamic>?;
         final ok = raw != null && (raw as List).isNotEmpty;
         track('sideGameTypes', ok);
-        return ok ? (raw as List).map((e) => e.toString()).toList() : kDefaultSideGameTypes;
+        return ok
+            ? (raw as List).map((e) => e.toString()).toList()
+            : kDefaultSideGameTypes;
       }(),
       tournamentDefaultPrizeRatio: () {
         final ok = prRatio != null && prRatio >= 0.0 && prRatio <= 1.0;
@@ -307,7 +348,8 @@ class StoreConfigData {
         return ok ? prPct! : kDefaultTournamentPrizeReceiverPercentage;
       }(),
       tournamentPrizeRoundingMethod: () {
-        final ok = prMethod != null && ['floor', 'ceil', 'round'].contains(prMethod);
+        final ok =
+            prMethod != null && ['floor', 'ceil', 'round'].contains(prMethod);
         track('tournament.prizeRoundingMethod', ok);
         return ok ? prMethod! : kDefaultTournamentPrizeRoundingMethod;
       }(),
@@ -369,51 +411,55 @@ class StoreConfigService {
         .doc('config')
         .snapshots()
         .listen(
-      (snapshot) {
-        if (!snapshot.exists) {
-          _logConfigFallback(
-            configKey: '*',
-            reason: 'document_missing',
-            fallbackValue: 'defaults',
-          );
-          debugPrint('[config_load_summary] fromConfig=[] | fromDefaults=[*]');
-          final data = StoreConfigData.fromDefaults();
-          _latestData = data;
-          _streamController.add(data);
-          return;
-        }
-        final raw = snapshot.data();
-        final data = StoreConfigData.fromMap(
-          raw,
-          onParseComplete: (fromConfig, fromDefaults) {
-            debugPrint(
-              '[config_load_summary] fromConfig=$fromConfig | fromDefaults=$fromDefaults',
+          (snapshot) {
+            if (!snapshot.exists) {
+              _logConfigFallback(
+                configKey: '*',
+                reason: 'document_missing',
+                fallbackValue: 'defaults',
+              );
+              debugPrint(
+                '[config_load_summary] fromConfig=[] | fromDefaults=[*]',
+              );
+              final data = StoreConfigData.fromDefaults();
+              _latestData = data;
+              _streamController.add(data);
+              return;
+            }
+            final raw = snapshot.data();
+            final data = StoreConfigData.fromMap(
+              raw,
+              onParseComplete: (fromConfig, fromDefaults) {
+                debugPrint(
+                  '[config_load_summary] fromConfig=$fromConfig | fromDefaults=$fromDefaults',
+                );
+              },
             );
+            _latestData = data;
+            _streamController.add(data);
+            debugPrint('[storeMeta/config] 取得完了（初回/更新）');
+          },
+          onError: (error) {
+            _logConfigReadError(error.toString());
+            // 最後の成功値を維持。デフォルトには切り替えない。
+            if (_latestData != null) {
+              _streamController.add(_latestData!);
+            } else {
+              // 初回でキャッシュなしの場合はデフォルトを返す（運用上ほぼ起きない）
+              _logConfigFallback(
+                configKey: '*',
+                reason: 'read_error_no_cache',
+                fallbackValue: 'defaults',
+              );
+              debugPrint(
+                '[config_load_summary] fromConfig=[] | fromDefaults=[*]',
+              );
+              final data = StoreConfigData.fromDefaults();
+              _latestData = data;
+              _streamController.add(data);
+            }
           },
         );
-        _latestData = data;
-        _streamController.add(data);
-        debugPrint('[storeMeta/config] 取得完了（初回/更新）');
-      },
-      onError: (error) {
-        _logConfigReadError(error.toString());
-        // 最後の成功値を維持。デフォルトには切り替えない。
-        if (_latestData != null) {
-          _streamController.add(_latestData!);
-        } else {
-          // 初回でキャッシュなしの場合はデフォルトを返す（運用上ほぼ起きない）
-          _logConfigFallback(
-            configKey: '*',
-            reason: 'read_error_no_cache',
-            fallbackValue: 'defaults',
-          );
-          debugPrint('[config_load_summary] fromConfig=[] | fromDefaults=[*]');
-          final data = StoreConfigData.fromDefaults();
-          _latestData = data;
-          _streamController.add(data);
-        }
-      },
-    );
   }
 
   /// 現在の storeMeta/config の最新値
