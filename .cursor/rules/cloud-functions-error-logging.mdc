@@ -1,0 +1,39 @@
+---
+description: Cloud Functions の logOpsError（運用エラーログ）実装ルール
+globs: functions/**/*.ts
+alwaysApply: false
+---
+
+# Cloud Functions — 運用エラーログ（logOpsError）
+
+詳細仕様は `docs/共通化/flutter/05_changeSpec/changeSpec_エラーログ拡張.md` および `docs/共通化/flutter/04_仕様書/エラーログ拡張/` を参照。**実装の正**は `functions/src/shared/logging/logOpsError.ts` と `serviceByFunctionEntry.ts`。
+
+## 新規 Callable / トリガを追加するとき
+
+1. **運用で追いたい失敗**（想定外・外部依存・業務境界の失敗）では `logOpsError` を使う。**1 失敗 = 1 回**（`logger.error` は `logOpsError` 経由に統一）。
+2. **`functionEntry`** は export 名と一致させる（例: `temporaryUnlockAlreadyRunningDifferentDateTerminal`）。
+3. **`service`**: `functions/src/shared/logging/serviceByFunctionEntry.ts` に **`functionEntry` → service** を追加する。対応表ドキュメント（`functionEntry_service_対応表.md`）を更新する場合は **同じ変更単位でマップも更新**（推測で service を決めない）。
+4. **`failureType`**: 新規コードでは **渡さない・参照しない**（互換のため型に残る場合のみ）。
+
+## errorSource の考え方（省略可・未指定時は logOpsError 内で決定）
+
+- **`function_custom`**: 業務キー付きの `FunctionCustomError`。**対象業務群は changeSpec どおり**（会計・店舗開閉・トーナメント等。認証だけの invalid-argument 等を全面 custom 化しない）。
+- **`external_api`**: 外部 SDK / HTTP。`cause` から `extractExternalFromCause` が材料を取れる。shape だけでは product が決まらないときは **`sourceProductHint`**（例: Cloud Tasks は `'cloud_tasks'`）を渡す。
+- **`function_common`**: 上記以外の通常失敗。
+
+## FunctionCustomError（function_custom 用）
+
+- ドメインで `throw new FunctionCustomError({ errorKey, message, context?, cause? })`。
+- **Callable 境界**では `catch` で `instanceof FunctionCustomError` → **`logOpsError`**（`cause` に渡す）→ **`HttpsError`**（`mapFunctionCustomErrorToHttpsCode` 等でコード決定）。分類ロジックを各所に複製しない。
+
+## Cloud Tasks `createTask` 失敗時（よくあるパターン）
+
+- `operation`: `'cloudTasksCreateTask'`。
+- `sourceProductHint`: `'cloud_tasks'`。
+- gRPC **`code === 6`（ALREADY_EXISTS）** は **成功扱い**（内側で握りつぶすか、外側 catch でも無視）。
+- 参照実装: `continueBusinessTerminal.ts` / `temporaryUnlockAlreadyRunningDifferentDateTerminal.ts`。
+
+## 禁止・ビルド
+
+- 運用向けの失敗を **`console.error` のみ**で済ませない（`logOpsError` に寄せる）。
+- 編集は **`functions/src/**/*.ts` のみ**。`functions/lib/**` は `npm run build` の生成物なので手で直さない。

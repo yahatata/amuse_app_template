@@ -10,6 +10,7 @@ import {
 } from '../../../shared/config/cloudTasksConfig';
 import { getRequiredProjectId } from '../../../shared/runtime/projectId';
 import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES } from '../../../shared/config/defaults';
 
@@ -221,10 +222,26 @@ export const temporaryUnlockAlreadyRunningDifferentDateTerminal = onCall(
         scheduleTimeEpochSeconds,
       });
     } catch (error: unknown) {
-      throw new HttpsError(
-        'internal',
-        `緊急一時解除後の再評価予約に失敗しました。${error instanceof Error ? error.message : String(error)}`
-      );
+      const err = error as { code?: number };
+      if (err?.code === 6) {
+        // ALREADY_EXISTS: 同一タスクが既に存在する場合は成功扱い
+      } else {
+        logOpsError({
+          message: 'temporaryUnlockAlreadyRunningDifferentDateTerminal: createTask failed',
+          functionEntry: 'temporaryUnlockAlreadyRunningDifferentDateTerminal',
+          operation: 'cloudTasksCreateTask',
+          cause: error,
+          sourceProductHint: 'cloud_tasks',
+          context: {
+            intendedBusinessDateKey,
+            scheduledAt: scheduledAtIso,
+          },
+        });
+        throw new HttpsError(
+          'internal',
+          `緊急一時解除後の再評価予約に失敗しました。${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     }
 
     return {
