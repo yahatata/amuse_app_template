@@ -266,7 +266,6 @@ export const closeAssessmentTask = onRequest(
     } catch (error: any) {
       logOpsError({
       message: '閉店認定処理でエラーが発生しました:',
-      failureType: 'business',
       functionEntry: 'closeAssessmentTask',
       cause: error,
     });

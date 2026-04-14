@@ -316,8 +316,8 @@ export const registerParticipants = onCall(async (request) => {
         } catch (error) {
           logOpsError({
       message: `Failed to record tournament action for user ${result.userId}:`,
-      failureType: 'business',
       functionEntry: 'registerParticipants',
+      operation: 'recordActionPerUserBestEffort',
       cause: error,
     });
           // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
@@ -336,8 +336,8 @@ export const registerParticipants = onCall(async (request) => {
       } catch (error) {
         logOpsError({
       message: `ユーザー ${userId} の登録失敗:`,
-      failureType: 'business',
       functionEntry: 'registerParticipants',
+      operation: 'registerUserFailed',
       cause: error,
     });
         results.push({ 
@@ -386,8 +386,8 @@ export const registerParticipants = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== 参加者登録エラー ===',
-      failureType: 'business',
       functionEntry: 'registerParticipants',
+      operation: 'registerParticipantsMainCatch',
       cause: error,
     });
 
@@ -407,8 +407,8 @@ export const registerParticipants = onCall(async (request) => {
     } catch (logErr) {
       logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'registerParticipants',
+      operation: 'registerParticipantsOperationLogWrite',
       cause: logErr,
     });
     }

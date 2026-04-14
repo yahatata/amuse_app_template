@@ -109,7 +109,6 @@ export const updateClockOutRecord = onCall(async (request: CallableRequest) => {
   } catch (error) {
     logOpsError({
       message: 'Error in updateClockOutRecord:',
-      failureType: 'internal',
       functionEntry: 'updateClockOutRecord',
       cause: error,
     });

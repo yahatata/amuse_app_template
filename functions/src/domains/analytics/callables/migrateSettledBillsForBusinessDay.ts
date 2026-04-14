@@ -102,7 +102,6 @@ export async function runMigrateSettledBillsForBusinessDay(
     } catch (error) {
       logOpsError({
         message: `処理失敗: ${billId}`,
-        failureType: "business",
         functionEntry: "migrateSettledBillsForBusinessDay",
         operation: "runMigratePerBill",
         cause: error,
@@ -141,7 +140,6 @@ export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '移管処理エラー:',
-      failureType: 'business',
       functionEntry: 'migrateSettledBillsForBusinessDay',
       operation: 'callable',
       cause: error,

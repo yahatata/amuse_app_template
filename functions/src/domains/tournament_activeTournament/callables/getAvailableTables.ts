@@ -48,7 +48,6 @@ export const getAvailableTables = onCall({
   } catch (error) {
     logOpsError({
       message: 'getAvailableTables エラー:',
-      failureType: 'business',
       functionEntry: 'getAvailableTables',
       cause: error,
     });

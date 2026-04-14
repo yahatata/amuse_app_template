@@ -141,10 +141,10 @@ export const generateQRCode = onCall(
       } catch (transactionError: unknown) {
         logOpsError({
         message: 'QRコード生成トランザクションエラー',
-        failureType: 'datastore',
         functionEntry: 'generateQRCode',
         operation: 'transaction',
         cause: transactionError,
+        errorKey: 'USER_VISIT_QR_GENERATE_TRANSACTION_FAILED',
       });
         
         const errorMessage = transactionError instanceof Error ? transactionError.message : String(transactionError);
@@ -160,9 +160,10 @@ export const generateQRCode = onCall(
     } catch (error) {
       logOpsError({
       message: 'QRコード生成エラー:',
-      failureType: 'business',
       functionEntry: 'generateQRCode',
+      operation: 'generateQRCodeOuterCatch',
       cause: error,
+      errorKey: 'USER_VISIT_QR_GENERATE_FAILED',
     });
 
       // エラーメッセージを詳細化

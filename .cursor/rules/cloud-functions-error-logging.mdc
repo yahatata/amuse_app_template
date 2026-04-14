@@ -1,39 +1,194 @@
 ---
-description: Cloud Functions の logOpsError（運用エラーログ）実装ルール
-globs: functions/**/*.ts
+description: Cloud Functions の運用エラーログ（logOpsError）実装ルール
+globs: functions/src/**/*.ts
 alwaysApply: false
 ---
 
-# Cloud Functions — 運用エラーログ（logOpsError）
+# Cloud Functions — 運用エラーログ（logOpsError）実装ルール
 
-詳細仕様は `docs/共通化/flutter/05_changeSpec/changeSpec_エラーログ拡張.md` および `docs/共通化/flutter/04_仕様書/エラーログ拡張/` を参照。**実装の正**は `functions/src/shared/logging/logOpsError.ts` と `serviceByFunctionEntry.ts`。
+このルールの目的は、`functions/src/**/*.ts` に新規実装または改修を行う際、**本番運用で観測したい失敗**を `logOpsError` で統一的に記録できるようにすることです。  
+詳細仕様は `docs/共通化/flutter/05_changeSpec/changeSpec_エラーログ拡張.md` および `docs/共通化/flutter/04_仕様書/エラーログ拡張/` を参照。**実装の正**は `functions/src/shared/logging/logOpsError.ts`・`functionCustomError.ts`・`externalFromCause.ts`・`serviceByFunctionEntry.ts`。
 
-## 新規 Callable / トリガを追加するとき
+---
 
-1. **運用で追いたい失敗**（想定外・外部依存・業務境界の失敗）では `logOpsError` を使う。**1 失敗 = 1 回**（`logger.error` は `logOpsError` 経由に統一）。
-2. **`functionEntry`** は export 名と一致させる（例: `temporaryUnlockAlreadyRunningDifferentDateTerminal`）。
-3. **`service`**: `functions/src/shared/logging/serviceByFunctionEntry.ts` に **`functionEntry` → service** を追加する。対応表ドキュメント（`functionEntry_service_対応表.md`）を更新する場合は **同じ変更単位でマップも更新**（推測で service を決めない）。
-4. **`failureType`**: 新規コードでは **渡さない・参照しない**（互換のため型に残る場合のみ）。
+## 0. 適用対象
 
-## errorSource の考え方（省略可・未指定時は logOpsError 内で決定）
+対象は `functions/src/**/*.ts` のうち、次の**実行境界**またはそれに準ずる箇所です。
 
-- **`function_custom`**: 業務キー付きの `FunctionCustomError`。**対象業務群は changeSpec どおり**（会計・店舗開閉・トーナメント等。認証だけの invalid-argument 等を全面 custom 化しない）。
-- **`external_api`**: 外部 SDK / HTTP。`cause` から `extractExternalFromCause` が材料を取れる。shape だけでは product が決まらないときは **`sourceProductHint`**（例: Cloud Tasks は `'cloud_tasks'`）を渡す。
-- **`function_common`**: 上記以外の通常失敗。
+- Callable
+- HTTP / Webhook
+- Firestore / Storage / Auth などの Trigger
+- Scheduler（`onSchedule`）
+- Cloud Tasks ハンドラ
+- バッチ / ジョブのトップレベル
+- 上記から直接呼ばれる、運用上重要な主要処理
 
-## FunctionCustomError（function_custom 用）
+**原則**: 本番運用で失敗を観測したい箇所では `logOpsError` を検討する。  
+**原則**: 運用向けの失敗を `logger.error` / `console.error` のみで終わらせない（`logOpsError` に寄せる）。
 
-- ドメインで `throw new FunctionCustomError({ errorKey, message, context?, cause? })`。
-- **Callable 境界**では `catch` で `instanceof FunctionCustomError` → **`logOpsError`**（`cause` に渡す）→ **`HttpsError`**（`mapFunctionCustomErrorToHttpsCode` 等でコード決定）。分類ロジックを各所に複製しない。
+---
 
-## Cloud Tasks `createTask` 失敗時（よくあるパターン）
+## 1. 基本原則
 
-- `operation`: `'cloudTasksCreateTask'`。
-- `sourceProductHint`: `'cloud_tasks'`。
-- gRPC **`code === 6`（ALREADY_EXISTS）** は **成功扱い**（内側で握りつぶすか、外側 catch でも無視）。
-- 参照実装: `continueBusinessTerminal.ts` / `temporaryUnlockAlreadyRunningDifferentDateTerminal.ts`。
+### 1-1. 1 失敗 = 1 回の `logOpsError`
 
-## 禁止・ビルド
+- 同じ失敗を多重に計上しない。
+- **主処理失敗**と**二次ログ失敗**が別事象なら別ログにしてよい。
+- 外側 / 内側のどちらで十分かを考え、**同じ失敗を二重計上しない**（changeSpec の二重ログ禁止も参照）。
 
-- 運用向けの失敗を **`console.error` のみ**で済ませない（`logOpsError` に寄せる）。
-- 編集は **`functions/src/**/*.ts` のみ**。`functions/lib/**` は `npm run build` の生成物なので手で直さない。
+### 1-2. `functionEntry` は原則 export 名と一致
+
+原則として `functionEntry` は **export 名と一致**させる。
+
+ただし、既存運用上の例外がある場合は、`docs/共通化/flutter/04_仕様書/エラーログ拡張/functionEntry_service_対応表.md` および `functions/src/shared/logging/serviceByFunctionEntry.ts` の定義に従う。
+
+新規追加時は、特別な理由がない限り export 名と一致させる。
+
+### 1-3. `operation` は判定単位を分けたいときに付与
+
+次のいずれかなら `operation` を付与する。
+
+- 同一 `functionEntry` 内に複数の `logOpsError` がある
+- 同一 `functionEntry` 内で、失敗地点ごとに運用上の意味が異なる
+
+**原則**: 同一 `functionEntry` に `logOpsError` が 1 箇所しかなく、運用上も区別不要なら `operation` は省略可。  
+**原則**: 複数箇所あるなら `operation` を付ける。静的検証は `functions/scripts/verifyLogOpsOperation.cjs`。
+
+命名は「どの段階の失敗か」が読み取れる名前にする（例: `loadPayrollConfig`、`cloudTasksCreateTask`、`closeTerminalPreflight`、`dispatchLogWrite`、`detailErrorLog`）。動的に区別する場合は `runCloseStep.${stepName}` のようにしてよい。曖昧名（`step1`、`error` 等）は避ける。
+
+### 1-4. `service` の登録は必須
+
+`logOpsError` 呼び出し側で `service` を直接指定するのではなく、`functions/src/shared/logging/serviceByFunctionEntry.ts` に **`functionEntry` → `service`** を登録することが必須。
+
+- 新しい `functionEntry` を追加したら、対応する `service` を `serviceByFunctionEntry.ts` に追加する。
+- 対応表ドキュメント（`functionEntry_service_対応表.md`）を運用している場合は、**同じ変更単位**で更新する（推測で `service` を決めない）。
+- 未登録時は `unknown_service` 扱い（`resolveServiceForFunctionEntry`）になるため、**未登録のままにしない**。
+
+### 1-5. `failureType`
+
+**API から削除済み**。payload に載せず、呼び出し側でも指定しない。
+
+---
+
+## 2. `logOpsError` を入れるべき場所
+
+### 2-1. 必ず検討する場所
+
+- Callable / HTTP / Webhook のトップレベル `catch`（想定外）
+- Trigger / Scheduler / Cloud Tasks / バッチ本体のトップレベル `catch`
+- トランザクション本体失敗、外部 API / SDK 呼び出し失敗
+- 業務ルール違反（`FunctionCustomError`）
+- 整合性維持・補償・後続起動に関わる失敗
+
+### 2-2. 特に観測したい失敗の例
+
+主処理が成立しない、外部依存失敗、状態 / 金額不整合が残りうる、後続処理が起動しない、設定不備で継続障害になりうる、など。
+
+### 2-3. 必須としないことがあるもの
+
+完全ローカルな軽微処理、運用判断に不要な表示用変換の失敗、テスト専用・削除前提の未使用コード、**既に外側で十分な `logOpsError` があり追加すると重複するだけ**の内側、など。
+
+---
+
+## 3. `errorSource` の扱い
+
+原則 **省略可**。未指定時は `logOpsError` 内（`resolveErrorSource`）で決定する。
+
+### 3-1. `function_custom`
+
+業務キー付きの `FunctionCustomError`。業務ルール違反・状態不正・業務上の前提未成立など、**意味を持って区別したい失敗**に使う。
+
+対象の中心:
+
+- 会計
+- 店舗開閉
+- トーナメント
+- 来店処理（user）
+- そのほか、業務ルール違反を監視上区別したいもの
+
+例（プレフィックスのイメージ）: `ACCOUNTING_*`、`STORE_*`、`TOURNAMENT_*`、`USER_*`、`USER_AUTH_*`（正式な一覧は差分仕様・changeSpec）。
+
+**やりすぎ禁止**: 単純な `invalid-argument` を全面 custom 化しない。認証だけの一般的な入力不正をすべて custom にしない。
+
+### 3-2. `external_api`
+
+外部 SDK / HTTP / GCP クライアント由来の失敗。`cause` の shape から `extractExternalFromCause` が材料を取る。shape だけでは product が特定できないときは `sourceProductHint` を渡す。
+
+### 3-3. `function_common`
+
+上記以外の通常失敗。
+
+---
+
+## 4. `FunctionCustomError`
+
+- ドメイン側では `FunctionCustomError` を `throw`（詳細は `functions/src/shared/logging/functionCustomError.ts`）。
+- Callable / HTTP **境界**では `instanceof FunctionCustomError` → `logOpsError`（`cause` に渡す）→ `HttpsError` 等へ変換。分類ロジックを各所に複製しない（既存のマッピング関数を利用）。
+
+---
+
+## 5. `logOpsError` に渡す情報（要点）
+
+- `functionEntry`: 必須
+- `message`: 短く識別しやすい運用向け短文
+- `cause`: 元のエラー
+- `operation`: 必要時のみ
+- `context`: 運用判断に必要な**最小限**（店舗 ID、伝票 ID、営業日、ステップ名など）。秘密・生トークン・不要な個人情報・巨大オブジェクトは載せない（長文は `truncateForLog` 等）。
+
+---
+
+## 6. 主処理と補助処理（実装判断用）
+
+- **主処理**: その操作の主目的が成立しない失敗（会計、入退店、開閉店、参加登録、主トランザクション等）。
+- **補助処理**: 主成功後または失敗後の付随（操作ログ、実行ログ、監査ログ、ベストエフォート記録、二次ログ等）。補助でも整合性・補償・後続に関われば重要。
+
+---
+
+## 7. Cloud Tasks `createTask`（よくあるパターン）
+
+- `operation`: `'cloudTasksCreateTask'`
+- `sourceProductHint`: `'cloud_tasks'`
+- gRPC **`code === 6`（ALREADY_EXISTS）**は**成功扱い**（握りつぶすか、ログに載げない）。
+- 挙動の参照: `functions/src/domains/storeMeta/callables/continueBusinessTerminal.ts`、`temporaryUnlockAlreadyRunningDifferentDateTerminal.ts`、`closeStoreTerminal.ts` 等。
+
+---
+
+## 8. 外部 API / SDK 失敗
+
+- 原則 `cause` をそのまま渡し、`logOpsError` 側で `sdkCode` / `httpStatus` / `detailReason` 等を補完させる。
+- **やってはいけないこと**: 外部エラーを包み直して shape を潰す、コードや HTTP ステータスを捨てる、一律の曖昧メッセージだけにする。
+
+---
+
+## 9. 禁止・ビルド
+
+- 運用で追いたい失敗を **`console.error` のみ**で済ませない。
+- `functions/lib/**` を手で編集しない（`npm run build` の生成物）。
+- `functionEntry` を export 名（および対応表）と勝手にズラす。
+- 未登録のまま `functionEntry` を増やして `unknown_service` のままにする。
+- `failureType` を payload に入れる。
+
+---
+
+## 10. 実装時チェックリスト
+
+新規実装・改修の完了前に確認する。実装 AI がこのチェックリストを確認し結果を出力するときは次を守る。
+
+- **機械的な項目**は、コード・検索・差分など**根拠を示して**よい。
+- **文脈・判断が必要な項目**は、仕様や運用意図が読み取れない部分は**断定しない**。**曖昧・未確定・要人間レビュー**である旨を明示し、チェック済みと**言い切らない**。
+
+### 機械的に確認できる項目（検索・差分・スクリプトで判定しやすい）
+
+- [ ] **`failureType`** を payload に載せておらず、呼び出し引数にも含めていない。
+- [ ] **新規の `functionEntry`** を追加したなら、`serviceByFunctionEntry.ts` に **`functionEntry` → `service`** のエントリがある（未登録のまま `unknown_service` になっていない。意図的なら理由が明記されている）。
+- [ ] **同一 `functionEntry` に `logOpsError` が複数ある**なら、それぞれに **`operation`** が付いている（`functions/scripts/verifyLogOpsOperation.cjs` で確認可能）。
+- [ ] **`functionEntry`** の文字列が、**当該モジュールの `export` 名と一致**するか、または **`serviceByFunctionEntry.ts` のキー**として登録されている（既存の**例外キー**もここに含まれる。同一ファイル内の export 名との照合は diff / 検索で機械的に確認できる）。
+- [ ] **Cloud Tasks `createTask` を呼ぶ経路**では、gRPC **`code === 6`（ALREADY_EXISTS）** を成功扱いにしている。
+- [ ] 運用で追いたい失敗が **`logger.error` / `console.error` のみ**で終わっておらず、**`logOpsError` 経由**になっている。
+
+### 文脈・判断が必要な項目（仕様・運用意図に照らして確認）
+
+- [ ] **本番運用で観測したい失敗**に対し、Callable / Trigger / 外部依存 / 業務例外など、**適切な境界で `logOpsError` がある**（網羅度・過不足はレビューで判断）。
+- [ ] **`functionEntry` を export 名とずらす例外**を新たに作る場合は、`functionEntry_service_対応表.md` の更新方針に沿う（機械チェックだけでは十分と言い切れない運用判断）。
+- [ ] **`context`** は運用判断に必要な**最小限**であり、**秘密・トークン・不要な個人情報・巨大オブジェクト**を含まない。
+- [ ] **外部エラーの `cause`** を包み直して **shape を潰していない**（分類・`sdkCode` / `httpStatus` が取れる形を残している）。

@@ -134,7 +134,6 @@ export const addTableToTournament = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '=== 卓追加エラー ===',
-        failureType: 'business',
         functionEntry: 'addTableToTournament',
         operation: 'addTableToTournamentCatch',
         cause: error,
@@ -144,8 +143,8 @@ export const addTableToTournament = onCall(async (request) => {
 
     logOpsError({
       message: '=== 卓追加エラー ===',
-      failureType: 'business',
       functionEntry: 'addTableToTournament',
+      operation: 'addTableToTournamentGenericCatch',
       cause: error,
     });
 

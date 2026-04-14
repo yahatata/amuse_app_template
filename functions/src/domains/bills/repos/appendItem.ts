@@ -344,8 +344,8 @@ export async function appendItem(request: AppendItemRequest): Promise<AppendItem
   } catch (error) {
     logOpsError({
       message: 'appendItem: failed',
-      failureType: 'business',
       functionEntry: 'appendItem',
+      operation: 'appendItemCatch',
       cause: error,
       context: {
         op: 'appendItem',
@@ -609,7 +609,6 @@ export async function appendItemWithOrderProjection(
 
     logOpsError({
       message: 'appendItemWithOrderProjection: failed',
-      failureType: 'business',
       functionEntry: 'appendItem',
       operation: 'appendItemWithOrderProjection',
       cause: error,

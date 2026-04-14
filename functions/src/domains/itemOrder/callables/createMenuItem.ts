@@ -62,8 +62,8 @@ export const createMenuItem = onCall(async (request) => {
       } catch (error) {
         logOpsError({
       message: '画像アップロードエラー:',
-      failureType: 'business',
       functionEntry: 'createMenuItem',
+      operation: 'imageUpload',
       cause: error,
     });
         throw new HttpsError('internal', '画像のアップロードに失敗しました');
@@ -124,8 +124,8 @@ export const createMenuItem = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'メニュー作成エラー:',
-      failureType: 'business',
       functionEntry: 'createMenuItem',
+      operation: 'menuCreateCatch',
       cause: error,
     });
     

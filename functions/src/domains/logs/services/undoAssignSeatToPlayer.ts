@@ -94,7 +94,6 @@ export async function undoAssignSeatToPlayer(params: UndoAssignSeatToPlayerParam
   } catch (error) {
     logOpsError({
       message: 'Error undoing assign seat to player operation:',
-      failureType: 'business',
       functionEntry: 'undoAssignSeatToPlayer',
       cause: error,
     });

@@ -151,11 +151,11 @@ export const setRankingData = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== setRankingData エラー ===',
-      failureType: 'business',
       functionEntry: 'setRankingData',
+      operation: 'setRankingDataRankings',
       cause: error,
     });
-    
+
     if (error instanceof HttpsError) {
       throw error;
     }
@@ -309,8 +309,8 @@ async function _awardPrizes(
   } catch (error) {
     logOpsError({
       message: '=== プライズ付与処理エラー ===',
-      failureType: 'business',
       functionEntry: 'setRankingData',
+      operation: 'setRankingDataPrizeGrant',
       cause: error,
     });
     throw error;

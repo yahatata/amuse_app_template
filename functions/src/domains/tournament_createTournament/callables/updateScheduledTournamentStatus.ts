@@ -10,6 +10,7 @@ import {
   FunctionCustomError,
   mapFunctionCustomErrorToHttpsCode,
 } from "../../../shared/logging/functionCustomError";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const updateScheduledTournamentStatusSchema = z.object({
   tournamentId: z.string().min(1, "tournamentId is required"),
@@ -138,6 +139,12 @@ export const updateScheduledTournamentStatus = onCall(async (request) => {
       );
     }
     if (e instanceof FunctionCustomError) {
+      logOpsError({
+        message: "updateScheduledTournamentStatus: status transition validation failed",
+        functionEntry: "updateScheduledTournamentStatus",
+        operation: "validateStatusTransition",
+        cause: e,
+      });
       throw new HttpsError(mapFunctionCustomErrorToHttpsCode(e.errorKey), e.message);
     }
     throw e;

@@ -5,6 +5,7 @@ import {
   calculateIsSufficient,
   getRequiredStaffByTimeSlot,
 } from "../services/helpers";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
 
@@ -174,6 +175,16 @@ export const finalizeMonth = onCall(
           finalizedCount++;
           continue;
         }
+        logOpsError({
+          message: "finalizeMonth: finalizeDayInternal failed",
+          functionEntry: "finalizeMonth",
+          operation: "finalizeDayLoop",
+          cause: error,
+          context: {
+            yearMonth,
+            dateKey,
+          },
+        });
         // その他のエラーは再スロー
         throw error;
       }

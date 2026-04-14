@@ -30,8 +30,8 @@ export const enqueueTournamentTasks = onCall(async (request) => {
     if (!result.success) {
       logOpsError({
         message: '=== enqueue バッチエラー（手動 Callable） ===',
-        failureType: 'business',
         functionEntry: 'enqueueTournamentTasks',
+        operation: 'enqueueBatchPartialErrors',
         context: { errors: result.errors },
       });
     }
@@ -40,7 +40,6 @@ export const enqueueTournamentTasks = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: 'enqueueTournamentTasks エラー:',
-        failureType: 'business',
         functionEntry: 'enqueueTournamentTasks',
         operation: 'enqueueTournamentTasksCatch',
         cause: error,
@@ -49,8 +48,8 @@ export const enqueueTournamentTasks = onCall(async (request) => {
     }
     logOpsError({
       message: 'enqueueTournamentTasks エラー:',
-      failureType: 'business',
       functionEntry: 'enqueueTournamentTasks',
+      operation: 'enqueueTournamentTasksGenericCatch',
       cause: error,
     });
     throw new HttpsError(

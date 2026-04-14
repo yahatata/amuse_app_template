@@ -30,7 +30,6 @@ export const archiveTournamentTemplate = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'トーナメントテンプレートアーカイブエラー:',
-      failureType: 'business',
       functionEntry: 'archiveTournamentTemplate',
       cause: error,
     });

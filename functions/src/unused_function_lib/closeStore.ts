@@ -1,15 +1,19 @@
 /**
- * 手動閉店関数
+ * [UNUSED - UI 未配線] closeStore
  *
- * 管理者が手動で店舗を閉店するためのCloud Function
+ * 手動閉店 Callable。`lib/Home/terminalHomePage.dart` の `_callCloseStore` は定義のみで未使用。
+ * 実運用の閉店は `closeStoreTerminal`。
+ *
+ * `unused_function_lib` に置くことで logOps 系スクリプト（Step2-1 269 件スコープ等）の走査対象外とする。
+ * デプロイは `domains/storeMeta/index` から再エクスポートして維持。
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
-import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
-import { getCallerDeviceByUid, hasStoreManagementPermission, isActive } from '../../../shared/devices';
+import { logOpsError } from '../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../shared/logging/functionCustomError';
+import { getCallerDeviceByUid, hasStoreManagementPermission, isActive } from '../shared/devices';
 
 const db = getFirestore();
 
@@ -75,7 +79,6 @@ export const closeStore = onCall(
       if (error instanceof FunctionCustomError) {
         logOpsError({
           message: 'closeStore failed',
-          failureType: 'business',
           functionEntry: 'closeStore',
           operation: 'closeStoreCatch',
           cause: error,
@@ -85,8 +88,8 @@ export const closeStore = onCall(
       }
       logOpsError({
         message: 'closeStore failed',
-        failureType: 'business',
         functionEntry: 'closeStore',
+        operation: 'closeStoreGenericCatch',
         cause: error,
         context: { uid: callerUid },
       });

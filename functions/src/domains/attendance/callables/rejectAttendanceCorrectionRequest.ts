@@ -49,7 +49,6 @@ export const rejectAttendanceCorrectionRequest = onCall(
     } catch (error) {
       logOpsError({
       message: '勤怠修正申請却下エラー:',
-      failureType: 'business',
       functionEntry: 'rejectAttendanceCorrectionRequest',
       cause: error,
     });

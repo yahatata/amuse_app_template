@@ -137,7 +137,6 @@ export const updateTournamentTemplate = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'トーナメントテンプレート更新エラー:',
-      failureType: 'business',
       functionEntry: 'updateTournamentTemplate',
       cause: error,
     });

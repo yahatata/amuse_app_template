@@ -20,8 +20,8 @@ export async function runEnqueueTournamentTasksBySchedulerTask(
   } catch (error) {
     logOpsError({
       message: "enqueueTournamentTasksByScheduler task execution failed",
-      failureType: "scheduled",
       functionEntry: "enqueueTournamentTasksByScheduler",
+      operation: "runEnqueueSchedulerTask",
       cause: error,
     });
     throw error;

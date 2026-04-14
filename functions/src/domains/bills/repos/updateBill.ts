@@ -178,7 +178,6 @@ export async function updateBill(request: UpdateBillRequest): Promise<UpdateBill
   } catch (error) {
     logOpsError({
       message: 'updateBill failed',
-      failureType: 'business',
       functionEntry: 'updateBill',
       cause: error,
       context: {

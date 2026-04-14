@@ -124,8 +124,8 @@ export const approveAttendanceCorrectionRequest = onCall(
       } catch (updateError) {
         logOpsError({
       message: '勤怠記録更新エラー:',
-      failureType: 'business',
       functionEntry: 'approveAttendanceCorrectionRequest',
+      operation: 'attendanceRecordUpdate',
       cause: updateError,
     });
         // 勤怠記録の更新に失敗しても承認処理は成功とする
@@ -140,8 +140,8 @@ export const approveAttendanceCorrectionRequest = onCall(
     } catch (error) {
       logOpsError({
       message: '勤怠修正申請承認エラー:',
-      failureType: 'business',
       functionEntry: 'approveAttendanceCorrectionRequest',
+      operation: 'approveRequestOuterCatch',
       cause: error,
     });
       return {

@@ -143,12 +143,6 @@ export function getBusinessSecrets(): Promise<BusinessSecrets> {
   return businessSecretsPromise;
 }
 
-export function warmupSecrets(): void {
-  void getLineConfig().catch((error) => {
-    console.error("warmupSecrets: failed to load line-config", error);
-  });
-}
-
 export function __resetSecretCacheForTests(): void {
   lineConfigPromise = null;
   taskEndpointsPromise = null;

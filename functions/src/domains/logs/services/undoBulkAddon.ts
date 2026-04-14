@@ -111,7 +111,6 @@ export async function undoBulkAddon(params: UndoBulkAddonParams): Promise<void> 
   } catch (error) {
     logOpsError({
       message: 'Error undoing bulk addon operation:',
-      failureType: 'business',
       functionEntry: 'undoBulkAddon',
       cause: error,
     });

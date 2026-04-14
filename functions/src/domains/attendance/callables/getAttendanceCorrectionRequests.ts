@@ -78,7 +78,6 @@ export const getAttendanceCorrectionRequests = onCall(
     } catch (error) {
       logOpsError({
       message: '勤怠修正申請取得エラー:',
-      failureType: 'business',
       functionEntry: 'getAttendanceCorrectionRequests',
       cause: error,
     });

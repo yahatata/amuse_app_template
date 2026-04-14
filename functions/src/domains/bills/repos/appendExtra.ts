@@ -259,7 +259,6 @@ export async function appendExtra(request: AppendExtraRequest): Promise<AppendEx
   } catch (error) {
     logOpsError({
       message: 'appendExtra: failed',
-      failureType: 'business',
       functionEntry: 'appendExtra',
       cause: error,
       context: {

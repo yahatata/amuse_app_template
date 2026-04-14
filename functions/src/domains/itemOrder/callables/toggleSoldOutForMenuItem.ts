@@ -73,7 +73,6 @@ export const toggleSoldOutForMenuItem = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '売り切れ状態切り替えエラー:',
-      failureType: 'business',
       functionEntry: 'toggleSoldOutForMenuItem',
       cause: error,
     });

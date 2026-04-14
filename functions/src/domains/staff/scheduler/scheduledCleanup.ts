@@ -45,7 +45,6 @@ export async function runScheduledCleanupTask(
   } catch (error) {
     logOpsError({
       message: "scheduledCleanup task execution failed",
-      failureType: "scheduled",
       functionEntry: "scheduledCleanup",
       cause: error,
     });

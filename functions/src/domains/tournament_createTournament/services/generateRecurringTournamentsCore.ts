@@ -94,9 +94,14 @@ export async function runGenerateRecurringTournaments(
       if (isProductionRuntime()) {
         try {
           validateStoreTenantForProduction(recurrenceData.storeId, recurrenceData.tenantId);
-        } catch {
-          logger.warn("generateRecurringTournaments: skipping recurrence with missing/invalid storeId/tenantId", {
-            recurrenceId,
+        } catch (validationError) {
+          logOpsError({
+            message: "generateRecurringTournaments: skipping recurrence with missing/invalid storeId/tenantId",
+            functionEntry: "runGenerateRecurringTournaments",
+            operation: "validateRecurringStoreTenant",
+            cause: validationError,
+            errorKey: "TOURNAMENT_RECURRING_INVALID_STORE_TENANT",
+            context: { recurrenceId },
           });
           continue;
         }
@@ -128,12 +133,32 @@ export async function runGenerateRecurringTournaments(
       } else if (typeof intervalRaw === "string") {
         const n = parseInt(intervalRaw.replace("weeks", "").replace("week", ""), 10);
         if (Number.isNaN(n)) {
-          console.warn(`不正な interval をスキップ: recurrenceId=${recurrenceId}, interval=${intervalRaw}`);
+          logOpsError({
+            message: "generateRecurringTournaments: invalid interval on recurrence",
+            functionEntry: "runGenerateRecurringTournaments",
+            operation: "parseRecurrenceInterval",
+            cause: new Error(`invalid interval: ${String(intervalRaw)}`),
+            errorKey: "TOURNAMENT_RECURRING_INVALID_INTERVAL",
+            context: {
+              recurrenceId,
+              intervalRaw: String(intervalRaw),
+            },
+          });
           continue;
         }
         intervalWeeks = n;
       } else {
-        console.warn(`不正な interval をスキップ: recurrenceId=${recurrenceId}, interval=${intervalRaw}`);
+        logOpsError({
+          message: "generateRecurringTournaments: invalid interval type on recurrence",
+          functionEntry: "runGenerateRecurringTournaments",
+          operation: "parseRecurrenceIntervalWrongType",
+            cause: new Error(`invalid interval type: ${typeof intervalRaw}`),
+            errorKey: "TOURNAMENT_RECURRING_INVALID_INTERVAL",
+          context: {
+            recurrenceId,
+            intervalRawType: typeof intervalRaw,
+          },
+        });
         continue;
       }
 
@@ -267,7 +292,6 @@ export async function runGenerateRecurringTournaments(
       } catch (enqueueError) {
         logOpsError({
           message: "enqueue 呼び出しエラー（定期生成後）",
-          failureType: "business",
           functionEntry: "runGenerateRecurringTournaments",
           operation: "enqueueAfterGenerate",
           cause: enqueueError,
@@ -288,8 +312,8 @@ export async function runGenerateRecurringTournaments(
   } catch (error) {
     logOpsError({
       message: '定期開催トーナメント自動生成エラー:',
-      failureType: 'business',
       functionEntry: 'runGenerateRecurringTournaments',
+      operation: 'runGenerateRecurringTournamentsOuterCatch',
       cause: error,
     });
     return {
@@ -576,7 +600,6 @@ async function createScheduledTournamentFromRecurrence(
   } catch (error) {
     logOpsError({
       message: '定期開催トーナメント作成エラー:',
-      failureType: 'business',
       functionEntry: 'createScheduledTournamentFromRecurrence',
       cause: error,
     });

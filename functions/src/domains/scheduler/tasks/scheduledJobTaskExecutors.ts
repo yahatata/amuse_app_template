@@ -1,5 +1,5 @@
-import { logger } from "firebase-functions";
 import type { SchedulerJobKey } from "../../../shared/config/schedulerConfigTypes";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import {
   assertScheduledJobTaskPayloadMatchesExpectedJobKey,
   assertValidScheduledJobTaskPayload,
@@ -304,10 +304,19 @@ export async function executeScheduledJobTask(
       await releaseEnqueueTournamentTasksReplanProcessingBestEffort();
     }
 
-    logger.error("executeScheduledJobTask failed", {
-      jobKey: payload.jobKey,
-      idempotencyKey: payload.idempotencyKey,
-      reason,
+    logOpsError({
+      message: "executeScheduledJobTask failed",
+      functionEntry: "executeScheduledJobTask",
+      operation: "runScheduledJob",
+      cause: error,
+      context: {
+        jobKey: payload.jobKey,
+        idempotencyKey: payload.idempotencyKey,
+        reason,
+        supervisorRunId: payload.supervisorRunId,
+        planningDate: payload.planningDate,
+        plannedRunAt: payload.plannedRunAt,
+      },
     });
     throw error;
   }

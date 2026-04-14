@@ -229,8 +229,8 @@ export const bulkAddon = onCall(async (request) => {
       } catch (error) {
         logOpsError({
       message: `Failed to record tournament action for user ${user.userId}:`,
-      failureType: 'business',
       functionEntry: 'bulkAddon',
+      operation: 'recordActionPerUserBestEffort',
       cause: error,
     });
         // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
@@ -281,8 +281,8 @@ export const bulkAddon = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== まとめてAddon処理エラー ===',
-      failureType: 'business',
       functionEntry: 'bulkAddon',
+      operation: 'bulkAddonMainCatch',
       cause: error,
     });
 
@@ -305,8 +305,8 @@ export const bulkAddon = onCall(async (request) => {
       } catch (logErr) {
         logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'bulkAddon',
+      operation: 'bulkAddonOperationLogWrite',
       cause: logErr,
     });
       }

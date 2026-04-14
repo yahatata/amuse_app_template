@@ -96,7 +96,6 @@ export const leaveSeat = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'leaveSeatエラー:',
-      failureType: 'business',
       functionEntry: 'leaveSeat',
       cause: error,
     });

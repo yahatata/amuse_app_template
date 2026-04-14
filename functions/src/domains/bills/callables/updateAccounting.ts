@@ -125,7 +125,6 @@ export const updateAccounting = onCall(async (request) => {
     }
     logOpsError({
       message: 'updateAccounting failed',
-      failureType: 'business',
       functionEntry: 'updateAccounting',
       cause: error,
       context: {

@@ -43,7 +43,6 @@ export const ensureStaffRichMenu = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'ensureStaffRichMenu error:',
-      failureType: 'webhook',
       functionEntry: 'ensureStaffRichMenu',
       cause: error,
     });

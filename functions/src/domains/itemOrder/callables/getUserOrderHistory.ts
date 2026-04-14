@@ -107,7 +107,6 @@ export const getUserOrderHistory = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'getUserOrderHistory エラー:',
-      failureType: 'business',
       functionEntry: 'getUserOrderHistory',
       cause: error,
     });

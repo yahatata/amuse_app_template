@@ -126,7 +126,6 @@ export const resumeTournament = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: 'resumeTournament error:',
-        failureType: 'business',
         functionEntry: 'resumeTournament',
         operation: 'resumeTournamentCatch',
         cause: error,
@@ -136,8 +135,8 @@ export const resumeTournament = onCall(async (request) => {
 
     logOpsError({
       message: 'resumeTournament error:',
-      failureType: 'business',
       functionEntry: 'resumeTournament',
+      operation: 'resumeTournamentGenericCatch',
       cause: error,
     });
 

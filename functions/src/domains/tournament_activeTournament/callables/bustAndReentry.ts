@@ -364,8 +364,8 @@ export const bustAndReentry = onCall(async (request) => {
     } catch (error) {
       logOpsError({
       message: 'Failed to record tournament action via recordTournamentAction helper:',
-      failureType: 'business',
       functionEntry: 'bustAndReentry',
+      operation: 'recordTournamentActionBestEffort',
       cause: error,
     });
       // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
@@ -404,8 +404,8 @@ export const bustAndReentry = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== Bust＆リエントリーエラー ===',
-      failureType: 'business',
       functionEntry: 'bustAndReentry',
+      operation: 'bustAndReentryMainCatch',
       cause: error,
     });
 
@@ -425,8 +425,8 @@ export const bustAndReentry = onCall(async (request) => {
       } catch (logErr) {
         logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'bustAndReentry',
+      operation: 'bustAndReentryOperationLogWrite',
       cause: logErr,
     });
       }

@@ -85,7 +85,6 @@ export const getStaffAttendance = onCall(
     } catch (error) {
       logOpsError({
       message: '勤怠記録取得エラー:',
-      failureType: 'business',
       functionEntry: 'getStaffAttendance',
       cause: error,
     });

@@ -218,6 +218,18 @@ export const openStoreTerminal = onCall(
             : stepError instanceof FunctionCustomError
               ? mapFunctionCustomErrorToHttpsCode(stepError.errorKey)
               : 'internal';
+        logOpsError({
+          message: 'openStoreTerminal: open step failed',
+          functionEntry: 'openStoreTerminal',
+          operation: `runOpenStep.${stepName}`,
+          cause: stepError,
+          errorKey: 'STORE_OPEN_STEP_FAILED',
+          context: {
+            runId,
+            businessDateKey,
+            stepName,
+          },
+        });
 
         await attemptRef.update({
           result: 'failed',

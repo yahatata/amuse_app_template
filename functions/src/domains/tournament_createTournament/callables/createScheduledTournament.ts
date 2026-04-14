@@ -371,7 +371,6 @@ export const createScheduledTournament = onCall(async (request) => {
     } catch (enqueueError) {
       logOpsError({
         message: 'enqueue 呼び出しエラー',
-        failureType: 'business',
         functionEntry: 'createScheduledTournament',
         operation: 'enqueueAfterCreate',
         cause: enqueueError,
@@ -404,7 +403,6 @@ export const createScheduledTournament = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: 'スケジュール済みトーナメント作成エラー:',
-        failureType: 'business',
         functionEntry: 'createScheduledTournament',
         operation: 'createScheduledTournamentCatch',
         cause: error,
@@ -414,8 +412,8 @@ export const createScheduledTournament = onCall(async (request) => {
 
     logOpsError({
       message: 'スケジュール済みトーナメント作成エラー:',
-      failureType: 'business',
       functionEntry: 'createScheduledTournament',
+      operation: 'createScheduledTournamentGenericCatch',
       cause: error,
     });
 

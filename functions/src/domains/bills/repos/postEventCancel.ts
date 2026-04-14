@@ -187,7 +187,6 @@ export async function postEventCancel(request: PostEventCancelRequest): Promise<
   } catch (error) {
     logOpsError({
       message: 'postEventCancel failed',
-      failureType: 'business',
       functionEntry: 'postEventCancel',
       cause: error,
       context: {

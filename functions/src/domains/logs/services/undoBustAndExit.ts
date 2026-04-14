@@ -89,7 +89,6 @@ export async function undoBustAndExit(params: UndoBustAndExitParams): Promise<vo
   } catch (error) {
     logOpsError({
       message: 'Error undoing bust and exit operation:',
-      failureType: 'business',
       functionEntry: 'undoBustAndExit',
       cause: error,
     });

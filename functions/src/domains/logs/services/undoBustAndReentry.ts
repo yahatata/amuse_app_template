@@ -102,7 +102,6 @@ export async function undoBustAndReentry(params: UndoBustAndReentryParams): Prom
   } catch (error) {
     logOpsError({
       message: 'Error undoing bust and reentry operation:',
-      failureType: 'business',
       functionEntry: 'undoBustAndReentry',
       cause: error,
     });

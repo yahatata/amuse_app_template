@@ -158,7 +158,6 @@ export const updateShiftRequest = onCall(
     } catch (error) {
       logOpsError({
       message: 'シフト申請修正エラー:',
-      failureType: 'business',
       functionEntry: 'updateShiftRequest',
       cause: error,
     });

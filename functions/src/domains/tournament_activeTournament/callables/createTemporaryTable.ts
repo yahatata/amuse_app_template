@@ -120,7 +120,6 @@ export const createTemporaryTable = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '=== 一時テーブル作成エラー ===',
-        failureType: 'business',
         functionEntry: 'createTemporaryTable',
         operation: 'createTemporaryTableCatch',
         cause: error,
@@ -130,8 +129,8 @@ export const createTemporaryTable = onCall(async (request) => {
 
     logOpsError({
       message: '=== 一時テーブル作成エラー ===',
-      failureType: 'business',
       functionEntry: 'createTemporaryTable',
+      operation: 'createTemporaryTableGenericCatch',
       cause: error,
     });
 

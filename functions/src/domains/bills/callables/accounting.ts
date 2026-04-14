@@ -359,7 +359,7 @@ export const startAccounting = onCall(async (request) => {
     logOpsError({
       message: '会計開始エラー:',
       functionEntry: 'startAccounting',
-      operation: 'runAccountingTransaction',
+      operation: 'startAccountingCallableCatch',
       cause: error,
     });
     throw new HttpsError('internal', '会計開始に失敗しました', error.message);
@@ -526,7 +526,7 @@ export const completeAccounting = onCall(async (request) => {
     logOpsError({
       message: '会計完了エラー:',
       functionEntry: 'completeAccounting',
-      operation: 'completeAccountingCatch',
+      operation: 'completeAccountingGenericCatch',
       cause: error,
     });
     throw new HttpsError('internal', '会計完了に失敗しました', error.message);
@@ -681,7 +681,7 @@ export const completeAccountingV2 = onCall(async (request) => {
     logOpsError({
       message: '会計完了エラー:',
       functionEntry: 'completeAccountingV2',
-      operation: 'completeAccountingV2Catch',
+      operation: 'completeAccountingV2GenericCatch',
       cause: error,
     });
     throw new HttpsError('internal', '会計完了に失敗しました', error.message);

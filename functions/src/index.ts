@@ -10,7 +10,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 import * as admin from "firebase-admin";
-import { onCall, onRequest } from "firebase-functions/v2/https";
+import { onRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2/options";
 
 // Firebase Admin SDKの初期化
@@ -55,7 +55,7 @@ export * from "./domains/webhook";
 // export は domains/storeMeta 経由で行う
 // トリガ関連（bills）は domains/bills 経由で export
 
-// Google API エラー shape 観察用（管理者のみ。本番業務導線と分離）
+// logOpsError 検証用 Callable（管理者のみ。本番業務導線と分離）
 export * from "./debug/errorShapeProbes";
 
 // トーナメント時間管理システム（Phase1）
@@ -73,14 +73,3 @@ export const controlHookHttp = onRequest(
 export { schedulerSupervisor };
 registerScheduledJobTaskFunctions(exports as Record<string, unknown>);
 
-// リモートに存在するがローカルにない関数のスタブ（削除を防ぐため）
-// 注意: この関数はリモートにのみ存在し、ローカルには実装がないため、
-// デプロイ時に削除されないように一時的なスタブとして追加
-
-export const processShiftsByStaff = onCall(async (request) => {
-  return { message: "This function is maintained remotely" };
-});
-
-export const updateAdministrativeMenuWithDescription = onCall(async (request) => {
-  return { message: "This function is maintained remotely" };
-});

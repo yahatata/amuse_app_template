@@ -41,7 +41,6 @@ export const finalizePayrollRun = onTaskDispatched(
     if (!runDoc.exists) {
       logOpsError({
         message: 'finalizePayrollRun: run not found',
-        failureType: 'business',
         functionEntry: 'finalizePayrollRun',
         context: { runId },
       });

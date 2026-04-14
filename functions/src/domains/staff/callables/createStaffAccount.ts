@@ -118,7 +118,6 @@ export const createStaffAccount = onCall(
     } catch (error) {
       logOpsError({
       message: 'スタッフアカウント作成エラー:',
-      failureType: 'business',
       functionEntry: 'createStaffAccount',
       cause: error,
     });

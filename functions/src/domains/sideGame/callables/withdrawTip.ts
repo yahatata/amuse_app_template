@@ -138,7 +138,6 @@ export const withdrawTip = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'withdrawTipエラー:',
-      failureType: 'business',
       functionEntry: 'withdrawTip',
       cause: error,
     });

@@ -49,8 +49,8 @@ async function createInitialStateDoc() {
   } catch (error) {
     logOpsError({
       message: 'Failed to create initial state doc:',
-      failureType: 'internal',
       functionEntry: 'createInitialStateDoc',
+      operation: 'createDocMainCatch',
       cause: error,
     });
     process.exit(1);
@@ -66,8 +66,8 @@ createInitialStateDoc()
   .catch((error) => {
     logOpsError({
       message: 'Script failed:',
-      failureType: 'internal',
       functionEntry: 'createInitialStateDoc',
+      operation: 'scriptTopLevelCatch',
       cause: error,
     });
     process.exit(1);

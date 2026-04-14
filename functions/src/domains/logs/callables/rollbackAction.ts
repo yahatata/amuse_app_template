@@ -289,7 +289,6 @@ export const rollbackAction = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'ロールバック操作エラー:',
-      failureType: 'business',
       functionEntry: 'rollbackAction',
       cause: error,
     });

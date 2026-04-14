@@ -67,7 +67,6 @@ export const lineWebhook = onRequest(async (request, response) => {
     if (!channelAccessToken) {
       logOpsError({
         message: "line-config.channelAccessToken is not set",
-        failureType: "config",
         functionEntry: "lineWebhook",
         operation: "token",
       });
@@ -130,9 +129,8 @@ export const lineWebhook = onRequest(async (request, response) => {
                   const errorText = await replyResponse.text();
                   logOpsError({
                     message: "Failed to send reply message",
-                    failureType: "external_api",
                     functionEntry: "lineWebhook",
-                    operation: "replyMessage",
+                    operation: "replyPostbackPlanDisabledNotOk",
                     context: {
                       status: replyResponse.status,
                       lineApiErrorPreview: errorText.slice(0, 200),
@@ -142,9 +140,8 @@ export const lineWebhook = onRequest(async (request, response) => {
               } catch (replyError) {
                 logOpsError({
                   message: "Error sending reply message",
-                  failureType: "external_api",
                   functionEntry: "lineWebhook",
-                  operation: "replyMessage",
+                  operation: "replyPostbackPlanDisabledCatch",
                   cause: replyError,
                 });
               }
@@ -197,9 +194,8 @@ export const lineWebhook = onRequest(async (request, response) => {
                     const errorText = await replyResponse.text();
                     logOpsError({
                       message: "Failed to send reply message",
-                      failureType: "external_api",
                       functionEntry: "lineWebhook",
-                      operation: "replyMessage",
+                      operation: "replyPostbackDeclineConfirmNotOk",
                       context: {
                         status: replyResponse.status,
                         lineApiErrorPreview: errorText.slice(0, 200),
@@ -209,9 +205,8 @@ export const lineWebhook = onRequest(async (request, response) => {
                 } catch (replyError) {
                   logOpsError({
                     message: "Error sending reply message",
-                    failureType: "external_api",
                     functionEntry: "lineWebhook",
-                    operation: "replyMessage",
+                    operation: "replyPostbackDeclineConfirmCatch",
                     cause: replyError,
                   });
                 }
@@ -230,7 +225,6 @@ export const lineWebhook = onRequest(async (request, response) => {
         } catch (error) {
           logOpsError({
             message: "Error processing postback event",
-            failureType: "webhook",
             functionEntry: "lineWebhook",
             operation: "postback",
             cause: error,
@@ -269,7 +263,6 @@ export const lineWebhook = onRequest(async (request, response) => {
         } catch (error) {
           logOpsError({
             message: "Error processing follow/unblock",
-            failureType: "webhook",
             functionEntry: "lineWebhook",
             operation: "followOrUnblock",
             cause: error,
@@ -283,7 +276,6 @@ export const lineWebhook = onRequest(async (request, response) => {
   } catch (error) {
     logOpsError({
       message: "Webhook error",
-      failureType: "webhook",
       functionEntry: "lineWebhook",
       operation: "handler",
       cause: error,

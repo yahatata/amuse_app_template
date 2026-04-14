@@ -62,7 +62,6 @@ export async function createPayrollNotification(
   if (!template) {
     logOpsError({
       message: 'createPayrollNotification: unknown triggerType',
-      failureType: 'business',
       functionEntry: 'createPayrollNotification',
       context: { triggerType },
     });

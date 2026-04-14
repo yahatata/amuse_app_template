@@ -296,7 +296,6 @@ export async function appendSideGameChip(request: AppendSideGameChipRequest): Pr
   } catch (error) {
     logOpsError({
       message: 'appendSideGameChip: failed',
-      failureType: 'business',
       functionEntry: 'appendSideGameChip',
       cause: error,
       context: {

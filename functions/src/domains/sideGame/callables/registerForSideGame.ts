@@ -110,7 +110,6 @@ export const registerForSideGame = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'registerParticipantエラー:',
-      failureType: 'business',
       functionEntry: 'registerForSideGame',
       cause: error,
     });

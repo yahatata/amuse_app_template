@@ -56,7 +56,6 @@ export const getPrizeData = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'getPrizeData error:',
-      failureType: 'business',
       functionEntry: 'getPrizeData',
       cause: error,
     });

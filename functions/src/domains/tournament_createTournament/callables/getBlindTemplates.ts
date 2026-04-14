@@ -40,7 +40,6 @@ export const getBlindTemplates = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'ブラインドテンプレート取得エラー:',
-      failureType: 'business',
       functionEntry: 'getBlindTemplates',
       cause: error,
     });

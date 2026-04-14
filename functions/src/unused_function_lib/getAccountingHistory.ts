@@ -138,7 +138,6 @@ export const getAccountingHistory = onCall(async (request) => {
     if (error instanceof HttpsError) throw error;
     logOpsError({
       message: '会計履歴取得エラー:',
-      failureType: 'internal',
       functionEntry: 'getAccountingHistory',
       cause: error,
     });

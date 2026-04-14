@@ -52,8 +52,8 @@ export const getShifts = onCall(
     } catch (error) {
       logOpsError({
       message: '初期化エラー:',
-      failureType: 'business',
       functionEntry: 'getShifts',
+      operation: 'initCatch',
       cause: error,
     });
       if (error instanceof Error) {
@@ -266,8 +266,8 @@ export const getShifts = onCall(
       // エラーの詳細情報をログ出力（Firebase Consoleで確認可能）
       logOpsError({
       message: 'シフト取得エラー:',
-      failureType: 'business',
       functionEntry: 'getShifts',
+      operation: 'shiftFetchCatch',
       cause: error,
     });
       
@@ -276,8 +276,8 @@ export const getShifts = onCall(
         const errorMessage = `シフト一覧の取得に失敗しました: ${error.message}`;
         logOpsError({
       message: '詳細エラーメッセージ:',
-      failureType: 'business',
       functionEntry: 'getShifts',
+      operation: 'detailErrorLog',
       cause: errorMessage,
     });
         throw new Error(errorMessage);
@@ -285,8 +285,8 @@ export const getShifts = onCall(
         const errorMessage = "シフト一覧の取得に失敗しました。";
         logOpsError({
       message: '不明なエラー:',
-      failureType: 'business',
       functionEntry: 'getShifts',
+      operation: 'unknownErrorLog',
       cause: error,
     });
         throw new Error(errorMessage);

@@ -86,7 +86,6 @@ export const updateStaffBankInfo = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '銀行口座情報更新エラー:',
-      failureType: 'business',
       functionEntry: 'updateStaffBankInfo',
       cause: error,
     });

@@ -20,7 +20,6 @@ export async function runGenerateRecurringTournamentsBySchedulerTask(
   } catch (error) {
     logOpsError({
       message: "generateRecurringTournamentsByScheduler task execution failed",
-      failureType: "scheduled",
       functionEntry: "generateRecurringTournamentsByScheduler",
       cause: error,
     });

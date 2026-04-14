@@ -74,7 +74,6 @@ export const getScheduledTournamentsForEdit = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'スケジュール済みトーナメント取得エラー:',
-      failureType: 'business',
       functionEntry: 'getScheduledTournamentsForEdit',
       cause: error,
     });

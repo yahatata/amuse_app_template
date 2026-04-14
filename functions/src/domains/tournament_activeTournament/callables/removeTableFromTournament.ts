@@ -109,7 +109,6 @@ export const removeTableFromTournament = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '=== 卓削除エラー ===',
-        failureType: 'business',
         functionEntry: 'removeTableFromTournament',
         operation: 'removeTableFromTournamentCatch',
         cause: error,
@@ -123,8 +122,8 @@ export const removeTableFromTournament = onCall(async (request) => {
 
     logOpsError({
       message: '=== 卓削除エラー ===',
-      failureType: 'business',
       functionEntry: 'removeTableFromTournament',
+      operation: 'removeTableFromTournamentGenericCatch',
       cause: error,
     });
 

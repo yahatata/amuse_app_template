@@ -252,7 +252,7 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
     logOpsError({
       message: 'startAccounting failed',
       functionEntry: 'startAccounting',
-      operation: 'runAccountingTransaction',
+      operation: 'startAccountingRepoCatch',
       cause: error,
       context: {
         billId,

@@ -69,7 +69,6 @@ export const setPrizeData = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'setPrizeData error:',
-      failureType: 'business',
       functionEntry: 'setPrizeData',
       cause: error,
     });

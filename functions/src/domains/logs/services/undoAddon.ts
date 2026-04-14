@@ -78,7 +78,6 @@ export async function undoAddon(params: UndoAddonParams): Promise<void> {
   } catch (error) {
     logOpsError({
       message: 'Error undoing addon operation:',
-      failureType: 'business',
       functionEntry: 'undoAddon',
       cause: error,
     });

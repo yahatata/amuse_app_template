@@ -113,7 +113,6 @@ export const getPayrollData = onCall(async (request: CallableRequest) => {
   } catch (error) {
     logOpsError({
       message: 'Error in getPayrollData:',
-      failureType: 'business',
       functionEntry: 'getPayrollData',
       cause: error,
     });

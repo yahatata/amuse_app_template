@@ -171,7 +171,6 @@ export const updateTournamentRecurrence = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '定期開催設定更新エラー:',
-      failureType: 'business',
       functionEntry: 'updateTournamentRecurrence',
       cause: error,
     });

@@ -130,7 +130,6 @@ export const cancelOrder = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'cancelOrder エラー:',
-      failureType: 'business',
       functionEntry: 'cancelOrder',
       cause: error,
     });

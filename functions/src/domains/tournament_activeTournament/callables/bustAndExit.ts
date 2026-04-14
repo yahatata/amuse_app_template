@@ -194,8 +194,8 @@ export const bustAndExit = onCall(async (request) => {
       } catch (error) {
         logOpsError({
       message: 'updatePlace failed',
-      failureType: 'business',
       functionEntry: 'bustAndExit',
+      operation: 'updatePlaceBestEffort',
       cause: error,
     });
         // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
@@ -233,8 +233,8 @@ export const bustAndExit = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== Bust&退席エラー ===',
-      failureType: 'business',
       functionEntry: 'bustAndExit',
+      operation: 'bustAndExitMainCatch',
       cause: error,
     });
 
@@ -254,8 +254,8 @@ export const bustAndExit = onCall(async (request) => {
       } catch (logErr) {
         logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'bustAndExit',
+      operation: 'bustAndExitOperationLogWrite',
       cause: logErr,
     });
       }

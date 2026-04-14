@@ -13,6 +13,7 @@ import type { Timestamp } from 'firebase-admin/firestore';
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
 import type { CandidateReasonType } from '../types/payrollCalcTypes';
 import { buildPayrollDisplayContext } from '../helpers/payrollDisplayContext';
@@ -202,7 +203,14 @@ export const getPayrollCandidates = onCall(async (request: CallableRequest) => {
   let payrollConfig;
   try {
     payrollConfig = await getPayrollConfig();
-  } catch {
+  } catch (configError) {
+    logOpsError({
+      message: 'getPayrollCandidates: payroll config not found',
+      functionEntry: 'getPayrollCandidates',
+      operation: 'loadPayrollConfig',
+      cause: configError,
+      context: { paymentPeriodKey },
+    });
     throw new HttpsError('not-found', PAYROLL_ERRORS.PAYROLL_CONFIG_NOT_FOUND);
   }
   const maxCount = payrollConfig.maxCandidatesCount;

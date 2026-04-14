@@ -235,7 +235,6 @@ export const updateAttendance = onCall(async (request: CallableRequest) => {
     if (error instanceof HttpsError) throw error;
     logOpsError({
       message: 'Error in updateAttendance:',
-      failureType: 'business',
       functionEntry: 'updateAttendance',
       cause: error,
     });

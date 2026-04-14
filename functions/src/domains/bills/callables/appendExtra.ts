@@ -48,7 +48,6 @@ export const appendExtraCallable = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'appendExtra callable error',
-      failureType: 'business',
       functionEntry: 'appendExtraCallable',
       cause: error,
       context: {

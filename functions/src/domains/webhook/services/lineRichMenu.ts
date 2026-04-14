@@ -40,8 +40,8 @@ export async function linkStaffRichMenu(lineUserId: string): Promise<boolean> {
       const errorText = await response.text();
       logOpsError({
         message: "linkStaffRichMenu: Failed to link rich menu",
-        failureType: "external_api",
         functionEntry: "linkStaffRichMenu",
+        operation: "linkStaffRichMenuHttpFail",
         context: {
           lineUserId,
           richMenuId,
@@ -60,8 +60,8 @@ export async function linkStaffRichMenu(lineUserId: string): Promise<boolean> {
   } catch (error) {
     logOpsError({
       message: "linkStaffRichMenu: Error",
-      failureType: "external_api",
       functionEntry: "linkStaffRichMenu",
+      operation: "linkStaffRichMenuCatch",
       cause: error,
       context: { lineUserId },
     });
@@ -109,8 +109,8 @@ export async function linkUserRichMenu(lineUserId: string): Promise<boolean> {
       const errorText = await response.text();
       logOpsError({
         message: "linkUserRichMenu: Failed to link rich menu",
-        failureType: "external_api",
         functionEntry: "linkUserRichMenu",
+        operation: "linkUserRichMenuHttpFail",
         context: {
           lineUserId,
           richMenuId,
@@ -129,8 +129,8 @@ export async function linkUserRichMenu(lineUserId: string): Promise<boolean> {
   } catch (error) {
     logOpsError({
       message: "linkUserRichMenu: Error",
-      failureType: "external_api",
       functionEntry: "linkUserRichMenu",
+      operation: "linkUserRichMenuCatch",
       cause: error,
       context: { lineUserId },
     });

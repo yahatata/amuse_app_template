@@ -79,7 +79,6 @@ export const registerDevice = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'デバイス登録エラー:',
-      failureType: 'business',
       functionEntry: 'registerDevice',
       cause: error,
     });

@@ -42,8 +42,8 @@ export const processStaffPayroll = onTaskDispatched(
       if (!runDoc.exists) {
         logOpsError({
           message: 'processStaffPayroll: run not found',
-          failureType: 'business',
           functionEntry: 'processStaffPayroll',
+          operation: 'runNotFound',
           context: { runId },
         });
         return;
@@ -59,8 +59,8 @@ export const processStaffPayroll = onTaskDispatched(
       if (!staffResultDoc.exists) {
         logOpsError({
           message: 'processStaffPayroll: staffResult not found',
-          failureType: 'business',
           functionEntry: 'processStaffPayroll',
+          operation: 'staffResultNotFound',
           context: { runId, staffId },
         });
         return;
@@ -300,8 +300,8 @@ export const processStaffPayroll = onTaskDispatched(
     } catch (error) {
       logOpsError({
         message: 'processStaffPayroll: failed',
-        failureType: 'business',
         functionEntry: 'processStaffPayroll',
+        operation: 'processStaffPayrollCatch',
         cause: error,
         context: { runId, staffId },
       });
@@ -349,7 +349,6 @@ export const processStaffPayroll = onTaskDispatched(
       } catch (trxError) {
         logOpsError({
           message: 'processStaffPayroll: failed to update failure status',
-          failureType: 'business',
           functionEntry: 'processStaffPayroll',
           operation: 'failureStatusUpdate',
           cause: trxError,

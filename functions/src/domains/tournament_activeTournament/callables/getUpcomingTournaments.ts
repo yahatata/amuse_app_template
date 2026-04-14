@@ -263,7 +263,6 @@ export const getUpcomingTournaments = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'Error in getUpcomingTournaments:',
-      failureType: 'business',
       functionEntry: 'getUpcomingTournaments',
       cause: error,
     });

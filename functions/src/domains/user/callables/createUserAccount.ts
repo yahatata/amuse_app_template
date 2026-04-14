@@ -113,7 +113,6 @@ export const createUserAccount = onCall(
     } catch (error) {
       logOpsError({
       message: 'ユーザーアカウント作成エラー:',
-      failureType: 'business',
       functionEntry: 'createUserAccount',
       cause: error,
     });

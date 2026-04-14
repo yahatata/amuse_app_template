@@ -21,7 +21,7 @@
 | 5 | `function_common` 用材料の整理（`cause` / `errorMessage` / `errorName` 等。**`failureType` を中心とした分類は行わない**） |
 | 6 | `function_custom` 用 `errorKey` 入口（`FunctionCustomError` 経由） |
 | 7 | **`functionEntry` → `service` の対応関係をコードから参照できるようにする**（仕様 §17-7 の「対応表の定義」。**本質は対応表を正とすること**。実装形態は §7 参照） |
-| 8 | `function_custom` 対象業務群（会計 / 店舗開閉 / トーナメント）への **実装反映** |
+| 8 | `function_custom` 対象業務群（会計 / 店舗開閉 / トーナメント / **来店処理（user）**）への **実装反映** |
 | 9 | 正式 `errorKey` 一覧（確定一覧＋仕様備考）の **コードへの反映** |
 | 10 | 対応箇所を **条件分岐 / `throw` / `catch` / `return { success: false }` 単位**で整理し、差分を実装 |
 | 11 | `FunctionCustomError` クラスの新設 |
@@ -37,7 +37,7 @@
 - モニタアプリ UI・通知仕様
 - Functions 側での最終重要度計算、`service` による重要度補正
 - 共通分類キーの正式運用・通知閾値
-- **給与・勤怠・シフト**等の `function_custom`（今回の業務群は会計 / 店舗開閉 / トーナメントのみ）
+- **給与・勤怠・シフト**等の `function_custom`（**初回の主対象**は会計 / 店舗開閉 / トーナメント。**2026-04-10 追記**: 来店処理（`service`: `user`）を追加し、`logOpsError` に **`errorKey` 明示**（`USER_*` / `USER_AUTH_*`）。`FunctionCustomError` の新規 throw は来店範囲では行っていない）
 - 認証・権限・単純 `invalid-argument`・単純 not-found の **custom 化**
 - 外部 API / SDK 失敗そのものを **`function_custom` の `errorKey` で表す**こと（分類は `external_api` 側）
 - **`return { success: false, ... }` の I/O 契約変更**（throw への全面移行は行わない）
@@ -83,7 +83,7 @@
   **`errorSource`**, **`service`**, `functionEntry`, `operation`, `projectId`, `errorMessage`, `errorName`, `context`, **`errorKey`**（custom のみ）, **`sourceProduct`**, **`sdkCode`**, **`httpStatus`**, **`detailReason`**。  
   **`failureType`** は As-Is 互換で残り得るが**主軸ではない**・本タスクでは**新規に渡さない**（差分仕様 §5.5・§8.6）。  
   省略可能条件は確定仕様どおり（`errorKey` は custom のみ、external 4項目は `external_api` のみ・取得分のみ）。
-- **正式 errorKey 一覧**: 会計 / 店舗開閉 / トーナメントの確定一覧（`ACCOUNTING_ACTIVE_STAY_CONFLICT`, `STORE_PROCESSING_KIND_MISMATCH` を含む）を正とする。
+- **正式 errorKey 一覧**: 差分仕様 **§16.6** を正とする（会計 / 店舗開閉 / トーナメントに加え、**来店処理（user）**の `USER_VISIT_*` / `USER_AUTH_CUSTOM_TOKEN_FAILED` 等。代表例: `ACCOUNTING_ACTIVE_STAY_CONFLICT`, `STORE_PROCESSING_KIND_MISMATCH`）。
 
 ---
 
@@ -141,7 +141,7 @@
 |------|------|
 | **ファイル（ソース）** | 新規 `functions/src/shared/logging/functionCustomError.ts`（`logOpsError.ts` と同一ディレクトリ。クラス名 `FunctionCustomError` と揃えた **camelCase ファイル名**）。ビルド出力は `functions/lib/shared/logging/functionCustomError.js`（§4.1）。 |
 | **定義** | `export class FunctionCustomError extends Error`。`readonly errorKey: string`、`message`、`context?`、`cause?`。仕様 §12.6 準拠。 |
-| **利用** | 会計 / 店舗開閉 / トーナメントの **custom 確定箇所**のみで `throw`（ドメイン側は `functions/src/domains/**` の各 `.ts`）。 |
+| **利用** | 会計 / 店舗開閉 / トーナメントの **custom 確定箇所**で `FunctionCustomError` を `throw`（ドメイン側は `functions/src/domains/**` の各 `.ts`）。**来店処理（user）**は **例外時 `logOpsError` に `errorKey` 明示**のみ（`throw new FunctionCustomError` は追加しない方針）。 |
 | **境界** | **`HttpsError` への変換は §7.2 に従い callable / trigger 境界のみ**（共通ラッパに依存しない）。 |
 
 ---
@@ -177,7 +177,7 @@
 
 ## 11. custom 対象箇所の反映方針
 
-- **対象業務群**: 会計、店舗開閉、トーナメント（`service` は対応表のとおり `accounting` / `store` / `close_process` / `tournament` / `tournament_schedule` 等）。
+- **対象業務群**: 会計、店舗開閉、トーナメント、**来店処理（user）**（`service` は対応表のとおり `accounting` / `store` / `tournament` / `tournament_schedule` / **`user`** 等）。
 - **作業手順**（仕様 §16.4 / §16.8）:
   1. 対象ドメインの **条件分岐・`throw`・業務 return** を棚卸し（**関数単位で終わらせない**）。
   2. 正式 `errorKey` に **統合**（仕様 §16.7）。
@@ -277,7 +277,7 @@ Cloud Tasks `createTask` 失敗は **`errorSource = external_api`** とし、**`
 本 changeSpec で**変更するファイル**内の既存 `logOpsError` 呼び出しでは、**`failureType` を削除してよい**。**未変更のファイル**に残る `failureType` は今回そのまま許容する（コードベース全体からの除去は後続タスク）。
 
 - **全会計系**: `functions/src/domains/bills/**`
-- **店舗開閉・close_process**: `functions/src/domains/storeMeta/**` の該当 callable / service
+- **店舗開閉（`store`）**: `functions/src/domains/storeMeta/**` の該当 callable / service（閉店整合・前提取得なども `store` に含む）
 - **トーナメント**: `functions/src/domains/tournament_activeTournament/**`, `functions/src/domains/tournament_createTournament/**`
 - **外部 API 多め**: `functions/src/domains/webhook/**`, `functions/src/shared/secrets/**`（必要に応じて）
 
@@ -347,7 +347,7 @@ Cloud Tasks `createTask` 失敗は **`errorSource = external_api`** とし、**`
 
 1. `logOpsError` が **仕様どおりの payload 直下**を出力でき、**§9 の 4 ルール**を満たす。
 2. **`errorSource` / `service`** が、少なくとも **新規・変更した経路**で一貫して出る。
-3. **会計 / 店舗開閉 / トーナメント**の **custom 対象箇所**に `FunctionCustomError` と正式 `errorKey` が反映されている（§12 の別添で追跡可能）。
+3. **会計 / 店舗開閉 / トーナメント**の **custom 対象箇所**に `FunctionCustomError` と正式 `errorKey` が反映されている（§12 の別添で追跡可能）。**来店処理（user）**は **`logOpsError` の `errorKey` 明示**でよい（差分仕様 §16.6・`実装サマリ_エラーログ拡張_20260406.md` §3 追記）。
 4. **§13 の catch 補強**が表どおり反映されている（保留は文書化）。
 5. **対応表**にない `functionEntry` が本番ログに出ていない、または出た場合は **対応表更新 + マップ更新**がセットになっている。
 

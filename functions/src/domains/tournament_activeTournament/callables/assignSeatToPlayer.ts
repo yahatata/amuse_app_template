@@ -205,8 +205,8 @@ export const assignSeatToPlayer = onCall(async (request) => {
       } catch (error) {
         logOpsError({
       message: 'updatePlace failed',
-      failureType: 'business',
       functionEntry: 'assignSeatToPlayer',
+      operation: 'updatePlaceBestEffort',
       cause: error,
     });
       }
@@ -247,7 +247,6 @@ export const assignSeatToPlayer = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '=== 待機者着席エラー ===',
-        failureType: 'business',
         functionEntry: 'assignSeatToPlayer',
         operation: 'assignSeatToPlayerCatch',
         cause: error,
@@ -257,8 +256,8 @@ export const assignSeatToPlayer = onCall(async (request) => {
 
     logOpsError({
       message: '=== 待機者着席エラー ===',
-      failureType: 'business',
       functionEntry: 'assignSeatToPlayer',
+      operation: 'assignSeatGenericCatch',
       cause: error,
     });
 
@@ -278,8 +277,8 @@ export const assignSeatToPlayer = onCall(async (request) => {
       } catch (logErr) {
         logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'assignSeatToPlayer',
+      operation: 'assignSeatOperationLogWrite',
       cause: logErr,
     });
       }

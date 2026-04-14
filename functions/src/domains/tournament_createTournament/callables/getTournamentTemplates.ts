@@ -63,7 +63,6 @@ export const getTournamentTemplates = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'トーナメントテンプレート取得エラー:',
-      failureType: 'business',
       functionEntry: 'getTournamentTemplates',
       cause: error,
     });

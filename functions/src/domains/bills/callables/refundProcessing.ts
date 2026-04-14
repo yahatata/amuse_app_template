@@ -87,7 +87,6 @@ export const processRefund = onCall(async (request) => {
     }
     logOpsError({
       message: 'processRefund failed',
-      failureType: 'business',
       functionEntry: 'processRefund',
       cause: error,
       context: {
@@ -141,7 +140,6 @@ export const getRefundHistory = onCall(async (request) => {
     }
     logOpsError({
       message: 'getRefundHistory failed',
-      failureType: 'business',
       functionEntry: 'getRefundHistory',
       cause: error,
       context: {

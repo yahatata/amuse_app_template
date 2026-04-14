@@ -241,8 +241,8 @@ export const reseatAllPlayers = onCall(async (request) => {
           } catch (error) {
             logOpsError({
       message: `updatePlace failed for userId ${assignment.userId}`,
-      failureType: 'business',
       functionEntry: 'reseatAllPlayers',
+      operation: 'updatePlacePerAssignmentBestEffort',
       cause: error,
     });
             // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
@@ -283,7 +283,6 @@ export const reseatAllPlayers = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '=== 全員リシートエラー ===',
-        failureType: 'business',
         functionEntry: 'reseatAllPlayers',
         operation: 'reseatAllPlayersCatch',
         cause: error,
@@ -293,8 +292,8 @@ export const reseatAllPlayers = onCall(async (request) => {
 
     logOpsError({
       message: '=== 全員リシートエラー ===',
-      failureType: 'business',
       functionEntry: 'reseatAllPlayers',
+      operation: 'reseatAllPlayersGenericCatch',
       cause: error,
     });
 
@@ -314,8 +313,8 @@ export const reseatAllPlayers = onCall(async (request) => {
       } catch (logErr) {
         logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'reseatAllPlayers',
+      operation: 'reseatAllPlayersOperationLogWrite',
       cause: logErr,
     });
       }

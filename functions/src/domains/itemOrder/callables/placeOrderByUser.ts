@@ -190,7 +190,7 @@ export const placeOrderByUser = onCall(async (request) => {
     logOpsError({
       message: 'placeOrderByUser failed',
       functionEntry: 'placeOrderByUser',
-      operation: 'placeOrderCatch',
+      operation: 'placeOrderGenericCatch',
       cause: error,
       sourceProductHint: 'firestore',
     });

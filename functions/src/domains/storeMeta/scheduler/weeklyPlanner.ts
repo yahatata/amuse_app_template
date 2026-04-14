@@ -248,7 +248,6 @@ export async function runWeeklyPlannerTask(
   } catch (error) {
     logOpsError({
       message: "weeklyPlanner task execution failed",
-      failureType: "scheduled",
       functionEntry: "weeklyPlanner",
       cause: error,
     });

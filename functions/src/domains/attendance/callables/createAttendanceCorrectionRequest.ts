@@ -96,7 +96,6 @@ export const createAttendanceCorrectionRequest = onCall(
     } catch (error) {
       logOpsError({
       message: '修正申請保存エラー:',
-      failureType: 'business',
       functionEntry: 'createAttendanceCorrectionRequest',
       cause: error,
     });

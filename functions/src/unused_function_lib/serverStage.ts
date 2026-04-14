@@ -76,7 +76,6 @@ export function buildStagesFromTemplate(
   } catch (error) {
     logOpsError({
       message: 'buildStagesFromTemplate: Error building stages',
-      failureType: 'internal',
       functionEntry: 'buildStagesFromTemplate',
       cause: error,
     });
@@ -120,7 +119,6 @@ export function calculateLateRegCloseTime(
   } catch (error) {
     logOpsError({
       message: 'calculateLateRegCloseTime: Error calculating close time',
-      failureType: 'internal',
       functionEntry: 'calculateLateRegCloseTime',
       cause: error,
     });
@@ -161,7 +159,6 @@ export function getCurrentStage(
   } catch (error) {
     logOpsError({
       message: 'getCurrentStage: Error getting current stage',
-      failureType: 'internal',
       functionEntry: 'getCurrentStage',
       cause: error,
     });

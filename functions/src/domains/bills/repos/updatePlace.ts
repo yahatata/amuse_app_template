@@ -181,7 +181,6 @@ export async function updatePlace(request: UpdatePlaceRequest): Promise<UpdatePl
   } catch (error) {
     logOpsError({
       message: 'updatePlace: failed',
-      failureType: 'business',
       functionEntry: 'updatePlace',
       cause: error,
       context: {

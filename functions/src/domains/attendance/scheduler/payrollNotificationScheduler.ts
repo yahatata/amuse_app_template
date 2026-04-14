@@ -74,7 +74,6 @@ export async function runPayrollNotificationSchedulerTask(
   } catch (error) {
     logOpsError({
       message: "payrollNotificationScheduler task execution failed",
-      failureType: "scheduled",
       functionEntry: "payrollNotificationScheduler",
       operation: "enqueue",
       cause: error,

@@ -23,8 +23,8 @@ export const getMenuItems = onCall(async (request) => {
     if (!adminMenuDoc.exists) {
       logOpsError({
         message: 'administrativeMenu/current が存在しません',
-        failureType: 'config',
         functionEntry: 'getMenuItems',
+        operation: 'adminMenuDocMissing',
         context: { collection: 'administrativeMenu', docId: 'current' },
       });
       return {
@@ -88,8 +88,8 @@ export const getMenuItems = onCall(async (request) => {
     // How: エラーメッセージを含むJSONを返却
     logOpsError({
       message: 'Error fetching menu items:',
-      failureType: 'business',
       functionEntry: 'getMenuItems',
+      operation: 'menuFetchCatch',
       cause: error,
     });
     return {

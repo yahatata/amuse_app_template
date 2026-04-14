@@ -99,7 +99,6 @@ export const confirmShiftRequest = onCall(
     } catch (error) {
       logOpsError({
       message: '希望シフト要請確認エラー:',
-      failureType: 'business',
       functionEntry: 'confirmShiftRequest',
       cause: error,
     });

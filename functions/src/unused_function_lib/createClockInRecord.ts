@@ -72,7 +72,6 @@ export const createClockInRecord = onCall(async (request: CallableRequest) => {
   } catch (error) {
     logOpsError({
       message: 'Error in createClockInRecord:',
-      failureType: 'internal',
       functionEntry: 'createClockInRecord',
       cause: error,
     });

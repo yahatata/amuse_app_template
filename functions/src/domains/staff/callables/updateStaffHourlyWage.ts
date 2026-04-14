@@ -96,7 +96,6 @@ export const updateStaffHourlyWage = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== スタッフ時給更新エラー ===',
-      failureType: 'business',
       functionEntry: 'updateStaffHourlyWage',
       cause: error,
     });

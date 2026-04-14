@@ -118,7 +118,6 @@ export const endTournament = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'endTournament error:',
-      failureType: 'business',
       functionEntry: 'endTournament',
       cause: error,
     });

@@ -77,7 +77,6 @@ export const getRankingData = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: 'getRankingData error:',
-        failureType: 'business',
         functionEntry: 'getRankingData',
         operation: 'getRankingDataCatch',
         cause: error,
@@ -87,8 +86,8 @@ export const getRankingData = onCall(async (request) => {
 
     logOpsError({
       message: 'getRankingData error:',
-      failureType: 'business',
       functionEntry: 'getRankingData',
+      operation: 'getRankingDataGenericCatch',
       cause: error,
     });
 
