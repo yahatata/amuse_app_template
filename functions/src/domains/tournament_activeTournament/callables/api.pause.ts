@@ -117,7 +117,6 @@ export const pauseTournament = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: 'pauseTournament error:',
-        failureType: 'business',
         functionEntry: 'pauseTournament',
         operation: 'pauseTournamentCatch',
         cause: error,
@@ -127,8 +126,8 @@ export const pauseTournament = onCall(async (request) => {
 
     logOpsError({
       message: 'pauseTournament error:',
-      failureType: 'business',
       functionEntry: 'pauseTournament',
+      operation: 'pauseTournamentGenericCatch',
       cause: error,
     });
 

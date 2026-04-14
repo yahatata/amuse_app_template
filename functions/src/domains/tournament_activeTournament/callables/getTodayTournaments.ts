@@ -232,7 +232,6 @@ export const getTodayTournaments = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'Error in getTodayTournaments:',
-      failureType: 'business',
       functionEntry: 'getTodayTournaments',
       cause: error,
     });

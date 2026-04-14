@@ -195,7 +195,6 @@ export const validateEndTournament = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'validateEndTournament error:',
-      failureType: 'business',
       functionEntry: 'validateEndTournament',
       cause: error,
     });

@@ -174,7 +174,6 @@ export async function postEventReopen(request: PostEventReopenRequest): Promise<
   } catch (error) {
     logOpsError({
       message: 'postEventReopen failed',
-      failureType: 'business',
       functionEntry: 'postEventReopen',
       cause: error,
       context: {

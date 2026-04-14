@@ -169,6 +169,7 @@ export const manualCheckIn = onCall(async (request) => {
       message: '手動チェックインエラー:',
       functionEntry: 'manualCheckIn',
       cause: error,
+      errorKey: 'USER_VISIT_MANUAL_UNEXPECTED',
     });
     return {
       success: false,

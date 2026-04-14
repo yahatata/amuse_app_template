@@ -275,7 +275,6 @@ export const getScheduledTournaments = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'Error in getScheduledTournaments:',
-      failureType: 'business',
       functionEntry: 'getScheduledTournaments',
       cause: error,
     });

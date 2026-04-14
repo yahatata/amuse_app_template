@@ -142,7 +142,6 @@ export const startBreak = onCall(async (request: CallableRequest) => {
     if (error instanceof HttpsError) throw error;
     logOpsError({
       message: 'Error in startBreak:',
-      failureType: 'business',
       functionEntry: 'startBreak',
       cause: error,
     });

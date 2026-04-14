@@ -121,7 +121,6 @@ export const determineAttendanceMode = onCall(async (request: CallableRequest) =
   } catch (error) {
     logOpsError({
       message: 'Error in determineAttendanceMode:',
-      failureType: 'internal',
       functionEntry: 'determineAttendanceMode',
       cause: error,
     });

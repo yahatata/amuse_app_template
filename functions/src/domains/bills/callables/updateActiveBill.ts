@@ -350,8 +350,8 @@ export const updateActiveBill = onCall(async (request) => {
     }
     logOpsError({
       message: 'updateActiveBill failed',
-      failureType: 'business',
       functionEntry: 'updateActiveBill',
+      operation: 'updateActiveBillGenericCatch',
       cause: error,
       context: {
         op: 'updateActiveBill',

@@ -57,7 +57,6 @@ export const resetAllSideGames = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'resetAllSideGamesエラー:',
-      failureType: 'business',
       functionEntry: 'resetAllSideGames',
       cause: error,
     });

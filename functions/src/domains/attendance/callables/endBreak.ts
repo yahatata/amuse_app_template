@@ -166,7 +166,6 @@ export const endBreak = onCall(async (request: CallableRequest) => {
     if (error instanceof HttpsError) throw error;
     logOpsError({
       message: 'Error in endBreak:',
-      failureType: 'business',
       functionEntry: 'endBreak',
       cause: error,
     });

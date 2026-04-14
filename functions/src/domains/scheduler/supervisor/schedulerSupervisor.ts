@@ -19,7 +19,6 @@ export const schedulerSupervisor = onSchedule(
     } catch (error) {
       logOpsError({
         message: 'schedulerSupervisor failed',
-        failureType: 'scheduled',
         functionEntry: 'schedulerSupervisor',
         cause: error,
       });

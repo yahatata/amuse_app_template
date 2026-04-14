@@ -192,7 +192,6 @@ export const getActionLogs = onCall(async (request) => {
     const message = error instanceof Error ? error.message : String(error);
     logOpsError({
       message: '[getActionLogs] error',
-      failureType: 'business',
       functionEntry: 'getActionLogs',
       cause: error,
       context: { detailMessage: String(message) },

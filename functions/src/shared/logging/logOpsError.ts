@@ -4,27 +4,11 @@ import { FunctionCustomError } from './functionCustomError';
 import { extractExternalFromCause, type SourceProductId } from './externalFromCause';
 import { resolveServiceForFunctionEntry } from './serviceByFunctionEntry';
 
-/**
- * 過去互換。新規参照しない（changeSpec）。
- */
-export type OpsFailureType =
-  | 'config'
-  | 'datastore'
-  | 'external_api'
-  | 'business'
-  | 'scheduled'
-  | 'webhook'
-  | 'internal';
-
 export type ErrorSource = 'external_api' | 'function_common' | 'function_custom';
 
 export type LogOpsErrorArgs = {
   /** Cloud Logging 上で見やすい運用者向け短文 */
   message: string;
-  /**
-   * 過去互換。省略時は payload に含めない（差分仕様 §5.5）。
-   */
-  failureType?: OpsFailureType;
   functionEntry: string;
   operation?: string;
   projectId?: string;
@@ -118,7 +102,8 @@ export function logOpsError(args: LogOpsErrorArgs): void {
   let httpStatus = args.httpStatus;
   let detailReason = args.detailReason;
 
-  if (errorSource === 'external_api') {
+  // `errorKey` / FC により function_custom でも、cause が SDK/API 形なら外部4項目を補完（差分仕様: custom と external 材料の併記）
+  if (errorSource === 'external_api' || errorSource === 'function_custom') {
     const ext = extractExternalFromCause(cause, args.sourceProductHint);
     if (ext) {
       sourceProduct = sourceProduct ?? ext.sourceProduct;
@@ -134,10 +119,6 @@ export function logOpsError(args: LogOpsErrorArgs): void {
     functionEntry: args.functionEntry,
     projectId,
   };
-
-  if (args.failureType !== undefined) {
-    payload.failureType = args.failureType;
-  }
 
   if (args.operation !== undefined) {
     payload.operation = args.operation;
@@ -157,7 +138,7 @@ export function logOpsError(args: LogOpsErrorArgs): void {
     payload.errorKey = errorKey;
   }
 
-  if (errorSource === 'external_api') {
+  if (errorSource === 'external_api' || errorSource === 'function_custom') {
     if (sourceProduct !== undefined) {
       payload.sourceProduct = sourceProduct;
     }

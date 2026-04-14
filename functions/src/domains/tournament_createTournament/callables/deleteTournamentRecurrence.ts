@@ -77,7 +77,6 @@ export const deleteTournamentRecurrence = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '定期開催トーナメント削除エラー:',
-      failureType: 'business',
       functionEntry: 'deleteTournamentRecurrence',
       cause: error,
     });

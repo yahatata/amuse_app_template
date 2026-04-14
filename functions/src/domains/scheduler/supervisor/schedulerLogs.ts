@@ -1,6 +1,6 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
-import { logger } from 'firebase-functions';
 import type { SchedulerJobKey } from '../../../shared/config/schedulerConfigTypes';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 const DISPATCH_LOG_COLLECTION = 'schedulerDispatchLogs';
 const EXECUTION_LOG_COLLECTION = 'schedulerExecutionLogsByCloudTask';
@@ -44,13 +44,17 @@ export async function writeSchedulerDispatchLogBestEffort(
       createdAt: FieldValue.serverTimestamp(),
     });
   } catch (error) {
-    logger.error('schedulerDispatchLogs write failed', {
-      failureType: 'internal',
-      reason: 'dispatch_log_write_failed',
-      jobKey: entry.jobKey,
-      functionName: entry.functionName,
-      projectId: entry.projectId,
-      errorMessage: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'schedulerDispatchLogs write failed',
+      functionEntry: 'writeSchedulerDispatchLogBestEffort',
+      operation: 'dispatchLogWrite',
+      cause: error,
+      context: {
+        reason: 'dispatch_log_write_failed',
+        jobKey: entry.jobKey,
+        functionName: entry.functionName,
+        projectId: entry.projectId,
+      },
     });
   }
 }
@@ -66,13 +70,17 @@ export async function writeSchedulerExecutionLogByCloudTaskBestEffort(
       createdAt: FieldValue.serverTimestamp(),
     });
   } catch (error) {
-    logger.error('schedulerExecutionLogsByCloudTask write failed', {
-      failureType: 'internal',
-      reason: 'execution_log_write_failed',
-      jobKey: entry.jobKey,
-      functionName: entry.functionName,
-      projectId: entry.projectId,
-      errorMessage: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'schedulerExecutionLogsByCloudTask write failed',
+      functionEntry: 'writeSchedulerExecutionLogByCloudTaskBestEffort',
+      operation: 'executionLogWrite',
+      cause: error,
+      context: {
+        reason: 'execution_log_write_failed',
+        jobKey: entry.jobKey,
+        functionName: entry.functionName,
+        projectId: entry.projectId,
+      },
     });
   }
 }

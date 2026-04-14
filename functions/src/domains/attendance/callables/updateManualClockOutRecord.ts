@@ -185,7 +185,6 @@ export const updateManualClockOutRecord = onCall(async (request: CallableRequest
     }
     logOpsError({
       message: 'Error in updateManualClockOutRecord:',
-      failureType: 'business',
       functionEntry: 'updateManualClockOutRecord',
       cause: error,
     });

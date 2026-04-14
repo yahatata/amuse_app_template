@@ -16,8 +16,8 @@ describe('Phase6 Step3: storeManagement 統合', () => {
   let testEnv: any;
   let db: admin.firestore.Firestore;
   let closeStoreTerminal: typeof import('../../src/domains/storeMeta/callables/closeStoreTerminal').closeStoreTerminal;
-  let openStore: typeof import('../../src/domains/storeMeta/callables/openStore').openStore;
-  let closeStore: typeof import('../../src/domains/storeMeta/callables/closeStore').closeStore;
+  let openStore: typeof import('../../src/unused_function_lib/openStore').openStore;
+  let closeStore: typeof import('../../src/unused_function_lib/closeStore').closeStore;
 
   let emulatorAvailable = true;
 
@@ -30,8 +30,8 @@ describe('Phase6 Step3: storeManagement 統合', () => {
     admin.initializeApp({ projectId: PROJECT_ID });
     db = getFirestore();
     closeStoreTerminal = (await import('../../src/domains/storeMeta/callables/closeStoreTerminal')).closeStoreTerminal;
-    openStore = (await import('../../src/domains/storeMeta/callables/openStore')).openStore;
-    closeStore = (await import('../../src/domains/storeMeta/callables/closeStore')).closeStore;
+    openStore = (await import('../../src/unused_function_lib/openStore')).openStore;
+    closeStore = (await import('../../src/unused_function_lib/closeStore')).closeStore;
   });
 
   afterAll(async () => {

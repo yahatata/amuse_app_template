@@ -74,7 +74,6 @@ export const checkExistingCorrectionRequest = onCall(
     } catch (error) {
       logOpsError({
       message: '申請済みチェックエラー:',
-      failureType: 'business',
       functionEntry: 'checkExistingCorrectionRequest',
       cause: error,
     });

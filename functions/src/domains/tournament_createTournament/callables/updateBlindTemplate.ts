@@ -94,7 +94,6 @@ export const updateBlindTemplate = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'ブラインドテンプレート更新エラー:',
-      failureType: 'business',
       functionEntry: 'updateBlindTemplate',
       cause: error,
     });

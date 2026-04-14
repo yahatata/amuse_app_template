@@ -45,7 +45,6 @@ export const getTournamentRecurrences = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '定期開催トーナメント一覧取得エラー:',
-      failureType: 'business',
       functionEntry: 'getTournamentRecurrences',
       cause: error,
     });

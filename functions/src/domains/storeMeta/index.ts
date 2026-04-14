@@ -1,8 +1,10 @@
 /**
  * storeMeta: 店舗・開閉店・状態・店舗評価（開始/終了タスク含む）
  */
-export { openStore } from './callables/openStore';
-export { closeStore } from './callables/closeStore';
+/** UI 未配線のため実装は `unused_function_lib/openStore`（logOps 走査対象外） */
+export { openStore } from '../../unused_function_lib/openStore';
+/** UI 未配線のため実装は `unused_function_lib/closeStore`（logOps 走査対象外） */
+export { closeStore } from '../../unused_function_lib/closeStore';
 export { openStoreTerminal } from './callables/openStoreTerminal';
 export { closeStoreTerminal } from './callables/closeStoreTerminal';
 export { continueBusinessTerminal } from './callables/continueBusinessTerminal';

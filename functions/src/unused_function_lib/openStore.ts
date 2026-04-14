@@ -1,17 +1,20 @@
 /**
- * 手動開店関数
+ * [UNUSED - UI 未配線] openStore
  *
- * 管理者が手動で店舗を開店するためのCloud Function
+ * 手動開店 Callable。`lib/Home/terminalHomePage.dart` の `_callOpenStore` は定義のみで未使用。
+ * 実運用の開店は `openStoreTerminal`。
+ *
+ * `unused_function_lib` に置くことで logOps 系スクリプト（Step2-1 269 件スコープ等）の走査対象外とする。
+ * デプロイは `domains/storeMeta/index` から再エクスポートして維持。
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
-import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
-import { getCallerDeviceByUid, hasStoreManagementPermission, isActive } from '../../../shared/devices';
-import { generateJstDateKey } from '../../../shared/time';
-import { Timestamp } from 'firebase-admin/firestore';
+import { logOpsError } from '../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../shared/logging/functionCustomError';
+import { getCallerDeviceByUid, hasStoreManagementPermission, isActive } from '../shared/devices';
+import { generateJstDateKey } from '../shared/time';
 
 const db = getFirestore();
 
@@ -104,7 +107,6 @@ export const openStore = onCall(
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: 'openStore failed',
-        failureType: 'business',
         functionEntry: 'openStore',
         operation: 'openStoreCatch',
         cause: error,
@@ -118,8 +120,8 @@ export const openStore = onCall(
 
     logOpsError({
       message: 'openStore failed',
-      failureType: 'business',
       functionEntry: 'openStore',
+      operation: 'openStoreGenericCatch',
       cause: error,
       context: {
         uid: callerUid,

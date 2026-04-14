@@ -53,10 +53,16 @@ export async function runCleanupActiveStays(
       }
     } catch (e) {
       failed++;
-      console.warn('cleanupActiveStaysOnClose: delete failed', {
-        id: doc.id,
-        billId,
-        error: String(e),
+      logOpsError({
+        message: 'cleanupActiveStaysOnClose: delete failed',
+        functionEntry: 'cleanupActiveStaysOnClose',
+        operation: 'deleteActiveStayDocument',
+        cause: e,
+        errorKey: 'STORE_CLEANUP_ACTIVE_STAY_DELETE_FAILED',
+        context: {
+          activeStayId: doc.id,
+          billId,
+        },
       });
     }
   }
@@ -97,8 +103,8 @@ export const cleanupActiveStaysOnClose = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'cleanupActiveStaysOnClose: error',
-      failureType: 'business',
       functionEntry: 'cleanupActiveStaysOnClose',
+      operation: 'cleanupOuterCatch',
       cause: error,
     });
     throw new HttpsError(

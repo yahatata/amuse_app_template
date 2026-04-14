@@ -57,9 +57,9 @@ export const getUserStatus = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'getUserStatus error',
-      failureType: 'business',
       functionEntry: 'getUserStatus',
       cause: error,
+      errorKey: 'USER_VISIT_STATUS_FETCH_FAILED',
     });
     return { 
       success: false, 

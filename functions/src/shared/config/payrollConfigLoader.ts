@@ -101,7 +101,6 @@ export async function getPayrollConfig(db?: Firestore): Promise<PayrollConfig> {
       }
       logOpsError({
         message: 'config_read_error',
-        failureType: 'config',
         functionEntry: 'getPayrollConfig',
         operation: 'config_read',
         cause: lastError,

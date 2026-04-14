@@ -131,7 +131,6 @@ export async function saveQRCodeToStorage(
   } catch (error) {
     logOpsError({
       message: "QRコードStorage保存エラー",
-      failureType: "business",
       functionEntry: "saveQRCodeToStorage",
       cause: error,
       context: { uid, type },
@@ -169,7 +168,6 @@ async function deleteOldQRCodeFiles(uid: string, type: "user" | "staff"): Promis
   } catch (error) {
     logOpsError({
       message: '古いQRコードファイル削除エラー:',
-      failureType: 'business',
       functionEntry: 'deleteOldQRCodeFiles',
       cause: error,
     });

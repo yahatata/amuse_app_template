@@ -210,7 +210,6 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
   } catch (error) {
     logOpsError({
       message: 'Error in getStaffListForAttendance:',
-      failureType: 'business',
       functionEntry: 'getStaffListForAttendance',
       cause: error,
     });

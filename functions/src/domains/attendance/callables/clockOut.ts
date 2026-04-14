@@ -208,7 +208,6 @@ export const clockOut = onCall(async (request: CallableRequest) => {
     if (error instanceof HttpsError) throw error;
     logOpsError({
       message: 'Error in clockOut:',
-      failureType: 'business',
       functionEntry: 'clockOut',
       cause: error,
     });

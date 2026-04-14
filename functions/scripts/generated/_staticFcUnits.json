@@ -1,0 +1,1948 @@
+[
+  {
+    "fe": "addon",
+    "op": "addonMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "addon",
+    "op": "addonOperationLogWrite",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "addon",
+    "op": "recordTournamentActionBestEffort",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "addTableToTournament",
+    "op": "addTableToTournamentCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "addTableToTournament",
+    "op": "addTableToTournamentGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "appendExtra",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "appendExtraCallable",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "appendItem",
+    "op": "appendItemCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "appendItem",
+    "op": "appendItemWithOrderProjection",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "appendSideGameChip",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "applyCloseSnapshot",
+    "op": "applyBillCloseSnapshotTxn",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "applyCloseSnapshot",
+    "op": "getClosedBusinessDate",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "applyCloseSnapshot",
+    "op": "incrementUserUnsettledBillsCount",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "approveAttendanceCorrectionRequest",
+    "op": "approveRequestOuterCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "approveAttendanceCorrectionRequest",
+    "op": "attendanceRecordUpdate",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "archiveBlindTemplate",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "archiveTournamentTemplate",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "assignSeatToPlayer",
+    "op": "assignSeatGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "assignSeatToPlayer",
+    "op": "assignSeatOperationLogWrite",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "assignSeatToPlayer",
+    "op": "assignSeatToPlayerCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "assignSeatToPlayer",
+    "op": "updatePlaceBestEffort",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "billsEventsOnCreate",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "billsOnSettle",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "bulkAddon",
+    "op": "bulkAddonMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "bulkAddon",
+    "op": "bulkAddonOperationLogWrite",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "bulkAddon",
+    "op": "recordActionPerUserBestEffort",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "bustAndExit",
+    "op": "bustAndExitMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "bustAndExit",
+    "op": "bustAndExitOperationLogWrite",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "bustAndExit",
+    "op": "updatePlaceBestEffort",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "bustAndReentry",
+    "op": "bustAndReentryMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "bustAndReentry",
+    "op": "bustAndReentryOperationLogWrite",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "bustAndReentry",
+    "op": "recordTournamentActionBestEffort",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "calcBusinessDate",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "cancelAccounting",
+    "op": "cancelAccountingCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "cancelAccounting",
+    "op": "cancelAccountingGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "cancelOrder",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "checkExistingCorrectionRequest",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "cleanupActiveStaysOnClose",
+    "op": "cleanupOuterCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "cleanupActiveStaysOnClose",
+    "op": "deleteActiveStayDocument",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "clockIn",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "clockOut",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "closeAssessmentTask",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "closeStore",
+    "op": "closeStoreCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "closeStore",
+    "op": "closeStoreGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "closeStoreTerminal",
+    "op": "`runCloseStep.${stepName}`",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "closeStoreTerminal",
+    "op": "acquireProcessingLease",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "closeStoreTerminal",
+    "op": "closeTerminalPreflight",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "closeStoreTerminal",
+    "op": "finalizeCloseStateDoc.enqueueOpenAssessmentRecheck",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "closeStoreTerminal",
+    "op": "rollbackUnsettledMark",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "completeAccounting",
+    "op": "completeAccountingCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "completeAccounting",
+    "op": "completeAccountingGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "completeAccountingV2",
+    "op": "completeAccountingV2Catch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "completeAccountingV2",
+    "op": "completeAccountingV2GenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "confirmShiftRequest",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "continueBusinessTerminal",
+    "op": "cloudTasksCreateTask",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "continueBusinessTerminal",
+    "op": "continueBusinessTerminalFunctionCustom",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "controlHookHttp",
+    "op": "executeLegacyPayloadTask",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "controlHookHttp",
+    "op": "executeNewPayloadTask",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "controlHookHttp",
+    "op": "validateControlHookRequest",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createAttendance",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createAttendanceCorrectionRequest",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createBillWithActiveStay",
+    "op": "operationForCreateBillKey(error.errorKey)",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "createBillWithActiveStay",
+    "op": "runCreateBillTransaction",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createBlindTemplate",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createInitialStateDoc",
+    "op": "createDocMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createInitialStateDoc",
+    "op": "scriptTopLevelCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createInitialStateDocCallable",
+    "op": "createInitialStateDoc",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createManualClockInRecord",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createMenuItem",
+    "op": "imageUpload",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createMenuItem",
+    "op": "menuCreateCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createMultipleShifts",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createPayrollNotification",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createScheduledTournament",
+    "op": "createScheduledTournamentCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "createScheduledTournament",
+    "op": "createScheduledTournamentGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createScheduledTournament",
+    "op": "enqueueAfterCreate",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createScheduledTournamentFromRecurrence",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createStaffAccount",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createTemporaryTable",
+    "op": "createTemporaryTableCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "createTemporaryTable",
+    "op": "createTemporaryTableGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createTournamentRecurrence",
+    "op": "createTournamentRecurrenceCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "createTournamentRecurrence",
+    "op": "createTournamentRecurrenceGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createTournamentRecurrence",
+    "op": "createTournamentRecurrenceInnerHelper",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createTournamentRecurrence",
+    "op": "enqueueAfterCreate",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createTournamentTemplate",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createUserAccount",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "deleteOldQRCodeFiles",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "deleteTournamentRecurrence",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "depositTip",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "endBreak",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "endTournament",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "enqueueTournamentTasks",
+    "op": "enqueueBatchPartialErrors",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "enqueueTournamentTasks",
+    "op": "enqueueTournamentTasksCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "enqueueTournamentTasks",
+    "op": "enqueueTournamentTasksGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "enqueueTournamentTasksByScheduler",
+    "op": "cloudTasksCreateTask",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "enqueueTournamentTasksByScheduler",
+    "op": "runEnqueueSchedulerTask",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "ensureStaffRichMenu",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "executeMonthlyPayroll",
+    "op": "loadPayrollConfig",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "executeMonthlyPayroll",
+    "op": "taskDispatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "executeScheduledJobTask",
+    "op": "markReplanCompletedBestEffort",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "executeScheduledJobTask",
+    "op": "releaseReplanProcessingBestEffort",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "executeScheduledJobTask",
+    "op": "runScheduledJob",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "finalizeMonth",
+    "op": "finalizeDayLoop",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "finalizePayrollRun",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "finalizeUnsettledBillAfterAccounting",
+    "op": "",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "formatDateToJapanese",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "generateQRCode",
+    "op": "generateQRCodeOuterCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "generateQRCode",
+    "op": "transaction",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "generateRecurringTournamentsByScheduler",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getActionLogs",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getAllStaffAttendance",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getAttendanceCorrectionRequests",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getAvailableTables",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getBillPreviewTotals",
+    "op": "previewTotalsCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getBlindTemplates",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getCloseIntegrityData",
+    "op": "closeIntegrityAggregate",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getCurrentBusinessDateKeyOrThrow",
+    "op": "loadFirestoreStateDoc",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getFirebaseCustomToken",
+    "op": "",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "getLineConfig",
+    "op": "warmupSecrets",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getMenuItems",
+    "op": "adminMenuDocMissing",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getMenuItems",
+    "op": "menuFetchCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getOpenBills",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getPayrollCandidates",
+    "op": "loadPayrollConfig",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getPayrollConfig",
+    "op": "config_read",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getPayrollData",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getPrizeData",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getRankingData",
+    "op": "getRankingDataCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "getRankingData",
+    "op": "getRankingDataGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getRefundHistory",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getRequiredStaffByTimeSlot",
+    "op": "config_read",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getScheduledTournaments",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getScheduledTournamentsForEdit",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getSchedulerConfig",
+    "op": "config_read",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getShifts",
+    "op": "detailErrorLog",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getShifts",
+    "op": "initCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getShifts",
+    "op": "shiftFetchCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getShifts",
+    "op": "unknownErrorLog",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getStaffAttendance",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getStaffListForAttendance",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getStoreConfig",
+    "op": "config_read",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getTodayTournaments",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getTournamentRecurrences",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getTournamentTemplates",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getUnclockedStaffForClose",
+    "op": "unclockedStaffQuery",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getUnclosedTournamentsForClose",
+    "op": "unclosedTournamentsQuery",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getUnsettledBillsForClose",
+    "op": "unsettledBillsQuery",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getUpcomingTournaments",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getUserOrderHistory",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "getUserStatus",
+    "op": "",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "initializeStoreConfigCallable",
+    "op": "initStoreMetaConfig",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "leaveSeat",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "lineWebhook",
+    "op": "followOrUnblock",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "lineWebhook",
+    "op": "handler",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "lineWebhook",
+    "op": "postback",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "lineWebhook",
+    "op": "replyPostbackDeclineConfirmCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "lineWebhook",
+    "op": "replyPostbackDeclineConfirmNotOk",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "lineWebhook",
+    "op": "replyPostbackPlanDisabledCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "lineWebhook",
+    "op": "replyPostbackPlanDisabledNotOk",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "lineWebhook",
+    "op": "token",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "linkStaffRichMenu",
+    "op": "linkStaffRichMenuCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "linkStaffRichMenu",
+    "op": "linkStaffRichMenuHttpFail",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "linkUserRichMenu",
+    "op": "linkUserRichMenuCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "linkUserRichMenu",
+    "op": "linkUserRichMenuHttpFail",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "manualCheckIn",
+    "op": "",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "migrateSettledBillsForBusinessDay",
+    "op": "callable",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "migrateSettledBillsForBusinessDay",
+    "op": "runMigratePerBill",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "migrateTodaysBillsAccountingFields",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "openAssessmentTask",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "openStore",
+    "op": "openStoreCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "openStore",
+    "op": "openStoreGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "openStoreTerminal",
+    "op": "`runOpenStep.${stepName}`",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "openStoreTerminal",
+    "op": "acquireProcessingLease",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "openStoreTerminal",
+    "op": "openTerminalPreflight",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "pauseTournament",
+    "op": "pauseTournamentCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "pauseTournament",
+    "op": "pauseTournamentGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "payrollNotificationScheduler",
+    "op": "enqueue",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "placeOrder",
+    "op": "chipPurchaseLog",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "placeOrder",
+    "op": "placeOrderCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "placeOrder",
+    "op": "placeOrderGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "placeOrderByUser",
+    "op": "placeOrderCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "placeOrderByUser",
+    "op": "placeOrderGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "postEventAdjustment",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "postEventCancel",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "postEventRefund",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "postEventReopen",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "processRefund",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "processStaffPayroll",
+    "op": "failureStatusUpdate",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "processStaffPayroll",
+    "op": "processStaffPayrollCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "processStaffPayroll",
+    "op": "runNotFound",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "processStaffPayroll",
+    "op": "staffResultNotFound",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "processVisitByQR",
+    "op": "",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "recordTournamentAction",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerDevice",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerForSideGame",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerForTournament",
+    "op": "recordFailureOperationLog",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerForTournament",
+    "op": "recordTournamentAction",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerForTournament",
+    "op": "registerTournamentFlow",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerParticipants",
+    "op": "recordActionPerUserBestEffort",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerParticipants",
+    "op": "registerParticipantsMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerParticipants",
+    "op": "registerParticipantsOperationLogWrite",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerParticipants",
+    "op": "registerUserFailed",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "rejectAttendanceCorrectionRequest",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "removeTableFromTournament",
+    "op": "removeTableFromTournamentCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "removeTableFromTournament",
+    "op": "removeTableFromTournamentGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "reseatAllPlayers",
+    "op": "reseatAllPlayersCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "reseatAllPlayers",
+    "op": "reseatAllPlayersGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "reseatAllPlayers",
+    "op": "reseatAllPlayersOperationLogWrite",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "reseatAllPlayers",
+    "op": "updatePlacePerAssignmentBestEffort",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "resetAllSideGames",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "resetAllTables",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "resumeTournament",
+    "op": "resumeTournamentCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "resumeTournament",
+    "op": "resumeTournamentGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "rollbackAction",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "runEnqueueTournamentTasks",
+    "op": "enqueueTournamentTask",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "runEnqueueTournamentTasks",
+    "op": "processTournamentBatchItem",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "runGenerateRecurringTournaments",
+    "op": "enqueueAfterGenerate",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "runGenerateRecurringTournaments",
+    "op": "parseRecurrenceInterval",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "runGenerateRecurringTournaments",
+    "op": "parseRecurrenceIntervalWrongType",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "runGenerateRecurringTournaments",
+    "op": "runGenerateRecurringTournamentsOuterCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "runGenerateRecurringTournaments",
+    "op": "validateRecurringStoreTenant",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "saveQRCodeToStorage",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "scheduledCleanup",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "scheduleGenerateNextYearBusinessHours",
+    "op": "generateMonthFailed",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "scheduleGenerateNextYearBusinessHours",
+    "op": "taskOuterCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "schedulerSupervisor",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "sendLineButtonMessage",
+    "op": "buttonPushCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "sendLineButtonMessage",
+    "op": "buttonPushResponseNotOk",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "sendLineButtonMessage",
+    "op": "token",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "sendLineButtonMessage",
+    "op": "validate",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "sendLinePushMessage",
+    "op": "pushCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "sendLinePushMessage",
+    "op": "pushResponseNotOk",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "sendLinePushMessage",
+    "op": "token",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "sendLinePushMessage",
+    "op": "validate",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "setPrizeData",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "setRankingData",
+    "op": "setRankingDataPrizeGrant",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "setRankingData",
+    "op": "setRankingDataRankings",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "startAccounting",
+    "op": "operationForStartAccountingKey(error.errorKey)",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "startAccounting",
+    "op": "startAccountingCallableCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "startAccounting",
+    "op": "startAccountingRepoCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "startBreak",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "temporaryUnlockAlreadyRunningDifferentDateTerminal",
+    "op": "cloudTasksCreateTask",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "toggleSoldOutForMenuItem",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoAddon",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoAssignSeatToPlayer",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoBulkAddon",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoBustAndExit",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoBustAndReentry",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoRegisterForTournament",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoRegisterParticipants",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoReseatAllPlayers",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateAccounting",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateActiveBill",
+    "op": "updateActiveBillCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "updateActiveBill",
+    "op": "updateActiveBillGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateAttendance",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateBill",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateBlindTemplate",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateDeviceOptions",
+    "op": "updateDeviceOptionsCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateDeviceRole",
+    "op": "updateDeviceRoleCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateManualClockOutRecord",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateMenuItem",
+    "op": "imageUpload",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateMenuItem",
+    "op": "menuUpdateCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updatePlace",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateScheduledTournamentStartAt",
+    "op": "validateStartAtUpdatePreconditions",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "updateScheduledTournamentStatus",
+    "op": "validateStatusTransition",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "updateShiftRequest",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateStaffBankInfo",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateStaffHourlyWage",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateTournamentRecurrence",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateTournamentTemplate",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateUnclockedAttendanceWithAuth",
+    "op": "passwordClockOutUpdate",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "validateEndTournament",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "verifyLineIdToken",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "verifyPaymentSplit",
+    "op": "verifyPaymentSplitCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "verifyPaymentSplit",
+    "op": "verifyPaymentSplitGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "verifyQRCode",
+    "op": "",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "weeklyPlanner",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "withdrawTip",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "writeSchedulerDispatchLogBestEffort",
+    "op": "dispatchLogWrite",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "writeSchedulerExecutionLogByCloudTaskBestEffort",
+    "op": "executionLogWrite",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  }
+]

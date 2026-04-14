@@ -205,7 +205,6 @@ export const billsEventsOnCreate = onDocumentCreated(
     } catch (error) {
       logOpsError({
         message: 'billsEventsOnCreate failed',
-        failureType: 'datastore',
         functionEntry: 'billsEventsOnCreate',
         cause: error,
         context: {

@@ -15,6 +15,7 @@ import {
   ENQUEUE_TOURNAMENT_REPLAN_REQUEST_DOC_ID,
   ENQUEUE_TOURNAMENT_REPLAN_REQUESTS_COLLECTION,
 } from './enqueueTournamentTasksReplanRequest';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 const REPLAN_DELAY_SECONDS = 60;
 
@@ -128,6 +129,19 @@ export async function enqueueTournamentTasksReplanTask(now: Date = new Date()): 
       });
       return;
     }
+    logOpsError({
+      message: 'enqueueTournamentTasksReplanTask: cloud task enqueue failed',
+      functionEntry: 'enqueueTournamentTasksByScheduler',
+      operation: 'cloudTasksCreateTask',
+      cause: error,
+      errorKey: 'TOURNAMENT_REPLAN_ENQUEUE_FAILED',
+      sourceProductHint: 'cloud_tasks',
+      context: {
+        taskId,
+        queueName,
+        projectId,
+      },
+    });
     throw error;
   }
 

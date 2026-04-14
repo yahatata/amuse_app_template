@@ -116,7 +116,6 @@ export async function getRequiredStaffByTimeSlot(firestore?: Firestore): Promise
       if (attempt < MAX_RETRIES) continue;
       logOpsError({
         message: "config_read_error",
-        failureType: "config",
         functionEntry: "getRequiredStaffByTimeSlot",
         operation: "config_read",
         cause: lastError,

@@ -40,7 +40,6 @@ export const getOpenBills = onCall(async () => {
   } catch (error) {
     logOpsError({
       message: 'getOpenBills エラー:',
-      failureType: 'business',
       functionEntry: 'getOpenBills',
       cause: error,
     });

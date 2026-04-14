@@ -363,7 +363,6 @@ export const createMultipleShifts = onCall(
     } catch (error) {
       logOpsError({
       message: '複数シフト作成エラー:',
-      failureType: 'business',
       functionEntry: 'createMultipleShifts',
       cause: error,
     });

@@ -133,7 +133,19 @@ export async function applyCloseSnapshotCore(
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.warn('applyCloseSnapshot txn failed', { billId, error: msg });
+      logOpsError({
+        message: 'applyCloseSnapshotCore: bill transaction failed',
+        functionEntry: 'applyCloseSnapshot',
+        operation: 'applyBillCloseSnapshotTxn',
+        cause: e,
+        errorKey: 'STORE_CLOSE_SNAPSHOT_TXN_FAILED',
+        context: {
+          billId,
+          closeRunId,
+          closedBusinessDate,
+          error: msg,
+        },
+      });
       skipped.push({ billId, reason: 'txn_failed' });
     }
   }
@@ -153,7 +165,19 @@ export async function applyCloseSnapshotCore(
       });
       usersIncremented.push({ userId, inc: count });
     } catch (e) {
-      console.warn('applyCloseSnapshot users update failed', { userId, error: e });
+      logOpsError({
+        message: 'applyCloseSnapshotCore: users unsettledBillsCount update failed',
+        functionEntry: 'applyCloseSnapshot',
+        operation: 'incrementUserUnsettledBillsCount',
+        cause: e,
+        errorKey: 'STORE_CLOSE_USER_COUNTER_UPDATE_FAILED',
+        context: {
+          userId,
+          incrementCount: count,
+          closeRunId,
+          closedBusinessDate,
+        },
+      });
       usersUpdateFailed.push(userId);
     }
   }

@@ -80,7 +80,6 @@ export async function calcBusinessDate(nowUtc?: Date): Promise<BusinessDateResul
   } catch (error) {
     logOpsError({
       message: 'calcBusinessDate failed',
-      failureType: 'business',
       functionEntry: 'calcBusinessDate',
       cause: error,
       context: {

@@ -70,9 +70,9 @@ export const getFirebaseCustomToken = onRequest(async (request, response) => {
   } catch (error) {
     logOpsError({
       message: "Error in getFirebaseCustomToken",
-      failureType: "internal",
       functionEntry: "getFirebaseCustomToken",
       cause: error,
+      errorKey: "USER_AUTH_CUSTOM_TOKEN_FAILED",
     });
 
     if (error instanceof Error) {

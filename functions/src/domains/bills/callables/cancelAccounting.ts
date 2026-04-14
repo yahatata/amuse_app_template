@@ -126,8 +126,8 @@ export const cancelAccounting = onCall(async (request) => {
     }
     logOpsError({
       message: 'cancelAccounting failed',
-      failureType: 'business',
       functionEntry: 'cancelAccounting',
+      operation: 'cancelAccountingGenericCatch',
       cause: error,
       context: {
         op: 'cancelAccounting',

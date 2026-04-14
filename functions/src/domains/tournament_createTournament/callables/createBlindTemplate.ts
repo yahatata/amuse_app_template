@@ -84,7 +84,6 @@ export const createBlindTemplate = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'ブラインドテンプレート作成エラー:',
-      failureType: 'business',
       functionEntry: 'createBlindTemplate',
       cause: error,
     });

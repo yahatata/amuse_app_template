@@ -174,7 +174,6 @@ export const createManualClockInRecord = onCall(async (request: CallableRequest)
     }
     logOpsError({
       message: 'Error in createManualClockInRecord:',
-      failureType: 'business',
       functionEntry: 'createManualClockInRecord',
       cause: error,
     });

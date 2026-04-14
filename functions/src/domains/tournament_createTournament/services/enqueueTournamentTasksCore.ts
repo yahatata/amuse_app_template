@@ -380,6 +380,16 @@ export async function runEnqueueTournamentTasks(
           );
           return { success: true as const, enqueued };
         } catch (err) {
+          logOpsError({
+            message: 'runEnqueueTournamentTasks: tournament processing failed',
+            functionEntry: 'runEnqueueTournamentTasks',
+            operation: 'processTournamentBatchItem',
+            cause: err,
+            errorKey: 'TOURNAMENT_ENQUEUE_BATCH_ITEM_FAILED',
+            context: {
+              tournamentId: id,
+            },
+          });
           errors.push({
             tournamentId: id,
             error: err instanceof Error ? err.message : String(err),

@@ -315,7 +315,6 @@ export async function recordTournamentAction(request: RecordTournamentActionRequ
   } catch (error) {
     logOpsError({
       message: 'recordTournamentAction failed',
-      failureType: 'business',
       functionEntry: 'recordTournamentAction',
       cause: error,
       context: {

@@ -78,8 +78,8 @@ export const updateMenuItem = onCall(async (request) => {
       } catch (error) {
         logOpsError({
       message: '画像アップロードエラー:',
-      failureType: 'business',
       functionEntry: 'updateMenuItem',
+      operation: 'imageUpload',
       cause: error,
     });
         throw new HttpsError('internal', '画像のアップロードに失敗しました');
@@ -148,8 +148,8 @@ export const updateMenuItem = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'メニュー更新エラー:',
-      failureType: 'business',
       functionEntry: 'updateMenuItem',
+      operation: 'menuUpdateCatch',
       cause: error,
     });
     

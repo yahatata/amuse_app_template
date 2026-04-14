@@ -74,7 +74,17 @@ export const executeMonthlyPayroll = onCall(
     let payrollConfig;
     try {
       payrollConfig = await getPayrollConfig();
-    } catch {
+    } catch (configError) {
+      logOpsError({
+        message: 'executeMonthlyPayroll: payroll config not found',
+        functionEntry: 'executeMonthlyPayroll',
+        operation: 'loadPayrollConfig',
+        cause: configError,
+        context: {
+          paymentPeriodKey,
+          attendanceIdsCount: attendanceIds.length,
+        },
+      });
       throw new HttpsError('not-found', PAYROLL_ERRORS.PAYROLL_CONFIG_NOT_FOUND);
     }
     // attendance 一括取得
@@ -183,7 +193,6 @@ export const executeMonthlyPayroll = onCall(
     } catch (dispatchErr) {
       logOpsError({
         message: 'executeMonthlyPayroll: task dispatch failed',
-        failureType: 'business',
         functionEntry: 'executeMonthlyPayroll',
         operation: 'taskDispatch',
         cause: dispatchErr,

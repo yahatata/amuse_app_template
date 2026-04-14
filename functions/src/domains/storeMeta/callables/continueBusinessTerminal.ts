@@ -330,6 +330,7 @@ export const continueBusinessTerminal = onCall(
         logOpsError({
           message: 'continueBusinessTerminal failed',
           functionEntry: 'continueBusinessTerminal',
+          operation: 'continueBusinessTerminalFunctionCustom',
           cause: error,
         });
         throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);

@@ -133,7 +133,6 @@ export const depositTip = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'depositTipエラー:',
-      failureType: 'business',
       functionEntry: 'depositTip',
       cause: error,
     });

@@ -219,6 +219,7 @@ export const processVisitByQR = onCall(async (request) => {
       message: 'processVisitByQR error',
       functionEntry: 'processVisitByQR',
       cause: error,
+      errorKey: 'USER_VISIT_QR_UNEXPECTED',
     });
     return {
       success: false,

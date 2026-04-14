@@ -309,7 +309,6 @@ export const openAssessmentTask = onRequest(
     } catch (error: any) {
       logOpsError({
       message: '開店認定処理でエラーが発生しました:',
-      failureType: 'business',
       functionEntry: 'openAssessmentTask',
       cause: error,
     });

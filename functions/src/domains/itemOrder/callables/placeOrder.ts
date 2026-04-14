@@ -129,8 +129,8 @@ export const placeOrder = onCall(async (request) => {
         } catch (logError) {
           logOpsError({
       message: 'Chip購入ログ記録エラー:',
-      failureType: 'business',
       functionEntry: 'placeOrder',
+      operation: 'chipPurchaseLog',
       cause: logError,
     });
           // ログ記録の失敗は注文処理を止めない
@@ -189,7 +189,6 @@ export const placeOrder = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: 'placeOrder エラー:',
-        failureType: 'business',
         functionEntry: 'placeOrder',
         operation: 'placeOrderCatch',
         cause: error,
@@ -198,8 +197,8 @@ export const placeOrder = onCall(async (request) => {
     }
     logOpsError({
       message: 'placeOrder エラー:',
-      failureType: 'business',
       functionEntry: 'placeOrder',
+      operation: 'placeOrderGenericCatch',
       cause: error,
     });
     const errorMessage = error instanceof Error ? error.message : String(error);

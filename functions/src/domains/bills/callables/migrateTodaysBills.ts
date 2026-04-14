@@ -83,7 +83,6 @@ export const migrateTodaysBillsAccountingFields = onCall(async (request) => {
     }
     logOpsError({
       message: 'マイグレーションエラー:',
-      failureType: 'business',
       functionEntry: 'migrateTodaysBillsAccountingFields',
       cause: error,
     });

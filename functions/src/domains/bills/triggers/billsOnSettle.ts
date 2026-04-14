@@ -200,7 +200,6 @@ export const billsOnSettle = onDocumentUpdated(
     } catch (error) {
       logOpsError({
         message: 'billsOnSettle failed',
-        failureType: 'datastore',
         functionEntry: 'billsOnSettle',
         cause: error,
         context: { billId },

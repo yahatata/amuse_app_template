@@ -259,7 +259,6 @@ export async function postEventRefund(request: PostEventRefundRequest): Promise<
   } catch (error) {
     logOpsError({
       message: 'postEventRefund failed',
-      failureType: 'business',
       functionEntry: 'postEventRefund',
       cause: error,
       context: {

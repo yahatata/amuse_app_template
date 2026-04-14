@@ -88,8 +88,8 @@ export async function runScheduleGenerateNextYearBusinessHoursTask(
       } catch (monthError) {
         logOpsError({
           message: `scheduleGenerateNextYearBusinessHours month failed: ${yearMonth}`,
-          failureType: "scheduled",
           functionEntry: "scheduleGenerateNextYearBusinessHours",
+          operation: "generateMonthFailed",
           cause: monthError,
         });
       }
@@ -99,8 +99,8 @@ export async function runScheduleGenerateNextYearBusinessHoursTask(
   } catch (error) {
     logOpsError({
       message: "scheduleGenerateNextYearBusinessHours task execution failed",
-      failureType: "scheduled",
       functionEntry: "scheduleGenerateNextYearBusinessHours",
+      operation: "taskOuterCatch",
       cause: error,
     });
     throw error;

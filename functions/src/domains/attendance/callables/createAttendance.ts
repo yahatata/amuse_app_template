@@ -178,7 +178,6 @@ export const createAttendance = onCall(async (request: CallableRequest) => {
     if (error instanceof HttpsError) throw error;
     logOpsError({
       message: 'Error in createAttendance:',
-      failureType: 'business',
       functionEntry: 'createAttendance',
       cause: error,
     });

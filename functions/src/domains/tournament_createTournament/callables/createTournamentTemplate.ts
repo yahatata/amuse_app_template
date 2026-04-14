@@ -72,7 +72,6 @@ export const createTournamentTemplate = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'トーナメントテンプレート作成エラー:',
-      failureType: 'business',
       functionEntry: 'createTournamentTemplate',
       cause: error,
     });

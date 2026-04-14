@@ -176,7 +176,6 @@ export const clockIn = onCall(async (request: CallableRequest) => {
     if (error instanceof HttpsError) throw error;
     logOpsError({
       message: 'Error in clockIn:',
-      failureType: 'business',
       functionEntry: 'clockIn',
       cause: error,
     });

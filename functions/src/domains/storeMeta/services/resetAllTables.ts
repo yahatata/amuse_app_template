@@ -40,7 +40,6 @@ export const resetAllTables = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'resetAllTablesエラー:',
-      failureType: 'business',
       functionEntry: 'resetAllTables',
       cause: error,
     });

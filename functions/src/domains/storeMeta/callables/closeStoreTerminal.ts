@@ -6,7 +6,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { CloudTasksClient } from '@google-cloud/tasks';
-import { logger } from 'firebase-functions';
 import { requireAdmin } from '../../../shared/devices';
 import { acquireProcessing, extendProcessing, releaseProcessing } from '../services/processingLease';
 import { applyCloseSnapshotCore } from '../services/applyCloseSnapshot';
@@ -426,11 +425,19 @@ export const closeStoreTerminal = onCall(
             recheckEnqueueError = enqueueError instanceof Error
               ? enqueueError.message
               : String(enqueueError);
-            logger.error('openAssessment recheck enqueue failed after close', {
-              runId,
-              closedBusinessDate,
-              intendedBusinessDateKeyForRecheck,
-              recheckEnqueueError,
+            logOpsError({
+              message: 'openAssessment recheck enqueue failed after close',
+              functionEntry: 'closeStoreTerminal',
+              operation: 'finalizeCloseStateDoc.enqueueOpenAssessmentRecheck',
+              cause: enqueueError,
+              errorKey: 'STORE_OPEN_ASSESSMENT_RECHECK_ENQUEUE_FAILED',
+              sourceProductHint: 'cloud_tasks',
+              context: {
+                runId,
+                closedBusinessDate,
+                intendedBusinessDateKeyForRecheck,
+                recheckEnqueueError,
+              },
             });
           }
 
@@ -492,6 +499,18 @@ export const closeStoreTerminal = onCall(
         const err = stepError instanceof Error ? stepError : new Error(String(stepError));
         const errMsg = err.message.slice(0, 200);
         const errCode = err instanceof HttpsError ? err.code : 'internal';
+        logOpsError({
+          message: 'closeStoreTerminal: close step failed',
+          functionEntry: 'closeStoreTerminal',
+          operation: `runCloseStep.${stepName}`,
+          cause: stepError,
+          errorKey: 'STORE_CLOSE_STEP_FAILED',
+          context: {
+            runId,
+            closedBusinessDate,
+            stepName,
+          },
+        });
 
         await attemptRef.update({
           result: 'failed',
@@ -529,7 +548,17 @@ export const closeStoreTerminal = onCall(
           } catch (rbErr) {
             rollbackResult = 'failed';
             rollbackErrorSummary = (rbErr instanceof Error ? rbErr.message : String(rbErr)).slice(0, 200);
-            logger.warn('UNSETTLED_MARK rollback failed', { runId, rollbackErrorSummary });
+            logOpsError({
+              message: 'closeStoreTerminal: UNSETTLED_MARK rollback failed',
+              functionEntry: 'closeStoreTerminal',
+              operation: 'rollbackUnsettledMark',
+              cause: rbErr,
+              errorKey: 'STORE_CLOSE_ROLLBACK_FAILED',
+              context: {
+                runId,
+                rollbackErrorSummary,
+              },
+            });
           }
 
           await attemptRef.update({

@@ -220,8 +220,8 @@ export const addon = onCall(async (request) => {
     } catch (error) {
       logOpsError({
       message: 'Failed to record tournament action via recordTournamentAction helper:',
-      failureType: 'business',
       functionEntry: 'addon',
+      operation: 'recordTournamentActionBestEffort',
       cause: error,
     });
       // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
@@ -289,8 +289,8 @@ export const addon = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== Addon処理エラー ===',
-      failureType: 'business',
       functionEntry: 'addon',
+      operation: 'addonMainCatch',
       cause: error,
     });
 
@@ -311,8 +311,8 @@ export const addon = onCall(async (request) => {
       } catch (logErr) {
         logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'addon',
+      operation: 'addonOperationLogWrite',
       cause: logErr,
     });
       }

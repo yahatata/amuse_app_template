@@ -163,7 +163,6 @@ export const verifyPaymentSplit = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '支払い分割照合エラー:',
-        failureType: 'business',
         functionEntry: 'verifyPaymentSplit',
         operation: 'verifyPaymentSplitCatch',
         cause: error,
@@ -175,8 +174,8 @@ export const verifyPaymentSplit = onCall(async (request) => {
     }
     logOpsError({
       message: '支払い分割照合エラー:',
-      failureType: 'business',
       functionEntry: 'verifyPaymentSplit',
+      operation: 'verifyPaymentSplitGenericCatch',
       cause: error,
     });
     throw new HttpsError('internal', '支払い分割照合に失敗しました', error.message);

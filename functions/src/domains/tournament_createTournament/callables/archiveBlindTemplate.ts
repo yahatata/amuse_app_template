@@ -27,7 +27,6 @@ export const archiveBlindTemplate = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'ブラインドテンプレートアーカイブエラー:',
-      failureType: 'business',
       functionEntry: 'archiveBlindTemplate',
       cause: error,
     });

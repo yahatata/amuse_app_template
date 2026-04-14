@@ -218,7 +218,6 @@ export async function getSchedulerConfig(db?: Firestore): Promise<SchedulerConfi
 
       logOpsError({
         message: 'config_read_error',
-        failureType: 'config',
         functionEntry: 'getSchedulerConfig',
         operation: 'config_read',
         cause: lastError,

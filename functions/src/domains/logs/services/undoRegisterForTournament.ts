@@ -153,7 +153,6 @@ export async function undoRegisterForTournament(params: UndoRegisterForTournamen
   } catch (error) {
     logOpsError({
       message: 'Error undoing register for tournament:',
-      failureType: 'business',
       functionEntry: 'undoRegisterForTournament',
       cause: error,
     });

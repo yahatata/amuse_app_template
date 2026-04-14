@@ -250,7 +250,6 @@ export async function postEventAdjustment(request: PostEventAdjustmentRequest): 
   } catch (error) {
     logOpsError({
       message: 'postEventAdjustment failed',
-      failureType: 'business',
       functionEntry: 'postEventAdjustment',
       cause: error,
       context: {

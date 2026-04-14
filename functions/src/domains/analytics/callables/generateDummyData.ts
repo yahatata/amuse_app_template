@@ -315,7 +315,6 @@ export const generateDummyData = onCall({
   } catch (error) {
     logOpsError({
       message: '4ヶ月分のダミーデータ生成エラー:',
-      failureType: 'business',
       functionEntry: 'generateDummyData',
       cause: error,
     });

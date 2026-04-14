@@ -74,9 +74,9 @@ export const verifyQRCode = onCall(
     } catch (error) {
       logOpsError({
       message: 'QRコード検証エラー:',
-      failureType: 'business',
       functionEntry: 'verifyQRCode',
       cause: error,
+      errorKey: 'USER_VISIT_QR_VERIFY_FAILED',
     });
       return {
         valid: false,

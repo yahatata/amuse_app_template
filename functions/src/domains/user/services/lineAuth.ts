@@ -30,7 +30,6 @@ export async function verifyLineIdToken(
   } catch (error) {
     logOpsError({
       message: "Error verifying LINE ID token",
-      failureType: "internal",
       functionEntry: "verifyLineIdToken",
       cause: error,
     });
