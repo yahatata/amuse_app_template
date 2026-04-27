@@ -12,7 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { shouldDualWrite, legacyUpdateBillUpdate } from './dualWrite';
 
 export interface UpdateBillRequest {
@@ -166,13 +166,19 @@ export async function updateBill(request: UpdateBillRequest): Promise<UpdateBill
       });
     }
 
-    logger.info('updateBill success', {
-      op: 'updateBill',
-      billId,
-      result: 'ok',
-      updatedFields: result.updatedFields,
-      dualWriteResult,
+    logOpsSuccess({
+      message: 'updateBill 成功',
+      functionEntry: 'updateBill',
+      context: {
+        op: 'updateBill',
+        billId,
+        result: 'ok',
+        updatedFields: result.updatedFields,
+        dualWriteResult,
+        code: 'ok',
+      },
     });
+
 
     return result;
   } catch (error) {

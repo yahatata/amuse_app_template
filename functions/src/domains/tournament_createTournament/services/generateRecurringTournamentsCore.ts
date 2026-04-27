@@ -12,7 +12,7 @@
 
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
 import { isProductionRuntime, validateStoreTenantForProduction } from "../../../shared/runtime";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
@@ -311,10 +311,14 @@ export async function runGenerateRecurringTournaments(
     };
   } catch (error) {
     logOpsError({
-      message: '定期開催トーナメント自動生成エラー:',
-      functionEntry: 'runGenerateRecurringTournaments',
-      operation: 'runGenerateRecurringTournamentsOuterCatch',
+      message: "定期開催トーナメント自動生成エラー:",
+      functionEntry: "runGenerateRecurringTournaments",
+      operation: "runGenerateRecurringTournamentsOuterCatch",
       cause: error,
+      context: {
+        evaluationDate: options.evaluationDate,
+        windowEndDate: options.windowEndDate,
+      },
     });
     return {
       success: false,
@@ -595,13 +599,33 @@ async function createScheduledTournamentFromRecurrence(
       const runtimeRef = tournamentRef.collection("views").doc("runtime");
       transaction.set(runtimeRef, runtimeData);
     });
+    logOpsSuccess({
+      message: "createScheduledTournamentFromRecurrence 成功",
+      functionEntry: "createScheduledTournamentFromRecurrence",
+      context: {
+        recurrenceId,
+        templateId,
+        storeId,
+        tenantId,
+        businessDate,
+        scheduledTournamentId: tournamentRef.id,
+        startAt: startAtDate.toISOString(),
+      },
+    });
 
     return tournamentRef.id;
   } catch (error) {
     logOpsError({
-      message: '定期開催トーナメント作成エラー:',
-      functionEntry: 'createScheduledTournamentFromRecurrence',
+      message: "定期開催トーナメント作成エラー:",
+      functionEntry: "createScheduledTournamentFromRecurrence",
       cause: error,
+      context: {
+        recurrenceId,
+        templateId,
+        storeId,
+        tenantId,
+        startAt: startAt.toISOString(),
+      },
     });
     return null;
   }

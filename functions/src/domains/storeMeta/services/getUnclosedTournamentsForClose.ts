@@ -10,7 +10,7 @@ import { Firestore, getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 import { getCurrentBusinessDateKeyOrThrow } from '../repos/getCurrentBusinessDateKeyOrThrow';
 import { requireAdmin } from '../../../shared/devices';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 export type UnclosedTournamentItem = {
   tournamentId: string;
@@ -164,9 +164,19 @@ export const getUnclosedTournamentsForClose = onCall(async (request) => {
   const db = getFirestore();
   await requireAdmin(db, adminId);
 
+  const logContext: Record<string, unknown> = { adminId };
+
   try {
     const businessDate = await getCurrentBusinessDateKeyOrThrow();
+    Object.assign(logContext, { businessDate });
     const data = await getUnclosedTournamentsForCloseCore(db, businessDate);
+    logOpsSuccess({
+      message: 'getUnclosedTournamentsForClose 成功',
+      functionEntry: 'getUnclosedTournamentsForClose',
+      operation: 'unclosedTournamentsQuery',
+      context: { businessDate, count: data.length },
+    });
+
     return {
       success: true,
       data,
@@ -180,6 +190,7 @@ export const getUnclosedTournamentsForClose = onCall(async (request) => {
       operation: 'unclosedTournamentsQuery',
       cause: error,
       sourceProductHint: 'firestore',
+      context: logContext,
     });
     throw new HttpsError(
       'internal',

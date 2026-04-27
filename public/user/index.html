@@ -220,7 +220,7 @@
       <!-- グローバルローディングオーバーレイ（処理中表示用） -->
       <div id="global-loading-overlay" class="global-loading-overlay" style="display: none;">
         <div class="global-loading-content">
-          <div class="spinner"></div>
+        <div class="spinner"></div>
         </div>
       </div>
 
@@ -829,7 +829,7 @@
               if (loadingEl) {
                 loadingEl.style.display = 'block';
               }
-              
+            
             // ホームページに遷移
             checkStoreRegistration();
           } else {
@@ -1549,10 +1549,10 @@
               if (status === 'cancel') {
                 cancelItems.push(item);
               } else {
-                const key = `${item.name}_${item.price}`;
-                if (aggregatedItems[key]) {
-                  aggregatedItems[key].quantity += item.quantity;
-                } else {
+              const key = `${item.name}_${item.price}`;
+              if (aggregatedItems[key]) {
+                aggregatedItems[key].quantity += item.quantity;
+              } else {
                   aggregatedItems[key] = { name: item.name, quantity: item.quantity, price: item.price ?? 0, status };
                 }
               }
@@ -1582,7 +1582,7 @@
                     <div class="order-item order-item-cancel">
                       <span class="item-name">キャンセル</span>
                       <span class="item-details">${totalCancelQty > 1 ? totalCancelQty + '件 ' : ''}キャンセル</span>
-                    </div>
+                </div>
                   ` : ''}
                 </div>
                 ${order.currentTable ? `<div class="order-location">テーブル: ${order.currentTable}${order.currentSeat != null ? ` (${order.currentSeat})` : ''}</div>` : ''}
@@ -2022,22 +2022,22 @@
           showErrorWithRetry(TIMEOUT_MESSAGE, null, () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); });
         }, INIT_TIMEOUT_MS);
         const clearInitTimers = () => { clearTimeout(slowWarnId); clearTimeout(timeoutId); };
-        homePageEl.style.display = 'none';
-        registrationPageEl.style.display = 'none';
-        qrPageEl.style.display = 'none';
-        orderPageEl.style.display = 'none';
-        orderHistoryPageEl.style.display = 'none';
-        tournamentPageEl.style.display = 'none';
+          homePageEl.style.display = 'none';
+          registrationPageEl.style.display = 'none';
+          qrPageEl.style.display = 'none';
+          orderPageEl.style.display = 'none';
+          orderHistoryPageEl.style.display = 'none';
+          tournamentPageEl.style.display = 'none';
         weeklyTournamentPageEl.style.display = 'none';
-        profilePageEl.style.display = 'none';
-
+          profilePageEl.style.display = 'none';
+          
         try {
           if (window._debugLog) window._debugLog('3a. generateBirthdayOptions実行');
           generateBirthdayOptions();
-
+          
           if (window._debugLog) window._debugLog('3b. initLiffAndFirebaseAuth呼び出し');
           try {
-            await window.initLiffAndFirebaseAuth();
+          await window.initLiffAndFirebaseAuth();
             if (window._debugLog) window._debugLog('3c. initLiffAndFirebaseAuth完了');
           } catch (liffError) {
             clearInitTimers();
@@ -2049,7 +2049,7 @@
 
           if (window._debugLog) window._debugLog('3d. checkStoreRegistration呼び出し');
           try {
-            await checkStoreRegistration();
+          await checkStoreRegistration();
             if (window._debugLog) window._debugLog('3e. checkStoreRegistration完了');
           } catch (checkError) {
             clearInitTimers();

@@ -3,7 +3,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as bcrypt from "bcryptjs";
 import { initializeUserLogs } from "../services/logUtils";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * ユーザーアカウント作成関数
@@ -54,6 +54,8 @@ export const createUserAccount = onCall(
       throw new functions.https.HttpsError("already-exists", "このpokerNameは既に使用されています。別のpokerNameに変更してください。");
     }
 
+    const logContext: Record<string, unknown> = { uid: request.auth.uid, pokerName };
+
     try {
       const uid = request.auth.uid;
 
@@ -65,6 +67,7 @@ export const createUserAccount = onCall(
 
       // loginIdを自動生成（pokerName + birthMonthDay）
       const loginId = pokerName + birthMonthDay;
+      Object.assign(logContext, { loginId });
 
       // QRコードデータを直接生成
       const { generateQRData, generateQRImage, saveQRCodeToStorage } =
@@ -102,6 +105,12 @@ export const createUserAccount = onCall(
 
       // ログサブコレクションを初期化
       await initializeUserLogs(uid);
+      logOpsSuccess({
+        message: "createUserAccount 成功",
+        functionEntry: "createUserAccount",
+        context: { uid, loginId },
+      });
+
 
       return {
         success: true,
@@ -115,6 +124,7 @@ export const createUserAccount = onCall(
       message: 'ユーザーアカウント作成エラー:',
       functionEntry: 'createUserAccount',
       cause: error,
+      context: logContext,
     });
       
       // 既にHttpsErrorの場合はそのまま再スロー

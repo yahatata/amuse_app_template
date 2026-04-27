@@ -1571,27 +1571,27 @@ class _terminalHomePageState extends State<terminalHomePage> {
                   ? () => _onBusinessContinue(context)
                   : null,
               child: GridView.custom(
-                padding: const EdgeInsets.all(16),
-                physics: const AlwaysScrollableScrollPhysics(), // スクロール可能に変更
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 5,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  mainAxisExtent: buttonHeight,
-                ),
+        padding: const EdgeInsets.all(16),
+        physics: const AlwaysScrollableScrollPhysics(), // スクロール可能に変更
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 5,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          mainAxisExtent: buttonHeight,
+        ),
                 childrenDelegate: SliverChildListDelegate.fixed([
                   // 通常ボタン
                   ...visibleButtons.map((btn) {
-                    return ElevatedButton(
+            return ElevatedButton(
                       onPressed: () async {
                         if (context.mounted) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => btn.destination),
-                          );
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => btn.destination),
+                );
                         }
-                      },
-                      child: Text(btn.label, textAlign: TextAlign.center),
+              },
+              child: Text(btn.label, textAlign: TextAlign.center),
                     );
                   }),
                   // 営業管理ボタン（開閉店管理ダイアログ）
@@ -1694,8 +1694,8 @@ class _terminalHomePageState extends State<terminalHomePage> {
                         return DropdownMenuItem<int>(
                           value: h,
                           child: Text('$h 時間'),
-                        );
-                      }).toList(),
+            );
+          }).toList(),
                       onChanged: (value) {
                         if (value != null)
                           setState(() => selectedHours = value);

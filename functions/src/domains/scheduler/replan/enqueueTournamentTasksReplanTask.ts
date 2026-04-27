@@ -15,7 +15,7 @@ import {
   ENQUEUE_TOURNAMENT_REPLAN_REQUEST_DOC_ID,
   ENQUEUE_TOURNAMENT_REPLAN_REQUESTS_COLLECTION,
 } from './enqueueTournamentTasksReplanRequest';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 const REPLAN_DELAY_SECONDS = 60;
 
@@ -124,8 +124,11 @@ export async function enqueueTournamentTasksReplanTask(now: Date = new Date()): 
     });
   } catch (error) {
     if (isTaskAlreadyExistsError(error)) {
-      logger.info('enqueueTournamentTasksReplanTask: duplicate task skipped', {
-        taskId,
+      logOpsSuccess({
+        message: 'enqueueTournamentTasksReplanTask: duplicate task skipped',
+        functionEntry: 'enqueueTournamentTasksByScheduler',
+        operation: 'replanTaskIdempotentSkip',
+        context: { taskId, planningDate },
       });
       return;
     }
@@ -152,4 +155,16 @@ export async function enqueueTournamentTasksReplanTask(now: Date = new Date()): 
     },
     { merge: true }
   );
+
+  logOpsSuccess({
+    message: 'enqueueTournamentTasksReplanTask 成功',
+    functionEntry: 'enqueueTournamentTasksByScheduler',
+    operation: 'replanTaskEnqueue',
+    context: {
+      taskId,
+      planningDate,
+      aggregateVersion,
+      projectId,
+    },
+  });
 }

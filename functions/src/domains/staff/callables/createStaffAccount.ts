@@ -1,7 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * スタッフアカウント作成関数
@@ -53,6 +53,11 @@ export const createStaffAccount = onCall(
       throw new functions.https.HttpsError("invalid-argument", "かなはひらがなまたはカタカナで入力してください。");
     }
 
+    const logContext: Record<string, unknown> = {
+      uid: request.auth.uid,
+      fullNameKana,
+    };
+
     try {
       const uid = request.auth.uid;
 
@@ -70,6 +75,7 @@ export const createStaffAccount = onCall(
 
       // loginIdを自動生成（fullNameKana + birthMonthDay）
       const loginId = fullNameKana + birthMonthDay;
+      Object.assign(logContext, { loginId });
 
       // QRコードデータを生成
       const { generateQRData, generateQRImage, saveQRCodeToStorage } =
@@ -108,6 +114,12 @@ export const createStaffAccount = onCall(
         console.warn("スタッフ登録: リッチメニュー更新に失敗（登録は成功）", richMenuError);
       }
 
+      logOpsSuccess({
+        message: 'createStaffAccount 成功',
+        functionEntry: 'createStaffAccount',
+        context: { uid, loginId, fullNameKana },
+      });
+
       return {
         success: true,
         uid,
@@ -120,6 +132,7 @@ export const createStaffAccount = onCall(
       message: 'スタッフアカウント作成エラー:',
       functionEntry: 'createStaffAccount',
       cause: error,
+      context: logContext,
     });
       
       // 既にHttpsErrorの場合はそのまま再スロー

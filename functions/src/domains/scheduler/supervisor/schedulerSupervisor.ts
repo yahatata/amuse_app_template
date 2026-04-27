@@ -1,6 +1,5 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { runSchedulerSupervisorCore } from './schedulerSupervisorCore';
 
 const SCHEDULER_SUPERVISOR_CRON = '0 3 * * *';
@@ -15,12 +14,23 @@ export const schedulerSupervisor = onSchedule(
   async () => {
     try {
       const result = await runSchedulerSupervisorCore();
-      logger.info('schedulerSupervisor completed', result);
+      logOpsSuccess({
+        message: 'schedulerSupervisor 成功',
+        functionEntry: 'schedulerSupervisor',
+        context: {
+          planningDate: result.planningDate,
+          supervisorRunId: result.supervisorRunId,
+          enqueuedCount: result.enqueuedCount,
+          skippedCount: result.skippedCount,
+          failedCount: result.failedCount,
+        },
+      });
     } catch (error) {
       logOpsError({
         message: 'schedulerSupervisor failed',
         functionEntry: 'schedulerSupervisor',
         cause: error,
+        context: { cron: SCHEDULER_SUPERVISOR_CRON },
       });
       throw error;
     }

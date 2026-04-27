@@ -7,7 +7,7 @@ import * as crypto from 'crypto';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 支払い方法の表示名を取得するヘルパー関数
@@ -234,6 +234,13 @@ export const startAccounting = onCall(async (request) => {
         });
       }
 
+      logOpsSuccess({
+        message: "startAccounting 成功（0円会計）",
+        functionEntry: "startAccounting",
+        operation: "startAccountingCallable",
+        context: { billId, adminId, zeroYen: true, status: startAccountingResult.status },
+      });
+
       return { 
         success: true, 
         message: '会計を開始しました（0円会計）',
@@ -337,6 +344,13 @@ export const startAccounting = onCall(async (request) => {
         // updatedAt は既存ポリシーに従い、冪等リプレイ時は更新しない（startAccountingHelper 側で制御）
       });
     }
+
+    logOpsSuccess({
+      message: "startAccounting 成功",
+      functionEntry: "startAccounting",
+      operation: "startAccountingCallable",
+      context: { billId, adminId, zeroYen: false, status: startAccountingResult.status },
+    });
 
     return { 
       success: true, 
@@ -499,7 +513,13 @@ export const completeAccounting = onCall(async (request) => {
       }
     }
 
-    console.log('会計完了成功 - 戻り値を返します');
+    logOpsSuccess({
+      message: "completeAccounting 成功",
+      functionEntry: "completeAccounting",
+      operation: "completeAccountingCallable",
+      context: { billId, adminId, accountingHistoryId: accountingHistoryRef.id },
+    });
+
     return { 
       success: true, 
       message: '会計を完了しました',
@@ -618,7 +638,6 @@ export const completeAccountingV2 = onCall(async (request) => {
             await activeStayRef.update({
               isActive: false,
             });
-            console.log(`activeStays updated: userId=${userId}, billId=${billId}, isActive=false`);
           } else {
             console.warn(`activeStays billId mismatch: userId=${userId}, expected=${billId}, actual=${activeStayData.billId}`);
           }
@@ -647,7 +666,6 @@ export const completeAccountingV2 = onCall(async (request) => {
             stayMinutes: stayMinutes,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
-          console.log(`visitLogs updated: userId=${userId}, billId=${billId}, stayMinutes=${stayMinutes}`);
         }
       } catch (activeStayError: any) {
         // activeStays の更新失敗は警告ログのみ（会計完了処理自体は成功とする）
@@ -660,6 +678,13 @@ export const completeAccountingV2 = onCall(async (request) => {
     } else {
       console.warn(`party.userId not found in bill: billId=${billId}`);
     }
+
+    logOpsSuccess({
+      message: "completeAccountingV2 成功",
+      functionEntry: "completeAccountingV2",
+      operation: "completeAccountingV2Callable",
+      context: { billId, adminId, userId: userId ?? null },
+    });
 
     return { success: true, message: '会計を完了しました', billId };
   } catch (error: any) {

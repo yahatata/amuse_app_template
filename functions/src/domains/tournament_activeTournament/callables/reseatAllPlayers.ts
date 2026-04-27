@@ -6,7 +6,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import type { DeviceDoc } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -266,9 +266,17 @@ export const reseatAllPlayers = onCall(async (request) => {
       },
     });
 
-    console.log(`=== 全員リシート完了 ===`);
-    console.log(`結果:`, result);
-    
+    logOpsSuccess({
+      message: '全員着席替えが完了しました',
+      functionEntry: 'reseatAllPlayers',
+      context: {
+        tournamentId,
+        playerCount: result.playerCount,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
+
     return { success: true, playerCount: result.playerCount };
     
   } catch (error) {

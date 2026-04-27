@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマの定義
 const deleteTournamentRecurrenceSchema = z.object({
@@ -66,19 +66,33 @@ export const deleteTournamentRecurrence = onCall(async (request) => {
 
     await batch.commit();
 
-    console.log('定期開催削除完了:', recurrenceId);
+    const archivedCount = relatedTournaments.docs.length;
+
+    logOpsSuccess({
+      message: 'deleteTournamentRecurrence 成功',
+      functionEntry: 'deleteTournamentRecurrence',
+      context: {
+        recurrenceId,
+        archivedTournamentCount: archivedCount,
+      },
+    });
 
     return {
       success: true,
-      deletedTournaments: relatedTournaments.docs.length,
-      message: `定期開催を削除し、関連する${relatedTournaments.docs.length}件のトーナメントをアーカイブしました`
+      deletedTournaments: archivedCount,
+      message: `定期開催を削除し、関連する${archivedCount}件のトーナメントをアーカイブしました`,
     };
 
   } catch (error) {
+    const recHint = deleteTournamentRecurrenceSchema.safeParse(request.data);
     logOpsError({
       message: '定期開催トーナメント削除エラー:',
       functionEntry: 'deleteTournamentRecurrence',
       cause: error,
+      context: {
+        recurrenceId: recHint.success ? recHint.data.recurrenceId : undefined,
+        callerUid,
+      },
     });
     if (error instanceof HttpsError) {
       throw error;

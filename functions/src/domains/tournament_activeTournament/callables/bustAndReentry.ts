@@ -7,7 +7,7 @@ import type { DeviceDoc } from '../../../shared/devices';
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -392,9 +392,21 @@ export const bustAndReentry = onCall(async (request) => {
       },
     });
 
-    console.log(`=== Bust＆リエントリー完了 ===`);
-    console.log(`ユーザー ${result.userId} のBust＆リエントリーが完了しました`);
-    
+    logOpsSuccess({
+      message: 'Bust＆リエントリーが完了しました',
+      functionEntry: 'bustAndReentry',
+      context: {
+        tournamentId,
+        userId: result.userId,
+        tableId,
+        seatNumber,
+        billId: result.billId,
+        templateId: result.templateId,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
+
     return {
       success: true,
       userId: result.userId,

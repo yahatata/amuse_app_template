@@ -1,6 +1,6 @@
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getRequiredProjectId } from '../../../shared/runtime/projectId';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 export const ENQUEUE_TOURNAMENT_REPLAN_REQUESTS_COLLECTION =
   'enqueueTournamentTasksReplanRequests';
@@ -106,6 +106,13 @@ export async function markEnqueueTournamentTasksReplanCompleted(): Promise<void>
     },
     { merge: true }
   );
+
+  logOpsSuccess({
+    message: 'enqueueTournamentTasksReplanRequests 完了マーク成功',
+    functionEntry: 'executeScheduledJobTask',
+    operation: 'markReplanCompleted',
+    context: { docId: ENQUEUE_TOURNAMENT_REPLAN_REQUEST_DOC_ID },
+  });
 }
 
 export async function releaseEnqueueTournamentTasksReplanProcessing(): Promise<void> {
@@ -120,6 +127,13 @@ export async function releaseEnqueueTournamentTasksReplanProcessing(): Promise<v
     },
     { merge: true }
   );
+
+  logOpsSuccess({
+    message: 'enqueueTournamentTasksReplanRequests 処理フラグ解放成功',
+    functionEntry: 'executeScheduledJobTask',
+    operation: 'releaseReplanProcessing',
+    context: { docId: ENQUEUE_TOURNAMENT_REPLAN_REQUEST_DOC_ID },
+  });
 }
 
 export async function markEnqueueTournamentTasksReplanCompletedBestEffort(): Promise<void> {

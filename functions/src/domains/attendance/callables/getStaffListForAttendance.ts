@@ -5,7 +5,7 @@ import {
   getDisplayBusinessDateKeyForNonRunning,
   getShiftDateKeyForNonRunning,
 } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 async function getAttendanceAndShiftDates(): Promise<{
   status: string;
@@ -27,6 +27,7 @@ async function getAttendanceAndShiftDates(): Promise<{
 }
 
 export const getStaffListForAttendance = onCall(async (request: CallableRequest) => {
+  const logContext: Record<string, unknown> = {};
   try {
     const { data } = request;
 
@@ -40,9 +41,12 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
       );
     }
 
+    Object.assign(logContext, { isClockInMode });
+
     // 営業日を取得（CHANGESPEC 6-4: status=running なら currentBusinessDateKey、
     // status≠running なら 勤怠=lastClosedBusinessDateKey、シフト=その翌日）
     const { attendanceDate, shiftDate } = await getAttendanceAndShiftDates();
+    Object.assign(logContext, { attendanceDate, shiftDate });
 
     let staffList: any[] = [];
 
@@ -197,6 +201,23 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
       separateSectionStaff.sort((a, b) => (a.fullNameKana as string).localeCompare(b.fullNameKana as string));
     }
 
+    Object.assign(logContext, {
+      staffCount: staffList.length,
+      separateSectionCount: separateSectionStaff.length,
+    });
+
+    logOpsSuccess({
+      message: 'getStaffListForAttendance 成功',
+      functionEntry: 'getStaffListForAttendance',
+      context: {
+        isClockInMode,
+        attendanceDate,
+        shiftDate,
+        staffCount: staffList.length,
+        separateSectionCount: separateSectionStaff.length,
+      },
+    });
+
     return {
       success: true,
       staffList: staffList as Array<{[key: string]: any}>,
@@ -212,6 +233,7 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
       message: 'Error in getStaffListForAttendance:',
       functionEntry: 'getStaffListForAttendance',
       cause: error,
+      context: logContext,
     });
     
     if (error instanceof HttpsError) {

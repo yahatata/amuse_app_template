@@ -1,5 +1,5 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export interface UndoBustAndReentryParams {
   tournamentId: string;
@@ -96,14 +96,31 @@ export async function undoBustAndReentry(params: UndoBustAndReentryParams): Prom
         });
       }
     });
-    
-    console.log(`Bust and reentry operation undone for player ${params.playerName} in tournament ${params.tournamentId}`);
-    
+
+    logOpsSuccess({
+      message: 'undoBustAndReentry 成功',
+      functionEntry: 'undoBustAndReentry',
+      context: {
+        tournamentId: params.tournamentId,
+        playerUid: params.playerUid,
+        tableId: params.tableId,
+        billId: params.billId,
+        templateId: params.templateId,
+      },
+    });
   } catch (error) {
     logOpsError({
       message: 'Error undoing bust and reentry operation:',
       functionEntry: 'undoBustAndReentry',
       cause: error,
+      context: {
+        tournamentId: params.tournamentId,
+        playerUid: params.playerUid,
+        tableId: params.tableId,
+        seatNumber: params.seatNumber,
+        billId: params.billId,
+        templateId: params.templateId,
+      },
     });
     throw error;
   }

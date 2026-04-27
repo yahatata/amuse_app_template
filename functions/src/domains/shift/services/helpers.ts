@@ -3,7 +3,7 @@ import { logger } from "firebase-functions";
 import * as admin from "firebase-admin";
 import type { Firestore } from "firebase-admin/firestore";
 import { CONFIG_ERROR_CODES } from "../../../shared/config/configLoader";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
 const MAX_RETRIES = 2;
@@ -96,11 +96,32 @@ export async function getRequiredStaffByTimeSlot(firestore?: Firestore): Promise
           fallbackSource: "defaults.ts",
           reason: "document_missing",
         });
+    logOpsSuccess({
+  message: "getRequiredStaffByTimeSlot 成功",
+  functionEntry: "getRequiredStaffByTimeSlot",
+  operation: "config_read",
+  context: {
+      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
+      reason: "read_error",
+      message: 'ok',
+    },
+});
+
         return [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
       }
       const data = doc.data();
       const arr = data?.data;
-      if (!Array.isArray(arr)) {
+      if (!Array.isArray(arr)) {logOpsSuccess({
+  message: "getRequiredStaffByTimeSlot 成功",
+  functionEntry: "getRequiredStaffByTimeSlot",
+  operation: "config_read",
+  context: {
+      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
+      reason: "read_error",
+      message: 'ok',
+    },
+});
+
         return [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
       }
       const filtered = arr.filter(
@@ -108,7 +129,27 @@ export async function getRequiredStaffByTimeSlot(firestore?: Firestore): Promise
           x && typeof x === "object" && typeof (x as Record<string, unknown>).startHour === "number"
       ) as { startHour: number; endHour: number; requiredCount: number }[];
       // 空配列は「不足判定を行わない」としてそのまま返す
-      if (arr.length === 0) return [];
+      if (arr.length === 0)      logOpsSuccess({
+        message: "getRequiredStaffByTimeSlot 成功",
+        functionEntry: "getRequiredStaffByTimeSlot",
+        operation: "config_read",
+        context: {
+            code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
+            reason: "read_error",
+            message: 'ok',
+          },
+      });
+ return [];logOpsSuccess({
+  message: "getRequiredStaffByTimeSlot 成功",
+  functionEntry: "getRequiredStaffByTimeSlot",
+  operation: "config_read",
+  context: {
+      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
+      reason: "read_error",
+      message: 'ok',
+    },
+});
+
       // 全要素不正の場合は defaults
       return filtered.length > 0 ? filtered : [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
     } catch (err) {

@@ -11,8 +11,7 @@
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
-import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { postEventRefund } from '../repos/postEventRefund';
 
 // 返金処理のスキーマ
@@ -62,11 +61,17 @@ export const processRefund = onCall(async (request) => {
       createdBy: adminId,
     });
 
-    logger.info('processRefund success', {
-      op: 'processRefund',
-      billId,
-      eventId: result.eventId,
+    logOpsSuccess({
+      message: 'processRefund 成功',
+      functionEntry: 'processRefund',
+      context: {
+        op: 'processRefund',
+        billId,
+        eventId: result.eventId,
+        code: 'internal',
+      },
     });
+
 
     return {
       success: true,
@@ -127,6 +132,15 @@ export const getRefundHistory = onCall(async (request) => {
     // 将来的には refundHistory コレクションを作成するか、Analytics から取得することを検討
     // 日付範囲の取得は将来的に実装（現時点では未使用）
 
+    logOpsSuccess({
+      message: 'getRefundHistory 成功',
+      functionEntry: 'getRefundHistory',
+      context: {
+        op: 'getRefundHistory',
+        adminId,
+      },
+    });
+
     return {
       success: true,
       refundHistory: [],
@@ -145,6 +159,7 @@ export const getRefundHistory = onCall(async (request) => {
       context: {
         op: 'getRefundHistory',
         code: 'internal',
+        adminId,
       },
     });
     throw new HttpsError('internal', '返金履歴の取得に失敗しました', error.message);

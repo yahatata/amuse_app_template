@@ -1,6 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const getAllStaffAttendance = onCall(
   {
@@ -155,8 +155,20 @@ export const getAllStaffAttendance = onCall(
         return 0;
       });
 
-      console.log(`勤怠記録取得完了: ${attendances.length}件`);
-      console.log(`シフト記録取得完了: ${shifts.length}件`);
+      logOpsSuccess({
+        message: 'getAllStaffAttendance 成功',
+        functionEntry: 'getAllStaffAttendance',
+        context: {
+          year,
+          month,
+          startDay,
+          endDay,
+          attendanceCount: attendances.length,
+          shiftCount: shifts.length,
+          startDateStr,
+          endDateStr,
+        },
+      });
 
       return {
         success: true,
@@ -169,11 +181,23 @@ export const getAllStaffAttendance = onCall(
       };
 
     } catch (error) {
+      const d = request.data as {
+        year?: number;
+        month?: number;
+        startDay?: number;
+        endDay?: number;
+      };
       logOpsError({
-      message: '勤怠記録取得エラー:',
-      functionEntry: 'getAllStaffAttendance',
-      cause: error,
-    });
+        message: '勤怠記録取得エラー:',
+        functionEntry: 'getAllStaffAttendance',
+        cause: error,
+        context: {
+          year: d.year,
+          month: d.month,
+          startDay: d.startDay,
+          endDay: d.endDay,
+        },
+      });
       throw new Error(`勤怠記録の取得に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

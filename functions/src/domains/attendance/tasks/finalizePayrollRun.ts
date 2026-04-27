@@ -8,7 +8,7 @@
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 import { aggregateStaffResults } from '../helpers/payrollRunHelpers';
 import { generateAnomalyFlags } from '../helpers/generateAnomalyFlags';
@@ -161,12 +161,17 @@ export const finalizePayrollRun = onTaskDispatched(
       });
     }
 
-    logger.info('finalizePayrollRun: completed', {
-      runId,
-      status: finalStatus,
-      totalGrossPay: summary.totalGrossPay,
-      completedStaff: summary.completedStaffCount,
-      failedStaff: summary.failedStaffCount,
+    logOpsSuccess({
+      message: 'finalizePayrollRun 成功',
+      functionEntry: 'finalizePayrollRun',
+      context: {
+        runId,
+        paymentPeriodKey,
+        status: finalStatus,
+        totalGrossPay: summary.totalGrossPay,
+        completedStaff: summary.completedStaffCount,
+        failedStaff: summary.failedStaffCount,
+      },
     });
   }
 );

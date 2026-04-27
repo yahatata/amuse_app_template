@@ -1,5 +1,5 @@
 import * as logger from "firebase-functions/logger";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { getLineConfig } from "../../../shared/secrets/secretManager";
 
 /**
@@ -52,9 +52,11 @@ export async function linkStaffRichMenu(lineUserId: string): Promise<boolean> {
       return false;
     }
 
-    logger.info("linkStaffRichMenu: Rich menu linked successfully", {
-      lineUserId,
-      richMenuId,
+    logOpsSuccess({
+      message: "linkStaffRichMenu 成功",
+      functionEntry: "linkStaffRichMenu",
+      operation: "linkStaffRichMenuHttp",
+      context: { lineUserId, richMenuId },
     });
     return true;
   } catch (error) {
@@ -121,9 +123,11 @@ export async function linkUserRichMenu(lineUserId: string): Promise<boolean> {
       return false;
     }
 
-    logger.info("linkUserRichMenu: Rich menu linked successfully", {
-      lineUserId,
-      richMenuId,
+    logOpsSuccess({
+      message: "linkUserRichMenu 成功",
+      functionEntry: "linkUserRichMenu",
+      operation: "linkUserRichMenuHttp",
+      context: { lineUserId, richMenuId },
     });
     return true;
   } catch (error) {

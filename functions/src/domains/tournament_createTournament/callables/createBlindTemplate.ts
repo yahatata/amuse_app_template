@@ -1,8 +1,9 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const createBlindTemplate = onCall(async (request) => {
+  const logContext: Record<string, unknown> = { callerUid: request.auth?.uid ?? null };
   try {
     const {
       blindName,
@@ -45,6 +46,8 @@ export const createBlindTemplate = onCall(async (request) => {
       return { success: false, error: 'ブラインドレベル情報は必須です' };
     }
 
+    Object.assign(logContext, { blindName });
+
     const db = getFirestore();
     const now = new Date();
 
@@ -74,6 +77,11 @@ export const createBlindTemplate = onCall(async (request) => {
     };
 
     const docRef = await db.collection('blindTemplates').add(blindTemplateData);
+    logOpsSuccess({
+      message: 'createBlindTemplate 成功',
+      functionEntry: 'createBlindTemplate',
+      context: { blindTemplateId: docRef.id, blindName },
+    });
 
     return {
       success: true,
@@ -86,6 +94,7 @@ export const createBlindTemplate = onCall(async (request) => {
       message: 'ブラインドテンプレート作成エラー:',
       functionEntry: 'createBlindTemplate',
       cause: error,
+      context: logContext,
     });
     return { success: false, error: 'ブラインドテンプレートの作成に失敗しました' };
   }

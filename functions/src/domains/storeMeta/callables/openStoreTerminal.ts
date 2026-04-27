@@ -9,7 +9,7 @@ import { requireAdmin } from '../../../shared/devices';
 import { acquireProcessing, extendProcessing, releaseProcessing } from '../services/processingLease';
 import { generateJstDateKey } from '../../../shared/time';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 const OPEN_STEPS = ['verifyPreconditions', 'forceCleanup', 'finalizeOpenStateDoc'] as const;
 
@@ -194,6 +194,13 @@ export const openStoreTerminal = onCall(
           });
           await releaseProcessing(db, { runId });
 
+          logOpsSuccess({
+            message: 'openStoreTerminal 成功',
+            functionEntry: 'openStoreTerminal',
+            operation: 'openStoreInlineComplete',
+            context: { runId, businessDateKey, status: 'completed' },
+          });
+
           return {
             success: true,
             runId,
@@ -258,6 +265,13 @@ export const openStoreTerminal = onCall(
         );
       }
     }
+
+    logOpsSuccess({
+      message: 'openStoreTerminal 成功',
+      functionEntry: 'openStoreTerminal',
+      operation: 'openStoreCompleted',
+      context: { runId, businessDateKey, status: 'completed' },
+    });
 
     return {
       success: true,

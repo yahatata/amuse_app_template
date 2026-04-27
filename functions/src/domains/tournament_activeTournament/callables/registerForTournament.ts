@@ -4,7 +4,7 @@ import { z } from "zod";
 import { recordTournamentAction } from "../../bills/repos/recordTournamentAction";
 import * as crypto from "crypto";
 import { writeSingleOperationLog, toErrorSummary } from "../../logs/lib/operationLog";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
 
 // 入力スキーマ
@@ -267,8 +267,16 @@ export const registerForTournament = onCall(async (request) => {
       tournamentId,
     });
 
-    console.log(`=== LIFF用トーナメント参加登録完了 ===`);
-    console.log(`ユーザー ${result.userId} がトーナメント ${result.tournamentName} に参加登録しました`);
+    logOpsSuccess({
+      message: 'LIFF用トーナメント参加登録が完了しました',
+      functionEntry: 'registerForTournament',
+      context: {
+        tournamentId,
+        userId: result.userId,
+        billId,
+        templateId,
+      },
+    });
 
     return {
       success: true,

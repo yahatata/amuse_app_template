@@ -6,7 +6,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import type { DeviceDoc } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -229,10 +229,21 @@ export const assignSeatToPlayer = onCall(async (request) => {
         seatNumber: transactionResult.seatNumber,
       },
     });
-    
-    console.log(`=== 待機者着席完了 ===`);
-    console.log(`結果:`, transactionResult);
-    
+
+    logOpsSuccess({
+      message: '待機者着席が完了しました',
+      functionEntry: 'assignSeatToPlayer',
+      context: {
+        tournamentId,
+        userId: transactionResult.userId,
+        tableId: transactionResult.tableId,
+        seatNumber: transactionResult.seatNumber,
+        billId: transactionResult.billId,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
+
     return transactionResult;
     
   } catch (error) {

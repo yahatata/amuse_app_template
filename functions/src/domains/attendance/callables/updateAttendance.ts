@@ -17,7 +17,7 @@ import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
 import { recalculateAttendanceFromBreaks } from '../helpers/recalculateAttendanceFromBreaks';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 function parseTimestamp(v: unknown): admin.firestore.Timestamp {
   if (v instanceof admin.firestore.Timestamp) return v;
@@ -54,6 +54,8 @@ export const updateAttendance = onCall(async (request: CallableRequest) => {
     throw new HttpsError('permission-denied', '管理者のみ実行できます');
   }
 
+  const logContext: Record<string, unknown> = { callerUid, deviceId: device.id };
+
   try {
     const {
       attendanceId,
@@ -79,6 +81,8 @@ export const updateAttendance = onCall(async (request: CallableRequest) => {
       throw new HttpsError('invalid-argument', 'attendanceId is required');
     }
 
+    Object.assign(logContext, { attendanceId });
+
     const db = admin.firestore();
     const attendanceRef = db.collection('attendances').doc(attendanceId);
     const attendanceSnap = await attendanceRef.get();
@@ -88,11 +92,16 @@ export const updateAttendance = onCall(async (request: CallableRequest) => {
     }
 
     const attendanceData = attendanceSnap.data()!;
+    Object.assign(logContext, {
+      staffId: attendanceData.staffId,
+      date: attendanceData.date,
+    });
     if (attendanceData.isDeleted === true) {
       throw new HttpsError('failed-precondition', '既に削除済みの勤怠です');
     }
 
     if (markDeleted === true) {
+      Object.assign(logContext, { markDeleted: true });
       const nowTs = admin.firestore.Timestamp.now();
       await attendanceRef.update({
         isDeleted: true,
@@ -107,6 +116,18 @@ export const updateAttendance = onCall(async (request: CallableRequest) => {
         actionType: 'update_attendance',
         performedByUid: null,
         performedByDeviceId: device.id,
+      });
+
+      logOpsSuccess({
+        message: 'updateAttendance 成功',
+        functionEntry: 'updateAttendance',
+        context: {
+          attendanceId,
+          staffId: attendanceData.staffId,
+          date: attendanceData.date,
+          deviceId: device.id,
+          markDeleted: true,
+        },
       });
 
       return {
@@ -227,6 +248,20 @@ export const updateAttendance = onCall(async (request: CallableRequest) => {
       performedByDeviceId: device.id,
     });
 
+    Object.assign(logContext, { markDeleted: false });
+
+    logOpsSuccess({
+      message: 'updateAttendance 成功',
+      functionEntry: 'updateAttendance',
+      context: {
+        attendanceId,
+        staffId: attendanceData.staffId,
+        date: attendanceData.date,
+        deviceId: device.id,
+        markDeleted: false,
+      },
+    });
+
     return {
       success: true,
       message: '勤怠を更新しました',
@@ -237,6 +272,7 @@ export const updateAttendance = onCall(async (request: CallableRequest) => {
       message: 'Error in updateAttendance:',
       functionEntry: 'updateAttendance',
       cause: error,
+      context: logContext,
     });
     throw new HttpsError('internal', 'Internal server error');
   }

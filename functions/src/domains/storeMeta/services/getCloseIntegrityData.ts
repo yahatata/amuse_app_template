@@ -12,7 +12,7 @@ import { requireAdmin } from '../../../shared/devices';
 import { getUnsettledBillsForCloseCore } from './getUnsettledBillsForClose';
 import { getUnclockedStaffForCloseCore } from './getUnclockedStaffForClose';
 import { getUnclosedTournamentsForCloseCore } from './getUnclosedTournamentsForClose';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 export const getCloseIntegrityData = onCall(async (request) => {
   if (!request.auth) {
@@ -23,8 +23,11 @@ export const getCloseIntegrityData = onCall(async (request) => {
   const db = getFirestore();
   await requireAdmin(db, adminId);
 
+  const logContext: Record<string, unknown> = { adminId };
+
   try {
     const businessDate = await getCurrentBusinessDateKeyOrThrow();
+    Object.assign(logContext, { businessDate });
 
     const [unsettledResult, unclockedStaff, unclosedTournaments] = await Promise.all([
       getUnsettledBillsForCloseCore(db, businessDate),
@@ -36,6 +39,21 @@ export const getCloseIntegrityData = onCall(async (request) => {
       unsettledResult.data.length === 0 &&
       unclockedStaff.length === 0 &&
       unclosedTournaments.length === 0;
+
+    logOpsSuccess({
+      message: 'getCloseIntegrityData 成功',
+      functionEntry: 'getCloseIntegrityData',
+      operation: 'closeIntegrityAggregate',
+      context: {
+        businessDate,
+        adminId,
+        unsettledCount: unsettledResult.returnedCount,
+        unsettledTruncated: unsettledResult.truncated,
+        unclockedStaffCount: unclockedStaff.length,
+        unclosedTournamentsCount: unclosedTournaments.length,
+        hasNoTarget,
+      },
+    });
 
     return {
       success: true,
@@ -54,6 +72,7 @@ export const getCloseIntegrityData = onCall(async (request) => {
       operation: 'closeIntegrityAggregate',
       cause: error,
       sourceProductHint: 'firestore',
+      context: logContext,
     });
     throw new HttpsError(
       'internal',

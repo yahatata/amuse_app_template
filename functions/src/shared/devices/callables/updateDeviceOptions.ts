@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
-import { logOpsError } from "../../logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../logging/logOpsError";
 
 const db = getFirestore();
 
@@ -80,6 +80,17 @@ export const updateDeviceOptions = onCall(async (request) => {
     }
 
     await targetRef.update(updateData);
+    logOpsSuccess({
+      message: "updateDeviceOptions 成功",
+      functionEntry: "updateDeviceOptions",
+      operation: "updateDeviceOptionsCatch",
+      context: {
+        targetDeviceId: deviceId,
+        callerDeviceId: callerSnap.docs[0].id,
+        callerUid,
+      },
+    });
+
 
     return {
       success: true,
@@ -94,12 +105,18 @@ export const updateDeviceOptions = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
+    const parsed = payloadSchema.safeParse(request.data);
+    const errContext = parsed.success
+      ? { deviceId: parsed.data.deviceId, callerUid: request.auth?.uid }
+      : { callerUid: request.auth?.uid, inputParseFailed: true as const };
+
     logOpsError({
       message: 'updateDeviceOptions failed',
       functionEntry: 'updateDeviceOptions',
       operation: 'updateDeviceOptionsCatch',
       cause: error,
       sourceProductHint: 'firestore',
+      context: errContext,
     });
     throw new HttpsError("internal", "デバイスオプション更新に失敗しました");
   }

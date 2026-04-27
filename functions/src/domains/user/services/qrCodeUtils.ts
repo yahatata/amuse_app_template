@@ -2,7 +2,7 @@ import * as QRCode from "qrcode";
 import * as crypto from "crypto";
 import * as admin from "firebase-admin";
 import { QRCodeData } from "../../../shared/types";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { getBusinessSecrets } from "../../../shared/secrets/secretManager";
 
 /**
@@ -91,10 +91,8 @@ export async function saveQRCodeToStorage(
     const base64Data = qrCodeImage.replace(/^data:image\/png;base64,/, "");
     const buffer = Buffer.from(base64Data, "base64");
 
-    console.log(`Buffer作成完了: サイズ=${buffer.length} bytes`);
-
     // 古いQRコードファイルを削除
-    await deleteOldQRCodeFiles(uid, type);
+    const deletedOldFileCount = await deleteOldQRCodeFiles(uid, type);
 
     // Storageのファイルパスを生成
     const fileName = `qr-codes/${type}/${uid}_${Date.now()}.png`;
@@ -117,15 +115,23 @@ export async function saveQRCodeToStorage(
         },
       },
     });
-    console.log("ファイルアップロード完了");
 
-    // 公開URLを取得
-    console.log("署名付きURL生成開始...");
     const [url] = await file.getSignedUrl({
       action: "read",
       expires: Date.now() + 1000 * 60 * 60 * 24 * 365, // 1年間有効
     });
-    console.log(`署名付きURL生成完了: ${url}`);
+
+    logOpsSuccess({
+      message: "saveQRCodeToStorage 成功",
+      functionEntry: "saveQRCodeToStorage",
+      context: {
+        uid,
+        type,
+        bufferBytes: buffer.length,
+        storagePath: fileName,
+        deletedOldFileCount,
+      },
+    });
 
     return url;
   } catch (error) {
@@ -146,32 +152,28 @@ export async function saveQRCodeToStorage(
  * @param {string} uid ユーザーID
  * @param {"user" | "staff"} type QRコードの種類
  */
-async function deleteOldQRCodeFiles(uid: string, type: "user" | "staff"): Promise<void> {
+async function deleteOldQRCodeFiles(uid: string, type: "user" | "staff"): Promise<number> {
   try {
     const bucket = admin.storage().bucket();
     const prefix = `qr-codes/${type}/${uid}_`;
-    
-    console.log(`古いQRコードファイル削除開始: prefix=${prefix}`);
-    
+
     const [files] = await bucket.getFiles({ prefix });
-    
+
     if (files.length > 0) {
-      console.log(`${files.length}個の古いファイルを削除します`);
-      
-      const deletePromises = files.map(file => file.delete());
+      const deletePromises = files.map((f) => f.delete());
       await Promise.all(deletePromises);
-      
-      console.log(`古いQRコードファイル削除完了: ${files.length}個`);
-    } else {
-      console.log('削除する古いファイルはありません');
+      return files.length;
     }
+    return 0;
   } catch (error) {
     logOpsError({
       message: '古いQRコードファイル削除エラー:',
       functionEntry: 'deleteOldQRCodeFiles',
       cause: error,
+      context: { uid, type },
     });
     // 削除に失敗しても処理を続行
+    return 0;
   }
 }
 

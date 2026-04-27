@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -32,6 +32,12 @@ export async function runScheduledCleanupTask(
       .get();
 
     if (rejectedShiftsSnapshot.empty) {
+      logOpsSuccess({
+        message: 'scheduledCleanup 成功',
+        functionEntry: 'scheduledCleanup',
+        context: { deletedShiftCount: 0 },
+      });
+
       return {deletedShiftCount: 0};
     }
 
@@ -40,6 +46,11 @@ export async function runScheduledCleanupTask(
       batch.delete(doc.ref);
     });
     await batch.commit();
+    logOpsSuccess({
+      message: 'scheduledCleanup 成功',
+      functionEntry: 'scheduledCleanup',
+      context: { deletedShiftCount: rejectedShiftsSnapshot.size },
+    });
 
     return {deletedShiftCount: rejectedShiftsSnapshot.size};
   } catch (error) {
@@ -47,6 +58,7 @@ export async function runScheduledCleanupTask(
       message: "scheduledCleanup task execution failed",
       functionEntry: "scheduledCleanup",
       cause: error,
+      context: { cutoffDate: input.cutoffDate },
     });
     throw error;
   }

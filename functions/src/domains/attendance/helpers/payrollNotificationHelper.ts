@@ -5,8 +5,7 @@
  */
 
 import { FieldValue } from 'firebase-admin/firestore';
-import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { PAYROLL_NOTIFICATION_TEMPLATES } from './payrollNotificationTemplates';
 
 export interface CreateNotificationOptions {
@@ -86,11 +85,21 @@ export async function createPayrollNotification(
 
   const notificationsRef = db.collection('notifications');
 
+  let docId: string;
   if (options?.docId) {
-    await notificationsRef.doc(options.docId).set(docData);
+    docId = options.docId;
+    await notificationsRef.doc(docId).set(docData);
   } else {
-    await notificationsRef.add(docData);
+    const ref = await notificationsRef.add(docData);
+    docId = ref.id;
   }
 
-  logger.info('createPayrollNotification: created', { triggerType, docId: options?.docId ?? 'auto' });
+  logOpsSuccess({
+    message: 'createPayrollNotification 成功',
+    functionEntry: 'createPayrollNotification',
+    context: {
+      triggerType,
+      docId,
+    },
+  });
 }

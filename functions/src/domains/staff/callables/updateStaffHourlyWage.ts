@@ -1,7 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { z } from "zod";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 // 入力スキーマ
 const updateStaffHourlyWageSchema = z.object({
@@ -78,9 +78,18 @@ export const updateStaffHourlyWage = onCall(async (request) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     
-    console.log(`=== スタッフ時給更新完了 ===`);
-    console.log(`スタッフ ${staffData.fullName} の時給を ${previousHourlyWage}円 → ${hourlyWage}円 に更新しました`);
-    
+    logOpsSuccess({
+      message: 'updateStaffHourlyWage 成功',
+      functionEntry: 'updateStaffHourlyWage',
+      context: {
+        staffId,
+        staffName: staffData.fullName,
+        previousHourlyWage,
+        newHourlyWage: hourlyWage,
+        adminId,
+      },
+    });
+
     return {
       success: true,
       message: '時給を更新しました',
@@ -94,10 +103,12 @@ export const updateStaffHourlyWage = onCall(async (request) => {
     };
     
   } catch (error) {
+    const staffHint = (request.data as { staffId?: string })?.staffId;
     logOpsError({
       message: '=== スタッフ時給更新エラー ===',
       functionEntry: 'updateStaffHourlyWage',
       cause: error,
+      context: { staffId: staffHint, adminId: request.auth?.uid },
     });
     
     if (error instanceof z.ZodError) {

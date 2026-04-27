@@ -1,6 +1,6 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import type { SchedulerJobKey } from '../../../shared/config/schedulerConfigTypes';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 const DISPATCH_LOG_COLLECTION = 'schedulerDispatchLogs';
 const EXECUTION_LOG_COLLECTION = 'schedulerExecutionLogsByCloudTask';
@@ -43,6 +43,17 @@ export async function writeSchedulerDispatchLogBestEffort(
       occurredAt: new Date().toISOString(),
       createdAt: FieldValue.serverTimestamp(),
     });
+    logOpsSuccess({
+      message: 'writeSchedulerDispatchLogBestEffort 成功',
+      functionEntry: 'writeSchedulerDispatchLogBestEffort',
+      operation: 'dispatchLogWrite',
+      context: {
+        jobKey: entry.jobKey,
+        functionName: entry.functionName,
+        projectId: entry.projectId,
+        idempotencyKey: entry.idempotencyKey,
+      },
+    });
   } catch (error) {
     logOpsError({
       message: 'schedulerDispatchLogs write failed',
@@ -69,6 +80,18 @@ export async function writeSchedulerExecutionLogByCloudTaskBestEffort(
       occurredAt: new Date().toISOString(),
       createdAt: FieldValue.serverTimestamp(),
     });
+    logOpsSuccess({
+      message: 'writeSchedulerExecutionLogByCloudTaskBestEffort 成功',
+      functionEntry: 'writeSchedulerExecutionLogByCloudTaskBestEffort',
+      operation: 'executionLogWrite',
+      context: {
+        jobKey: entry.jobKey,
+        functionName: entry.functionName,
+        projectId: entry.projectId,
+        idempotencyKey: entry.idempotencyKey,
+        supervisorRunId: entry.supervisorRunId,
+      },
+    });
   } catch (error) {
     logOpsError({
       message: 'schedulerExecutionLogsByCloudTask write failed',
@@ -80,6 +103,8 @@ export async function writeSchedulerExecutionLogByCloudTaskBestEffort(
         jobKey: entry.jobKey,
         functionName: entry.functionName,
         projectId: entry.projectId,
+        idempotencyKey: entry.idempotencyKey,
+        supervisorRunId: entry.supervisorRunId,
       },
     });
   }

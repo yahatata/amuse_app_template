@@ -4,7 +4,7 @@ import * as bcrypt from "bcryptjs";
 import * as crypto from "crypto";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { createBillWithActiveStay } from "../../bills/repos/createBillWithActiveStay";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
 
 /**
@@ -22,6 +22,7 @@ export const manualCheckIn = onCall(async (request) => {
   }
 
   const callerUid = request.auth.uid;
+  const logContext: Record<string, unknown> = { callerUid };
 
   try {
     // デバイス権限の確認（role: admin または options.user_entry_exit: true）
@@ -34,6 +35,8 @@ export const manualCheckIn = onCall(async (request) => {
     if (!hasPermission) {
       throw new HttpsError('permission-denied', 'お客様入退店操作の権限がありません');
     }
+
+    Object.assign(logContext, { deviceId: device.id });
 
     const { loginId, pin, entranceFee, entranceFeeDescription } = request.data;
 
@@ -88,6 +91,11 @@ export const manualCheckIn = onCall(async (request) => {
     const storedHashedPin = userData.hashedPin;
     const uid = userData.uid;
     const pokerName = userData.pokerName;
+
+    Object.assign(logContext, {
+      loginId,
+      targetUid: uid,
+    });
 
     // 2. activeStays の存在確認
     const activeStayRef = db.collection('activeStays').doc(uid);
@@ -148,6 +156,12 @@ export const manualCheckIn = onCall(async (request) => {
       };
     }
 
+    logOpsSuccess({
+      message: "manualCheckIn 成功",
+      functionEntry: "manualCheckIn",
+      context: { uid, billId: billResult.billId },
+    });
+
     return {
       success: true,
       data: {
@@ -170,6 +184,7 @@ export const manualCheckIn = onCall(async (request) => {
       functionEntry: 'manualCheckIn',
       cause: error,
       errorKey: 'USER_VISIT_MANUAL_UNEXPECTED',
+      context: logContext,
     });
     return {
       success: false,

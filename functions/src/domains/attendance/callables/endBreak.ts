@@ -17,7 +17,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
 import { recalculateAttendanceFromBreaks } from '../helpers/recalculateAttendanceFromBreaks';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 function resolveAdjustedEndTimestamp(
   adjustmentOffsetMinutes: unknown,
@@ -67,6 +67,8 @@ export const endBreak = onCall(async (request: CallableRequest) => {
     throw new HttpsError('permission-denied', 'スタッフ出退勤操作の権限がありません');
   }
 
+  const logContext: Record<string, unknown> = { callerUid, deviceId: device.id };
+
   try {
     const { attendanceId, breakId, adjustmentOffsetMinutes } = (request.data ?? {}) as {
       attendanceId?: string;
@@ -76,6 +78,8 @@ export const endBreak = onCall(async (request: CallableRequest) => {
     if (!attendanceId) {
       throw new HttpsError('invalid-argument', 'attendanceId is required');
     }
+
+    Object.assign(logContext, { attendanceId, ...(breakId ? { breakId } : {}) });
 
     const db = admin.firestore();
     const attendanceRef = db.collection('attendances').doc(attendanceId);
@@ -99,6 +103,8 @@ export const endBreak = onCall(async (request: CallableRequest) => {
       }
       breakRef = activeBreakSnap.docs[0].ref;
     }
+
+    Object.assign(logContext, { breakId: breakRef.id });
 
     const breakSnap = await breakRef.get();
     if (!breakSnap.exists) {
@@ -130,6 +136,10 @@ export const endBreak = onCall(async (request: CallableRequest) => {
     });
 
     const attendanceData = attendanceSnap.data()!;
+    Object.assign(logContext, {
+      staffId: attendanceData.staffId,
+      date: attendanceData.date,
+    });
     await attendanceRef.update({
       isOnBreak: false,
       currentBreakStartedAt: null,
@@ -157,6 +167,17 @@ export const endBreak = onCall(async (request: CallableRequest) => {
       performedByUid: null,
       performedByDeviceId: device.id,
     });
+    logOpsSuccess({
+      message: 'endBreak 成功',
+      functionEntry: 'endBreak',
+      context: {
+        attendanceId,
+        breakId: breakRef.id,
+        staffId: attendanceData.staffId,
+        date: attendanceData.date,
+        deviceId: device.id,
+      },
+    });
 
     return {
       success: true,
@@ -168,6 +189,7 @@ export const endBreak = onCall(async (request: CallableRequest) => {
       message: 'Error in endBreak:',
       functionEntry: 'endBreak',
       cause: error,
+      context: logContext,
     });
     throw new HttpsError('internal', 'Internal server error');
   }

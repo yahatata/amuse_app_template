@@ -7,7 +7,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { runEnqueueTournamentTasks } from '../services/enqueueTournamentTasksCore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 export const enqueueTournamentTasks = onCall(async (request) => {
@@ -35,6 +35,20 @@ export const enqueueTournamentTasks = onCall(async (request) => {
         context: { errors: result.errors },
       });
     }
+    logOpsSuccess({
+      message: result.success
+        ? 'enqueue バッチ（手動 Callable）が正常完了しました'
+        : 'enqueue バッチ（手動 Callable）が完了しました（一部エラーあり）',
+      functionEntry: 'enqueueTournamentTasks',
+      context: {
+        processedCount: result.processedCount,
+        enqueuedCount: result.enqueuedCount,
+        batchSuccess: result.success,
+        callerUid: request.auth.uid,
+        deviceId: device.id,
+        ...(result.errors && result.errors.length > 0 ? { errorCount: result.errors.length } : {}),
+      },
+    });
     return result;
   } catch (error) {
     if (error instanceof FunctionCustomError) {

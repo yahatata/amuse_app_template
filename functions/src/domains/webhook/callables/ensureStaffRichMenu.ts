@@ -2,7 +2,7 @@ import { onCall } from "firebase-functions/v2/https";
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { linkStaffRichMenu } from "../services/lineRichMenu";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * 提案C-B: スタッフ＋ユーザー登録アカウントのリッチメニューをスタッフ用に整える
@@ -28,12 +28,23 @@ export const ensureStaffRichMenu = onCall(async (request) => {
     const staffDoc = await admin.firestore().collection("staffs").doc(uid).get();
 
     if (!staffDoc.exists) {
+      logOpsSuccess({
+        message: "ensureStaffRichMenu 成功",
+        functionEntry: "ensureStaffRichMenu",
+        context: { uid, outcome: "not_staff" },
+      });
+
       // スタッフでない場合は何もしない（成功として返す）
       return { success: true, updated: false, reason: "not_staff" };
     }
 
     // LIFF ユーザーでは uid = LINE User ID
     const ok = await linkStaffRichMenu(uid);
+    logOpsSuccess({
+      message: "ensureStaffRichMenu 成功",
+      functionEntry: "ensureStaffRichMenu",
+      context: { uid, updated: ok, outcome: ok ? "rich_menu_linked" : "link_failed" },
+    });
 
     return {
       success: true,
@@ -45,6 +56,7 @@ export const ensureStaffRichMenu = onCall(async (request) => {
       message: 'ensureStaffRichMenu error:',
       functionEntry: 'ensureStaffRichMenu',
       cause: error,
+      context: { uid },
     });
     // 呼び出し元では fire-and-forget のため、エラー時も失敗させずに返す
     return { success: false, updated: false, reason: "error" };

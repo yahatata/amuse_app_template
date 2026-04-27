@@ -26,7 +26,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 
-import { logOpsError } from '../logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../logging/logOpsError';
 
 import {
   DEFAULT_AUTO_OPEN_CLOSE_ENABLED,
@@ -93,7 +93,17 @@ export async function getStoreConfig(db?: Firestore): Promise<StoreConfig> {
           fallbackSource: 'defaults.ts',
           reason: 'document_missing',
         });
-        logger.info('config_load_summary', { fromConfig: [], fromDefaults: ['*'] });
+        logOpsSuccess({
+          message: 'getStoreConfig 成功',
+          functionEntry: 'getStoreConfig',
+          operation: 'config_read',
+          context: {
+            code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,
+            reason: 'document_missing',
+            fromConfig: [] as string[],
+            fromDefaults: ['*'] as string[],
+          },
+        });
         return buildFromDefaults();
       }
       const data = doc.data() as StoreConfigRaw | undefined;
@@ -121,7 +131,17 @@ export async function getStoreConfig(db?: Firestore): Promise<StoreConfig> {
         fallbackSource: 'defaults.ts',
         reason: 'read_error_after_retries',
       });
-      logger.info('config_load_summary', { fromConfig: [], fromDefaults: ['*'] });
+      logOpsSuccess({
+        message: 'getStoreConfig 成功',
+        functionEntry: 'getStoreConfig',
+        operation: 'config_read',
+        context: {
+          code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,
+          reason: 'read_error_after_retries',
+          fromConfig: [] as string[],
+          fromDefaults: ['*'] as string[],
+        },
+      });
       return buildFromDefaults();
     }
   }
@@ -492,9 +512,14 @@ function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
     fb('tournament', 'field_missing', result.tournament);
   }
 
-  logger.info('config_load_summary', {
-    fromConfig: fromConfig.sort(),
-    fromDefaults: fromDefaults.sort(),
+  logOpsSuccess({
+    message: 'getStoreConfig 成功',
+    functionEntry: 'getStoreConfig',
+    operation: 'config_read',
+    context: {
+      fromConfig: fromConfig.sort(),
+      fromDefaults: fromDefaults.sort(),
+    },
   });
   return result;
 }

@@ -11,7 +11,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 
-import { logOpsError } from '../logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../logging/logOpsError';
 import { CONFIG_ERROR_CODES } from './configLoader';
 
 import {
@@ -90,6 +90,17 @@ export async function getPayrollConfig(db?: Firestore): Promise<PayrollConfig> {
           fallbackSource: 'payrollConfigDefaults.ts',
           reason: 'document_missing',
         });
+        logOpsSuccess({
+          message: 'getPayrollConfig 成功',
+          functionEntry: 'getPayrollConfig',
+          operation: 'config_read',
+          context: {
+            code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,
+            reason: 'document_missing',
+            fromConfig: [] as string[],
+            fromDefaults: ['*'] as string[],
+          },
+        });
         return buildPayrollConfigFromDefaults();
       }
       const data = doc.data() as Record<string, unknown> | undefined;
@@ -115,6 +126,17 @@ export async function getPayrollConfig(db?: Firestore): Promise<PayrollConfig> {
         configKey: 'payrollConfig.*',
         fallbackSource: 'payrollConfigDefaults.ts',
         reason: 'read_error_after_retries',
+      });
+      logOpsSuccess({
+        message: 'getPayrollConfig 成功',
+        functionEntry: 'getPayrollConfig',
+        operation: 'config_read',
+        context: {
+          code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,
+          reason: 'read_error_after_retries',
+          fromConfig: [] as string[],
+          fromDefaults: ['*'] as string[],
+        },
       });
       return buildPayrollConfigFromDefaults();
     }
@@ -364,9 +386,14 @@ export function mergePayrollConfigWithDefaults(raw: Record<string, unknown>): Pa
     fb('reminderStartDaysAfterPeriodEnd', 'field_missing');
   }
 
-  logger.info('payroll_config_load_summary', {
-    fromConfig: fromConfig.sort(),
-    fromDefaults: fromDefaults.sort(),
+  logOpsSuccess({
+    message: 'getPayrollConfig 成功',
+    functionEntry: 'getPayrollConfig',
+    operation: 'config_read',
+    context: {
+      fromConfig: fromConfig.sort(),
+      fromDefaults: fromDefaults.sort(),
+    },
   });
   return result;
 }

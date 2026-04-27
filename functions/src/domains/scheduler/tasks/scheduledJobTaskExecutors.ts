@@ -1,5 +1,5 @@
 import type { SchedulerJobKey } from "../../../shared/config/schedulerConfigTypes";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import {
   assertScheduledJobTaskPayloadMatchesExpectedJobKey,
   assertValidScheduledJobTaskPayload,
@@ -282,6 +282,21 @@ export async function executeScheduledJobTask(
       idempotencyKey: payload.idempotencyKey,
       supervisorRunId: payload.supervisorRunId,
       decisionSnapshot: outcome.decisionSnapshot,
+    });
+
+    logOpsSuccess({
+      message: "executeScheduledJobTask 成功",
+      functionEntry: "executeScheduledJobTask",
+      operation: "runScheduledJob",
+      context: {
+        jobKey: payload.jobKey,
+        idempotencyKey: payload.idempotencyKey,
+        supervisorRunId: payload.supervisorRunId,
+        planningDate: payload.planningDate,
+        plannedRunAt: payload.plannedRunAt,
+        outcomeEventType: outcome.eventType,
+        outcomeReason: outcome.reason ?? null,
+      },
     });
 
     if (isReplanExecution(payload)) {

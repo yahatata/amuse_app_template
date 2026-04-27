@@ -7,7 +7,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 const addonSchema = z.object({
@@ -275,8 +275,18 @@ export const addon = onCall(async (request) => {
       },
     });
 
-    console.log('=== Addon処理完了 ===');
-    console.log('ユーザー', result.pokerName, 'のAddon処理が完了しました');
+    logOpsSuccess({
+      message: 'Addon処理が完了しました',
+      functionEntry: 'addon',
+      context: {
+        tournamentId,
+        userId,
+        billId: result.billId,
+        templateId: result.templateId,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
 
     return {
       success: true,

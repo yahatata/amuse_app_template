@@ -1,6 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const getBlindTemplates = onCall(async (request) => {
   try {
@@ -30,6 +30,11 @@ export const getBlindTemplates = onCall(async (request) => {
       };
       return convertedData;
     });
+    logOpsSuccess({
+      message: 'getBlindTemplates 成功',
+      functionEntry: 'getBlindTemplates',
+      context: { count: blindTemplates.length },
+    });
 
     return {
       success: true,
@@ -42,6 +47,7 @@ export const getBlindTemplates = onCall(async (request) => {
       message: 'ブラインドテンプレート取得エラー:',
       functionEntry: 'getBlindTemplates',
       cause: error,
+      context: { callerUid: request.auth?.uid ?? null },
     });
     return { success: false, error: 'ブラインドテンプレートの取得に失敗しました' };
   }
