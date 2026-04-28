@@ -1,13 +1,13 @@
 ---
-description: Cloud Functions の運用エラーログ（logOpsError）実装ルール
+description: Cloud Functions の運用ログ（logOpsError / logOpsSuccess）実装ルール
 globs: functions/src/**/*.ts
 alwaysApply: false
 ---
 
-# Cloud Functions — 運用エラーログ（logOpsError）実装ルール
+# Cloud Functions — 運用ログ（logOpsError / logOpsSuccess）実装ルール
 
-このルールの目的は、`functions/src/**/*.ts` に新規実装または改修を行う際、**本番運用で観測したい失敗**を `logOpsError` で統一的に記録できるようにすることです。  
-詳細仕様は `docs/共通化/flutter/05_changeSpec/changeSpec_エラーログ拡張.md` および `docs/共通化/flutter/04_仕様書/エラーログ拡張/` を参照。**実装の正**は `functions/src/shared/logging/logOpsError.ts`・`functionCustomError.ts`・`externalFromCause.ts`・`serviceByFunctionEntry.ts`。
+このルールの目的は、`functions/src/**/*.ts` に新規実装または改修を行う際、**本番運用で観測したい失敗**を `logOpsError` で統一的に記録し、**再試行・再実行後のログ追跡に必要なら `logOpsSuccess` と `context` で失敗・成功を相関**できるようにすることです。  
+詳細仕様は `docs/共通化/flutter/05_changeSpec/changeSpec_エラーログ拡張.md` および `docs/共通化/flutter/04_仕様書/エラーログ拡張/` を参照。運用上の整理は `docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ監視_再試行と相関キー.md`。**実装の正**は `functions/src/shared/logging/logOpsError.ts`・`functionCustomError.ts`・`externalFromCause.ts`・`serviceByFunctionEntry.ts`。
 
 ---
 
@@ -137,14 +137,41 @@ alwaysApply: false
 
 ---
 
-## 6. 主処理と補助処理（実装判断用）
+## 6. `logOpsSuccess` と失敗・成功の相関
+
+### 6-1. 目的
+
+再試行・再実行・手動のやり直しのあとに、**同一処理の失敗ログと成功ログを Cloud Logging 上で突き合わせやすくする**ため、運用上追う経路では **`logOpsError` と `logOpsSuccess` の両方に `context` で相関に必要なキーを載せる**ことを検討する。
+
+推奨キー一覧・調査結果は `docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ_context推奨_269件.md`。運用・監視の説明は `docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ監視_再試行と相関キー.md`。
+
+### 6-2. `logOpsSuccess` の使い方
+
+- **`logOpsSuccess`** は `functions/src/shared/logging/logOpsError.ts` と同一モジュール。出力は **`outcome: success`** と `service`・`functionEntry`・`projectId`・`operation`（任意）・`context`（任意）。
+- **同一処理軸**で失敗も記録される場合は、**対となる `logOpsError` の `context` と、キーの意味が突き合わせできるように揃える**（伝票 ID、トーナメント ID、`jobKey`、`businessDate` など、処理に応じた最小限）。
+- 既存の診断用フィールド（`code` / `reason` 等）を潰さず、**既存を残したうえで相関キーを追加する**（詳細はエラーログ拡張仕様の `context` 節）。
+
+### 6-3. `context` の共通ルールと注意（成功・失敗共通）
+
+- **運用判断に必要な最小限**。秘密・生トークン・不要な個人情報・巨大オブジェクトは載せない。
+- **`adminId` 等の Auth UID**: Firebase Authentication の UID が載ることが多く、**実際に画面を触っている店員個人を一意に指すとは限らない**（端末は匿名ログインに紐づく UID のことがある）。**Firestore の `devices/{deviceId}`（ドキュメント ID）とは別物**。
+- **プラットフォーム／ランタイムが自動出力するログ**は別レイヤ。**インフラのリクエスト ID・trace** と **`logOps*` を組み合わせて相関する**前提とする。
+
+### 6-4. 成功時の二重ログを避ける
+
+- **`logger.info` / `console.log` で同一の成功内容を言い直すだけ**の行は増やさない。**成功の運用観測は `logOpsSuccess` に寄せる**。
+- デバッグ用ログと運用ログを混同しない。
+
+---
+
+## 7. 主処理と補助処理（実装判断用）
 
 - **主処理**: その操作の主目的が成立しない失敗（会計、入退店、開閉店、参加登録、主トランザクション等）。
 - **補助処理**: 主成功後または失敗後の付随（操作ログ、実行ログ、監査ログ、ベストエフォート記録、二次ログ等）。補助でも整合性・補償・後続に関われば重要。
 
 ---
 
-## 7. Cloud Tasks `createTask`（よくあるパターン）
+## 8. Cloud Tasks `createTask`（よくあるパターン）
 
 - `operation`: `'cloudTasksCreateTask'`
 - `sourceProductHint`: `'cloud_tasks'`
@@ -153,14 +180,14 @@ alwaysApply: false
 
 ---
 
-## 8. 外部 API / SDK 失敗
+## 9. 外部 API / SDK 失敗
 
 - 原則 `cause` をそのまま渡し、`logOpsError` 側で `sdkCode` / `httpStatus` / `detailReason` 等を補完させる。
 - **やってはいけないこと**: 外部エラーを包み直して shape を潰す、コードや HTTP ステータスを捨てる、一律の曖昧メッセージだけにする。
 
 ---
 
-## 9. 禁止・ビルド
+## 10. 禁止・ビルド
 
 - 運用で追いたい失敗を **`console.error` のみ**で済ませない。
 - `functions/lib/**` を手で編集しない（`npm run build` の生成物）。
@@ -170,7 +197,7 @@ alwaysApply: false
 
 ---
 
-## 10. 実装時チェックリスト
+## 11. 実装時チェックリスト
 
 新規実装・改修の完了前に確認する。実装 AI がこのチェックリストを確認し結果を出力するときは次を守る。
 
@@ -192,3 +219,5 @@ alwaysApply: false
 - [ ] **`functionEntry` を export 名とずらす例外**を新たに作る場合は、`functionEntry_service_対応表.md` の更新方針に沿う（機械チェックだけでは十分と言い切れない運用判断）。
 - [ ] **`context`** は運用判断に必要な**最小限**であり、**秘密・トークン・不要な個人情報・巨大オブジェクト**を含まない。
 - [ ] **外部エラーの `cause`** を包み直して **shape を潰していない**（分類・`sdkCode` / `httpStatus` が取れる形を残している）。
+- [ ] **再試行・再実行で追う処理**では、`logOpsError` と対になる **`logOpsSuccess` に `context` を載せ、相関キーの意味を揃えられるか**検討する（網羅度はレビューで判断）。
+- [ ] **成功の運用観測**を **`logger.info` / `console.log` だけで言い直し**しておらず、**`logOpsSuccess` に寄せている**（冗長な重複がないか）。
