@@ -16,7 +16,7 @@ import { addLogEntry } from '../../user/services/logUtils';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { getActiveBillByUser } from '../../bills/repos/getActiveBillByUser';
 import { appendSideGameChip } from '../../bills/repos/appendSideGameChip';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const depositTip = onCall(async (request) => {
   // 認証チェック
@@ -28,6 +28,7 @@ export const depositTip = onCall(async (request) => {
 
   const db = getFirestore();
   const { userId, amount, clientNonce } = request.data;
+  let billId: string | undefined;
 
   try {
     // デバイス権限の確認（role: admin または options.side_game: true）
@@ -68,7 +69,8 @@ export const depositTip = onCall(async (request) => {
     console.log(`預入予定額（チップ枚数）: ${amount}`);
 
     // 1. getActiveBillByUser で billId を取得
-    const { billId } = await getActiveBillByUser(userId);
+    const active = await getActiveBillByUser(userId);
+    billId = active.billId;
 
     // 2. appendSideGameChip ヘルパを呼び出す（deterministic idempotencyKey）
     const op = 'depositTip';
@@ -102,20 +104,25 @@ export const depositTip = onCall(async (request) => {
         reasonType: 'sideGame',
         actor: 'tablet_front', // 実際の端末IDに置き換え可能
       });
-
-      console.log(`預入完了: ${amount}`);
-      console.log(`新しい残高: ${newTipAmount}`);
-    } else {
-      console.log(`預入処理は idempotent replay（既に実行済み）`);
-      // リプレイ時は現在の残高を再取得
-      const userDocAfter = await db.collection('users').doc(userId).get();
-      const currentTipAfter = userDocAfter.data()?.sideGameChip as number || 0;
-      console.log(`現在の残高: ${currentTipAfter}`);
     }
 
     // レスポンス用に現在の残高を取得
     const userDocFinal = await db.collection('users').doc(userId).get();
     const finalBalance = userDocFinal.data()?.sideGameChip as number || 0;
+
+    logOpsSuccess({
+      message: 'depositTip 成功',
+      functionEntry: 'depositTip',
+      context: {
+        userId,
+        billId,
+        amount,
+        reused: isReplay,
+        chipId: appendResult.chipId,
+        finalBalance,
+        previousBalance: currentTip,
+      },
+    });
 
     return {
       success: true,
@@ -135,6 +142,13 @@ export const depositTip = onCall(async (request) => {
       message: 'depositTipエラー:',
       functionEntry: 'depositTip',
       cause: error,
+      context: {
+        callerUid,
+        userId,
+        amount,
+        clientNonce,
+        billId,
+      },
     });
 
     if (error instanceof HttpsError) {

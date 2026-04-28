@@ -12,7 +12,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { resolveMenuItem } from './resolveMenuItem';
@@ -304,15 +304,7 @@ export async function appendItem(request: AppendItemRequest): Promise<AppendItem
     // orderedAt を設定
     result.orderedAt = orderedAtIso;
 
-    // DualWriteログを出力（三分岐）
-    if (result.dualWriteResult === 'success') {
-      logger.info('dualWrite appendItem ok', {
-        op: 'appendItem',
-        billId,
-        itemId: result.itemId,
-        dualWriteResult: 'success',
-      });
-    } else if (result.dualWriteResult === 'failed') {
+    if (result.dualWriteResult === 'failed') {
       logger.warn('dualWrite appendItem failed', {
         op: 'appendItem',
         billId,
@@ -320,22 +312,20 @@ export async function appendItem(request: AppendItemRequest): Promise<AppendItem
         dualWriteResult: 'failed',
         reason: result.dualWriteError?.message || String(result.dualWriteError),
       });
-    } else if (result.dualWriteResult === 'skipped') {
-      logger.info('dualWrite appendItem skipped', {
-        op: 'appendItem',
-        billId,
-        itemId: result.itemId,
-        dualWriteResult: 'skipped',
-      });
     }
 
-    logger.info('appendItem', {
-      op: 'appendItem',
-      billId,
-      itemId: result.itemId,
-      idempKey: idempotencyKey,
-      result: reused ? 'reused' : 'ok',
-      requestHash8: requestHash.substring(0, 8),
+    logOpsSuccess({
+      message: 'appendItem 成功',
+      functionEntry: 'appendItem',
+      operation: 'appendItemCore',
+      context: {
+        billId,
+        itemId: result.itemId,
+        idempotencyKey,
+        reused,
+        requestHash8: requestHash.substring(0, 8),
+        dualWriteResult: result.dualWriteResult,
+      },
     });
 
     // dualWriteResult と dualWriteError を戻り値から削除（内部情報のみ）

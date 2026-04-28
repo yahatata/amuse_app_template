@@ -10,8 +10,7 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { calcBusinessDate } from './calcBusinessDate';
 
@@ -247,13 +246,19 @@ export async function postEventRefund(request: PostEventRefundRequest): Promise<
       };
     });
 
-    logger.info('postEventRefund success', {
-      op: 'postEventRefund',
-      billId,
-      eventId: idempotencyKey,
-      result: reused ? 'reused' : 'ok',
-      amountIncl,
+    logOpsSuccess({
+      message: 'postEventRefund 成功',
+      functionEntry: 'postEventRefund',
+      context: {
+        op: 'postEventRefund',
+        billId,
+        eventId: idempotencyKey,
+        result: reused ? 'reused' : 'ok',
+        amountIncl,
+        code: 'ok',
+      },
     });
+
 
     return result;
   } catch (error) {

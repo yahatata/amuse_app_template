@@ -13,7 +13,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const registerForSideGame = onCall(async (request) => {
   // 認証チェック
@@ -25,6 +25,7 @@ export const registerForSideGame = onCall(async (request) => {
 
   const db = getFirestore();
   const { tableId, seatNumber, userId } = request.data;
+  let billId: string | undefined;
 
   try {
     // デバイス権限の確認（role: admin または options.side_game: true）
@@ -60,7 +61,7 @@ export const registerForSideGame = onCall(async (request) => {
     }
 
     const activeStayData = activeStayDoc.data()!;
-    const billId = activeStayData.billId as string;
+    billId = activeStayData.billId as string;
 
     if (!billId) {
       throw new HttpsError('failed-precondition', `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
@@ -68,8 +69,6 @@ export const registerForSideGame = onCall(async (request) => {
 
     // pokerNameはactiveStaysから取得（todaysBillsには依存しない）
     const pokerName = activeStayData.pokerName || `Player_${userId}`;
-
-    console.log(`参加者情報取得完了: ${pokerName}, billId: ${billId}`);
 
     // 2. sideGameドキュメントの存在確認
     const sideGameDoc = await db.collection('sideGame').doc(tableId).get();
@@ -86,7 +85,6 @@ export const registerForSideGame = onCall(async (request) => {
     };
 
     await db.collection('sideGame').doc(tableId).update(sideGameUpdateData);
-    console.log(`sideGame座席更新完了: seat${seatNumberStr}`);
 
     // 4. updatePlace ヘルパAPIを使用して bills.place を更新
     await updatePlace({
@@ -94,7 +92,18 @@ export const registerForSideGame = onCall(async (request) => {
       table: tableId,
       seat: seatNumber,
     });
-    console.log(`bills.place更新完了: ${billId}`);
+
+    logOpsSuccess({
+      message: 'registerForSideGame 成功',
+      functionEntry: 'registerForSideGame',
+      context: {
+        billId,
+        userId,
+        tableId,
+        seatNumber,
+        pokerName,
+      },
+    });
 
     return {
       success: true,
@@ -112,6 +121,13 @@ export const registerForSideGame = onCall(async (request) => {
       message: 'registerParticipantエラー:',
       functionEntry: 'registerForSideGame',
       cause: error,
+      context: {
+        callerUid,
+        billId,
+        tableId,
+        seatNumber,
+        userId,
+      },
     });
 
     if (error instanceof HttpsError) {

@@ -1,5 +1,4 @@
-import * as logger from "firebase-functions/logger";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { getLineConfig } from "../../../shared/secrets/secretManager";
 
 async function getLineChannelAccessToken(): Promise<string> {
@@ -26,6 +25,7 @@ export async function sendLinePushMessage(
         message: "line-config.channelAccessToken is not set",
         functionEntry: "sendLinePushMessage",
         operation: "token",
+        context: { reason: "missing_channel_access_token", userId },
       });
       return false;
     }
@@ -76,7 +76,12 @@ export async function sendLinePushMessage(
       return false;
     }
 
-    logger.info("LINE push message sent successfully", { userId });
+    logOpsSuccess({
+      message: "LINE push message sent successfully",
+      functionEntry: "sendLinePushMessage",
+      operation: "push",
+      context: { userId },
+    });
     return true;
   } catch (error) {
     logOpsError({

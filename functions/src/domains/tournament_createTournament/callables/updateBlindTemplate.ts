@@ -1,8 +1,9 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const updateBlindTemplate = onCall(async (request) => {
+  const logContext: Record<string, unknown> = { callerUid: request.auth?.uid ?? null };
   try {
     const {
       blindTemplateId,
@@ -24,6 +25,7 @@ export const updateBlindTemplate = onCall(async (request) => {
     if (!blindName || typeof blindName !== 'string') {
       return { success: false, error: 'ブラインドテンプレート名は必須です' };
     }
+    Object.assign(logContext, { blindName });
     if (!numberOfBlindLevels || typeof numberOfBlindLevels !== 'number' || numberOfBlindLevels <= 0) {
       return { success: false, error: 'ブラインドレベル数は正の数値で入力してください' };
     }
@@ -85,6 +87,11 @@ export const updateBlindTemplate = onCall(async (request) => {
     };
 
     await docRef.update(updateData);
+    logOpsSuccess({
+      message: 'updateBlindTemplate 成功',
+      functionEntry: 'updateBlindTemplate',
+      context: { blindTemplateId, blindName },
+    });
 
     return {
       success: true,
@@ -96,6 +103,7 @@ export const updateBlindTemplate = onCall(async (request) => {
       message: 'ブラインドテンプレート更新エラー:',
       functionEntry: 'updateBlindTemplate',
       cause: error,
+      context: logContext,
     });
     return { success: false, error: 'ブラインドテンプレートの更新に失敗しました' };
   }

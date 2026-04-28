@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const createMenuItem = onCall(async (request) => {
   // 認証チェック
@@ -112,6 +112,13 @@ export const createMenuItem = onCall(async (request) => {
         updatedBy: callerUid,
       });
     }
+
+    logOpsSuccess({
+      message: "createMenuItem 成功",
+      functionEntry: "createMenuItem",
+      operation: "createMenuItemCallable",
+      context: { menuItemId: docRef.id, callerUid, name: menuItemData.name },
+    });
 
     return {
       success: true,

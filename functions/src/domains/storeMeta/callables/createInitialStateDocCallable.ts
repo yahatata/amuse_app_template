@@ -5,7 +5,7 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 const db = getFirestore();
 
@@ -19,6 +19,13 @@ export const createInitialStateDocCallable = onCall(
       const doc = await docRef.get();
 
       if (doc.exists) {
+        logOpsSuccess({
+          message: 'createInitialStateDocCallable 成功',
+          functionEntry: 'createInitialStateDocCallable',
+          operation: 'createInitialStateDoc',
+          context: { docPath: 'storeMeta/currentBusinessDay', alreadyExists: true },
+        });
+
         return {
           success: true,
           message: 'storeMeta/currentBusinessDay document already exists.',
@@ -40,6 +47,12 @@ export const createInitialStateDocCallable = onCall(
       };
 
       await docRef.set(initialState);
+      logOpsSuccess({
+        message: 'createInitialStateDocCallable 成功',
+        functionEntry: 'createInitialStateDocCallable',
+        operation: 'createInitialStateDoc',
+        context: { docPath: 'storeMeta/currentBusinessDay', alreadyExists: false },
+      });
 
       return {
         success: true,
@@ -53,6 +66,7 @@ export const createInitialStateDocCallable = onCall(
         operation: 'createInitialStateDoc',
         cause: error,
         sourceProductHint: 'firestore',
+        context: { docPath: 'storeMeta/currentBusinessDay' },
       });
       throw new HttpsError(
         'internal',

@@ -13,7 +13,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const leaveSeat = onCall(async (request) => {
   // 認証チェック
@@ -25,6 +25,7 @@ export const leaveSeat = onCall(async (request) => {
 
   const db = getFirestore();
   const { tableId, seatNumber, userId } = request.data;
+  let billId: string | undefined;
 
   try {
     // デバイス権限の確認（role: admin または options.side_game: true）
@@ -56,13 +57,11 @@ export const leaveSeat = onCall(async (request) => {
     }
 
     const activeStayData = activeStayDoc.data()!;
-    const billId = activeStayData.billId as string;
+    billId = activeStayData.billId as string;
 
     if (!billId) {
       throw new HttpsError('failed-precondition', `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`);
     }
-
-    console.log(`billId取得完了: ${billId}`);
 
     // 2. sideGameコレクションの座席情報をクリア（seatsマップ内から削除）
     const seatNumberStr = seatNumber.toString().padStart(2, '0');
@@ -73,7 +72,6 @@ export const leaveSeat = onCall(async (request) => {
     };
 
     await db.collection('sideGame').doc(tableId).update(sideGameUpdateData);
-    console.log(`sideGame座席クリア完了: seat${seatNumberStr}`);
 
     // 3. updatePlace ヘルパAPIを使用して bills.place を更新（table: null, seat: null）
     await updatePlace({
@@ -81,7 +79,17 @@ export const leaveSeat = onCall(async (request) => {
       table: null,
       seat: null,
     });
-    console.log(`bills.placeクリア完了: ${billId}`);
+
+    logOpsSuccess({
+      message: 'leaveSeat 成功',
+      functionEntry: 'leaveSeat',
+      context: {
+        billId,
+        tableId,
+        seatNumber,
+        userId,
+      },
+    });
 
     return {
       success: true,
@@ -98,6 +106,13 @@ export const leaveSeat = onCall(async (request) => {
       message: 'leaveSeatエラー:',
       functionEntry: 'leaveSeat',
       cause: error,
+      context: {
+        callerUid,
+        billId,
+        tableId,
+        seatNumber,
+        userId,
+      },
     });
 
     if (error instanceof HttpsError) {

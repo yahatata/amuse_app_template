@@ -9,7 +9,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import type { CallableRequest } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue';
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
@@ -175,11 +175,19 @@ export const executeMonthlyPayroll = onCall(
         updatedAt: FieldValue.serverTimestamp(),
       });
 
-      logger.info('executeMonthlyPayroll: completed task dispatch', {
-        runId,
-        targetStaffCount,
-        targetAttendanceCount,
-        carryOverAttendanceCount,
+      logOpsSuccess({
+        message: 'executeMonthlyPayroll 成功',
+        functionEntry: 'executeMonthlyPayroll',
+        operation: 'taskDispatch',
+        context: {
+          runId,
+          paymentPeriodKey,
+          targetStaffCount,
+          targetAttendanceCount,
+          carryOverAttendanceCount,
+          callerUid,
+          deviceId: device.id ?? null,
+        },
       });
 
       return {

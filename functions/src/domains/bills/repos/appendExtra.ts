@@ -9,7 +9,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { shouldDualWrite } from './dualWrite';
@@ -254,7 +254,19 @@ export async function appendExtra(request: AppendExtraRequest): Promise<AppendEx
     });
 
     // dualWriteResult と dualWriteError を戻り値から削除（内部情報のみ）
-    const { dualWriteResult: _, dualWriteError: __, ...response } = result;
+    const { dualWriteResult: _, dualWriteError: __, ...response } = result;logOpsSuccess({
+  message: "appendExtra 成功",
+  functionEntry: "appendExtra",
+  context: {
+    op: 'appendExtra',
+    billId,
+    idempKey: finalIdempotencyKey,
+    result: reused ? 'reused' : 'ok',
+    code: 'ok',
+    requestHash8: requestHash.substring(0, 8),
+  },
+});
+
     return response as AppendExtraResponse;
   } catch (error) {
     logOpsError({

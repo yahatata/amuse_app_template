@@ -1,7 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore, Firestore } from "firebase-admin/firestore";
-import { logger } from "firebase-functions";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { processBillAnalyticsAtomically } from "../services/updateAnalyticsForBill";
 
 /** storeMeta/currentBusinessDay のドキュメントパス */
@@ -118,13 +117,22 @@ export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
   const db = getFirestore();
 
   try {
-    logger.info("移管処理開始: storeMeta から営業日を取得します");
-
     const businessDate = await getBusinessDateFromStoreMeta(db);
     const result = await runMigrateSettledBillsForBusinessDay(db, businessDate);
     const { processedCount, skippedCount, month } = result;
 
-    logger.info(`移管処理完了: 処理=${processedCount}件, スキップ=${skippedCount}件`);
+    logOpsSuccess({
+      message: "migrateSettledBillsForBusinessDay 成功",
+      functionEntry: "migrateSettledBillsForBusinessDay",
+      operation: "callable",
+      context: {
+        businessDate,
+        processedCount,
+        skippedCount,
+        month,
+        processedPokerNamesCount: result.processedPokerNames.length,
+      },
+    });
 
     return {
       success: true,

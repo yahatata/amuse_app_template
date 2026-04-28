@@ -12,7 +12,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const cancelOrder = onCall(async (request) => {
   const db = getFirestore();
@@ -23,6 +23,7 @@ export const cancelOrder = onCall(async (request) => {
   }
 
   const callerUid = request.auth.uid;
+  const logContext: Record<string, unknown> = { callerUid };
 
   try {
     // デバイス権限の確認（role: admin または options.order: true）
@@ -35,6 +36,8 @@ export const cancelOrder = onCall(async (request) => {
     if (!hasPermission) {
       throw new HttpsError('permission-denied', '注文操作の権限がありません');
     }
+
+    Object.assign(logContext, { deviceId: device.id });
 
     const { orderId, billId } = request.data as {
       orderId: string;
@@ -79,6 +82,13 @@ export const cancelOrder = onCall(async (request) => {
       dateString = `${year}-${month}-${day}`;
     }
 
+    Object.assign(logContext, {
+      orderId,
+      billId: billId && billId.trim() !== '' ? billId : null,
+      dateString,
+      orderDocId,
+    });
+
     // トランザクションで両方のコレクションを更新
     // Firestoreトランザクションでは、すべての読み取りを先に実行してから、すべての書き込みを実行する必要がある
     await db.runTransaction(async (tx) => {
@@ -118,6 +128,12 @@ export const cancelOrder = onCall(async (request) => {
         console.warn(`_TodaysOrders ドキュメントが見つかりません: ${orderId}`);
       }
     });
+    logOpsSuccess({
+      message: "cancelOrder 成功",
+      functionEntry: "cancelOrder",
+      context: { orderId, billId: billId || null, dateString, deviceId: device.id },
+    });
+
 
     return {
       success: true,
@@ -132,6 +148,7 @@ export const cancelOrder = onCall(async (request) => {
       message: 'cancelOrder エラー:',
       functionEntry: 'cancelOrder',
       cause: error,
+      context: logContext,
     });
 
     // HttpsError の場合はそのまま throw

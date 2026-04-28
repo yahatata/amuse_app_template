@@ -8,7 +8,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 
-import { logOpsError } from '../logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../logging/logOpsError';
 import { CONFIG_ERROR_CODES } from './configLoader';
 import {
   DEFAULT_SCHEDULER_SCHEMA_VERSION,
@@ -205,10 +205,31 @@ export async function getSchedulerConfig(db?: Firestore): Promise<SchedulerConfi
           fallbackSource: 'schedulerConfigDefaults.ts',
           reason: 'document_missing',
         });
+    logOpsSuccess({
+  message: "getSchedulerConfig 成功",
+  functionEntry: "getSchedulerConfig",
+  operation: 'config_read',
+  context: {
+      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
+      reason: 'read_error',
+      message: 'ok',
+    },
+});
+
         return buildSchedulerConfigFromDefaults();
       }
 
-      const data = doc.data() as Record<string, unknown> | undefined;
+      const data = doc.data() as Record<string, unknown> | undefined;logOpsSuccess({
+  message: "getSchedulerConfig 成功",
+  functionEntry: "getSchedulerConfig",
+  operation: 'config_read',
+  context: {
+      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
+      reason: 'read_error',
+      message: 'ok',
+    },
+});
+
       return mergeSchedulerConfigWithDefaults(data ?? {});
     } catch (err) {
       lastError = err;

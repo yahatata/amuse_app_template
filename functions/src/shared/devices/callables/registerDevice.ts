@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
-import { logOpsError } from "../../logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../logging/logOpsError";
 
 const db = getFirestore();
 
@@ -52,6 +52,18 @@ export const registerDevice = onCall(async (request) => {
         status: "active",
       });
 
+      logOpsSuccess({
+        message: "registerDevice 成功",
+        functionEntry: "registerDevice",
+        context: {
+          uid,
+          deviceId: existingDevice.id,
+          outcome: "updated",
+          role,
+          installationId,
+        },
+      });
+
       return {
         success: true,
         deviceId: existingDevice.id,
@@ -71,16 +83,38 @@ export const registerDevice = onCall(async (request) => {
       status: "active",
     });
 
+    logOpsSuccess({
+      message: "registerDevice 成功",
+      functionEntry: "registerDevice",
+      context: {
+        uid,
+        deviceId: deviceRef.id,
+        outcome: "created",
+        role,
+        installationId,
+      },
+    });
+
     return {
       success: true,
       deviceId: deviceRef.id,
       message: "デバイスを登録しました",
     };
   } catch (error) {
+    const parsed = registerDeviceSchema.safeParse(request.data);
+    const errContext = parsed.success
+      ? {
+          uid: parsed.data.uid,
+          role: parsed.data.role,
+          installationId: parsed.data.installationId,
+        }
+      : { inputParseFailed: true as const };
+
     logOpsError({
       message: 'デバイス登録エラー:',
       functionEntry: 'registerDevice',
       cause: error,
+      context: errContext,
     });
 
     if (error instanceof z.ZodError) {

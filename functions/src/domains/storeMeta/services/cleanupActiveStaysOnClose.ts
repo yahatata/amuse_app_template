@@ -1,6 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import {
   getCallerDeviceByUid,
   hasStoreManagementPermission,
@@ -91,6 +91,19 @@ export const cleanupActiveStaysOnClose = onCall(async (request) => {
     const start = Date.now();
     const result = await runCleanupActiveStays(db);
     const elapsedMs = Date.now() - start;
+
+    logOpsSuccess({
+      message: 'cleanupActiveStaysOnClose 成功',
+      functionEntry: 'cleanupActiveStaysOnClose',
+      operation: 'cleanupCallable',
+      context: {
+        callerUid,
+        deleted: result.deleted,
+        failed: result.failed,
+        elapsedMs,
+        unsettledBillIdsCount: result.unsettledBillIds.length,
+      },
+    });
 
     return {
       success: true,

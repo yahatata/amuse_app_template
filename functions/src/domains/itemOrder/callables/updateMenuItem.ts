@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const updateMenuItem = onCall(async (request) => {
   // 認証チェック
@@ -136,6 +136,13 @@ export const updateMenuItem = onCall(async (request) => {
         });
       }
     }
+
+    logOpsSuccess({
+      message: "updateMenuItem 成功",
+      functionEntry: "updateMenuItem",
+      operation: "updateMenuItemCallable",
+      context: { menuItemId: originalId, callerUid, name: updateData.name },
+    });
 
     return {
       success: true,

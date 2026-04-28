@@ -23,7 +23,7 @@ import {
   DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT,
 } from '../../../shared/config/defaults';
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 const db = getFirestore();
 
@@ -46,6 +46,8 @@ export const initializeStoreConfigCallable = onCall(
     if (device.role !== 'admin') {
       throw new HttpsError('permission-denied', '管理者権限が必要です');
     }
+
+    const logContext: Record<string, unknown> = { callerUid, deviceId: device.id };
 
     try {
       const configRef = db.collection('storeMeta').doc('config');
@@ -135,6 +137,16 @@ export const initializeStoreConfigCallable = onCall(
           ? parts.join('。')
           : 'storeMeta/config、storeMeta/requiredStaffByTimeSlot、storeMeta/schedulerConfig、storeMeta/payrollConfig は既に存在し、不足フィールドもありません';
 
+      logOpsSuccess({
+        message: 'initializeStoreConfigCallable 成功',
+        functionEntry: 'initializeStoreConfigCallable',
+        operation: 'initStoreMetaConfig',
+        context: {
+          createdCount: created.length,
+          updatedCount: updated.length,
+        },
+      });
+
       return {
         success: true,
         message,
@@ -148,6 +160,7 @@ export const initializeStoreConfigCallable = onCall(
         operation: 'initStoreMetaConfig',
         cause: error,
         sourceProductHint: 'firestore',
+        context: logContext,
       });
       throw new HttpsError(
         'internal',

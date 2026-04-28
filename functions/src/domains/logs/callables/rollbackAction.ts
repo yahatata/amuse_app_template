@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { markOperationLogRolledBack } from "../lib/operationLog";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import {
   undoAddon,
   undoBulkAddon,
@@ -108,6 +108,12 @@ export const rollbackAction = onCall(async (request) => {
           rolledBackPlayerNames: FieldValue.arrayUnion(...selectedNames),
         });
       }
+      logOpsSuccess({
+        message: "rollbackAction 成功",
+        functionEntry: "rollbackAction",
+        context: { tournamentId: tId, operationId, action, operationName },
+      });
+
       return { success: true, message: '操作のロールバックが完了しました', operationId, action };
     } else if (operationName === 'アドオン購入') {
       const plUid = payload.playerUid as string;
@@ -232,6 +238,12 @@ export const rollbackAction = onCall(async (request) => {
           rolledBackPlayerNames: FieldValue.arrayUnion(...selectedNames),
         });
       }
+      logOpsSuccess({
+        message: "rollbackAction 成功",
+        functionEntry: "rollbackAction",
+        context: { tournamentId: tId, operationId, action, operationName },
+      });
+
       return { success: true, message: '操作のロールバックが完了しました', operationId, action };
     } else if (operationName === 'トーナメント終了' || operationName === 'トーナメント強制終了') {
       const tournamentId = (payload.tournamentId as string) ?? tId;
@@ -247,6 +259,12 @@ export const rollbackAction = onCall(async (request) => {
         beforeTableStatuses,
       });
       await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+      logOpsSuccess({
+        message: "rollbackAction 成功",
+        functionEntry: "rollbackAction",
+        context: { tournamentId, operationId, action, operationName },
+      });
+
       return { success: true, message: '操作のロールバックが完了しました', operationId, action };
     } else if (operationName === 'ランキングデータ設定') {
       const tournamentId = (payload.tournamentId as string) ?? tId;
@@ -270,6 +288,12 @@ export const rollbackAction = onCall(async (request) => {
         rankingEntries,
       });
       await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+      logOpsSuccess({
+        message: "rollbackAction 成功",
+        functionEntry: "rollbackAction",
+        context: { tournamentId, operationId, action, operationName },
+      });
+
       return { success: true, message: '操作のロールバックが完了しました', operationId, action };
     } else {
       throw new HttpsError(
@@ -279,6 +303,12 @@ export const rollbackAction = onCall(async (request) => {
     }
 
     await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+    logOpsSuccess({
+      message: "rollbackAction 成功",
+      functionEntry: "rollbackAction",
+      context: { tournamentId: tId, operationId, action, operationName },
+    });
+
     return {
       success: true,
       message: '操作のロールバックが完了しました',
@@ -287,10 +317,21 @@ export const rollbackAction = onCall(async (request) => {
     };
 
   } catch (error) {
+    const parsed = rollbackActionSchema.safeParse(request.data);
+    const errContext = parsed.success
+      ? {
+          tournamentId: parsed.data.tournamentId,
+          operationId: parsed.data.operationId,
+          action: parsed.data.action,
+          rollBackBy: parsed.data.rollBackBy,
+        }
+      : { inputParseFailed: true as const };
+
     logOpsError({
       message: 'ロールバック操作エラー:',
       functionEntry: 'rollbackAction',
       cause: error,
+      context: errContext,
     });
     
     if (error instanceof z.ZodError) {

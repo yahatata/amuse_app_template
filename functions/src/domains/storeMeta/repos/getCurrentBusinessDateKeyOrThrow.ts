@@ -7,7 +7,7 @@
 
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { generateJstDateKey } from '../../../shared/time';
 
@@ -99,6 +99,13 @@ export async function getCurrentBusinessDateKeyOrThrow(): Promise<string> {
     const currentBusinessDateKey = data.currentBusinessDateKey;
 
     if (status === 'running' && currentBusinessDateKey !== null && typeof currentBusinessDateKey === 'string') {
+      logOpsSuccess({
+        message: 'getCurrentBusinessDateKeyOrThrow 成功',
+        functionEntry: 'getCurrentBusinessDateKeyOrThrow',
+        operation: 'loadFirestoreStateDoc',
+        context: { status, currentBusinessDateKey },
+      });
+
       return currentBusinessDateKey;
     }
 
@@ -121,6 +128,7 @@ export async function getCurrentBusinessDateKeyOrThrow(): Promise<string> {
       operation: 'loadFirestoreStateDoc',
       cause: error,
       sourceProductHint: 'firestore',
+      context: { docPath: 'storeMeta/currentBusinessDay' },
     });
     throw new HttpsError(
       'internal',

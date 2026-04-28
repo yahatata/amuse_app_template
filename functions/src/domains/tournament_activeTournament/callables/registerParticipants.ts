@@ -5,7 +5,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import * as crypto from 'crypto';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -370,9 +370,18 @@ export const registerParticipants = onCall(async (request) => {
       });
     }
 
-    console.log(`=== 参加者登録完了 ===`);
-    console.log(`成功: ${successCount}人`);
-    console.log(`失敗: ${failureCount}人`);
+    logOpsSuccess({
+      message: '参加者一括登録の処理が完了しました',
+      functionEntry: 'registerParticipants',
+      context: {
+        tournamentId,
+        successCount,
+        failureCount,
+        totalRequested: userIds.length,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
 
     return {
       success: true,

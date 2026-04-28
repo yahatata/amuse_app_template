@@ -8,7 +8,7 @@
 import * as crypto from 'crypto';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { validateStoreTenantForProduction, isProductionRuntime } from '../../../shared/runtime';
 import { enqueueTournamentTask } from './tasks';
@@ -279,6 +279,12 @@ export async function runEnqueueTournamentTasks(
   const storeConfig = await getStoreConfig();
   if (!storeConfig.features?.enqueueSchedulerEnabled) {
     logger.info('runEnqueueTournamentTasks: スキップ（features.enqueueSchedulerEnabled != true）');
+    logOpsSuccess({
+      message: 'enqueue バッチは設定によりスキップされました',
+      functionEntry: 'runEnqueueTournamentTasks',
+      operation: 'runEnqueueTournamentTasksDisabled',
+      context: { skipped: true as const },
+    });
     return { success: true, processedCount: 0, enqueuedCount: 0 };
   }
 
@@ -402,10 +408,25 @@ export async function runEnqueueTournamentTasks(
     enqueuedCount += results.reduce((sum, r) => sum + r.enqueued, 0);
   }
 
-  return {
+  const batchResult: RunEnqueueResult = {
     success: errors.length === 0,
     processedCount,
     enqueuedCount,
     errors: errors.length > 0 ? errors : undefined,
   };
+
+  logOpsSuccess({
+    message: 'enqueue バッチ（runEnqueueTournamentTasks）が完了しました',
+    functionEntry: 'runEnqueueTournamentTasks',
+    context: {
+      success: batchResult.success,
+      processedCount: batchResult.processedCount,
+      enqueuedCount: batchResult.enqueuedCount,
+      partialErrorCount: errors.length,
+      storeId: options.storeId,
+      tenantId: options.tenantId,
+    },
+  });
+
+  return batchResult;
 }

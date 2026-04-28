@@ -11,7 +11,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { getBusinessDateForAttendance } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 function resolveAdjustedClockInTimestamp(
   adjustmentOffsetMinutes: unknown,
@@ -58,6 +58,8 @@ export const createManualClockInRecord = onCall(async (request: CallableRequest)
     throw new HttpsError('permission-denied', 'スタッフ出退勤操作の権限がありません');
   }
 
+  const logContext: Record<string, unknown> = { callerUid, deviceId: device.id };
+
   try {
     const {
       staffId,
@@ -73,6 +75,8 @@ export const createManualClockInRecord = onCall(async (request: CallableRequest)
       throw new HttpsError('invalid-argument', 'staffId is required');
     }
 
+    Object.assign(logContext, { staffId });
+
     const config = await getStoreConfig();
     if (config.features?.createAttendanceByManual !== true) {
       throw new HttpsError('failed-precondition', '手動打刻は現在無効です');
@@ -86,6 +90,7 @@ export const createManualClockInRecord = onCall(async (request: CallableRequest)
       staffName = staffDoc.exists ? (staffDoc.data()?.fullName as string) ?? 'Unknown' : 'Unknown';
     }
     const businessDate = await getBusinessDateForAttendance();
+    Object.assign(logContext, { businessDate });
 
     // エラー: 全期間で closedStoreWithoutClockOut!==true の未退勤（clockIn あり & clockOut null）が存在する
     const existingSnap = await db
@@ -115,6 +120,7 @@ export const createManualClockInRecord = onCall(async (request: CallableRequest)
       .limit(1)
       .get();
     const hasWarning = !closedWithoutClockOutSnap.empty;
+    Object.assign(logContext, { hasWarning });
 
     const nowTs = admin.firestore.FieldValue.serverTimestamp();
     const attendanceData = {
@@ -150,6 +156,7 @@ export const createManualClockInRecord = onCall(async (request: CallableRequest)
     };
 
     const docRef = await db.collection('attendances').add(attendanceData);
+    Object.assign(logContext, { docId: docRef.id, isManual: true });
 
     await writeAttendanceLog({
       db,
@@ -167,6 +174,20 @@ export const createManualClockInRecord = onCall(async (request: CallableRequest)
     if (hasWarning) {
       result.warning = '管理者に確認して、以前の出勤について正しいデータを入力して下さい。';
     }
+
+    logOpsSuccess({
+      message: 'createManualClockInRecord 成功',
+      functionEntry: 'createManualClockInRecord',
+      context: {
+        staffId,
+        businessDate,
+        docId: docRef.id,
+        deviceId: device.id,
+        hasWarning,
+        isManual: true,
+      },
+    });
+
     return result;
   } catch (error) {
     if (error instanceof HttpsError) {
@@ -176,6 +197,7 @@ export const createManualClockInRecord = onCall(async (request: CallableRequest)
       message: 'Error in createManualClockInRecord:',
       functionEntry: 'createManualClockInRecord',
       cause: error,
+      context: logContext,
     });
     throw new HttpsError('internal', 'Internal server error');
   }

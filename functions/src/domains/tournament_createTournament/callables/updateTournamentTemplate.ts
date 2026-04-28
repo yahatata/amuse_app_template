@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { computeRegEndAt } from "../services/enqueueTournamentTasksCore";
 
 const updateTournamentTemplateSchema = z.object({
@@ -129,16 +129,36 @@ export const updateTournamentTemplate = onCall(async (request) => {
     }
 
     await batch.commit();
+    logOpsSuccess({
+      message: 'updateTournamentTemplate 成功',
+      functionEntry: 'updateTournamentTemplate',
+      context: {
+        templateId,
+        selectedTournamentCount: selectedTournamentIds.length,
+        callerUid,
+      },
+    });
 
     return {
       success: true,
       message: 'トーナメントテンプレートを更新しました',
     };
   } catch (error) {
+    const parsed = updateTournamentTemplateSchema.safeParse(request.data);
+    const errContext: Record<string, unknown> = { callerUid };
+    if (parsed.success) {
+      Object.assign(errContext, {
+        templateId: parsed.data.templateId,
+        selectedTournamentCount: parsed.data.selectedTournamentIds.length,
+      });
+    } else {
+      errContext.inputParseFailed = true;
+    }
     logOpsError({
       message: 'トーナメントテンプレート更新エラー:',
       functionEntry: 'updateTournamentTemplate',
       cause: error,
+      context: errContext,
     });
     return {
       success: false,

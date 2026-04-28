@@ -8,7 +8,7 @@ import { onCall } from 'firebase-functions/v2/https';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { appendExtra, AppendExtraRequest } from '../repos/appendExtra';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 export const appendExtraCallable = onCall(async (request) => {
   // 認証チェック
@@ -44,6 +44,15 @@ export const appendExtraCallable = onCall(async (request) => {
 
   try {
     const result = await appendExtra(data);
+    logOpsSuccess({
+  message: "appendExtraCallable 成功",
+  functionEntry: "appendExtraCallable",
+  context: {
+    uid,
+    billId: data.billId,
+  },
+});
+
     return result;
   } catch (error) {
     logOpsError({

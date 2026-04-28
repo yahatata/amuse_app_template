@@ -13,7 +13,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { shouldDualWrite, legacyUpdatePlaceUpdate } from './dualWrite';
 
@@ -171,6 +171,20 @@ export async function updatePlace(request: UpdatePlaceRequest): Promise<UpdatePl
       idempKey: idempotencyKey,
       result: 'ok',
     });
+    logOpsSuccess({
+  message: "updatePlace 成功",
+  functionEntry: "updatePlace",
+  context: {
+    op: 'updatePlace',
+    billId,
+    table,
+    seat,
+    idempKey: idempotencyKey,
+    result: 'ok',
+    code: 'ok',
+  },
+});
+
 
     return {
       success: true,

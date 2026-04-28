@@ -63,7 +63,7 @@ function resolveErrorSource(args: LogOpsErrorArgs, cause: unknown): ErrorSource 
   return 'function_common';
 }
 
-function resolveService(args: LogOpsErrorArgs): string {
+function resolveService(args: { functionEntry: string }): string {
   return resolveServiceForFunctionEntry(args.functionEntry);
 }
 
@@ -154,6 +154,35 @@ export function logOpsError(args: LogOpsErrorArgs): void {
   }
 
   logger.error(args.message, payload);
+}
+
+export type LogOpsSuccessArgs = {
+  message: string;
+  functionEntry: string;
+  operation?: string;
+  projectId?: string;
+  context?: Record<string, unknown>;
+};
+
+/**
+ * 失敗の logOpsError と同じ相関用 context キーで 1 行に載せる（`outcome: success`）。
+ */
+export function logOpsSuccess(args: LogOpsSuccessArgs): void {
+  const projectId = args.projectId ?? resolveProjectId();
+  const service = resolveService(args);
+  const payload: Record<string, unknown> = {
+    outcome: "success" as const,
+    service,
+    functionEntry: args.functionEntry,
+    projectId,
+  };
+  if (args.operation !== undefined) {
+    payload.operation = args.operation;
+  }
+  if (args.context !== undefined && Object.keys(args.context).length > 0) {
+    payload.context = args.context;
+  }
+  logger.info(args.message, payload);
 }
 
 /** postback 等、全文を載せず先頭だけ残す */

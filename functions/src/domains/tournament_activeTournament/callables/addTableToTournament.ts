@@ -2,7 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -116,10 +116,19 @@ export const addTableToTournament = onCall(async (request) => {
       
       return { success: true, tableId, maxSeats };
     });
-    
-    console.log(`=== 卓追加完了 ===`);
-    console.log(`結果:`, result);
-    
+
+    logOpsSuccess({
+      message: '卓追加が完了しました',
+      functionEntry: 'addTableToTournament',
+      context: {
+        tournamentId,
+        tableId: result.tableId,
+        maxSeats: result.maxSeats,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
+
     return result;
     
   } catch (error) {

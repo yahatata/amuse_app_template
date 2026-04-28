@@ -10,8 +10,7 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { calcBusinessDate } from './calcBusinessDate';
 
@@ -237,14 +236,20 @@ export async function postEventAdjustment(request: PostEventAdjustmentRequest): 
       };
     });
 
-    logger.info('postEventAdjustment success', {
-      op: 'postEventAdjustment',
-      billId,
-      eventId: idempotencyKey,
-      result: reused ? 'reused' : 'ok',
-      sign,
-      amountIncl,
+    logOpsSuccess({
+      message: 'postEventAdjustment 成功',
+      functionEntry: 'postEventAdjustment',
+      context: {
+        op: 'postEventAdjustment',
+        billId,
+        eventId: idempotencyKey,
+        result: reused ? 'reused' : 'ok',
+        sign,
+        amountIncl,
+        code: 'ok',
+      },
     });
+
 
     return result;
   } catch (error) {

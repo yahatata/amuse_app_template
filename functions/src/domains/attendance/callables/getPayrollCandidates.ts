@@ -13,7 +13,7 @@ import type { Timestamp } from 'firebase-admin/firestore';
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
 import type { CandidateReasonType } from '../types/payrollCalcTypes';
 import { buildPayrollDisplayContext } from '../helpers/payrollDisplayContext';
@@ -213,6 +213,7 @@ export const getPayrollCandidates = onCall(async (request: CallableRequest) => {
     });
     throw new HttpsError('not-found', PAYROLL_ERRORS.PAYROLL_CONFIG_NOT_FOUND);
   }
+
   const maxCount = payrollConfig.maxCandidatesCount;
 
   const db = getFirestore();
@@ -260,6 +261,18 @@ export const getPayrollCandidates = onCall(async (request: CallableRequest) => {
     displayContext,
     isConfirmed,
   };
+
+  logOpsSuccess({
+    message: 'getPayrollCandidates 成功',
+    functionEntry: 'getPayrollCandidates',
+    context: {
+      paymentPeriodKey,
+      group1Count: group1.length,
+      group2Count: group2.length,
+      group3Count: group3.length,
+      isConfirmed,
+    },
+  });
 
   return response;
 });

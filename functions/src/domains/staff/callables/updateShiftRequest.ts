@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 import { getStoreConfig } from "../../../shared/config/configLoader";
 import { DEFAULT_SHIFT_SCHEDULING_START_DAY } from "../../../shared/config/defaults";
 import { assertStaffExists, assertHourStep, getYearMonthFromDateKey, isInShiftSchedulingPeriod, isInsufficientDaysNotificationSent, isInsufficientDayOrTimeSlot } from "../../shift/services/helpers";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
 
@@ -151,6 +151,12 @@ export const updateShiftRequest = onCall(
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
+      logOpsSuccess({
+        message: 'updateShiftRequest 成功',
+        functionEntry: 'updateShiftRequest',
+        context: { requestId, staffId, dateKey },
+      });
+
       return {
         success: true,
       };
@@ -160,6 +166,7 @@ export const updateShiftRequest = onCall(
       message: 'シフト申請修正エラー:',
       functionEntry: 'updateShiftRequest',
       cause: error,
+      context: { requestId, staffId, start, end },
     });
 
       if (error instanceof HttpsError) {

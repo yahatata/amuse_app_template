@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const getScheduledTournamentsForEditSchema = z.object({
   type: z.enum(['recurrence', 'template']),
@@ -66,16 +66,41 @@ export const getScheduledTournamentsForEdit = onCall(async (request) => {
       recurrenceId: doc.data().recurrenceId ?? null,
       name: doc.data().snapshot?.name || '',
     }));
+    logOpsSuccess({
+      message: 'getScheduledTournamentsForEdit 成功',
+      functionEntry: 'getScheduledTournamentsForEdit',
+      context: {
+        type,
+        id,
+        includeCancelled,
+        excludeBeforeBusinessDate: excludeBeforeBusinessDate ?? null,
+        count: tournaments.length,
+        callerUid,
+      },
+    });
 
     return {
       success: true,
       tournaments,
     };
   } catch (error) {
+    const parsed = getScheduledTournamentsForEditSchema.safeParse(request.data);
+    const errContext: Record<string, unknown> = { callerUid };
+    if (parsed.success) {
+      Object.assign(errContext, {
+        type: parsed.data.type,
+        id: parsed.data.id,
+        includeCancelled: parsed.data.includeCancelled,
+        excludeBeforeBusinessDate: parsed.data.excludeBeforeBusinessDate ?? null,
+      });
+    } else {
+      errContext.inputParseFailed = true;
+    }
     logOpsError({
       message: 'スケジュール済みトーナメント取得エラー:',
       functionEntry: 'getScheduledTournamentsForEdit',
       cause: error,
+      context: errContext,
     });
     return {
       success: false,

@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { computeRegEndAt } from "../services/enqueueTournamentTasksCore";
 
 const updateTournamentRecurrenceSchema = z.object({
@@ -163,16 +163,38 @@ export const updateTournamentRecurrence = onCall(async (request) => {
     }
 
     await batch.commit();
+    logOpsSuccess({
+      message: 'updateTournamentRecurrence 成功',
+      functionEntry: 'updateTournamentRecurrence',
+      context: {
+        recurrenceId,
+        selectedTournamentCount: selectedTournamentIds.length,
+        callerUid,
+        isActive,
+        templateId,
+      },
+    });
 
     return {
       success: true,
       message: '定期開催設定を更新しました',
     };
   } catch (error) {
+    const parsed = updateTournamentRecurrenceSchema.safeParse(request.data);
+    const errContext: Record<string, unknown> = { callerUid };
+    if (parsed.success) {
+      Object.assign(errContext, {
+        recurrenceId: parsed.data.recurrenceId,
+        selectedTournamentCount: parsed.data.selectedTournamentIds.length,
+      });
+    } else {
+      errContext.inputParseFailed = true;
+    }
     logOpsError({
       message: '定期開催設定更新エラー:',
       functionEntry: 'updateTournamentRecurrence',
       cause: error,
+      context: errContext,
     });
     return {
       success: false,

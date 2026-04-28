@@ -12,7 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 /**
@@ -193,15 +193,19 @@ export const billsEventsOnCreate = onDocumentCreated(
         });
       });
 
-      logger.info('billsEventsOnCreate success', {
-        billId,
-        eventId,
-        type: eventDoc.type,
+      logOpsSuccess({
+        message: 'billsEventsOnCreate 成功',
+        functionEntry: 'billsEventsOnCreate',
+        context: {
+          billId,
+          eventId,
+          type: eventDoc.type,
+          code: 'ok',
+        },
       });
 
       // 8) トランザクション外で Analytics 差分処理をトリガ（非同期）
       // TODO: Analytics 差分処理の実装（analytics_plan.md を参照）
-
     } catch (error) {
       logOpsError({
         message: 'billsEventsOnCreate failed',

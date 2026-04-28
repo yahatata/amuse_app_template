@@ -1,7 +1,7 @@
 import * as admin from 'firebase-admin';
 import {HttpsError, onCall} from 'firebase-functions/v2/https';
 import {z} from 'zod';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 // バリデーションスキーマ
 const bankInfoSchema = z.object({
@@ -77,17 +77,23 @@ export const updateStaffBankInfo = onCall(async (request) => {
       },
     });
 
-    console.log(`銀行口座情報更新成功: staffId=${staffId}`);
+    logOpsSuccess({
+      message: 'updateStaffBankInfo 成功',
+      functionEntry: 'updateStaffBankInfo',
+      context: { staffId },
+    });
 
     return {
       success: true,
       message: '銀行口座情報を更新しました',
     };
   } catch (error) {
+    const staffHint = (request.data as { staffId?: string })?.staffId;
     logOpsError({
       message: '銀行口座情報更新エラー:',
       functionEntry: 'updateStaffBankInfo',
       cause: error,
+      context: { staffId: staffHint, callerUid: request.auth?.uid },
     });
 
     if (error instanceof z.ZodError) {

@@ -2,7 +2,7 @@ import {onCall} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { VerifyQRResponse } from "../../../shared/types";
 import { verifyQRData, parseQRData } from "../services/qrCodeUtils";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * QRコード検証関数
@@ -33,7 +33,6 @@ export const verifyQRCode = onCall(
     }
 
     try {
-      // QRコードデータを検証
       const isValid = await verifyQRData(qrData);
 
       if (!isValid) {
@@ -43,7 +42,6 @@ export const verifyQRCode = onCall(
         };
       }
 
-      // QRコードデータをパース
       const parsedData = parseQRData(qrData);
 
       if (!parsedData) {
@@ -53,7 +51,6 @@ export const verifyQRCode = onCall(
         };
       }
 
-      // ユーザー情報を取得
       const userDoc = await admin.firestore()
         .collection("users")
         .doc(parsedData.uid)
@@ -66,6 +63,15 @@ export const verifyQRCode = onCall(
         };
       }
 
+      logOpsSuccess({
+        message: "verifyQRCode 成功",
+        functionEntry: "verifyQRCode",
+        context: {
+          uid: parsedData.uid,
+          qrType: parsedData.type,
+        },
+      });
+
       return {
         valid: true,
         data: parsedData,
@@ -73,11 +79,15 @@ export const verifyQRCode = onCall(
       };
     } catch (error) {
       logOpsError({
-      message: 'QRコード検証エラー:',
-      functionEntry: 'verifyQRCode',
-      cause: error,
-      errorKey: 'USER_VISIT_QR_VERIFY_FAILED',
-    });
+        message: "QRコード検証エラー:",
+        functionEntry: "verifyQRCode",
+        cause: error,
+        errorKey: "USER_VISIT_QR_VERIFY_FAILED",
+        context: {
+          callerUid: request.auth?.uid,
+          qrDataLength: typeof qrData === "string" ? qrData.length : undefined,
+        },
+      });
       return {
         valid: false,
         message: "QRコードの検証に失敗しました。",

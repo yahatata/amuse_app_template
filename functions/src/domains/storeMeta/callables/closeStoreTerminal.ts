@@ -27,7 +27,7 @@ import { getRequiredProjectId } from '../../../shared/runtime/projectId';
 import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
 import { generateJstDateKey } from '../../../shared/time';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 const CLOSE_STEPS = [
   'UNSETTLED_MARK',
@@ -476,6 +476,12 @@ export const closeStoreTerminal = onCall(
           await releaseProcessing(db, { runId });
 
           displaySummary.storeMeta = `status=closed, 営業日 ${closedBusinessDate} を閉店しました。`;
+          logOpsSuccess({
+            message: 'closeStoreTerminal 成功',
+            functionEntry: 'closeStoreTerminal',
+            operation: 'closeStoreAfterRecheck',
+            context: { runId, closedBusinessDate, status: 'completed' },
+          });
           return {
             success: true,
             runId,
@@ -582,6 +588,12 @@ export const closeStoreTerminal = onCall(
     }
 
     displaySummary.storeMeta = `status=closed, 営業日 ${closedBusinessDate} を閉店しました。`;
+    logOpsSuccess({
+      message: 'closeStoreTerminal 成功',
+      functionEntry: 'closeStoreTerminal',
+      operation: 'closeStoreCompleted',
+      context: { runId, closedBusinessDate, status: 'completed' },
+    });
     return {
       success: true,
       runId,

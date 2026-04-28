@@ -3,7 +3,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as crypto from 'crypto';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { writeSingleOperationLog } from '../../logs/lib/operationLog';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 type ForceReason = 'not_registered' | 'no_prize' | 'no_ranking';
 
@@ -13,6 +13,7 @@ export const endTournament = onCall(async (request) => {
   }
 
   const callerUid = request.auth.uid;
+  const logContext: Record<string, unknown> = { callerUid };
 
   try {
     const device = await getCallerDeviceByUid(callerUid);
@@ -25,6 +26,8 @@ export const endTournament = onCall(async (request) => {
       throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
     }
 
+    Object.assign(logContext, { deviceId: device.id });
+
     const data = request.data as { tournamentId?: string; endType?: 'normal' | 'force'; forceReason?: ForceReason };
     const { tournamentId, endType = 'normal', forceReason } = data ?? {};
 
@@ -32,9 +35,16 @@ export const endTournament = onCall(async (request) => {
       throw new HttpsError('invalid-argument', 'tournamentId is required');
     }
 
+    Object.assign(logContext, {
+      tournamentId,
+      endType,
+      ...(forceReason ? { forceReason } : {}),
+    });
+
     const db = getFirestore();
     const operationId = crypto.randomUUID();
     const isForceEnd = endType === 'force';
+    Object.assign(logContext, { operationId });
 
     const rollbackPayload = await db.runTransaction(async (transaction) => {
       const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
@@ -109,6 +119,18 @@ export const endTournament = onCall(async (request) => {
       payload,
       tournamentId,
     });
+    logOpsSuccess({
+      message: "endTournament 成功",
+      functionEntry: "endTournament",
+      context: {
+        tournamentId,
+        endType: isForceEnd ? "force" : "normal",
+        ...(forceReason ? { forceReason } : {}),
+        deviceId: device.id,
+        operationId,
+      },
+    });
+
 
     return {
       success: true,
@@ -120,6 +142,7 @@ export const endTournament = onCall(async (request) => {
       message: 'endTournament error:',
       functionEntry: 'endTournament',
       cause: error,
+      context: logContext,
     });
 
     if (error instanceof HttpsError) {

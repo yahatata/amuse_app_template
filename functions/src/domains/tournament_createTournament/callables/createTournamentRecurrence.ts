@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { logger } from "firebase-functions";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { validateStoreTenantForProduction } from "../../../shared/runtime";
@@ -133,7 +133,19 @@ export const createTournamentRecurrence = onCall(async (request) => {
       });
     }
 
-    console.log('生成されたトーナメント数:', generatedTournaments.length);
+    logOpsSuccess({
+      message: '定期開催トーナメントの作成と生成が完了しました',
+      functionEntry: 'createTournamentRecurrence',
+      context: {
+        recurrenceId: recurrenceRef.id,
+        templateId,
+        storeId,
+        tenantId,
+        generatedCount: generatedTournaments.length,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
 
     return {
       success: true,

@@ -12,7 +12,7 @@
  */
 
 import * as admin from 'firebase-admin';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 // Firebase Admin SDKの初期化
 if (!admin.apps.length) {
@@ -45,7 +45,12 @@ async function createInitialStateDoc() {
     };
 
     await docRef.set(initialState);
-    console.log('storeMeta/currentBusinessDay document created successfully.');
+    logOpsSuccess({
+      message: "createInitialStateDoc 成功",
+      functionEntry: "createInitialStateDoc",
+      operation: "createDoc",
+      context: { docPath: "storeMeta/currentBusinessDay" },
+    });
   } catch (error) {
     logOpsError({
       message: 'Failed to create initial state doc:',
@@ -60,7 +65,6 @@ async function createInitialStateDoc() {
 // スクリプト実行
 createInitialStateDoc()
   .then(() => {
-    console.log('Script completed successfully.');
     process.exit(0);
   })
   .catch((error) => {

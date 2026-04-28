@@ -1,5 +1,5 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export interface UndoReseatAllPlayersParams {
   tournamentId: string;
@@ -76,14 +76,18 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
         });
       }
     });
-    
-    console.log(`Reseat all players operation undone in tournament ${params.tournamentId}`);
-    
+
+    logOpsSuccess({
+      message: 'undoReseatAllPlayers 成功',
+      functionEntry: 'undoReseatAllPlayers',
+      context: { tournamentId: params.tournamentId },
+    });
   } catch (error) {
     logOpsError({
       message: 'Error undoing reseat all players operation:',
       functionEntry: 'undoReseatAllPlayers',
       cause: error,
+      context: { tournamentId: params.tournamentId },
     });
     throw error;
   }

@@ -5,7 +5,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 const bulkAddonSchema = z.object({
@@ -268,8 +268,17 @@ export const bulkAddon = onCall(async (request) => {
       },
     });
 
-    console.log('=== まとめてAddon処理完了 ===');
-    console.log('処理完了ユーザー数:', result.processedCount);
+    logOpsSuccess({
+      message: 'まとめてAddon処理が完了しました',
+      functionEntry: 'bulkAddon',
+      context: {
+        tournamentId,
+        processedCount: result.processedCount,
+        alreadyAddonCount: result.alreadyAddonCount,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
 
     return {
       success: true,

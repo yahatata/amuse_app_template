@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマの定義
@@ -105,6 +105,16 @@ export const resumeTournament = onCall(async (request) => {
         shiftSec: newShiftSec,
         updatedAt: now
       });
+    });
+
+    logOpsSuccess({
+      message: 'トーナメントを再開しました',
+      functionEntry: 'resumeTournament',
+      context: {
+        tournamentId,
+        callerUid,
+        deviceId: device.id,
+      },
     });
 
     return {

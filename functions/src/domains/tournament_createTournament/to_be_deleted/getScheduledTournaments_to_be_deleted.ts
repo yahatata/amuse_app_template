@@ -1,6 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * スケジュール済みトーナメント一覧を取得するCloud Function
@@ -264,7 +264,12 @@ export const getScheduledTournaments = onCall(async (request) => {
     });
     
     console.log(`Retrieved ${tournaments.length} tournaments for period: ${period}`);
-    
+    logOpsSuccess({
+      message: 'getScheduledTournaments 成功',
+      functionEntry: 'getScheduledTournaments',
+      context: { count: tournaments.length, period },
+    });
+
     return {
       success: true,
       scheduledTournaments: tournaments,
@@ -277,6 +282,7 @@ export const getScheduledTournaments = onCall(async (request) => {
       message: 'Error in getScheduledTournaments:',
       functionEntry: 'getScheduledTournaments',
       cause: error,
+      context: { period: request.data?.period ?? 'all' },
     });
     
     return {

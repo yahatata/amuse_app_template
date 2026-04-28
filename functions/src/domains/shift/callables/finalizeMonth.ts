@@ -5,7 +5,7 @@ import {
   calculateIsSufficient,
   getRequiredStaffByTimeSlot,
 } from "../services/helpers";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
 
@@ -199,6 +199,12 @@ export const finalizeMonth = onCall(
       },
       { merge: true }
     );
+
+    logOpsSuccess({
+      message: 'finalizeMonth 成功',
+      functionEntry: 'finalizeMonth',
+      context: { yearMonth, finalizedCount },
+    });
 
     return {
       success: true,
