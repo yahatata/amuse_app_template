@@ -1,7 +1,7 @@
 # functionEntry 業務役割一覧
 
 - **情報源**: `functions/src` の実コードを読み取り、各 `functionEntry` および `operation` の業務上の役割を要約。
-- **機械抽出（参照用）**: 判定単位とソース行の対応は `functions/scripts/emitLogOpsPrimarySource269.cjs` の出力（`functions/scripts/generated/重要度判定_Step2-1_269件_一次情報（ソース）.md`）。※本表から除外した unused 相当分を除くと **269 件**（101+168）が実質スコープの目安。
+- **機械抽出（参照用）**: 判定単位とソース行の対応は `functions/scripts/generated/重要度判定_Step2-1_269件_一次情報（ソース）.md`（コミット済みスナップショット）。※本表から除外した unused 相当分を除くと **269 件**（101+168）が実質スコープの目安。
 - **対象**: `functions/src` の `logOpsError` における判定単位（Part 1: operation なし 101 件、Part 2: 76 種の `functionEntry`・168 行の `operation`）。主要業務・高頻度業務の 1/3/5 は運用上の目安。
 - **生成日**: 2026-04-12
 - **Part2 最終反映**: `Part2_推奨値_UI操作経路_分析.md` の推奨 主要／推奨 高頻度・補足（2026-04-13）
