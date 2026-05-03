@@ -228,6 +228,7 @@
   <div id="global-loading-overlay" class="global-loading-overlay" style="display: none;">
     <div class="global-loading-content">
     <div class="spinner"></div>
+    <p class="global-loading-message"></p>
     </div>
   </div>
 
@@ -556,10 +557,14 @@
             <button onclick="showStaffHomePage()" class="btn secondary-btn">ホームに戻る</button>
           </div>
         </div>
-        
+
+        <div id="submitted-shifts-list-container" class="flexible-container" style="display: none;">
+          <h3>提出済みの申請</h3>
+          <div id="submitted-shifts-list"></div>
+        </div>
 
         </div>
-        
+
         <!-- 確定シフトセクション -->
         <div id="confirmed-shifts-section" class="flexible-container-flex" style="display: none;">
           <h2>確定シフト</h2>
@@ -720,13 +725,33 @@
   // グローバルローディングオーバーレイ表示
   function showGlobalLoading(message = '処理中...') {
     const overlay = document.getElementById('global-loading-overlay');
+    if (!overlay) return;
+    const msgEl = overlay.querySelector('.global-loading-message');
+    if (msgEl) msgEl.textContent = message;
     overlay.style.display = 'flex';
   }
   
   // グローバルローディングオーバーレイ非表示
   function hideGlobalLoading() {
     const overlay = document.getElementById('global-loading-overlay');
-    overlay.style.display = 'none';
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  function setStaffQrSectionBusy(busy) {
+    const container = document.querySelector('#qr-page .qr-container');
+    if (!container) return;
+    container.classList.add('busy-overlay-host');
+    let ov = container.querySelector(':scope > .section-busy-overlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.className = 'section-busy-overlay';
+      ov.innerHTML = '<div class="spinner"></div>';
+      container.appendChild(ov);
+    }
+    ov.classList.toggle('is-visible', !!busy);
+    document.querySelectorAll('#qr-page .qr-actions .btn').forEach((b) => {
+      b.disabled = !!busy;
+    });
   }
   
   // ボタン付き処理のローディング制御
@@ -926,52 +951,42 @@
   // 登録フォーム処理
   registrationFormEl.addEventListener('submit', async (e) => {
     e.preventDefault();
-    
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-        
-    try {
-      await executeWithButtonLoading(async () => {
-      // 苗字と名前を結合
+
+    const controls = registrationFormEl.querySelectorAll('input, select, button');
+
+    const runStaffRegistration = async () => {
       const lastName = document.getElementById('lastName').value.trim();
       const firstName = document.getElementById('firstName').value.trim();
-      const fullName = lastName + '　' + firstName; // 全角スペースで結合
-      
-      // かな（苗字と名前）を結合
+      const fullName = lastName + '　' + firstName;
+
       const lastNameKana = document.getElementById('lastNameKana').value.trim();
       const firstNameKana = document.getElementById('firstNameKana').value.trim();
-      const fullNameKana = lastNameKana + firstNameKana; // スペースなしで結合
-      
+      const fullNameKana = lastNameKana + firstNameKana;
+
       const birthMonth = document.getElementById('birthMonth').value;
       const birthDay = document.getElementById('birthDay').value;
       const email = document.getElementById('email').value;
       const phoneNumber = document.getElementById('phone').value;
-      
-      // かなのバリデーション
+
       if (!validateFullNameKana(fullNameKana)) {
         const charCodes = Array.from(fullNameKana).map(char => `${char}(${char.charCodeAt(0)})`).join(', ');
         throw new Error(`かなの入力に問題があります。\n入力: "${fullNameKana}"\n文字コード: ${charCodes}\nひらがなまたはカタカナで入力してください。`);
       }
-      
-      // 誕生日（月日）のバリデーション
+
       if (!birthMonth || !birthDay) {
         throw new Error('誕生日の月と日を選択してください');
       }
-      
-      // birthMonthDayを作成（月+日）
+
       const birthMonthDay = birthMonth + birthDay;
-      
-      // LiffFirebaseが存在するかチェック
+
       if (!window.LiffFirebase || !window.LiffFirebase.user) {
         throw new Error('認証が完了していません。再度ログインしてください。');
       }
-      
-      const { user } = window.LiffFirebase;
 
-      // Cloud Functionを呼び出してスタッフアカウントを作成
       const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
       const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
       const createStaffAccount = httpsCallable(functions, 'createStaffAccount');
-      
+
       const result = await createStaffAccount({
         fullName: fullName,
         fullNameKana: fullNameKana,
@@ -980,22 +995,38 @@
         birthMonthDay: birthMonthDay,
       });
 
-      showSuccess('スタッフ登録が完了しました！');
-            
-        // ローディング画面を表示
-        const loadingEl = document.getElementById('loading');
-        if (loadingEl) {
-          loadingEl.style.display = 'block';
-        }
-          
-      // ホームページに遷移
+      if (!result.data || !result.data.success) {
+        throw new Error(result.data?.error || 'スタッフ登録に失敗しました。');
+      }
+
+      if (result.data.alreadyRegistered) {
+        showSuccess('このアカウントは既に登録済みです。');
+      } else {
+        showSuccess('スタッフ登録が完了しました！');
+      }
+
+      const loadingElReg = document.getElementById('loading');
+      if (loadingElReg) {
+        loadingElReg.style.display = 'block';
+      }
+
       setTimeout(() => {
         checkStaffRegistration();
       }, 1000);
-      }, submitBtn, '登録中...');
-      
+    };
+
+    controls.forEach((el) => {
+      el.disabled = true;
+    });
+
+    try {
+      await executeWithGlobalLoading(runStaffRegistration, 'スタッフ登録処理中…');
     } catch (error) {
       showError('登録に失敗しました: ' + error.message);
+    } finally {
+      controls.forEach((el) => {
+        el.disabled = false;
+      });
     }
   });
 
@@ -1097,9 +1128,10 @@
         
         regenInFlight = true;
         lastRegenAtMs = now;
+        qrDisplay.innerHTML = '<div class="spinner"></div>';
         
         try {
-          // 新しいQRコードを生成
+          setStaffQrSectionBusy(true);
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
           const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const generateQRCode = httpsCallable(functions, 'generateQRCode');
@@ -1109,10 +1141,8 @@
           if (result.data.qrCode) {
             const expectedExpMs = result.data.expiresAt || 0;
             
-            // サーバ反映を1回待ってから判定再開
             await waitUntilServerUpdated(expectedExpMs, 10000);
 
-            // 生成完了後、保存されたQRコードを再表示
             await displayStoredStaffQRCode();
           } else {
             throw new Error('QRコードの生成に失敗しました');
@@ -1121,6 +1151,7 @@
           qrDisplay.innerHTML = '<p>QRコードの生成に失敗しました</p>';
           alert('QRコード生成エラー: ' + error.message);
         } finally {
+          setStaffQrSectionBusy(false);
           regenInFlight = false;
         }
       }
@@ -1283,6 +1314,8 @@
         const month = currentMonth.getMonth();
         
         monthDisplay.textContent = `${year}年${month + 1}月`;
+        
+        calendar.innerHTML = '<div class="spinner"></div>';
         
         const firstDay = new Date(year, month, 1);
         const lastDay = new Date(year, month + 1, 0);
@@ -2323,103 +2356,103 @@
       // シフト申請を実行
       async function submitShifts() {
         const shifts = window.confirmShifts || [];
-        
+
         if (shifts.length === 0) {
           alert('申請するシフトがありません');
           return;
         }
-        
-        // ローディング表示
-        showGlobalLoading('シフト申請中...');
-        
+
+        if (window.__submitShiftsInFlight) {
+          return;
+        }
+        window.__submitShiftsInFlight = true;
+
+        const navBtns = ['submit-shifts-btn', 'submit-all-shifts-btn', 'shift-application-btn', 'confirmed-shifts-btn']
+          .map((id) => document.getElementById(id))
+          .filter(Boolean);
+        navBtns.forEach((b) => {
+          b.disabled = true;
+        });
+
         try {
-          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
-          
-          // 既存の申請があるものと新規作成するものを分ける
-          const shiftsToUpdate = [];
-          const shiftsToCreate = [];
-          
-          shifts.forEach(shift => {
-            if (shift.existingRequestId) {
-              // 既存の申請を更新
-              shiftsToUpdate.push({
-                requestId: shift.existingRequestId,
-                start: shift.start,
-                end: shift.end
-              });
-            } else {
-              // 新規作成
-              shiftsToCreate.push({
-                date: shift.date,
-                start: shift.start,
-                end: shift.end
-              });
-            }
-          });
-          
-          // 既存の申請を更新
-          const updatePromises = shiftsToUpdate.map(shift => {
-            const updateShiftRequest = httpsCallable(functions, 'updateShiftRequest');
-            return updateShiftRequest({
-              requestId: shift.requestId,
-              start: shift.start,
-              end: shift.end,
+          await executeWithGlobalLoading(async () => {
+            const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+            const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
+
+            const shiftsToUpdate = [];
+            const shiftsToCreate = [];
+
+            shifts.forEach((shift) => {
+              if (shift.existingRequestId) {
+                shiftsToUpdate.push({
+                  requestId: shift.existingRequestId,
+                  start: shift.start,
+                  end: shift.end
+                });
+              } else {
+                shiftsToCreate.push({
+                  date: shift.date,
+                  start: shift.start,
+                  end: shift.end
+                });
+              }
             });
-          });
-          
-          // 新規作成
-          let createResult = null;
-          if (shiftsToCreate.length > 0) {
-            const createMultipleShifts = httpsCallable(functions, 'createMultipleShifts');
-            createResult = await createMultipleShifts({ shifts: shiftsToCreate });
-          }
-          
-          // 更新処理を実行
-          const updateResults = await Promise.all(updatePromises);
-          
-          // エラーチェック
-          const updateErrors = updateResults.filter(result => !result.data.success);
-          if (updateErrors.length > 0) {
-            throw new Error('一部のシフトの更新に失敗しました');
-          }
-          
-          if (shiftsToCreate.length > 0 && (!createResult || !createResult.data.success)) {
-            throw new Error(createResult?.data?.error || '新規シフトの作成に失敗しました');
-          }
-          
-          // ローディング非表示
-          hideGlobalLoading();
-          
-          const updateCount = shiftsToUpdate.length;
-          const createCount = shiftsToCreate.length;
-          let message = '✅ シフト申請完了！\n\n';
-          if (updateCount > 0 && createCount > 0) {
-            message += `${updateCount}件のシフトを更新し、${createCount}件のシフトを新規作成しました。`;
-          } else if (updateCount > 0) {
-            message += `${updateCount}件のシフトを更新しました。`;
-          } else {
-            message += `${createCount}件のシフトが正常に保存されました。`;
-          }
-          alert(message);
-          
-          // 初期状態に戻す
-          selectedDates = [];
-          shiftEditData = {};
-          window.confirmShifts = [];
-          
-          // カレンダーページに戻る（シフト管理ページを表示）
-          showPage(shiftPageEl);
-          showShiftApplication();
-          
-          // カレンダーを再描画
-          initializeCalendar();
+
+            const updatePromises = shiftsToUpdate.map((shift) => {
+              const updateShiftRequest = httpsCallable(functions, 'updateShiftRequest');
+              return updateShiftRequest({
+                requestId: shift.requestId,
+                start: shift.start,
+                end: shift.end,
+              });
+            });
+
+            let createResult = null;
+            if (shiftsToCreate.length > 0) {
+              const createMultipleShifts = httpsCallable(functions, 'createMultipleShifts');
+              createResult = await createMultipleShifts({ shifts: shiftsToCreate });
+            }
+
+            const updateResults = await Promise.all(updatePromises);
+
+            const updateErrors = updateResults.filter((result) => !result.data.success);
+            if (updateErrors.length > 0) {
+              throw new Error('一部のシフトの更新に失敗しました');
+            }
+
+            if (shiftsToCreate.length > 0 && (!createResult || !createResult.data.success)) {
+              throw new Error(createResult?.data?.error || '新規シフトの作成に失敗しました');
+            }
+
+            const updateCount = shiftsToUpdate.length;
+            const createCount = shiftsToCreate.length;
+            let message = '✅ シフト申請完了！\n\n';
+            if (updateCount > 0 && createCount > 0) {
+              message += `${updateCount}件のシフトを更新し、${createCount}件のシフトを新規作成しました。`;
+            } else if (updateCount > 0) {
+              message += `${updateCount}件のシフトを更新しました。`;
+            } else {
+              message += `${createCount}件のシフトが正常に保存されました。`;
+            }
+            alert(message);
+
+            selectedDates = [];
+            shiftEditData = {};
+            window.confirmShifts = [];
+
+            showPage(shiftPageEl);
+            showShiftApplication();
+
+            initializeCalendar();
+          }, 'シフト申請中...');
         } catch (error) {
-          // ローディング非表示
-          hideGlobalLoading();
-          
           console.error('シフト申請エラー:', error);
           alert(`❌ シフト申請失敗！\n\nエラー: ${error.message || error}\n\nシフトは保存されていません。\n再度お試しください。`);
+        } finally {
+          window.__submitShiftsInFlight = false;
+          navBtns.forEach((b) => {
+            b.disabled = false;
+          });
         }
       }
       
@@ -2702,15 +2735,17 @@
           // 要請を確認済み状態に更新（非同期、エラー時も処理は続行）
           // プランチェック: ライトプラン以上の場合のみ要請確認処理を実行
           if (requestId && window.__CONFIG__ && window.__CONFIG__.isShiftRequestEnabled()) {
-            // 動的インポートでhttpsCallableを取得
             (async () => {
               try {
+                showGlobalLoading('要請を確認しています...');
                 const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
                 const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
                 const confirmShiftRequest = httpsCallable(functions, 'confirmShiftRequest');
                 await confirmShiftRequest({ requestId: requestId });
               } catch (error) {
                 console.error("要請確認エラー（処理は続行）:", error);
+              } finally {
+                hideGlobalLoading();
               }
             })();
           }
@@ -2944,7 +2979,7 @@
         if (!listContainer) return;
         
         try {
-          listContainer.innerHTML = '<p>申請を読み込み中...</p>';
+          listContainer.innerHTML = '<div class="spinner"></div>';
           
           const currentUid = getCurrentUid();
           if (!currentUid) {
@@ -4058,37 +4093,46 @@
 
       // 勤怠データを読み込み
       async function loadAttendanceData() {
+        const calendar = document.getElementById('attendance-calendar');
+        const prevBtn = document.getElementById('previous-month-btn');
+        const nextBtn = document.getElementById('next-month-btn');
+
         try {
+          if (calendar) {
+            calendar.innerHTML = '<div class="spinner"></div>';
+          }
+          if (prevBtn) prevBtn.disabled = true;
+          if (nextBtn) nextBtn.disabled = true;
+
           const currentUser = window.Firebase.auth.currentUser;
-          if (!currentUser) return;
-          
-          // Cloud Functionを呼び出して勤怠データを取得
+          if (!currentUser) {
+            return;
+          }
+
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
           const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getStaffAttendance = httpsCallable(functions, 'getStaffAttendance');
-          
-          
+
           const result = await getStaffAttendance({
             staffId: currentUser.uid,
             year: window.currentYear,
             month: window.currentMonth + 1
           });
-          
+
           if (result.data.success) {
-            // データを日付をキーとしたオブジェクトに変換
             window.attendanceData = {};
             result.data.attendances.forEach((attendance) => {
               if (attendance.date) {
                 window.attendanceData[attendance.date] = attendance;
               }
             });
-            
-            
-            // カレンダーを再生成して勤怠マークを表示
             generateAttendanceCalendar();
-          } else {
           }
         } catch (error) {
+          generateAttendanceCalendar();
+        } finally {
+          if (prevBtn) prevBtn.disabled = false;
+          if (nextBtn) nextBtn.disabled = false;
         }
       }
 
@@ -4371,22 +4415,38 @@
         }
         
         
-        try {
-          // 既に読み込まれているFirebase Functionsを使用
+        const correctionForm = document.getElementById('correction-form');
+
+        const runCorrectionSubmit = async () => {
           const functions = window.Firebase.functions;
           const createCorrectionRequest = window.FirebaseFunctions.httpsCallable(functions, 'createAttendanceCorrectionRequest');
-          
+
           const result = await createCorrectionRequest(formData);
-          
+
           if (result.data.success) {
             alert('修正申請を送信しました。承認までお待ちください。');
             hideCorrectionForm();
           } else {
             alert('修正申請の送信に失敗しました: ' + result.data.error);
           }
+        };
+
+        const controls = correctionForm?.querySelectorAll('input, select, textarea, button') || [];
+
+        controls.forEach((el) => {
+          el.disabled = true;
+        });
+
+        try {
+          await executeWithGlobalLoading(runCorrectionSubmit, '勤怠修正申請を送信中…');
         } catch (error) {
           alert('修正申請送信エラー: ' + error.message);
           alert('修正申請の送信に失敗しました。もう一度お試しください。');
+        } finally {
+          controls.forEach((el) => {
+            el.disabled = false;
+          });
+          document.getElementById('correction-type')?.dispatchEvent(new Event('change'));
         }
       }
 

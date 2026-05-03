@@ -15,16 +15,33 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
  *
  * レスポンス:
  * - success: 作成成功フラグ
- * - uid: 作成されたスタッフID
- * - qrCode: QRコードのBase64画像
- * - qrCodeUrl: QRコードのStorage URL
- * - expiresAt: QRコードの有効期限
+ * - uid: スタッフID（認証 UID）
+ * - alreadyRegistered: 既に staffs/{uid} がある場合 true（作成処理は行わない）
+ * - qrCode: QRコードのBase64画像（新規作成時のみ）
+ * - qrCodeUrl: QRコードのStorage URL（新規作成時のみ）
+ * - expiresAt: QRコードの有効期限（新規作成時のみ）
  */
 export const createStaffAccount = onCall(
   async (request) => {
     // 認証チェック
     if (!request.auth) {
       throw new functions.https.HttpsError("unauthenticated", "認証が必要です。再度ログインしてください。");
+    }
+
+    const uidEarly = request.auth.uid;
+    const staffRefEarly = admin.firestore().collection("staffs").doc(uidEarly);
+    const existingStaffSnap = await staffRefEarly.get();
+    if (existingStaffSnap.exists) {
+      logOpsSuccess({
+        message: 'createStaffAccount スキップ（既存スタッフ・冪等）',
+        functionEntry: 'createStaffAccount',
+        context: { uid: uidEarly, outcome: 'already_registered' },
+      });
+      return {
+        success: true,
+        alreadyRegistered: true,
+        uid: uidEarly,
+      };
     }
 
     const { fullName, fullNameKana, email, phoneNumber, birthMonthDay } = request.data;
