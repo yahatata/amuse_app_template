@@ -17,15 +17,32 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
  *
  * レスポンス:
  * - success: 作成成功フラグ
- * - uid: 作成されたユーザーID
- * - qrCode: QRコードのBase64画像
- * - expiresAt: QRコードの有効期限
+ * - uid: ユーザーID（認証 UID）
+ * - alreadyRegistered: 既に users/{uid} がある場合 true（作成処理は行わない）
+ * - qrCode: QRコードのBase64画像（新規作成時のみ）
+ * - expiresAt: QRコードの有効期限（新規作成時のみ）
  */
 export const createUserAccount = onCall(
   async (request) => {
     // 認証チェック
     if (!request.auth) {
       throw new functions.https.HttpsError("unauthenticated", "認証が必要です。再度ログインしてください。");
+    }
+
+    const uidEarly = request.auth.uid;
+    const userRefEarly = admin.firestore().collection("users").doc(uidEarly);
+    const existingUserSnap = await userRefEarly.get();
+    if (existingUserSnap.exists) {
+      logOpsSuccess({
+        message: "createUserAccount スキップ（既存ユーザー・冪等）",
+        functionEntry: "createUserAccount",
+        context: { uid: uidEarly, outcome: "already_registered" },
+      });
+      return {
+        success: true,
+        alreadyRegistered: true,
+        uid: uidEarly,
+      };
     }
 
     const {pokerName, email, pin, birthMonth, birthDay} = request.data;
