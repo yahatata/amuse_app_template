@@ -16,7 +16,7 @@ import { appendSideGameChip } from "../../bills/repos/appendSideGameChip";
 import { resolveMenuItem } from "../../bills/repos/resolveMenuItem";
 import { addLogEntry } from "../../user/services/logUtils";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 
 export const placeOrder = onCall(async (request) => {
@@ -129,8 +129,8 @@ export const placeOrder = onCall(async (request) => {
         } catch (logError) {
           logOpsError({
       message: 'Chip購入ログ記録エラー:',
-      failureType: 'business',
       functionEntry: 'placeOrder',
+      operation: 'chipPurchaseLog',
       cause: logError,
     });
           // ログ記録の失敗は注文処理を止めない
@@ -140,6 +140,20 @@ export const placeOrder = onCall(async (request) => {
       // レスポンス: 従来通り { billId, itemId, orderedAt, reused } を返す
       // chipId はクライアントに返さない（内部識別子）
       // Chipの注文IDとしては clientNonce をそのまま返す
+      logOpsSuccess({
+        message: "placeOrder 成功",
+        functionEntry: "placeOrder",
+        operation: "placeOrderCallable",
+        context: {
+          billId,
+          callerUid,
+          deviceId: device.id ?? null,
+          isChip: true,
+          menuItemId: item.menuItemId,
+          itemId: clientNonce,
+          reused: appendResult.diagnostics?.reused || false,
+        },
+      });
       return {
         success: true,
         data: {
@@ -172,6 +186,21 @@ export const placeOrder = onCall(async (request) => {
         currentSeat,
       });
 
+      logOpsSuccess({
+        message: "placeOrder 成功",
+        functionEntry: "placeOrder",
+        operation: "placeOrderCallable",
+        context: {
+          billId,
+          callerUid,
+          deviceId: device.id ?? null,
+          isChip: false,
+          menuItemId: item.menuItemId,
+          itemId: appendResult.itemId,
+          reused: appendResult.diagnostics?.reused || false,
+        },
+      });
+
       return {
         success: true,
         data: {
@@ -189,7 +218,6 @@ export const placeOrder = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: 'placeOrder エラー:',
-        failureType: 'business',
         functionEntry: 'placeOrder',
         operation: 'placeOrderCatch',
         cause: error,
@@ -198,8 +226,8 @@ export const placeOrder = onCall(async (request) => {
     }
     logOpsError({
       message: 'placeOrder エラー:',
-      failureType: 'business',
       functionEntry: 'placeOrder',
+      operation: 'placeOrderGenericCatch',
       cause: error,
     });
     const errorMessage = error instanceof Error ? error.message : String(error);

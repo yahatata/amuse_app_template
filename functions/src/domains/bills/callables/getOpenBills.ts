@@ -1,7 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getCurrentBusinessDateKeyOrThrow } from "../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * When: 入店中ユーザー一覧が必要なとき（例: 注文ダイアログ表示前、利用者一覧画面表示時）
@@ -10,11 +10,12 @@ import { logOpsError } from "../../../shared/logging/logOpsError";
  * How: Firestore クエリで抽出し、ソートして返却
  */
 export const getOpenBills = onCall(async () => {
+  let businessDate: string | undefined;
   try {
     const db = getFirestore();
     
     // 当日の営業日を取得（state docから取得）
-    const businessDate = await getCurrentBusinessDateKeyOrThrow();
+    businessDate = await getCurrentBusinessDateKeyOrThrow();
 
     const snap = await db
       .collection("bills")
@@ -35,14 +36,20 @@ export const getOpenBills = onCall(async () => {
 
     // ソート（pokerName順）
     data.sort((a, b) => (a.pokerName || "").localeCompare(b.pokerName || ""));
+    logOpsSuccess({
+  message: "getOpenBills 成功",
+  functionEntry: "getOpenBills",
+  context: { businessDate },
+});
+
 
     return { success: true, data };
   } catch (error) {
     logOpsError({
       message: 'getOpenBills エラー:',
-      failureType: 'business',
       functionEntry: 'getOpenBills',
       cause: error,
+      context: { businessDate },
     });
     return { success: false, error: "入店中ユーザーの取得に失敗しました" };
   }

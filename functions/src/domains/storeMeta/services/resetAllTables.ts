@@ -1,6 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /** Phase6 Step3: ターミナルから呼ぶ core。共通化用。 */
 export async function runResetAllTables(
@@ -32,6 +32,12 @@ export const resetAllTables = onCall(async (request) => {
   try {
     const db = getFirestore();
     const { count } = await runResetAllTables(db);
+    logOpsSuccess({
+      message: 'resetAllTables 成功',
+      functionEntry: 'resetAllTables',
+      context: { tablesResetCount: count },
+    });
+
     return {
       success: true,
       message: count === 0 ? 'テーブルが存在しません' : `${count}件のテーブルを開店状態にリセットしました`,
@@ -40,9 +46,9 @@ export const resetAllTables = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'resetAllTablesエラー:',
-      failureType: 'business',
       functionEntry: 'resetAllTables',
       cause: error,
+      context: { callerUid: request.auth?.uid ?? null },
     });
     throw new HttpsError(
       'internal',

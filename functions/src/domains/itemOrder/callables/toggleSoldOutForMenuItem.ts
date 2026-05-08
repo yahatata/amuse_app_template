@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const toggleSoldOutForMenuItem = onCall(async (request) => {
   // 認証チェック
@@ -22,6 +22,8 @@ export const toggleSoldOutForMenuItem = onCall(async (request) => {
     throw new HttpsError('permission-denied', 'キッチン画面操作の権限がありません');
   }
 
+  const logContext: Record<string, unknown> = { callerUid, deviceId: device.id };
+
   try {
     const { menuItemId, isSoldOut } = request.data;
 
@@ -29,6 +31,8 @@ export const toggleSoldOutForMenuItem = onCall(async (request) => {
     if (!menuItemId) {
       throw new HttpsError('invalid-argument', 'メニューIDが指定されていません');
     }
+
+    Object.assign(logContext, { menuItemId, isSoldOut });
 
     const db = getFirestore();
     const now = new Date();
@@ -61,6 +65,12 @@ export const toggleSoldOutForMenuItem = onCall(async (request) => {
       }
     }
 
+    logOpsSuccess({
+      message: "toggleSoldOutForMenuItem 成功",
+      functionEntry: "toggleSoldOutForMenuItem",
+      context: { menuItemId, isSoldOut, deviceId: device.id },
+    });
+
     return {
       success: true,
       data: {
@@ -73,9 +83,9 @@ export const toggleSoldOutForMenuItem = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '売り切れ状態切り替えエラー:',
-      failureType: 'business',
       functionEntry: 'toggleSoldOutForMenuItem',
       cause: error,
+      context: logContext,
     });
     
     if (error instanceof HttpsError) {

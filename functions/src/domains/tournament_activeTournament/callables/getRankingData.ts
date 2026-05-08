@@ -1,6 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 export const getRankingData = onCall(async (request) => {
@@ -62,7 +62,16 @@ export const getRankingData = onCall(async (request) => {
         return bTime - aTime;
       });
     }
-    
+
+    logOpsSuccess({
+      message: 'ランキングデータの取得に成功しました',
+      functionEntry: 'getRankingData',
+      context: {
+        tournamentId,
+        bustedPlayerCount: bustedPlayers.length,
+      },
+    });
+
     return {
       success: true,
       mainViewData,
@@ -77,7 +86,6 @@ export const getRankingData = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: 'getRankingData error:',
-        failureType: 'business',
         functionEntry: 'getRankingData',
         operation: 'getRankingDataCatch',
         cause: error,
@@ -87,8 +95,8 @@ export const getRankingData = onCall(async (request) => {
 
     logOpsError({
       message: 'getRankingData error:',
-      failureType: 'business',
       functionEntry: 'getRankingData',
+      operation: 'getRankingDataGenericCatch',
       cause: error,
     });
 

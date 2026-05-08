@@ -62,7 +62,6 @@ export const debugSideGame = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'debugSideGameエラー:',
-      failureType: 'business',
       functionEntry: 'debugSideGame',
       cause: error,
     });

@@ -24,7 +24,7 @@ function pickHttpStatus(v: unknown): number | string | undefined {
 
 /**
  * cause の shape から external 項目を抽出。取れないものは undefined。
- * message だけでは sourceProduct を決めない。
+ * 原則 message 単体では決めないが、Admin Storage（GCS）の定型メッセージは例外。
  */
 export function extractExternalFromCause(
   cause: unknown,
@@ -71,6 +71,39 @@ export function extractExternalFromCause(
       : typeof codeRaw === 'number'
         ? String(codeRaw)
         : undefined;
+
+  /**
+   * Firebase Admin / @google-cloud/storage は、クライアント SDK の storage/... ではなく
+   * プレーン Error + message（No such object / .firebasestorage.app 等）だけのことが多い。
+   * この場合は code が無い、または NOT_FOUND が Firestore と紛れるため message で先に判定する。
+   */
+  const messageEarly =
+    pickString(o.message) ?? (cause instanceof Error ? cause.message : undefined);
+  if (messageEarly && looksLikeFirebaseAdminStorageMessage(messageEarly)) {
+    const sdkPart =
+      codeStr && codeStr.length > 0
+        ? codeStr
+        : typeof codeRaw === 'number' || typeof codeRaw === 'string'
+          ? String(codeRaw)
+          : 'GCS_ERROR';
+    return {
+      sourceProduct: 'storage',
+      sdkCode: sdkPart,
+      detailReason: messageEarly,
+    };
+  }
+
+  /**
+   * firebase-admin / @google-cloud/firestore は、クライアント側検証でプレーン Error + message のみのことがある
+   *（例: undefined フィールド、`not a valid Firestore document`）。code が無くても message で識別する。
+   */
+  if (messageEarly && looksLikeFirestoreSdkClientMessage(messageEarly)) {
+    return {
+      sourceProduct: 'firestore',
+      sdkCode: codeStr,
+      detailReason: messageEarly,
+    };
+  }
 
   if (codeStr) {
     // Auth
@@ -147,4 +180,20 @@ export function extractExternalFromCause(
   }
 
   return undefined;
+}
+
+/** Admin SDK / GCS が返す object 不在・バケット URL を含むメッセージ */
+function looksLikeFirebaseAdminStorageMessage(msg: string): boolean {
+  if (msg.includes('No such object:')) return true;
+  if (msg.includes('.firebasestorage.app/')) return true;
+  if (msg.includes('storage.googleapis.com/')) return true;
+  return false;
+}
+
+/** Firestore Node SDK のクライアント検証・定型エラーメッセージ（誤検知しにくい文言のみ） */
+function looksLikeFirestoreSdkClientMessage(msg: string): boolean {
+  if (msg.includes('not a valid Firestore document')) return true;
+  if (msg.includes('as a Firestore value')) return true;
+  if (msg.includes('ignoreUndefinedProperties')) return true;
+  return false;
 }

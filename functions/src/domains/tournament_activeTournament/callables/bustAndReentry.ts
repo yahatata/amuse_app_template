@@ -7,7 +7,7 @@ import type { DeviceDoc } from '../../../shared/devices';
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -364,8 +364,8 @@ export const bustAndReentry = onCall(async (request) => {
     } catch (error) {
       logOpsError({
       message: 'Failed to record tournament action via recordTournamentAction helper:',
-      failureType: 'business',
       functionEntry: 'bustAndReentry',
+      operation: 'recordTournamentActionBestEffort',
       cause: error,
     });
       // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
@@ -392,9 +392,21 @@ export const bustAndReentry = onCall(async (request) => {
       },
     });
 
-    console.log(`=== Bust＆リエントリー完了 ===`);
-    console.log(`ユーザー ${result.userId} のBust＆リエントリーが完了しました`);
-    
+    logOpsSuccess({
+      message: 'Bust＆リエントリーが完了しました',
+      functionEntry: 'bustAndReentry',
+      context: {
+        tournamentId,
+        userId: result.userId,
+        tableId,
+        seatNumber,
+        billId: result.billId,
+        templateId: result.templateId,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
+
     return {
       success: true,
       userId: result.userId,
@@ -404,8 +416,8 @@ export const bustAndReentry = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== Bust＆リエントリーエラー ===',
-      failureType: 'business',
       functionEntry: 'bustAndReentry',
+      operation: 'bustAndReentryMainCatch',
       cause: error,
     });
 
@@ -425,8 +437,8 @@ export const bustAndReentry = onCall(async (request) => {
       } catch (logErr) {
         logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'bustAndReentry',
+      operation: 'bustAndReentryOperationLogWrite',
       cause: logErr,
     });
       }

@@ -12,7 +12,7 @@ import { Firestore, getFirestore } from 'firebase-admin/firestore';
 import { getCurrentBusinessDateKeyOrThrow } from '../repos/getCurrentBusinessDateKeyOrThrow';
 import { requireAdmin } from '../../../shared/devices';
 import { computeDisplayAmount } from './computeDisplayAmount';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 /** 1件あたりの表示用金額算出上限（管理画面手動実行のため、極端な件数暴走を防ぐ） */
 const MAX_UNSETTLED_BILLS_RETURNED = 100;
@@ -84,9 +84,24 @@ export const getUnsettledBillsForClose = onCall(async (request) => {
   const db = getFirestore();
   await requireAdmin(db, adminId);
 
+  const logContext: Record<string, unknown> = { adminId };
+
   try {
     const businessDate = await getCurrentBusinessDateKeyOrThrow();
+    Object.assign(logContext, { businessDate });
     const result = await getUnsettledBillsForCloseCore(db, businessDate);
+    logOpsSuccess({
+      message: 'getUnsettledBillsForClose 成功',
+      functionEntry: 'getUnsettledBillsForClose',
+      operation: 'unsettledBillsQuery',
+      context: {
+        businessDate,
+        returnedCount: result.returnedCount,
+        truncated: result.truncated,
+        dataCount: result.data.length,
+      },
+    });
+
     return {
       success: true,
       ...result,
@@ -99,6 +114,7 @@ export const getUnsettledBillsForClose = onCall(async (request) => {
       operation: 'unsettledBillsQuery',
       cause: error,
       sourceProductHint: 'firestore',
+      context: logContext,
     });
     throw new HttpsError(
       'internal',

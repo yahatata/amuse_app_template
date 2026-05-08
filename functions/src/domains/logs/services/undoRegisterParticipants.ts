@@ -1,6 +1,6 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { markOperationLogRolledBack } from '../lib/operationLog';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export interface UndoRegisterParticipantsDetail {
   playerUid: string;
@@ -217,13 +217,23 @@ export async function undoRegisterParticipants(params: UndoRegisterParticipantsP
       }
     }
 
-    console.log(`Register participants operation undone for ${params.playerUids.length} players in tournament ${params.tournamentId}`);
+    logOpsSuccess({
+      message: 'undoRegisterParticipants 成功',
+      functionEntry: 'undoRegisterParticipants',
+      context: {
+        tournamentId: params.tournamentId,
+        playerCount: params.playerUids.length,
+      },
+    });
   } catch (error) {
     logOpsError({
       message: 'Error undoing register participants operation:',
-      failureType: 'business',
       functionEntry: 'undoRegisterParticipants',
       cause: error,
+      context: {
+        tournamentId: params.tournamentId,
+        playerCount: params.playerUids.length,
+      },
     });
     throw error;
   }

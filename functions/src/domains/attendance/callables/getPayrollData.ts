@@ -1,18 +1,20 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
 
 export const getPayrollData = onCall(async (request: CallableRequest) => {
+  const logContext: Record<string, unknown> = {};
   try {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '認証が必要です');
     }
 
     const callerUid = request.auth.uid;
+    Object.assign(logContext, { callerUid });
     const device = await getCallerDeviceByUid(callerUid);
     if (!device || !isActive(device.status)) {
       throw new HttpsError(
@@ -20,6 +22,7 @@ export const getPayrollData = onCall(async (request: CallableRequest) => {
         'デバイスが見つからないか、アクティブではありません'
       );
     }
+    Object.assign(logContext, { deviceId: device.id });
     if (device.role !== 'admin') {
       throw new HttpsError('permission-denied', PAYROLL_ERRORS.PERMISSION_DENIED);
     }
@@ -40,6 +43,8 @@ export const getPayrollData = onCall(async (request: CallableRequest) => {
         'month, year, startDay, endDay are required'
       );
     }
+
+    Object.assign(logContext, { month, year, startDay, endDay });
 
     // 給与計算期間を計算（storeMeta/config の payroll.startDay / payroll.endDay に基づく）
     // Flutter 側から送信される month/year は選択月+1 の給与期間終了月。startDay/endDay は StoreConfigService から取得した値を渡す。
@@ -64,6 +69,7 @@ export const getPayrollData = onCall(async (request: CallableRequest) => {
 
     const periodStartStr = periodStart.toISOString().split('T')[0];
     const periodEndStr = periodEnd.toISOString().split('T')[0];
+    Object.assign(logContext, { periodStartStr, periodEndStr });
 
     console.log(`給与データ取得期間: ${periodStartStr} 〜 ${periodEndStr}`);
 
@@ -103,6 +109,22 @@ export const getPayrollData = onCall(async (request: CallableRequest) => {
         };
       });
 
+    Object.assign(logContext, { count: payrollData.length });
+
+    logOpsSuccess({
+      message: 'getPayrollData 成功',
+      functionEntry: 'getPayrollData',
+      context: {
+        year: selectedYear,
+        month: selectedMonth,
+        startDay,
+        endDay,
+        periodStartStr,
+        periodEndStr,
+        count: payrollData.length,
+      },
+    });
+
     return {
       success: true,
       payrollData: payrollData,
@@ -113,9 +135,9 @@ export const getPayrollData = onCall(async (request: CallableRequest) => {
   } catch (error) {
     logOpsError({
       message: 'Error in getPayrollData:',
-      failureType: 'business',
       functionEntry: 'getPayrollData',
       cause: error,
+      context: logContext,
     });
     
     if (error instanceof HttpsError) {

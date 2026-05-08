@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getCurrentBusinessDateKeyOrThrow } from "../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * When: LIFF側のユーザーが注文履歴を確認したいとき
@@ -16,6 +16,7 @@ import { logOpsError } from "../../../shared/logging/logOpsError";
  */
 export const getUserOrderHistory = onCall(async (request) => {
   const db = getFirestore();
+  const logContext: Record<string, unknown> = {};
 
   try {
     // 認証チェック
@@ -24,9 +25,11 @@ export const getUserOrderHistory = onCall(async (request) => {
     }
 
     const userId = request.auth.uid;
+    Object.assign(logContext, { userId });
 
     // 当日の営業日を取得（state docから取得）
     const businessDate = await getCurrentBusinessDateKeyOrThrow();
+    Object.assign(logContext, { businessDate });
     const settledStatuses = new Set([
       "settled",
       "partially_refunded",
@@ -40,6 +43,13 @@ export const getUserOrderHistory = onCall(async (request) => {
       .get();
 
     if (billsSnap.empty) {
+      Object.assign(logContext, { orderCount: 0 });
+      logOpsSuccess({
+        message: "getUserOrderHistory 成功",
+        functionEntry: "getUserOrderHistory",
+        context: { userId, businessDate, orderCount: 0 },
+      });
+
       return {
         success: true,
         data: {
@@ -95,6 +105,12 @@ export const getUserOrderHistory = onCall(async (request) => {
     });
 
     const totalAmount = orders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
+    Object.assign(logContext, { orderCount: orders.length });
+    logOpsSuccess({
+      message: "getUserOrderHistory 成功",
+      functionEntry: "getUserOrderHistory",
+      context: { userId, businessDate, orderCount: orders.length },
+    });
 
     return {
       success: true,
@@ -107,9 +123,9 @@ export const getUserOrderHistory = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'getUserOrderHistory エラー:',
-      failureType: 'business',
       functionEntry: 'getUserOrderHistory',
       cause: error,
+      context: logContext,
     });
     if (error instanceof HttpsError) {
       if (error.code === "failed-precondition") {

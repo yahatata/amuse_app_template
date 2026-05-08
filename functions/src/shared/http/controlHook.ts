@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../logging/logOpsError';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
 /**
@@ -284,6 +284,13 @@ async function handleNewPayload(
     });
   });
 
+  logOpsSuccess({
+    message: 'controlHook 新payload 処理完了',
+    functionEntry: 'controlHookHttp',
+    operation: 'executeNewPayloadTask',
+    context: { tournamentId, taskType, planVersion, planHash },
+  });
+
   res.status(200).json({
     success: true,
     message: `Task ${taskType} processed for tournament ${tournamentId}`,
@@ -386,7 +393,6 @@ async function handleOldPayload(
             startedAt: now,
             updatedAt: now,
           });
-          logger.info('controlHook: Tournament started', { tournamentId });
         } else {
           logger.info('controlHook: Tournament already started or not scheduled', {
             tournamentId,
@@ -420,7 +426,6 @@ async function handleOldPayload(
             registAt: now,
             updatedAt: now,
           });
-          logger.info('controlHook: Registration closed', { tournamentId });
         } else {
           logger.info('controlHook: Registration already closed or not running', {
             tournamentId,
@@ -429,6 +434,13 @@ async function handleOldPayload(
           });
         }
       }
+    });
+
+    logOpsSuccess({
+      message: 'controlHook 旧payload 処理完了',
+      functionEntry: 'controlHookHttp',
+      operation: 'executeLegacyPayloadTask',
+      context: { tournamentId, action, rev },
     });
 
     res.status(200).json({

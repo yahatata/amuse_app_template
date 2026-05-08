@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const validateEndTournament = onCall(async (request) => {
   // 認証チェック
@@ -10,6 +10,14 @@ export const validateEndTournament = onCall(async (request) => {
   }
 
   const callerUid = request.auth.uid;
+  const reqTournamentId =
+    request.data && typeof (request.data as { tournamentId?: unknown }).tournamentId === 'string'
+      ? (request.data as { tournamentId: string }).tournamentId
+      : undefined;
+  const logContext: Record<string, unknown> = {
+    callerUid,
+    ...(reqTournamentId ? { tournamentId: reqTournamentId } : {}),
+  };
 
   try {
     // デバイス権限の確認（role: admin または options.tournament: true）
@@ -186,7 +194,13 @@ export const validateEndTournament = onCall(async (request) => {
       pointType: pointType,
       rankings: existingRankings,
     };
-    
+
+    logOpsSuccess({
+      message: "validateEndTournament 成功",
+      functionEntry: "validateEndTournament",
+      context: { tournamentId },
+    });
+
     return {
       success: true,
       ...validationResult,
@@ -195,9 +209,9 @@ export const validateEndTournament = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'validateEndTournament error:',
-      failureType: 'business',
       functionEntry: 'validateEndTournament',
       cause: error,
+      context: logContext,
     });
     
     if (error instanceof HttpsError) {

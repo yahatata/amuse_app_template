@@ -16,7 +16,7 @@ import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
 import { recalculateAttendanceFromBreaks } from '../helpers/recalculateAttendanceFromBreaks';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 function parseTimestamp(v: unknown): admin.firestore.Timestamp {
   if (v instanceof admin.firestore.Timestamp) return v;
@@ -53,6 +53,8 @@ export const createAttendance = onCall(async (request: CallableRequest) => {
     throw new HttpsError('permission-denied', '管理者のみ実行できます');
   }
 
+  const logContext: Record<string, unknown> = { callerUid, deviceId: device.id };
+
   try {
     const {
       staffId,
@@ -81,6 +83,8 @@ export const createAttendance = onCall(async (request: CallableRequest) => {
     if (clockInArg == null) {
       throw new HttpsError('invalid-argument', 'clockIn is required');
     }
+
+    Object.assign(logContext, { staffId, date });
 
     const clockIn = parseTimestamp(clockInArg);
     const clockOut = clockOutArg != null ? parseTimestamp(clockOutArg) : null;
@@ -130,6 +134,7 @@ export const createAttendance = onCall(async (request: CallableRequest) => {
     };
 
     const docRef = await db.collection('attendances').add(attendanceData);
+    Object.assign(logContext, { docId: docRef.id });
 
     if (breaksArg && Array.isArray(breaksArg) && breaksArg.length > 0) {
       const batch = db.batch();
@@ -168,6 +173,16 @@ export const createAttendance = onCall(async (request: CallableRequest) => {
       performedByUid: null,
       performedByDeviceId: device.id,
     });
+    logOpsSuccess({
+      message: 'createAttendance 成功',
+      functionEntry: 'createAttendance',
+      context: {
+        staffId,
+        date,
+        docId: docRef.id,
+        deviceId: device.id,
+      },
+    });
 
     return {
       success: true,
@@ -178,9 +193,9 @@ export const createAttendance = onCall(async (request: CallableRequest) => {
     if (error instanceof HttpsError) throw error;
     logOpsError({
       message: 'Error in createAttendance:',
-      failureType: 'business',
       functionEntry: 'createAttendance',
       cause: error,
+      context: logContext,
     });
     throw new HttpsError('internal', 'Internal server error');
   }

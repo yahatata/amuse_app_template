@@ -1,6 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * LIFF用：当日以降のトーナメント一覧を取得するCloud Function
@@ -11,8 +11,10 @@ import { logOpsError } from "../../../shared/logging/logOpsError";
  * How: 既存のgetScheduledTournaments関数を流用して当日以降を取得
  */
 export const getUpcomingTournaments = onCall(async (request) => {
+  const includeAll = Boolean((request.data as { includeAll?: boolean } | undefined)?.includeAll);
+  const logContext: Record<string, unknown> = { includeAll };
+
   try {
-    const { includeAll = false } = request.data || {};
     console.log('getUpcomingTournaments called for LIFF, includeAll:', includeAll);
     
     // 既存のgetScheduledTournaments関数のロジックを流用
@@ -252,6 +254,13 @@ export const getUpcomingTournaments = onCall(async (request) => {
       : `${tournaments.length}件の開催予定トーナメント（1週間先まで）を取得しました`;
     
     console.log(message);
+    Object.assign(logContext, { count: tournaments.length });
+    logOpsSuccess({
+      message: "getUpcomingTournaments 成功",
+      functionEntry: "getUpcomingTournaments",
+      context: { count: tournaments.length, includeAll },
+    });
+
     
     return {
       success: true,
@@ -263,9 +272,9 @@ export const getUpcomingTournaments = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'Error in getUpcomingTournaments:',
-      failureType: 'business',
       functionEntry: 'getUpcomingTournaments',
       cause: error,
+      context: logContext,
     });
     
     return {

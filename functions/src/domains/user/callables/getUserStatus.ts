@@ -1,6 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * ユーザーの現在の入店状態と基本情報を取得するCloud Function
@@ -11,6 +11,10 @@ import { logOpsError } from "../../../shared/logging/logOpsError";
  * How（どうやって）: users から基本情報、activeStays から入店状態を取得（users.isStaying は廃止）
  */
 export const getUserStatus = onCall(async (request) => {
+  const rawUid = (request.data as { uid?: unknown } | undefined)?.uid;
+  const logContext: Record<string, unknown> =
+    typeof rawUid === "string" && rawUid ? { uid: rawUid } : {};
+
   try {
     const { uid } = request.data ?? {};
 
@@ -41,6 +45,12 @@ export const getUserStatus = onCall(async (request) => {
     const activeStaySnap = await db.collection("activeStays").doc(uid).get();
     const isStaying = activeStaySnap.exists && activeStaySnap.data()?.isActive === true;
 
+    logOpsSuccess({
+      message: "getUserStatus 成功",
+      functionEntry: "getUserStatus",
+      context: { uid, isStaying },
+    });
+
     // 成功レスポンス
     return {
       success: true,
@@ -57,9 +67,10 @@ export const getUserStatus = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'getUserStatus error',
-      failureType: 'business',
       functionEntry: 'getUserStatus',
       cause: error,
+      errorKey: 'USER_VISIT_STATUS_FETCH_FAILED',
+      context: logContext,
     });
     return { 
       success: false, 

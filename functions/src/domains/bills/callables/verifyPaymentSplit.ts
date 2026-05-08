@@ -4,7 +4,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { calculatePaymentSplit } from '../services/paymentSplitCalculator';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_POINT_PRIORITY } from '../../../shared/config/defaults';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -33,6 +33,8 @@ export const verifyPaymentSplit = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
+
+  const callerUid = request.auth.uid;
 
   try {
     const db = getFirestore();
@@ -128,7 +130,12 @@ export const verifyPaymentSplit = onCall(async (request) => {
     const isMatch = compareResults(clientResult, serverResult);
 
     if (isMatch) {
-      // 完全一致の場合はクライアント側の結果をそのまま返す
+      logOpsSuccess({
+        message: 'verifyPaymentSplit 成功',
+        functionEntry: 'verifyPaymentSplit',
+        operation: 'verifyPaymentSplitCallable',
+        context: { billId, verified: true, selectedBaseMethod, callerUid },
+      });
       return {
         success: true,
         verified: true,
@@ -141,6 +148,13 @@ export const verifyPaymentSplit = onCall(async (request) => {
         billId,
         clientResult,
         serverResult,
+      });
+
+      logOpsSuccess({
+        message: 'verifyPaymentSplit 成功（サーバー結果を採用）',
+        functionEntry: 'verifyPaymentSplit',
+        operation: 'verifyPaymentSplitCallable',
+        context: { billId, verified: false, selectedBaseMethod, callerUid },
       });
 
       return {
@@ -163,7 +177,6 @@ export const verifyPaymentSplit = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '支払い分割照合エラー:',
-        failureType: 'business',
         functionEntry: 'verifyPaymentSplit',
         operation: 'verifyPaymentSplitCatch',
         cause: error,
@@ -175,8 +188,8 @@ export const verifyPaymentSplit = onCall(async (request) => {
     }
     logOpsError({
       message: '支払い分割照合エラー:',
-      failureType: 'business',
       functionEntry: 'verifyPaymentSplit',
+      operation: 'verifyPaymentSplitGenericCatch',
       cause: error,
     });
     throw new HttpsError('internal', '支払い分割照合に失敗しました', error.message);

@@ -16,7 +16,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { shouldDualWrite } from '../repos/dualWrite';
 import { resolveMenuItem } from '../repos/resolveMenuItem';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入店料のスキーマ
@@ -314,11 +314,11 @@ export const updateActiveBill = onCall(async (request) => {
       }
     }
 
-    logger.info('updateActiveBill success', {
-      op: 'updateActiveBill',
-      billId,
-      result: 'ok',
-      dualWriteResult,
+    logOpsSuccess({
+      message: 'updateActiveBill 成功',
+      functionEntry: 'updateActiveBill',
+      operation: 'updateActiveBillCallable',
+      context: { billId, callerUid, dualWriteResult },
     });
 
     return {
@@ -350,8 +350,8 @@ export const updateActiveBill = onCall(async (request) => {
     }
     logOpsError({
       message: 'updateActiveBill failed',
-      failureType: 'business',
       functionEntry: 'updateActiveBill',
+      operation: 'updateActiveBillGenericCatch',
       cause: error,
       context: {
         op: 'updateActiveBill',

@@ -6,7 +6,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import type { DeviceDoc } from '../../../shared/devices';
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -241,8 +241,8 @@ export const reseatAllPlayers = onCall(async (request) => {
           } catch (error) {
             logOpsError({
       message: `updatePlace failed for userId ${assignment.userId}`,
-      failureType: 'business',
       functionEntry: 'reseatAllPlayers',
+      operation: 'updatePlacePerAssignmentBestEffort',
       cause: error,
     });
             // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
@@ -266,9 +266,17 @@ export const reseatAllPlayers = onCall(async (request) => {
       },
     });
 
-    console.log(`=== 全員リシート完了 ===`);
-    console.log(`結果:`, result);
-    
+    logOpsSuccess({
+      message: '全員着席替えが完了しました',
+      functionEntry: 'reseatAllPlayers',
+      context: {
+        tournamentId,
+        playerCount: result.playerCount,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
+
     return { success: true, playerCount: result.playerCount };
     
   } catch (error) {
@@ -283,7 +291,6 @@ export const reseatAllPlayers = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '=== 全員リシートエラー ===',
-        failureType: 'business',
         functionEntry: 'reseatAllPlayers',
         operation: 'reseatAllPlayersCatch',
         cause: error,
@@ -293,8 +300,8 @@ export const reseatAllPlayers = onCall(async (request) => {
 
     logOpsError({
       message: '=== 全員リシートエラー ===',
-      failureType: 'business',
       functionEntry: 'reseatAllPlayers',
+      operation: 'reseatAllPlayersGenericCatch',
       cause: error,
     });
 
@@ -314,8 +321,8 @@ export const reseatAllPlayers = onCall(async (request) => {
       } catch (logErr) {
         logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'reseatAllPlayers',
+      operation: 'reseatAllPlayersOperationLogWrite',
       cause: logErr,
     });
       }

@@ -10,6 +10,7 @@ import {
   FunctionCustomError,
   mapFunctionCustomErrorToHttpsCode,
 } from "../../../shared/logging/functionCustomError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const updateScheduledTournamentStatusSchema = z.object({
   tournamentId: z.string().min(1, "tournamentId is required"),
@@ -79,6 +80,13 @@ export const updateScheduledTournamentStatus = onCall(async (request) => {
         updatedAt: now,
       });
 
+      logOpsSuccess({
+        message: 'updateScheduledTournamentStatus 成功',
+        functionEntry: 'updateScheduledTournamentStatus',
+        operation: 'validateStatusTransition',
+        context: { tournamentId, action: 'cancel', previousStatus: currentStatus },
+      });
+
       return {
         success: true,
         tournamentId,
@@ -124,6 +132,13 @@ export const updateScheduledTournamentStatus = onCall(async (request) => {
       updatedAt: now,
     });
 
+    logOpsSuccess({
+      message: 'updateScheduledTournamentStatus 成功',
+      functionEntry: 'updateScheduledTournamentStatus',
+      operation: 'validateStatusTransition',
+      context: { tournamentId, action: 'restore', previousStatus: currentStatus },
+    });
+
     return {
       success: true,
       tournamentId,
@@ -138,6 +153,13 @@ export const updateScheduledTournamentStatus = onCall(async (request) => {
       );
     }
     if (e instanceof FunctionCustomError) {
+      logOpsError({
+        message: "updateScheduledTournamentStatus: status transition validation failed",
+        functionEntry: "updateScheduledTournamentStatus",
+        operation: "validateStatusTransition",
+        cause: e,
+        context: { errorKey: e.errorKey, ...(e.context ?? {}) },
+      });
       throw new HttpsError(mapFunctionCustomErrorToHttpsCode(e.errorKey), e.message);
     }
     throw e;

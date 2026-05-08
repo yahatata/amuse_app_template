@@ -17,8 +17,7 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { dualWriteTodaysBillsSkeleton, shouldDualWrite } from './dualWrite';
@@ -231,15 +230,19 @@ export async function createBillWithActiveStay(
       };
     });
 
-    logger.info('createBillWithActiveStay', {
-      op: 'createBillWithActiveStay',
-      billId,
-      userId,
-      idempKey: idempotencyKeyFull,
-      result: reused ? 'reused' : 'ok',
-      requestHash8: requestHash.substring(0, 8),
-      dualWriteEnabled,
-      dualWriteResult,
+    logOpsSuccess({
+      message: 'createBillWithActiveStay 成功',
+      functionEntry: 'createBillWithActiveStay',
+      operation: 'createBillWithActiveStayRepo',
+      context: {
+        billId,
+        userId,
+        idempotencyKey: idempotencyKeyFull,
+        reused,
+        requestHash8: requestHash.substring(0, 8),
+        dualWriteEnabled,
+        dualWriteResult,
+      },
     });
 
     return result;

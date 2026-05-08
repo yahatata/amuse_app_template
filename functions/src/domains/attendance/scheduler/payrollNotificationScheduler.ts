@@ -1,4 +1,4 @@
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { getPayrollConfig } from "../../../shared/config/payrollConfigLoader";
 import { getRegionalTaskQueue } from "../../../shared/tasks/getRegionalTaskQueue";
 
@@ -66,6 +66,17 @@ export async function runPayrollNotificationSchedulerTask(
         dispatchDeadlineSeconds: 300,
       }
     );
+    logOpsSuccess({
+  message: "payrollNotificationScheduler 成功",
+  functionEntry: "payrollNotificationScheduler",
+  operation: "enqueue",
+  context: {
+    targetDate: input.targetDate,
+    ...(notificationHour !== undefined && {notificationHour}),
+    ...(scheduleTimeUtc !== undefined && {scheduleTimeUtc}),
+  },
+});
+
 
     return {
       notificationHour,
@@ -74,7 +85,6 @@ export async function runPayrollNotificationSchedulerTask(
   } catch (error) {
     logOpsError({
       message: "payrollNotificationScheduler task execution failed",
-      failureType: "scheduled",
       functionEntry: "payrollNotificationScheduler",
       operation: "enqueue",
       cause: error,

@@ -1,17 +1,21 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const getAttendanceCorrectionRequests = onCall(
   { region: "asia-northeast1", maxInstances: 10 },
   async (request) => {
+    const { status, limit } = (request.data ?? {}) as {
+      status?: string;
+      limit?: number;
+    };
+    const logContext: Record<string, unknown> = {
+      statusFilter: status ?? "pending",
+      limit: limit ?? null,
+    };
+
     try {
       // 認証チェックをスキップ
-
-      const { status, limit } = request.data as {
-        status?: string;
-        limit?: number;
-      };
 
       const db = admin.firestore();
       let query: admin.firestore.Query = db.collection("attendanceCorrectionRequests");
@@ -69,6 +73,18 @@ export const getAttendanceCorrectionRequests = onCall(
         });
       }
 
+      Object.assign(logContext, { count: requests.length });
+
+      logOpsSuccess({
+        message: 'getAttendanceCorrectionRequests 成功',
+        functionEntry: 'getAttendanceCorrectionRequests',
+        context: {
+          statusFilter: status ?? 'pending',
+          limit: limit ?? null,
+          count: requests.length,
+        },
+      });
+
       return {
         success: true,
         requests: requests,
@@ -78,9 +94,9 @@ export const getAttendanceCorrectionRequests = onCall(
     } catch (error) {
       logOpsError({
       message: '勤怠修正申請取得エラー:',
-      failureType: 'business',
       functionEntry: 'getAttendanceCorrectionRequests',
       cause: error,
+      context: logContext,
     });
       return {
         success: false,

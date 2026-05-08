@@ -11,7 +11,7 @@ import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { cleanupIdempotencyOnSettle } from '../services/onSettleCleanupIdempotency';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import {
@@ -130,11 +130,20 @@ export const billsOnSettle = onDocumentUpdated(
       // 既存の contentHash と比較（冪等性チェック）
       const existingContentHash = afterData.meta?.contentHash;
       if (existingContentHash && existingContentHash === contentHash) {
-        // 完全 no-op（updatedAt/closedAt も不変）
         logger.info('billsOnSettle: contentHash matches, skipping update', {
           billId,
           contentHash: contentHash.substring(0, 8),
         });
+        logOpsSuccess({
+          message: 'billsOnSettle 成功（contentHash 一致スキップ）',
+          functionEntry: 'billsOnSettle',
+          context: {
+            billId,
+            contentHashPrefix: contentHash.substring(0, 8),
+            outcome: 'hash_match_skip',
+          },
+        });
+
         return;
       }
 
@@ -174,12 +183,11 @@ export const billsOnSettle = onDocumentUpdated(
       // cleanupIdempotencyOnSettle を呼ぶ
       await cleanupIdempotencyOnSettle(billId);
 
+      let settlementEnqueued = false;
       if (storeConfig.features?.settlementAggregatorEnabled) {
-        // snapshot 更新後の内容を再読み込みして enqueueSettlement に渡す
         const updatedBillDoc = await billRef.get();
         if (updatedBillDoc.exists) {
           const updatedBillData = updatedBillDoc.data()!;
-          // BillDoc 型に合わせて変換
           const billDoc: any = {
             billId,
             businessDate: updatedBillData.businessDate,
@@ -193,14 +201,24 @@ export const billsOnSettle = onDocumentUpdated(
             postEvents: updatedBillData.postEvents,
             party: updatedBillData.party,
           };
-          // 静的 import を使用（動的 import を避ける）
           await enqueueSettlement(billDoc);
+          settlementEnqueued = true;
         }
       }
+
+      logOpsSuccess({
+        message: 'billsOnSettle 成功',
+        functionEntry: 'billsOnSettle',
+        context: {
+          billId,
+          contentHashPrefix: contentHash.substring(0, 8),
+          outcome: 'snapshot_updated',
+          settlementEnqueued,
+        },
+      });
     } catch (error) {
       logOpsError({
         message: 'billsOnSettle failed',
-        failureType: 'datastore',
         functionEntry: 'billsOnSettle',
         cause: error,
         context: { billId },

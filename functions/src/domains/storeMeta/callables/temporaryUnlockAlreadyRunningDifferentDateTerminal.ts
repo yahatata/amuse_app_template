@@ -10,7 +10,7 @@ import {
 } from '../../../shared/config/cloudTasksConfig';
 import { getRequiredProjectId } from '../../../shared/runtime/projectId';
 import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES } from '../../../shared/config/defaults';
 
@@ -209,6 +209,7 @@ export const temporaryUnlockAlreadyRunningDifferentDateTerminal = onCall(
       scheduledAt: scheduledAtIso,
     };
 
+    let cloudTaskOutcome: 'created' | 'already_exists' = 'created';
     try {
       await createAssessmentTask({
         tasksClient,
@@ -225,6 +226,7 @@ export const temporaryUnlockAlreadyRunningDifferentDateTerminal = onCall(
       const err = error as { code?: number };
       if (err?.code === 6) {
         // ALREADY_EXISTS: 同一タスクが既に存在する場合は成功扱い
+        cloudTaskOutcome = 'already_exists';
       } else {
         logOpsError({
           message: 'temporaryUnlockAlreadyRunningDifferentDateTerminal: createTask failed',
@@ -243,6 +245,17 @@ export const temporaryUnlockAlreadyRunningDifferentDateTerminal = onCall(
         );
       }
     }
+
+    logOpsSuccess({
+      message: 'temporaryUnlockAlreadyRunningDifferentDateTerminal 成功',
+      functionEntry: 'temporaryUnlockAlreadyRunningDifferentDateTerminal',
+      operation: 'cloudTasksCreateTask',
+      context: {
+        intendedBusinessDateKey,
+        scheduledAt: scheduledAtIso,
+        cloudTaskOutcome,
+      },
+    });
 
     return {
       success: true,

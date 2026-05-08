@@ -1,6 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * LIFF用：本日開催のトーナメント一覧を取得するCloud Function
@@ -11,6 +11,7 @@ import { logOpsError } from "../../../shared/logging/logOpsError";
  * How: 既存のgetScheduledTournaments関数を流用して本日分のみ取得
  */
 export const getTodayTournaments = onCall(async (request) => {
+  const logContext: Record<string, unknown> = {};
   try {
     console.log('getTodayTournaments called for LIFF');
     
@@ -30,7 +31,9 @@ export const getTodayTournaments = onCall(async (request) => {
     // 日本時間での今日の開始（00:00:00）
     const jstToday = new Date(jstNow.getFullYear(), jstNow.getMonth(), jstNow.getDate());
     const jstTodayUTC = new Date(jstToday.getTime() - jstOffset * 60 * 1000);
-    
+    const jstDateKey = `${jstToday.getFullYear()}-${String(jstToday.getMonth() + 1).padStart(2, "0")}-${String(jstToday.getDate()).padStart(2, "0")}`;
+    Object.assign(logContext, { jstDateKey });
+
     console.log('=== 本日開催トーナメントフィルタリング ===');
     console.log('jstToday:', jstToday.toISOString());
     console.log('jstTodayUTC:', jstTodayUTC.toISOString());
@@ -221,6 +224,13 @@ export const getTodayTournaments = onCall(async (request) => {
     }));
     
     console.log(`Retrieved ${tournaments.length} tournaments for today`);
+    Object.assign(logContext, { count: tournaments.length });
+    logOpsSuccess({
+      message: "getTodayTournaments 成功",
+      functionEntry: "getTodayTournaments",
+      context: { count: tournaments.length, jstDateKey },
+    });
+
     
     return {
       success: true,
@@ -232,9 +242,9 @@ export const getTodayTournaments = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'Error in getTodayTournaments:',
-      failureType: 'business',
       functionEntry: 'getTodayTournaments',
       cause: error,
+      context: logContext,
     });
     
     return {

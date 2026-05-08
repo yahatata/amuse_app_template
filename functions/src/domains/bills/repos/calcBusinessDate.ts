@@ -9,7 +9,7 @@
 
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import type { BusinessDateResult } from './types';
 import {
   convertToJst,
@@ -70,17 +70,37 @@ export async function calcBusinessDate(nowUtc?: Date): Promise<BusinessDateResul
     );
     
     // 11. 候補数に応じて戻り値を決定
-    if (candidates.length === 0) {
+    if (candidates.length === 0) {logOpsSuccess({
+  message: "calcBusinessDate 成功",
+  functionEntry: "calcBusinessDate",
+  context: {
+    nowUtc: nowUtc?.toISOString(),
+  },
+});
+
       return { status: 'NONE' };
-    } else if (candidates.length === 1) {
+    } else if (candidates.length === 1) {logOpsSuccess({
+  message: "calcBusinessDate 成功",
+  functionEntry: "calcBusinessDate",
+  context: {
+    nowUtc: nowUtc?.toISOString(),
+  },
+});
+
       return { status: 'OK', businessDateKey: candidates[0] };
-    } else {
+    } else {logOpsSuccess({
+  message: "calcBusinessDate 成功",
+  functionEntry: "calcBusinessDate",
+  context: {
+    nowUtc: nowUtc?.toISOString(),
+  },
+});
+
       return { status: 'AMBIGUOUS', candidates };
     }
   } catch (error) {
     logOpsError({
       message: 'calcBusinessDate failed',
-      failureType: 'business',
       functionEntry: 'calcBusinessDate',
       cause: error,
       context: {

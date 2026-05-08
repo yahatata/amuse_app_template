@@ -2,7 +2,7 @@ import { onCall } from "firebase-functions/v2/https";
 import { HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { getStoreConfig } from "../../../shared/config/configLoader";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 interface ConfirmShiftRequestRequest {
   requestId: string;
@@ -70,6 +70,12 @@ export const confirmShiftRequest = onCall(
       if (requestData.status !== "pending") {
         // 既に確認済みの場合は成功として返す（重複呼び出しを許容）
         if (requestData.status === "confirmed") {
+          logOpsSuccess({
+            message: 'confirmShiftRequest 成功',
+            functionEntry: 'confirmShiftRequest',
+            context: { requestId, staffId, outcome: 'already_confirmed' },
+          });
+
           return {
             success: true,
             message: "既に確認済みです。",
@@ -91,6 +97,12 @@ export const confirmShiftRequest = onCall(
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
+      logOpsSuccess({
+        message: 'confirmShiftRequest 成功',
+        functionEntry: 'confirmShiftRequest',
+        context: { requestId, staffId, outcome: 'confirmed' },
+      });
+
       return {
         success: true,
         message: "要請を確認しました。",
@@ -99,9 +111,9 @@ export const confirmShiftRequest = onCall(
     } catch (error) {
       logOpsError({
       message: '希望シフト要請確認エラー:',
-      failureType: 'business',
       functionEntry: 'confirmShiftRequest',
       cause: error,
+      context: { requestId, staffId },
     });
 
       if (error instanceof Error) {

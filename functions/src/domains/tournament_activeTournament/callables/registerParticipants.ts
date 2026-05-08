@@ -5,7 +5,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import * as crypto from 'crypto';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -316,8 +316,8 @@ export const registerParticipants = onCall(async (request) => {
         } catch (error) {
           logOpsError({
       message: `Failed to record tournament action for user ${result.userId}:`,
-      failureType: 'business',
       functionEntry: 'registerParticipants',
+      operation: 'recordActionPerUserBestEffort',
       cause: error,
     });
           // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
@@ -336,8 +336,8 @@ export const registerParticipants = onCall(async (request) => {
       } catch (error) {
         logOpsError({
       message: `ユーザー ${userId} の登録失敗:`,
-      failureType: 'business',
       functionEntry: 'registerParticipants',
+      operation: 'registerUserFailed',
       cause: error,
     });
         results.push({ 
@@ -370,9 +370,18 @@ export const registerParticipants = onCall(async (request) => {
       });
     }
 
-    console.log(`=== 参加者登録完了 ===`);
-    console.log(`成功: ${successCount}人`);
-    console.log(`失敗: ${failureCount}人`);
+    logOpsSuccess({
+      message: '参加者一括登録の処理が完了しました',
+      functionEntry: 'registerParticipants',
+      context: {
+        tournamentId,
+        successCount,
+        failureCount,
+        totalRequested: userIds.length,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
 
     return {
       success: true,
@@ -386,8 +395,8 @@ export const registerParticipants = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== 参加者登録エラー ===',
-      failureType: 'business',
       functionEntry: 'registerParticipants',
+      operation: 'registerParticipantsMainCatch',
       cause: error,
     });
 
@@ -407,8 +416,8 @@ export const registerParticipants = onCall(async (request) => {
     } catch (logErr) {
       logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'registerParticipants',
+      operation: 'registerParticipantsOperationLogWrite',
       cause: logErr,
     });
     }

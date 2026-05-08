@@ -15,7 +15,7 @@ import * as admin from 'firebase-admin';
 import { getCurrentBusinessDateKeyOrThrow } from '../repos/getCurrentBusinessDateKeyOrThrow';
 import { requireAdmin } from '../../../shared/devices';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 const ALLOWED_STATUSES = ['open', 'in_progress', 'settling'] as const;
 const LAST_CLOSE_RUN_ID_STEP2 = 'step2-manual';
@@ -133,7 +133,19 @@ export async function applyCloseSnapshotCore(
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.warn('applyCloseSnapshot txn failed', { billId, error: msg });
+      logOpsError({
+        message: 'applyCloseSnapshotCore: bill transaction failed',
+        functionEntry: 'applyCloseSnapshot',
+        operation: 'applyBillCloseSnapshotTxn',
+        cause: e,
+        errorKey: 'STORE_CLOSE_SNAPSHOT_TXN_FAILED',
+        context: {
+          billId,
+          closeRunId,
+          closedBusinessDate,
+          error: msg,
+        },
+      });
       skipped.push({ billId, reason: 'txn_failed' });
     }
   }
@@ -153,7 +165,19 @@ export async function applyCloseSnapshotCore(
       });
       usersIncremented.push({ userId, inc: count });
     } catch (e) {
-      console.warn('applyCloseSnapshot users update failed', { userId, error: e });
+      logOpsError({
+        message: 'applyCloseSnapshotCore: users unsettledBillsCount update failed',
+        functionEntry: 'applyCloseSnapshot',
+        operation: 'incrementUserUnsettledBillsCount',
+        cause: e,
+        errorKey: 'STORE_CLOSE_USER_COUNTER_UPDATE_FAILED',
+        context: {
+          userId,
+          incrementCount: count,
+          closeRunId,
+          closedBusinessDate,
+        },
+      });
       usersUpdateFailed.push(userId);
     }
   }
@@ -210,6 +234,18 @@ export const applyCloseSnapshot = onCall(async (request) => {
     amountsByBillId,
     closedBusinessDate,
     closeRunId: LAST_CLOSE_RUN_ID_STEP2,
+  });
+
+  logOpsSuccess({
+    message: 'applyCloseSnapshot 成功',
+    functionEntry: 'applyCloseSnapshot',
+    operation: 'applyCloseSnapshotCallable',
+    context: {
+      closedBusinessDate,
+      updatedCount: result.updatedBillIds.length,
+      skippedCount: result.skipped.length,
+      usersIncrementedCount: result.usersIncremented.length,
+    },
   });
 
   return {

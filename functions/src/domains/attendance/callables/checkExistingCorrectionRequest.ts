@@ -1,10 +1,11 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const checkExistingCorrectionRequest = onCall(
   { region: "asia-northeast1", maxInstances: 10 },
   async (request) => {
+    const logContext: Record<string, unknown> = {};
     try {
       if (!request.auth) {
         throw new Error("Authentication required.");
@@ -20,6 +21,8 @@ export const checkExistingCorrectionRequest = onCall(
         throw new Error("Required fields are missing.");
       }
 
+      Object.assign(logContext, { staffId, date });
+
       const db = admin.firestore();
 
       // 指定された日付で申請済みの修正申請を検索
@@ -29,7 +32,12 @@ export const checkExistingCorrectionRequest = onCall(
         .get();
 
       if (correctionSnapshot.empty) {
-        // 申請済みなし
+        logOpsSuccess({
+          message: 'checkExistingCorrectionRequest 成功',
+          functionEntry: 'checkExistingCorrectionRequest',
+          context: { staffId, date, hasExistingRequest: false },
+        });
+
         return {
           success: true,
           hasExistingRequest: false,
@@ -62,6 +70,18 @@ export const checkExistingCorrectionRequest = onCall(
           canReapply = false;
       }
 
+      logOpsSuccess({
+        message: 'checkExistingCorrectionRequest 成功',
+        functionEntry: 'checkExistingCorrectionRequest',
+        context: {
+          staffId,
+          date,
+          hasExistingRequest: true,
+          status,
+          requestId: correctionSnapshot.docs[0].id,
+        },
+      });
+
       return {
         success: true,
         hasExistingRequest: true,
@@ -74,9 +94,9 @@ export const checkExistingCorrectionRequest = onCall(
     } catch (error) {
       logOpsError({
       message: '申請済みチェックエラー:',
-      failureType: 'business',
       functionEntry: 'checkExistingCorrectionRequest',
       cause: error,
+      context: logContext,
     });
       return {
         success: false,

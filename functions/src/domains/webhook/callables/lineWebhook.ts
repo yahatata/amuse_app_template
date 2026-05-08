@@ -1,7 +1,7 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
-import { logOpsError, truncateForLog } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess, truncateForLog } from "../../../shared/logging/logOpsError";
 import { getLineConfig } from "../../../shared/secrets/secretManager";
 import { linkStaffRichMenu, linkUserRichMenu } from "../services/lineRichMenu";
 
@@ -38,14 +38,6 @@ export const lineWebhook = onRequest(async (request, response) => {
   }
 
   try {
-    // デバッグ: リクエストボディの内容をログ出力
-    logger.info("Webhook received", { 
-      bodyKeys: Object.keys(request.body || {}),
-      hasEvents: !!request.body?.events,
-      eventsType: Array.isArray(request.body?.events) ? "array" : typeof request.body?.events,
-      eventsLength: Array.isArray(request.body?.events) ? request.body.events.length : "N/A"
-    });
-    
     const events = request.body.events;
     
     if (!events || !Array.isArray(events)) {
@@ -56,18 +48,11 @@ export const lineWebhook = onRequest(async (request, response) => {
       response.status(200).json({ message: "No events" });
       return;
     }
-    
-    // デバッグ: 各イベントのタイプをログ出力
-    logger.info("Events received", { 
-      eventCount: events.length,
-      eventTypes: events.map(e => e.type)
-    });
 
     const channelAccessToken = await getLineChannelAccessToken();
     if (!channelAccessToken) {
       logOpsError({
         message: "line-config.channelAccessToken is not set",
-        failureType: "config",
         functionEntry: "lineWebhook",
         operation: "token",
       });
@@ -78,12 +63,6 @@ export const lineWebhook = onRequest(async (request, response) => {
     const db = admin.firestore();
 
     for (const event of events) {
-      // デバッグ: 全てのイベントタイプをログ出力
-      logger.info("Processing event", { 
-        eventType: event.type,
-        source: event.source 
-      });
-      
       // postbackイベント（ボタン押下など）
       if (event.type === "postback") {
         const lineUserId = event.source.userId;
@@ -93,8 +72,6 @@ export const lineWebhook = onRequest(async (request, response) => {
           logger.warn("Invalid postback event", { event });
           continue;
         }
-
-        logger.info("Processing postback event", { lineUserId, postbackData });
 
         try {
           // postbackデータをパース（例: "action=decline&requestId=xxx"）
@@ -130,9 +107,8 @@ export const lineWebhook = onRequest(async (request, response) => {
                   const errorText = await replyResponse.text();
                   logOpsError({
                     message: "Failed to send reply message",
-                    failureType: "external_api",
                     functionEntry: "lineWebhook",
-                    operation: "replyMessage",
+                    operation: "replyPostbackPlanDisabledNotOk",
                     context: {
                       status: replyResponse.status,
                       lineApiErrorPreview: errorText.slice(0, 200),
@@ -142,9 +118,8 @@ export const lineWebhook = onRequest(async (request, response) => {
               } catch (replyError) {
                 logOpsError({
                   message: "Error sending reply message",
-                  failureType: "external_api",
                   functionEntry: "lineWebhook",
-                  operation: "replyMessage",
+                  operation: "replyPostbackPlanDisabledCatch",
                   cause: replyError,
                 });
               }
@@ -172,8 +147,6 @@ export const lineWebhook = onRequest(async (request, response) => {
                   updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                 });
 
-                logger.info("Shift request declined via postback", { lineUserId, requestId });
-
                 // リプライメッセージを送信
                 try {
                   const replyResponse = await fetch("https://api.line.me/v2/bot/message/reply", {
@@ -197,9 +170,8 @@ export const lineWebhook = onRequest(async (request, response) => {
                     const errorText = await replyResponse.text();
                     logOpsError({
                       message: "Failed to send reply message",
-                      failureType: "external_api",
                       functionEntry: "lineWebhook",
-                      operation: "replyMessage",
+                      operation: "replyPostbackDeclineConfirmNotOk",
                       context: {
                         status: replyResponse.status,
                         lineApiErrorPreview: errorText.slice(0, 200),
@@ -209,9 +181,8 @@ export const lineWebhook = onRequest(async (request, response) => {
                 } catch (replyError) {
                   logOpsError({
                     message: "Error sending reply message",
-                    failureType: "external_api",
                     functionEntry: "lineWebhook",
-                    operation: "replyMessage",
+                    operation: "replyPostbackDeclineConfirmCatch",
                     cause: replyError,
                   });
                 }
@@ -230,7 +201,6 @@ export const lineWebhook = onRequest(async (request, response) => {
         } catch (error) {
           logOpsError({
             message: "Error processing postback event",
-            failureType: "webhook",
             functionEntry: "lineWebhook",
             operation: "postback",
             cause: error,
@@ -253,8 +223,6 @@ export const lineWebhook = onRequest(async (request, response) => {
           continue;
         }
 
-        logger.info(`Processing ${event.type} event`, { lineUserId });
-
         try {
           const staffDocRef = db.collection("staffs").doc(lineUserId);
           const staffDoc = await staffDocRef.get();
@@ -269,7 +237,6 @@ export const lineWebhook = onRequest(async (request, response) => {
         } catch (error) {
           logOpsError({
             message: "Error processing follow/unblock",
-            failureType: "webhook",
             functionEntry: "lineWebhook",
             operation: "followOrUnblock",
             cause: error,
@@ -279,11 +246,20 @@ export const lineWebhook = onRequest(async (request, response) => {
       }
     }
 
+    logOpsSuccess({
+      message: "lineWebhook 処理完了",
+      functionEntry: "lineWebhook",
+      operation: "handler",
+      context: {
+        eventCount: events.length,
+        eventTypes: events.map((e: { type?: string }) => e.type),
+      },
+    });
+
     response.status(200).json({ message: "OK" });
   } catch (error) {
     logOpsError({
       message: "Webhook error",
-      failureType: "webhook",
       functionEntry: "lineWebhook",
       operation: "handler",
       cause: error,

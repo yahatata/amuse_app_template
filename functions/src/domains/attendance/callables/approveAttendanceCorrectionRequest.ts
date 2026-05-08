@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 import { getStoreConfig } from "../../../shared/config/configLoader";
 import { writeAttendanceLog } from "../helpers/attendanceLogs";
 import { recalculateAttendanceFromBreaks } from "../helpers/recalculateAttendanceFromBreaks";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const approveAttendanceCorrectionRequest = onCall(
   { region: "asia-northeast1", maxInstances: 10 },
@@ -123,13 +123,27 @@ export const approveAttendanceCorrectionRequest = onCall(
         }
       } catch (updateError) {
         logOpsError({
-      message: '勤怠記録更新エラー:',
-      failureType: 'business',
-      functionEntry: 'approveAttendanceCorrectionRequest',
-      cause: updateError,
-    });
+          message: '勤怠記録更新エラー:',
+          functionEntry: 'approveAttendanceCorrectionRequest',
+          operation: 'attendanceRecordUpdate',
+          cause: updateError,
+          context: { requestId, adminUserId },
+        });
         // 勤怠記録の更新に失敗しても承認処理は成功とする
       }
+
+      logOpsSuccess({
+        message: "approveAttendanceCorrectionRequest 成功",
+        functionEntry: "approveAttendanceCorrectionRequest",
+        operation: "approveRequest",
+        context: {
+          requestId,
+          adminUserId,
+          staffId: requestData?.staffId,
+          date: requestData?.date,
+          correctionType: requestData?.type,
+        },
+      });
 
       return {
         success: true,
@@ -139,11 +153,11 @@ export const approveAttendanceCorrectionRequest = onCall(
 
     } catch (error) {
       logOpsError({
-      message: '勤怠修正申請承認エラー:',
-      failureType: 'business',
-      functionEntry: 'approveAttendanceCorrectionRequest',
-      cause: error,
-    });
+        message: '勤怠修正申請承認エラー:',
+        functionEntry: 'approveAttendanceCorrectionRequest',
+        operation: 'approveRequestOuterCatch',
+        cause: error,
+      });
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error occurred.",

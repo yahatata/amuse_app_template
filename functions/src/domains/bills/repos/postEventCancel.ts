@@ -11,8 +11,7 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { calcBusinessDate } from './calcBusinessDate';
 
@@ -176,18 +175,23 @@ export async function postEventCancel(request: PostEventCancelRequest): Promise<
       };
     });
 
-    logger.info('postEventCancel success', {
-      op: 'postEventCancel',
-      billId,
-      eventId: idempotencyKey,
-      result: reused ? 'reused' : 'ok',
+    logOpsSuccess({
+      message: 'postEventCancel 成功',
+      functionEntry: 'postEventCancel',
+      context: {
+        op: 'postEventCancel',
+        billId,
+        eventId: idempotencyKey,
+        result: reused ? 'reused' : 'ok',
+        code: 'ok',
+      },
     });
+
 
     return result;
   } catch (error) {
     logOpsError({
       message: 'postEventCancel failed',
-      failureType: 'business',
       functionEntry: 'postEventCancel',
       cause: error,
       context: {

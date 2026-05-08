@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマの定義
@@ -107,6 +107,16 @@ export const resumeTournament = onCall(async (request) => {
       });
     });
 
+    logOpsSuccess({
+      message: 'トーナメントを再開しました',
+      functionEntry: 'resumeTournament',
+      context: {
+        tournamentId,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
+
     return {
       success: true,
       message: 'トーナメントが再開されました',
@@ -126,7 +136,6 @@ export const resumeTournament = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: 'resumeTournament error:',
-        failureType: 'business',
         functionEntry: 'resumeTournament',
         operation: 'resumeTournamentCatch',
         cause: error,
@@ -136,8 +145,8 @@ export const resumeTournament = onCall(async (request) => {
 
     logOpsError({
       message: 'resumeTournament error:',
-      failureType: 'business',
       functionEntry: 'resumeTournament',
+      operation: 'resumeTournamentGenericCatch',
       cause: error,
     });
 

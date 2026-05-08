@@ -1,4 +1,4 @@
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { LineUserInfo } from "../../../shared/types";
 
 /**
@@ -21,6 +21,12 @@ export async function verifyLineIdToken(
       throw new Error("Invalid token payload");
     }
 
+    logOpsSuccess({
+      message: "verifyLineIdToken 成功",
+      functionEntry: "verifyLineIdToken",
+      context: { lineUserId: payload.sub as string },
+    });
+
     return {
       sub: payload.sub,
       name: payload.name,
@@ -30,9 +36,11 @@ export async function verifyLineIdToken(
   } catch (error) {
     logOpsError({
       message: "Error verifying LINE ID token",
-      failureType: "internal",
       functionEntry: "verifyLineIdToken",
       cause: error,
+      context: {
+        idTokenPartCount: idToken.split(".").length,
+      },
     });
     throw new Error("Failed to verify LINE ID token");
   }

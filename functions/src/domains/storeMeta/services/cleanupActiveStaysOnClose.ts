@@ -1,6 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import {
   getCallerDeviceByUid,
   hasStoreManagementPermission,
@@ -53,10 +53,16 @@ export async function runCleanupActiveStays(
       }
     } catch (e) {
       failed++;
-      console.warn('cleanupActiveStaysOnClose: delete failed', {
-        id: doc.id,
-        billId,
-        error: String(e),
+      logOpsError({
+        message: 'cleanupActiveStaysOnClose: delete failed',
+        functionEntry: 'cleanupActiveStaysOnClose',
+        operation: 'deleteActiveStayDocument',
+        cause: e,
+        errorKey: 'STORE_CLEANUP_ACTIVE_STAY_DELETE_FAILED',
+        context: {
+          activeStayId: doc.id,
+          billId,
+        },
       });
     }
   }
@@ -86,6 +92,19 @@ export const cleanupActiveStaysOnClose = onCall(async (request) => {
     const result = await runCleanupActiveStays(db);
     const elapsedMs = Date.now() - start;
 
+    logOpsSuccess({
+      message: 'cleanupActiveStaysOnClose 成功',
+      functionEntry: 'cleanupActiveStaysOnClose',
+      operation: 'cleanupCallable',
+      context: {
+        callerUid,
+        deleted: result.deleted,
+        failed: result.failed,
+        elapsedMs,
+        unsettledBillIdsCount: result.unsettledBillIds.length,
+      },
+    });
+
     return {
       success: true,
       deleted: result.deleted,
@@ -97,8 +116,8 @@ export const cleanupActiveStaysOnClose = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'cleanupActiveStaysOnClose: error',
-      failureType: 'business',
       functionEntry: 'cleanupActiveStaysOnClose',
+      operation: 'cleanupOuterCatch',
       cause: error,
     });
     throw new HttpsError(

@@ -1,7 +1,6 @@
 import { onCall } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
-import { logOpsError } from '../../logging/logOpsError';
 
 async function walkCollections(
   colRefs: FirebaseFirestore.CollectionReference[],
@@ -61,12 +60,7 @@ export const calculateFirestoreSize = onCall(
         collectionCount: acc.collections,
       };
     } catch (error) {
-      logOpsError({
-        message: 'Firestoreサイズ計算エラー:',
-        failureType: 'datastore',
-        functionEntry: 'calculateFirestoreSize',
-        cause: error,
-      });
+      logger.error('Firestoreサイズ計算エラー', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

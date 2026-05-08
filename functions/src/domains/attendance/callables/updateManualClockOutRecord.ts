@@ -14,7 +14,7 @@ import {
   endActiveBreaksForClockOut,
   recalculateAttendanceFromBreaks,
 } from '../helpers/recalculateAttendanceFromBreaks';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const GRACE_HOURS = 1;
 
@@ -76,6 +76,8 @@ export const updateManualClockOutRecord = onCall(async (request: CallableRequest
     throw new HttpsError('permission-denied', 'スタッフ出退勤操作の権限がありません');
   }
 
+  const logContext: Record<string, unknown> = { callerUid, deviceId: device.id };
+
   try {
     const {
       docId,
@@ -84,6 +86,8 @@ export const updateManualClockOutRecord = onCall(async (request: CallableRequest
     if (!docId) {
       throw new HttpsError('invalid-argument', 'docId is required');
     }
+
+    Object.assign(logContext, { docId });
 
     const config = await getStoreConfig();
     if (config.features?.createAttendanceByManual !== true) {
@@ -97,6 +101,10 @@ export const updateManualClockOutRecord = onCall(async (request: CallableRequest
     }
     const attendanceRef = attendanceDoc.ref;
     const attendanceData = attendanceDoc.data()!;
+    Object.assign(logContext, {
+      staffId: attendanceData.staffId,
+      date: attendanceData.date,
+    });
 
     if (attendanceData.clockOut || !attendanceData.clockIn) {
       return { success: false, code: 'no-unclocked-attendance', message: '勤務中のデータがありません' };
@@ -123,6 +131,7 @@ export const updateManualClockOutRecord = onCall(async (request: CallableRequest
       .where('closedStoreWithoutClockOut', '==', true)
       .get();
     const hasWarning = otherClosedSnap.docs.some((d) => d.id !== attendanceRef.id);
+    Object.assign(logContext, { hasWarning });
 
     const adjustedClockOut = resolveAdjustedClockOutTimestamp(
       adjustmentOffsetMinutes,
@@ -178,6 +187,19 @@ export const updateManualClockOutRecord = onCall(async (request: CallableRequest
     if (hasWarning) {
       result.warning = '管理者に確認して、以前の出勤について正しいデータを入力して下さい。';
     }
+
+    logOpsSuccess({
+      message: 'updateManualClockOutRecord 成功',
+      functionEntry: 'updateManualClockOutRecord',
+      context: {
+        staffId: attendanceData.staffId,
+        date: attendanceData.date,
+        docId: attendanceRef.id,
+        deviceId: device.id,
+        hasWarning,
+      },
+    });
+
     return result;
   } catch (error) {
     if (error instanceof HttpsError) {
@@ -185,9 +207,9 @@ export const updateManualClockOutRecord = onCall(async (request: CallableRequest
     }
     logOpsError({
       message: 'Error in updateManualClockOutRecord:',
-      failureType: 'business',
       functionEntry: 'updateManualClockOutRecord',
       cause: error,
+      context: logContext,
     });
     throw new HttpsError('internal', 'Internal server error');
   }

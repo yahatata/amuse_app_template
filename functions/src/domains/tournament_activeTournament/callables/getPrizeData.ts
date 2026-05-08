@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const getPrizeDataSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId is required'),
@@ -46,7 +46,13 @@ export const getPrizeData = onCall(async (request) => {
       mainViewData.entryStack = snapshot.startStack || 0;
       mainViewData.addonStack = snapshot.addonStack || 0;
     }
-    
+
+    logOpsSuccess({
+      message: "getPrizeData 成功",
+      functionEntry: "getPrizeData",
+      context: { tournamentId },
+    });
+
     return {
       success: true,
       tournamentData,
@@ -54,11 +60,12 @@ export const getPrizeData = onCall(async (request) => {
     };
     
   } catch (error) {
+    const parsed = getPrizeDataSchema.safeParse(request.data);
     logOpsError({
       message: 'getPrizeData error:',
-      failureType: 'business',
       functionEntry: 'getPrizeData',
       cause: error,
+      context: parsed.success ? { tournamentId: parsed.data.tournamentId } : { inputParseFailed: true as const },
     });
     
     if (error instanceof z.ZodError) {

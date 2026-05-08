@@ -6,7 +6,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import type { DeviceDoc } from '../../../shared/devices';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 // 入力データの検証スキーマ
@@ -194,8 +194,8 @@ export const bustAndExit = onCall(async (request) => {
       } catch (error) {
         logOpsError({
       message: 'updatePlace failed',
-      failureType: 'business',
       functionEntry: 'bustAndExit',
+      operation: 'updatePlaceBestEffort',
       cause: error,
     });
         // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
@@ -221,8 +221,19 @@ export const bustAndExit = onCall(async (request) => {
       },
     });
 
-    console.log(`=== Bust&退席完了 ===`);
-    console.log(`ユーザー ${userId} のBust&退席が完了しました`);
+    logOpsSuccess({
+      message: 'Bust&退席が完了しました',
+      functionEntry: 'bustAndExit',
+      context: {
+        tournamentId,
+        userId,
+        tableId,
+        seatNumber,
+        billId: result.billId,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
 
     return {
       success: true,
@@ -233,8 +244,8 @@ export const bustAndExit = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== Bust&退席エラー ===',
-      failureType: 'business',
       functionEntry: 'bustAndExit',
+      operation: 'bustAndExitMainCatch',
       cause: error,
     });
 
@@ -254,8 +265,8 @@ export const bustAndExit = onCall(async (request) => {
       } catch (logErr) {
         logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'bustAndExit',
+      operation: 'bustAndExitOperationLogWrite',
       cause: logErr,
     });
       }

@@ -12,7 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { shouldDualWrite, legacyStartAccountingUpdate } from './dualWrite';
@@ -197,12 +197,6 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
           billId,
         });
         dualWriteResult = 'success';
-        logger.info('dualWrite startAccounting ok', {
-          op: 'startAccounting',
-          billId,
-          idempKey: idempotencyKey,
-          dualWriteResult: 'success',
-        });
       } catch (error: any) {
         // 失敗時は警告ログのみ（bills を正とする）
         dualWriteResult = 'failed';
@@ -214,22 +208,19 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
           reason: error?.message || String(error),
         });
       }
-    } else {
-      logger.info('dualWrite startAccounting skipped', {
-        op: 'startAccounting',
-        billId,
-        idempKey: idempotencyKey,
-        dualWriteResult: 'skipped',
-      });
     }
 
-    logger.info('startAccounting success', {
-      op: 'startAccounting',
-      billId,
-      idempKey: idempotencyKey,
-      result: reused ? 'reused' : 'ok',
-      requestHash8: requestHash.substring(0, 8),
-      dualWriteResult,
+    logOpsSuccess({
+      message: 'startAccounting 成功',
+      functionEntry: 'startAccounting',
+      operation: 'startAccountingRepo',
+      context: {
+        billId,
+        idempotencyKey,
+        reused,
+        requestHash8: requestHash.substring(0, 8),
+        dualWriteResult,
+      },
     });
 
     return result;
@@ -252,7 +243,7 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
     logOpsError({
       message: 'startAccounting failed',
       functionEntry: 'startAccounting',
-      operation: 'runAccountingTransaction',
+      operation: 'startAccountingRepoCatch',
       cause: error,
       context: {
         billId,

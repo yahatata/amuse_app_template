@@ -12,7 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { shouldDualWrite, legacyRecordTournamentActionUpdate } from './dualWrite';
@@ -301,21 +301,26 @@ export async function recordTournamentAction(request: RecordTournamentActionRequ
       });
     }
 
-    logger.info('recordTournamentAction success', {
-      op: 'recordTournamentAction',
-      billId,
-      templateId,
-      action,
-      idempKey: idempotencyKey,
-      result: reused ? 'reused' : 'ok',
-      dualWriteResult,
+    logOpsSuccess({
+      message: 'recordTournamentAction 成功',
+      functionEntry: 'recordTournamentAction',
+      context: {
+        op: 'recordTournamentAction',
+        billId,
+        templateId,
+        action,
+        idempKey: idempotencyKey,
+        result: reused ? 'reused' : 'ok',
+        dualWriteResult,
+        code: 'ok',
+      },
     });
+
 
     return result;
   } catch (error) {
     logOpsError({
       message: 'recordTournamentAction failed',
-      failureType: 'business',
       functionEntry: 'recordTournamentAction',
       cause: error,
       context: {

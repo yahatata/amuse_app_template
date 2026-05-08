@@ -15,7 +15,7 @@ import * as admin from "firebase-admin";
 import { getActiveBillByUser } from "../../bills/repos/getActiveBillByUser";
 import { appendItem } from "../../bills/repos/appendItem";
 import { resolveMenuItem } from "../../bills/repos/resolveMenuItem";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 
 export const placeOrderByUser = onCall(async (request) => {
@@ -166,6 +166,18 @@ export const placeOrderByUser = onCall(async (request) => {
       }
     }
 
+    logOpsSuccess({
+      message: "placeOrderByUser 成功",
+      functionEntry: "placeOrderByUser",
+      operation: "placeOrderByUserCallable",
+      context: {
+        billId,
+        userId,
+        itemsCount: appendResults.length,
+        totalItemsPrice,
+      },
+    });
+
     return {
       success: true,
       data: {
@@ -190,7 +202,7 @@ export const placeOrderByUser = onCall(async (request) => {
     logOpsError({
       message: 'placeOrderByUser failed',
       functionEntry: 'placeOrderByUser',
-      operation: 'placeOrderCatch',
+      operation: 'placeOrderGenericCatch',
       cause: error,
       sourceProductHint: 'firestore',
     });

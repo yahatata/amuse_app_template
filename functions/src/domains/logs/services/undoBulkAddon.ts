@@ -1,5 +1,5 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export interface UndoBulkAddonDetail {
   playerUid: string;
@@ -107,13 +107,21 @@ export async function undoBulkAddon(params: UndoBulkAddonParams): Promise<void> 
       }
     });
 
-    console.log(`Bulk addon operation undone for ${n} players in tournament ${params.tournamentId}`);
+    logOpsSuccess({
+      message: 'undoBulkAddon 成功',
+      functionEntry: 'undoBulkAddon',
+      context: { tournamentId: params.tournamentId, playerCount: n },
+    });
   } catch (error) {
     logOpsError({
       message: 'Error undoing bulk addon operation:',
-      failureType: 'business',
       functionEntry: 'undoBulkAddon',
       cause: error,
+      context: {
+        tournamentId: params.tournamentId,
+        tableId: params.tableId,
+        playerCount: params.playerUids.length,
+      },
     });
     throw error;
   }

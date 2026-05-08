@@ -9,7 +9,7 @@ import { requireAdmin } from '../../../shared/devices';
 import { acquireProcessing, extendProcessing, releaseProcessing } from '../services/processingLease';
 import { generateJstDateKey } from '../../../shared/time';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 const OPEN_STEPS = ['verifyPreconditions', 'forceCleanup', 'finalizeOpenStateDoc'] as const;
 
@@ -194,6 +194,13 @@ export const openStoreTerminal = onCall(
           });
           await releaseProcessing(db, { runId });
 
+          logOpsSuccess({
+            message: 'openStoreTerminal 成功',
+            functionEntry: 'openStoreTerminal',
+            operation: 'openStoreInlineComplete',
+            context: { runId, businessDateKey, status: 'completed' },
+          });
+
           return {
             success: true,
             runId,
@@ -218,6 +225,18 @@ export const openStoreTerminal = onCall(
             : stepError instanceof FunctionCustomError
               ? mapFunctionCustomErrorToHttpsCode(stepError.errorKey)
               : 'internal';
+        logOpsError({
+          message: 'openStoreTerminal: open step failed',
+          functionEntry: 'openStoreTerminal',
+          operation: `runOpenStep.${stepName}`,
+          cause: stepError,
+          errorKey: 'STORE_OPEN_STEP_FAILED',
+          context: {
+            runId,
+            businessDateKey,
+            stepName,
+          },
+        });
 
         await attemptRef.update({
           result: 'failed',
@@ -246,6 +265,13 @@ export const openStoreTerminal = onCall(
         );
       }
     }
+
+    logOpsSuccess({
+      message: 'openStoreTerminal 成功',
+      functionEntry: 'openStoreTerminal',
+      operation: 'openStoreCompleted',
+      context: { runId, businessDateKey, status: 'completed' },
+    });
 
     return {
       success: true,

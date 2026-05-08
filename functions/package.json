@@ -3,6 +3,7 @@
   "scripts": {
     "lint": "eslint .",
     "build": "tsc",
+    "verify:logops-operation": "node scripts/verifyLogOpsOperation.cjs",
     "audit:logops-catch": "node scripts/auditLogopsCatch.cjs",
     "audit:logops-catch:suspect": "node scripts/auditLogopsCatch.cjs --missing-only --suspect",
     "build:watch": "tsc --watch",

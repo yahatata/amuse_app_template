@@ -4,7 +4,7 @@ import * as crypto from "crypto";
 import { parseQRData, verifyQRData } from "../services/qrCodeUtils";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { createBillWithActiveStay } from "../../bills/repos/createBillWithActiveStay";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
 
 /**
@@ -197,6 +197,16 @@ export const processVisitByQR = onCall(async (request) => {
         };
       }
 
+      logOpsSuccess({
+        message: "processVisitByQR 成功",
+        functionEntry: "processVisitByQR",
+        context: {
+          guestUserId: parsed.uid,
+          billId: billResult.billId,
+          deviceId: device.id,
+        },
+      });
+
       return {
         success: true,
         action: "checkin" as const,
@@ -219,6 +229,12 @@ export const processVisitByQR = onCall(async (request) => {
       message: 'processVisitByQR error',
       functionEntry: 'processVisitByQR',
       cause: error,
+      errorKey: 'USER_VISIT_QR_UNEXPECTED',
+      context: {
+        callerUid,
+        deviceId: device.id,
+        ...(parsed && parsed.type === 'user' ? { guestUserId: parsed.uid } : {}),
+      },
     });
     return {
       success: false,

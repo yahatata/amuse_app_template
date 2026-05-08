@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { logger } from "firebase-functions";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { validateStoreTenantForProduction } from "../../../shared/runtime";
@@ -125,7 +125,6 @@ export const createTournamentRecurrence = onCall(async (request) => {
     } catch (enqueueError) {
       logOpsError({
         message: 'enqueue 呼び出しエラー',
-        failureType: 'business',
         functionEntry: 'createTournamentRecurrence',
         operation: 'enqueueAfterCreate',
         cause: enqueueError,
@@ -137,7 +136,19 @@ export const createTournamentRecurrence = onCall(async (request) => {
       });
     }
 
-    console.log('生成されたトーナメント数:', generatedTournaments.length);
+    logOpsSuccess({
+      message: '定期開催トーナメントの作成と生成が完了しました',
+      functionEntry: 'createTournamentRecurrence',
+      context: {
+        recurrenceId: recurrenceRef.id,
+        templateId,
+        storeId,
+        tenantId,
+        generatedCount: generatedTournaments.length,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
 
     return {
       success: true,
@@ -150,7 +161,6 @@ export const createTournamentRecurrence = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '定期開催トーナメント作成エラー:',
-        failureType: 'business',
         functionEntry: 'createTournamentRecurrence',
         operation: 'createTournamentRecurrenceCatch',
         cause: error,
@@ -159,8 +169,8 @@ export const createTournamentRecurrence = onCall(async (request) => {
     }
     logOpsError({
       message: '定期開催トーナメント作成エラー:',
-      failureType: 'business',
       functionEntry: 'createTournamentRecurrence',
+      operation: 'createTournamentRecurrenceGenericCatch',
       cause: error,
     });
     if (error instanceof HttpsError) {
@@ -553,8 +563,8 @@ async function createScheduledTournamentFromRecurrence(
   } catch (error) {
     logOpsError({
       message: '定期開催トーナメント作成エラー:',
-      failureType: 'business',
       functionEntry: 'createTournamentRecurrence',
+      operation: 'createTournamentRecurrenceInnerHelper',
       cause: error,
     });
     return null;

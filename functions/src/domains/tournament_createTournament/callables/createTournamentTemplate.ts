@@ -1,8 +1,9 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const createTournamentTemplate = onCall(async (request) => {
+  const logContext: Record<string, unknown> = { callerUid: request.auth?.uid ?? null };
   try {
     const {
       name, entryFee, isReentry, maxReentries, reentryFee, startStack,
@@ -41,6 +42,8 @@ export const createTournamentTemplate = onCall(async (request) => {
       return { success: false, error: '色を選択してください' };
     }
 
+    Object.assign(logContext, { name });
+
     const db = getFirestore();
     const now = new Date();
 
@@ -63,7 +66,12 @@ export const createTournamentTemplate = onCall(async (request) => {
     };
 
     const docRef = await db.collection('tournamentTemplates').add(tournamentTemplateData);
-    
+    logOpsSuccess({
+      message: 'createTournamentTemplate 成功',
+      functionEntry: 'createTournamentTemplate',
+      context: { tournamentTemplateId: docRef.id, name },
+    });
+
     return { 
       success: true, 
       tournamentTemplateId: docRef.id, 
@@ -72,9 +80,9 @@ export const createTournamentTemplate = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'トーナメントテンプレート作成エラー:',
-      failureType: 'business',
       functionEntry: 'createTournamentTemplate',
       cause: error,
+      context: logContext,
     });
     return { success: false, error: 'トーナメントテンプレートの作成に失敗しました' };
   }

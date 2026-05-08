@@ -2,7 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const setPrizeDataSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId is required'),
@@ -60,6 +60,12 @@ export const setPrizeData = onCall(async (request) => {
       SetedPrize: true,
       updatedAt: new Date(),
     });
+    logOpsSuccess({
+      message: "setPrizeData 成功",
+      functionEntry: "setPrizeData",
+      context: { tournamentId, deviceId: device.id },
+    });
+
     
     return {
       success: true,
@@ -67,11 +73,14 @@ export const setPrizeData = onCall(async (request) => {
     };
     
   } catch (error) {
+    const parsed = setPrizeDataSchema.safeParse(request.data);
     logOpsError({
       message: 'setPrizeData error:',
-      failureType: 'business',
       functionEntry: 'setPrizeData',
       cause: error,
+      context: parsed.success
+        ? { tournamentId: parsed.data.tournamentId, callerUid: request.auth?.uid }
+        : { callerUid: request.auth?.uid, inputParseFailed: true as const },
     });
     
     if (error instanceof z.ZodError) {

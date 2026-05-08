@@ -1,5 +1,5 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export interface UndoAssignSeatToPlayerParams {
   tournamentId: string;
@@ -88,15 +88,28 @@ export async function undoAssignSeatToPlayer(params: UndoAssignSeatToPlayerParam
         updatedAt: now,
       });
     });
-    
-    console.log(`Assign seat to player operation undone for player ${params.playerName} in tournament ${params.tournamentId}`);
-    
+
+    logOpsSuccess({
+      message: 'undoAssignSeatToPlayer 成功',
+      functionEntry: 'undoAssignSeatToPlayer',
+      context: {
+        tournamentId: params.tournamentId,
+        playerUid: params.playerUid,
+        tableId: params.tableId,
+        seatNumber: params.seatNumber,
+      },
+    });
   } catch (error) {
     logOpsError({
       message: 'Error undoing assign seat to player operation:',
-      failureType: 'business',
       functionEntry: 'undoAssignSeatToPlayer',
       cause: error,
+      context: {
+        tournamentId: params.tournamentId,
+        playerUid: params.playerUid,
+        tableId: params.tableId,
+        seatNumber: params.seatNumber,
+      },
     });
     throw error;
   }

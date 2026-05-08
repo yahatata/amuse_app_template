@@ -11,8 +11,7 @@
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
-import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { postEventAdjustment } from '../repos/postEventAdjustment';
 import { postEventCancel } from '../repos/postEventCancel';
 import { postEventReopen } from '../repos/postEventReopen';
@@ -101,12 +100,18 @@ export const updateAccounting = onCall(async (request) => {
       throw new HttpsError('invalid-argument', `Unknown eventType: ${eventType}`);
     }
 
-    logger.info('updateAccounting success', {
-      op: 'updateAccounting',
-      billId,
-      eventType,
-      eventId: result.eventId,
+    logOpsSuccess({
+      message: 'updateAccounting 成功',
+      functionEntry: 'updateAccounting',
+      context: {
+        op: 'updateAccounting',
+        billId,
+        eventType,
+        eventId: result.eventId,
+        code: 'internal',
+      },
     });
+
 
     return {
       success: true,
@@ -125,7 +130,6 @@ export const updateAccounting = onCall(async (request) => {
     }
     logOpsError({
       message: 'updateAccounting failed',
-      failureType: 'business',
       functionEntry: 'updateAccounting',
       cause: error,
       context: {

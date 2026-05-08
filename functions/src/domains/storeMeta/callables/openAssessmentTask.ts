@@ -17,7 +17,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 type OpenAssessmentAction = 'open_assessment' | 'open_assessment_recheck';
@@ -305,14 +305,28 @@ export const openAssessmentTask = onRequest(
         transaction.set(logRef, logData);
       });
 
+      logOpsSuccess({
+        message: 'openAssessmentTask 成功',
+        functionEntry: 'openAssessmentTask',
+        context: {
+          action,
+          intendedBusinessDateKey: payload.intendedBusinessDateKey,
+          scheduledAt: payload.scheduledAt,
+          idempotencyKey: `${action}_${payload.intendedBusinessDateKey}_${payload.scheduledAt}`,
+        },
+      });
+
       res.status(200).json({ success: true });
     } catch (error: any) {
       logOpsError({
-      message: '開店認定処理でエラーが発生しました:',
-      failureType: 'business',
-      functionEntry: 'openAssessmentTask',
-      cause: error,
-    });
+        message: '開店認定処理でエラーが発生しました:',
+        functionEntry: 'openAssessmentTask',
+        cause: error,
+        context: {
+          intendedBusinessDateKey: (req.body as { intendedBusinessDateKey?: string })?.intendedBusinessDateKey,
+          action: (req.body as { action?: string })?.action,
+        },
+      });
       res.status(500).json({ error: error.message });
     }
   }

@@ -16,8 +16,7 @@ import * as admin from 'firebase-admin';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
-import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 会計キャンセルのスキーマ（pre-settlement 専用）
@@ -96,10 +95,11 @@ export const cancelAccounting = onCall(async (request) => {
       tx.update(billRef, updateData);
     });
 
-    logger.info('cancelAccounting success', {
-      op: 'cancelAccounting',
-      billId,
-      reason: reason || null,
+    logOpsSuccess({
+      message: 'cancelAccounting 成功',
+      functionEntry: 'cancelAccounting',
+      operation: 'cancelAccountingCallable',
+      context: { billId, adminId, reason: reason || null },
     });
 
     return {
@@ -126,8 +126,8 @@ export const cancelAccounting = onCall(async (request) => {
     }
     logOpsError({
       message: 'cancelAccounting failed',
-      failureType: 'business',
       functionEntry: 'cancelAccounting',
+      operation: 'cancelAccountingGenericCatch',
       cause: error,
       context: {
         op: 'cancelAccounting',

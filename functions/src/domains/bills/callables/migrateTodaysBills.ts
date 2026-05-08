@@ -1,6 +1,6 @@
 import * as admin from 'firebase-admin';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
 
@@ -15,6 +15,7 @@ export const migrateTodaysBillsAccountingFields = onCall(async (request) => {
   }
 
   const adminId = request.auth.uid;
+  const logContext: Record<string, unknown> = { adminId };
 
   try {
     // デバイス権限の確認（role: adminのみ）
@@ -30,11 +31,18 @@ export const migrateTodaysBillsAccountingFields = onCall(async (request) => {
 
     // 今日のtodaysBillsドキュメントを取得
     const today = new Date().toISOString().split('T')[0];
+    Object.assign(logContext, { date: today });
     const todaysBillsQuery = await db.collection('todaysBills')
       .where('date', '==', today)
       .get();
 
     if (todaysBillsQuery.empty) {
+      logOpsSuccess({
+        message: "migrateTodaysBillsAccountingFields 成功",
+        functionEntry: "migrateTodaysBillsAccountingFields",
+        context: { date: today, updatedCount: 0 },
+      });
+
       return { 
         success: true, 
         message: '今日の請求書はありません',
@@ -72,6 +80,14 @@ export const migrateTodaysBillsAccountingFields = onCall(async (request) => {
       await batch.commit();
     }
 
+    Object.assign(logContext, { updatedCount });
+
+    logOpsSuccess({
+      message: "migrateTodaysBillsAccountingFields 成功",
+      functionEntry: "migrateTodaysBillsAccountingFields",
+      context: { date: today, updatedCount },
+    });
+
     return { 
       success: true, 
       message: `${updatedCount}件の請求書に会計履歴用フィールドを追加しました`,
@@ -83,9 +99,9 @@ export const migrateTodaysBillsAccountingFields = onCall(async (request) => {
     }
     logOpsError({
       message: 'マイグレーションエラー:',
-      failureType: 'business',
       functionEntry: 'migrateTodaysBillsAccountingFields',
       cause: error,
+      context: logContext,
     });
     throw new HttpsError('internal', 'マイグレーションに失敗しました', error.message);
   }

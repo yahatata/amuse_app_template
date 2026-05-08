@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Query } from "firebase-admin/firestore";
 import { z } from "zod";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const getActionLogsSchema = z.object({
   tournamentId: z.string().min(1, "トーナメントIDは必須です"),
@@ -172,7 +172,12 @@ export const getActionLogs = onCall(async (request) => {
 
     const filtered = deviceId ? actionLogs.filter((p) => p.deviceId === deviceId) : actionLogs;
     const hasNextPage = snapshot.docs.length === limit;
-    const lastItem = snapshot.docs[snapshot.docs.length - 1];
+    const lastItem = snapshot.docs[snapshot.docs.length - 1];logOpsSuccess({
+  message: "getActionLogs 成功",
+  functionEntry: "getActionLogs",
+  context: { detailMessage: 'ok' },
+});
+
 
     return {
       success: true,
@@ -192,7 +197,6 @@ export const getActionLogs = onCall(async (request) => {
     const message = error instanceof Error ? error.message : String(error);
     logOpsError({
       message: '[getActionLogs] error',
-      failureType: 'business',
       functionEntry: 'getActionLogs',
       cause: error,
       context: { detailMessage: String(message) },

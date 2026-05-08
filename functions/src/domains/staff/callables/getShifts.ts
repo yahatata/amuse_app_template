@@ -1,7 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { isInsufficientDaysNotificationSent } from "../../shift/services/helpers";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 interface GetShiftsResponse {
   success: boolean;
@@ -45,15 +45,13 @@ export const getShifts = onCall(
       
       uid = userId;
       
-      // デバッグ: Firestore接続テスト
-      const testDoc = await admin.firestore().collection("shifts").limit(1).get();
-      console.log("Firestore接続テスト成功。ドキュメント数:", testDoc.size);
+      await admin.firestore().collection("shifts").limit(1).get();
       
     } catch (error) {
       logOpsError({
       message: '初期化エラー:',
-      failureType: 'business',
       functionEntry: 'getShifts',
+      operation: 'initCatch',
       cause: error,
     });
       if (error instanceof Error) {
@@ -151,8 +149,6 @@ export const getShifts = onCall(
         }
       }
       
-      console.log(`[getShifts] assignmentsから取得したシフト数: ${shifts.length}`);
-
       // 2. shiftRequestsから申請中のシフトのみを取得
       // 注意: 中間確定・最終確定されたシフトは shifts/{yearMonth}/days/{dateKey}.assignments から取得されるため、
       // shiftRequestsからは status: "pending" のみを取得する
@@ -248,13 +244,18 @@ export const getShifts = onCall(
         }
       }
       
-      console.log(`[getShifts] 最終的なシフト数: ${shifts.length}`);
-
       // 日付順にソート（降順：最新が先頭）
       shifts.sort((a: any, b: any) => {
         if (a.date < b.date) return 1;
         if (a.date > b.date) return -1;
         return 0;
+      });
+
+      logOpsSuccess({
+        message: "getShifts 成功",
+        functionEntry: "getShifts",
+        operation: "fetchShifts",
+        context: { uid, shiftCount: shifts.length },
       });
 
       return {
@@ -266,8 +267,8 @@ export const getShifts = onCall(
       // エラーの詳細情報をログ出力（Firebase Consoleで確認可能）
       logOpsError({
       message: 'シフト取得エラー:',
-      failureType: 'business',
       functionEntry: 'getShifts',
+      operation: 'shiftFetchCatch',
       cause: error,
     });
       
@@ -276,8 +277,8 @@ export const getShifts = onCall(
         const errorMessage = `シフト一覧の取得に失敗しました: ${error.message}`;
         logOpsError({
       message: '詳細エラーメッセージ:',
-      failureType: 'business',
       functionEntry: 'getShifts',
+      operation: 'detailErrorLog',
       cause: errorMessage,
     });
         throw new Error(errorMessage);
@@ -285,8 +286,8 @@ export const getShifts = onCall(
         const errorMessage = "シフト一覧の取得に失敗しました。";
         logOpsError({
       message: '不明なエラー:',
-      failureType: 'business',
       functionEntry: 'getShifts',
+      operation: 'unknownErrorLog',
       cause: error,
     });
         throw new Error(errorMessage);

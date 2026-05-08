@@ -16,7 +16,7 @@ import {
 } from '../../../shared/config/cloudTasksConfig';
 import { getRequiredProjectId } from '../../../shared/runtime/projectId';
 import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 type OpenAssessmentLike = {
@@ -317,6 +317,18 @@ export const continueBusinessTerminal = onCall(
       }
     }
 
+    logOpsSuccess({
+      message: 'continueBusinessTerminal 成功',
+      functionEntry: 'continueBusinessTerminal',
+      operation: 'scheduleReminders',
+      context: {
+        intendedBusinessDateKey,
+        openOverrideIntendedBusinessDateKey: openOverrideIntendedBusinessDateKey ?? null,
+        hours,
+        scheduledAt: scheduledAtIso,
+      },
+    });
+
     return {
       success: true,
       intendedBusinessDateKey,
@@ -330,6 +342,7 @@ export const continueBusinessTerminal = onCall(
         logOpsError({
           message: 'continueBusinessTerminal failed',
           functionEntry: 'continueBusinessTerminal',
+          operation: 'continueBusinessTerminalFunctionCustom',
           cause: error,
         });
         throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);

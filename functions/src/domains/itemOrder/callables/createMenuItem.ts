@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const createMenuItem = onCall(async (request) => {
   // 認証チェック
@@ -62,8 +62,8 @@ export const createMenuItem = onCall(async (request) => {
       } catch (error) {
         logOpsError({
       message: '画像アップロードエラー:',
-      failureType: 'business',
       functionEntry: 'createMenuItem',
+      operation: 'imageUpload',
       cause: error,
     });
         throw new HttpsError('internal', '画像のアップロードに失敗しました');
@@ -113,6 +113,13 @@ export const createMenuItem = onCall(async (request) => {
       });
     }
 
+    logOpsSuccess({
+      message: "createMenuItem 成功",
+      functionEntry: "createMenuItem",
+      operation: "createMenuItemCallable",
+      context: { menuItemId: docRef.id, callerUid, name: menuItemData.name },
+    });
+
     return {
       success: true,
       data: {
@@ -124,8 +131,8 @@ export const createMenuItem = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: 'メニュー作成エラー:',
-      failureType: 'business',
       functionEntry: 'createMenuItem',
+      operation: 'menuCreateCatch',
       cause: error,
     });
     

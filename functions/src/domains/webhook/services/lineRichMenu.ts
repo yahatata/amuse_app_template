@@ -1,5 +1,5 @@
 import * as logger from "firebase-functions/logger";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { getLineConfig } from "../../../shared/secrets/secretManager";
 
 /**
@@ -40,8 +40,8 @@ export async function linkStaffRichMenu(lineUserId: string): Promise<boolean> {
       const errorText = await response.text();
       logOpsError({
         message: "linkStaffRichMenu: Failed to link rich menu",
-        failureType: "external_api",
         functionEntry: "linkStaffRichMenu",
+        operation: "linkStaffRichMenuHttpFail",
         context: {
           lineUserId,
           richMenuId,
@@ -52,16 +52,18 @@ export async function linkStaffRichMenu(lineUserId: string): Promise<boolean> {
       return false;
     }
 
-    logger.info("linkStaffRichMenu: Rich menu linked successfully", {
-      lineUserId,
-      richMenuId,
+    logOpsSuccess({
+      message: "linkStaffRichMenu 成功",
+      functionEntry: "linkStaffRichMenu",
+      operation: "linkStaffRichMenuHttp",
+      context: { lineUserId, richMenuId },
     });
     return true;
   } catch (error) {
     logOpsError({
       message: "linkStaffRichMenu: Error",
-      failureType: "external_api",
       functionEntry: "linkStaffRichMenu",
+      operation: "linkStaffRichMenuCatch",
       cause: error,
       context: { lineUserId },
     });
@@ -109,8 +111,8 @@ export async function linkUserRichMenu(lineUserId: string): Promise<boolean> {
       const errorText = await response.text();
       logOpsError({
         message: "linkUserRichMenu: Failed to link rich menu",
-        failureType: "external_api",
         functionEntry: "linkUserRichMenu",
+        operation: "linkUserRichMenuHttpFail",
         context: {
           lineUserId,
           richMenuId,
@@ -121,16 +123,18 @@ export async function linkUserRichMenu(lineUserId: string): Promise<boolean> {
       return false;
     }
 
-    logger.info("linkUserRichMenu: Rich menu linked successfully", {
-      lineUserId,
-      richMenuId,
+    logOpsSuccess({
+      message: "linkUserRichMenu 成功",
+      functionEntry: "linkUserRichMenu",
+      operation: "linkUserRichMenuHttp",
+      context: { lineUserId, richMenuId },
     });
     return true;
   } catch (error) {
     logOpsError({
       message: "linkUserRichMenu: Error",
-      failureType: "external_api",
       functionEntry: "linkUserRichMenu",
+      operation: "linkUserRichMenuCatch",
       cause: error,
       context: { lineUserId },
     });

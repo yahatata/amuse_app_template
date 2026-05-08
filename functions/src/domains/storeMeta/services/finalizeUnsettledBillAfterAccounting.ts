@@ -12,7 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { requireAdmin } from '../../../shared/devices';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 export const finalizeUnsettledBillAfterAccounting = onCall(async (request) => {
   try {
@@ -63,6 +63,16 @@ export const finalizeUnsettledBillAfterAccounting = onCall(async (request) => {
     await userRef.update({
       unsettledBillsCount: admin.firestore.FieldValue.increment(-1),
     });
+    logOpsSuccess({
+      message: 'finalizeUnsettledBillAfterAccounting 成功',
+      functionEntry: 'finalizeUnsettledBillAfterAccounting',
+      context: {
+        billId,
+        userId: userIdTrimmed,
+        adminId,
+        outcome: 'finalized',
+      },
+    });
 
     return { success: true, message: '未会計後処理を完了しました' };
   } catch (error) {
@@ -71,6 +81,10 @@ export const finalizeUnsettledBillAfterAccounting = onCall(async (request) => {
         message: 'finalizeUnsettledBillAfterAccounting failed',
         functionEntry: 'finalizeUnsettledBillAfterAccounting',
         cause: error,
+        context: {
+          billId: typeof request.data?.billId === 'string' ? request.data.billId : undefined,
+          adminId: request.auth?.uid,
+        },
       });
       throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
     }

@@ -2,7 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -97,9 +97,18 @@ export const removeTableFromTournament = onCall(async (request) => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     });
-    
-    console.log(`=== 卓削除完了 ===`);
-    
+
+    logOpsSuccess({
+      message: '卓の削除が完了しました',
+      functionEntry: 'removeTableFromTournament',
+      context: {
+        tournamentId,
+        tableId,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
+
     return {
       success: true,
       message: '卓を削除しました',
@@ -109,7 +118,6 @@ export const removeTableFromTournament = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '=== 卓削除エラー ===',
-        failureType: 'business',
         functionEntry: 'removeTableFromTournament',
         operation: 'removeTableFromTournamentCatch',
         cause: error,
@@ -123,8 +131,8 @@ export const removeTableFromTournament = onCall(async (request) => {
 
     logOpsError({
       message: '=== 卓削除エラー ===',
-      failureType: 'business',
       functionEntry: 'removeTableFromTournament',
+      operation: 'removeTableFromTournamentGenericCatch',
       cause: error,
     });
 

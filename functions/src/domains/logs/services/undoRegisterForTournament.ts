@@ -1,5 +1,5 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export interface UndoRegisterForTournamentParams {
   tournamentId: string;
@@ -149,13 +149,25 @@ export async function undoRegisterForTournament(params: UndoRegisterForTournamen
       }
     });
 
-    console.log(`Register for tournament undone for player ${params.playerName} in tournament ${params.tournamentId}`);
+    logOpsSuccess({
+      message: 'undoRegisterForTournament 成功',
+      functionEntry: 'undoRegisterForTournament',
+      context: {
+        tournamentId: params.tournamentId,
+        playerUid: params.playerUid,
+      },
+    });
   } catch (error) {
     logOpsError({
       message: 'Error undoing register for tournament:',
-      failureType: 'business',
       functionEntry: 'undoRegisterForTournament',
       cause: error,
+      context: {
+        tournamentId: params.tournamentId,
+        playerUid: params.playerUid,
+        billId: params.billId,
+        templateId: params.templateId,
+      },
     });
     throw error;
   }

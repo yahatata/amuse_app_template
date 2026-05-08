@@ -3,7 +3,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as bcrypt from "bcryptjs";
 import { initializeUserLogs } from "../services/logUtils";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /**
  * ユーザーアカウント作成関数
@@ -17,15 +17,32 @@ import { logOpsError } from "../../../shared/logging/logOpsError";
  *
  * レスポンス:
  * - success: 作成成功フラグ
- * - uid: 作成されたユーザーID
- * - qrCode: QRコードのBase64画像
- * - expiresAt: QRコードの有効期限
+ * - uid: ユーザーID（認証 UID）
+ * - alreadyRegistered: 既に users/{uid} がある場合 true（作成処理は行わない）
+ * - qrCode: QRコードのBase64画像（新規作成時のみ）
+ * - expiresAt: QRコードの有効期限（新規作成時のみ）
  */
 export const createUserAccount = onCall(
   async (request) => {
     // 認証チェック
     if (!request.auth) {
       throw new functions.https.HttpsError("unauthenticated", "認証が必要です。再度ログインしてください。");
+    }
+
+    const uidEarly = request.auth.uid;
+    const userRefEarly = admin.firestore().collection("users").doc(uidEarly);
+    const existingUserSnap = await userRefEarly.get();
+    if (existingUserSnap.exists) {
+      logOpsSuccess({
+        message: "createUserAccount スキップ（既存ユーザー・冪等）",
+        functionEntry: "createUserAccount",
+        context: { uid: uidEarly, outcome: "already_registered" },
+      });
+      return {
+        success: true,
+        alreadyRegistered: true,
+        uid: uidEarly,
+      };
     }
 
     const {pokerName, email, pin, birthMonth, birthDay} = request.data;
@@ -54,6 +71,8 @@ export const createUserAccount = onCall(
       throw new functions.https.HttpsError("already-exists", "このpokerNameは既に使用されています。別のpokerNameに変更してください。");
     }
 
+    const logContext: Record<string, unknown> = { uid: request.auth.uid, pokerName };
+
     try {
       const uid = request.auth.uid;
 
@@ -65,6 +84,7 @@ export const createUserAccount = onCall(
 
       // loginIdを自動生成（pokerName + birthMonthDay）
       const loginId = pokerName + birthMonthDay;
+      Object.assign(logContext, { loginId });
 
       // QRコードデータを直接生成
       const { generateQRData, generateQRImage, saveQRCodeToStorage } =
@@ -102,6 +122,12 @@ export const createUserAccount = onCall(
 
       // ログサブコレクションを初期化
       await initializeUserLogs(uid);
+      logOpsSuccess({
+        message: "createUserAccount 成功",
+        functionEntry: "createUserAccount",
+        context: { uid, loginId },
+      });
+
 
       return {
         success: true,
@@ -113,9 +139,9 @@ export const createUserAccount = onCall(
     } catch (error) {
       logOpsError({
       message: 'ユーザーアカウント作成エラー:',
-      failureType: 'business',
       functionEntry: 'createUserAccount',
       cause: error,
+      context: logContext,
     });
       
       // 既にHttpsErrorの場合はそのまま再スロー

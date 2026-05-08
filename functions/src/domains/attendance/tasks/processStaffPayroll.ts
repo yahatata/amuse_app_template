@@ -8,7 +8,7 @@
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue';
 
 import { calculateStaffPayroll, calculateCarryOverPayroll } from '../helpers/payrollCalcEngine';
@@ -42,8 +42,8 @@ export const processStaffPayroll = onTaskDispatched(
       if (!runDoc.exists) {
         logOpsError({
           message: 'processStaffPayroll: run not found',
-          failureType: 'business',
           functionEntry: 'processStaffPayroll',
+          operation: 'runNotFound',
           context: { runId },
         });
         return;
@@ -59,8 +59,8 @@ export const processStaffPayroll = onTaskDispatched(
       if (!staffResultDoc.exists) {
         logOpsError({
           message: 'processStaffPayroll: staffResult not found',
-          failureType: 'business',
           functionEntry: 'processStaffPayroll',
+          operation: 'staffResultNotFound',
           context: { runId, staffId },
         });
         return;
@@ -290,18 +290,30 @@ export const processStaffPayroll = onTaskDispatched(
       });
 
       // 13. 完了判定
-      if (completedCount + failedCount >= targetCount) {
+      const enqueuedFinalize = completedCount + failedCount >= targetCount;
+      if (enqueuedFinalize) {
         const finalizeQueue = getRegionalTaskQueue('finalizePayrollRun');
         await finalizeQueue.enqueue({ runId, paymentPeriodKey });
-        logger.info('processStaffPayroll: dispatched finalizePayrollRun', { runId });
       }
 
-      logger.info('processStaffPayroll: completed', { runId, staffId });
+      logOpsSuccess({
+        message: 'processStaffPayroll 成功',
+        functionEntry: 'processStaffPayroll',
+        operation: 'staffPayrollCalc',
+        context: {
+          runId,
+          paymentPeriodKey,
+          staffId,
+          enqueuedFinalize,
+          completedStaffCount: completedCount,
+          targetStaffCount: targetCount,
+        },
+      });
     } catch (error) {
       logOpsError({
         message: 'processStaffPayroll: failed',
-        failureType: 'business',
         functionEntry: 'processStaffPayroll',
+        operation: 'processStaffPayrollCatch',
         cause: error,
         context: { runId, staffId },
       });
@@ -349,7 +361,6 @@ export const processStaffPayroll = onTaskDispatched(
       } catch (trxError) {
         logOpsError({
           message: 'processStaffPayroll: failed to update failure status',
-          failureType: 'business',
           functionEntry: 'processStaffPayroll',
           operation: 'failureStatusUpdate',
           cause: trxError,

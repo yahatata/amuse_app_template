@@ -7,7 +7,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { recordTournamentAction } from '../../bills/repos/recordTournamentAction';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import * as crypto from 'crypto';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 const addonSchema = z.object({
@@ -220,8 +220,8 @@ export const addon = onCall(async (request) => {
     } catch (error) {
       logOpsError({
       message: 'Failed to record tournament action via recordTournamentAction helper:',
-      failureType: 'business',
       functionEntry: 'addon',
+      operation: 'recordTournamentActionBestEffort',
       cause: error,
     });
       // エラーを再スローせず、メインのcallableは成功とみなす（ベストエフォート）
@@ -275,8 +275,18 @@ export const addon = onCall(async (request) => {
       },
     });
 
-    console.log('=== Addon処理完了 ===');
-    console.log('ユーザー', result.pokerName, 'のAddon処理が完了しました');
+    logOpsSuccess({
+      message: 'Addon処理が完了しました',
+      functionEntry: 'addon',
+      context: {
+        tournamentId,
+        userId,
+        billId: result.billId,
+        templateId: result.templateId,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
 
     return {
       success: true,
@@ -289,8 +299,8 @@ export const addon = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== Addon処理エラー ===',
-      failureType: 'business',
       functionEntry: 'addon',
+      operation: 'addonMainCatch',
       cause: error,
     });
 
@@ -311,8 +321,8 @@ export const addon = onCall(async (request) => {
       } catch (logErr) {
         logOpsError({
       message: 'operationLog 書き込み失敗',
-      failureType: 'business',
       functionEntry: 'addon',
+      operation: 'addonOperationLogWrite',
       cause: logErr,
     });
       }

@@ -17,12 +17,14 @@ import {
   recalculateAttendanceFromBreaks,
 } from '../../attendance/helpers/recalculateAttendanceFromBreaks';
 import { getBusinessSecrets } from '../../../shared/secrets/secretManager';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 export const updateUnclockedAttendanceWithAuth = onCall(async (request: CallableRequest) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
+
+  const logContext: Record<string, unknown> = { performedByUid: request.auth.uid };
 
   try {
     const { data } = request;
@@ -39,6 +41,7 @@ export const updateUnclockedAttendanceWithAuth = onCall(async (request: Callable
     if (!docId || typeof docId !== 'string') {
       throw new HttpsError('invalid-argument', 'docId は必須です');
     }
+    Object.assign(logContext, { docId });
     if (!adminPassword || typeof adminPassword !== 'string') {
       throw new HttpsError('invalid-argument', 'パスワードを入力してください');
     }
@@ -113,6 +116,17 @@ export const updateUnclockedAttendanceWithAuth = onCall(async (request: Callable
     });
 
     const staffName = (attendanceData.staffsFullName as string) ?? '';
+    logOpsSuccess({
+      message: 'updateUnclockedAttendanceWithAuth 成功',
+      functionEntry: 'updateUnclockedAttendanceWithAuth',
+      operation: 'passwordClockOutUpdate',
+      context: {
+        docId,
+        staffId: attendanceData.staffId,
+        date: attendanceData.date,
+        performedByUid: request.auth?.uid ?? null,
+      },
+    });
 
     return {
       success: true,
@@ -127,6 +141,7 @@ export const updateUnclockedAttendanceWithAuth = onCall(async (request: Callable
       operation: 'passwordClockOutUpdate',
       cause: error,
       sourceProductHint: 'firestore',
+      context: logContext,
     });
     throw new HttpsError(
       'internal',

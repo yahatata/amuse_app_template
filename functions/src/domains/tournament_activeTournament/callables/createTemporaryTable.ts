@@ -2,7 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
 // 入力スキーマ
@@ -102,10 +102,19 @@ export const createTemporaryTable = onCall(async (request) => {
         message: '一時テーブルが正常に作成されました'
       };
     });
-    
-    console.log(`=== 一時テーブル作成完了 ===`);
-    console.log(`結果:`, result);
-    
+
+    logOpsSuccess({
+      message: '一時テーブル作成が完了しました',
+      functionEntry: 'createTemporaryTable',
+      context: {
+        tableId: result.tableId,
+        tableName: result.tableName,
+        maxSeats: result.maxSeats,
+        callerUid,
+        deviceId: device.id,
+      },
+    });
+
     return result;
     
   } catch (error) {
@@ -120,7 +129,6 @@ export const createTemporaryTable = onCall(async (request) => {
     if (error instanceof FunctionCustomError) {
       logOpsError({
         message: '=== 一時テーブル作成エラー ===',
-        failureType: 'business',
         functionEntry: 'createTemporaryTable',
         operation: 'createTemporaryTableCatch',
         cause: error,
@@ -130,8 +138,8 @@ export const createTemporaryTable = onCall(async (request) => {
 
     logOpsError({
       message: '=== 一時テーブル作成エラー ===',
-      failureType: 'business',
       functionEntry: 'createTemporaryTable',
+      operation: 'createTemporaryTableGenericCatch',
       cause: error,
     });
 

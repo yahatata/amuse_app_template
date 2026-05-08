@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 import { getStoreConfig } from "../../../shared/config/configLoader";
 import { DEFAULT_SHIFT_SCHEDULING_START_DAY } from "../../../shared/config/defaults";
 import { assertStaffExists, assertHourStep, getYearMonthFromDateKey, isInShiftSchedulingPeriod, isInsufficientDaysNotificationSent, isInsufficientDayOrTimeSlot } from "../../shift/services/helpers";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
 
@@ -74,6 +74,8 @@ export const createMultipleShifts = onCall(
     if (shifts.length > 31) {
       throw new HttpsError("invalid-argument", "一度に申請できるシフトは31日分までです。");
     }
+
+    const logContext: Record<string, unknown> = { staffId, shiftDayCount: shifts.length };
 
     try {
       const config = await getStoreConfig();
@@ -355,6 +357,12 @@ export const createMultipleShifts = onCall(
         }
       });
 
+      logOpsSuccess({
+        message: 'createMultipleShifts 成功',
+        functionEntry: 'createMultipleShifts',
+        context: { staffId, requestCount: requestIds.length },
+      });
+
       return {
         success: true,
         requestIds: requestIds,
@@ -363,9 +371,9 @@ export const createMultipleShifts = onCall(
     } catch (error) {
       logOpsError({
       message: '複数シフト作成エラー:',
-      failureType: 'business',
       functionEntry: 'createMultipleShifts',
       cause: error,
+      context: logContext,
     });
 
       if (error instanceof HttpsError) {

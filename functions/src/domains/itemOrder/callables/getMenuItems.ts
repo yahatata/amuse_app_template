@@ -1,6 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 // When: メニューアイテム取得時
 // Where: Firebase Functions
@@ -23,8 +23,8 @@ export const getMenuItems = onCall(async (request) => {
     if (!adminMenuDoc.exists) {
       logOpsError({
         message: 'administrativeMenu/current が存在しません',
-        failureType: 'config',
         functionEntry: 'getMenuItems',
+        operation: 'adminMenuDocMissing',
         context: { collection: 'administrativeMenu', docId: 'current' },
       });
       return {
@@ -76,6 +76,13 @@ export const getMenuItems = onCall(async (request) => {
     // Where: Cloud Functions
     // What: 取得したメニューアイテムを返却
     // How: JSON形式でデータを返却
+    logOpsSuccess({
+      message: "getMenuItems 成功",
+      functionEntry: "getMenuItems",
+      operation: "getMenuItemsCallable",
+      context: { includeArchived, itemCount: filteredItems.length },
+    });
+
     return {
       success: true,
       data: filteredItems
@@ -88,8 +95,8 @@ export const getMenuItems = onCall(async (request) => {
     // How: エラーメッセージを含むJSONを返却
     logOpsError({
       message: 'Error fetching menu items:',
-      failureType: 'business',
       functionEntry: 'getMenuItems',
+      operation: 'menuFetchCatch',
       cause: error,
     });
     return {

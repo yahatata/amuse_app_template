@@ -12,6 +12,7 @@ import {
   FunctionCustomError,
   mapFunctionCustomErrorToHttpsCode,
 } from "../../../shared/logging/functionCustomError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const updateScheduledTournamentStartAtSchema = z.object({
   tournamentId: z.string().min(1, "tournamentId is required"),
@@ -124,6 +125,17 @@ export const updateScheduledTournamentStartAt = onCall(async (request) => {
       taskSyncReason: ["startAtChangedByCalendarEdit"],
       updatedAt: now,
     });
+    logOpsSuccess({
+      message: 'updateScheduledTournamentStartAt 成功',
+      functionEntry: 'updateScheduledTournamentStartAt',
+      operation: 'validateStartAtUpdatePreconditions',
+      context: {
+        tournamentId,
+        businessDate,
+        startAt: startAtDate.toISOString(),
+        regEndAt: regEndAtDate.toISOString(),
+      },
+    });
 
     return {
       success: true,
@@ -141,6 +153,13 @@ export const updateScheduledTournamentStartAt = onCall(async (request) => {
       );
     }
     if (e instanceof FunctionCustomError) {
+      logOpsError({
+        message: "updateScheduledTournamentStartAt: business validation failed",
+        functionEntry: "updateScheduledTournamentStartAt",
+        operation: "validateStartAtUpdatePreconditions",
+        cause: e,
+        context: { errorKey: e.errorKey, ...(e.context ?? {}) },
+      });
       throw new HttpsError(mapFunctionCustomErrorToHttpsCode(e.errorKey), e.message);
     }
     throw e;

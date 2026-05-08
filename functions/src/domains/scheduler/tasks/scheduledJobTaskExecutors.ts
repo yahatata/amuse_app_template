@@ -1,5 +1,5 @@
-import { logger } from "firebase-functions";
 import type { SchedulerJobKey } from "../../../shared/config/schedulerConfigTypes";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import {
   assertScheduledJobTaskPayloadMatchesExpectedJobKey,
   assertValidScheduledJobTaskPayload,
@@ -284,6 +284,21 @@ export async function executeScheduledJobTask(
       decisionSnapshot: outcome.decisionSnapshot,
     });
 
+    logOpsSuccess({
+      message: "executeScheduledJobTask 成功",
+      functionEntry: "executeScheduledJobTask",
+      operation: "runScheduledJob",
+      context: {
+        jobKey: payload.jobKey,
+        idempotencyKey: payload.idempotencyKey,
+        supervisorRunId: payload.supervisorRunId,
+        planningDate: payload.planningDate,
+        plannedRunAt: payload.plannedRunAt,
+        outcomeEventType: outcome.eventType,
+        outcomeReason: outcome.reason ?? null,
+      },
+    });
+
     if (isReplanExecution(payload)) {
       await markEnqueueTournamentTasksReplanCompletedBestEffort();
     }
@@ -304,10 +319,19 @@ export async function executeScheduledJobTask(
       await releaseEnqueueTournamentTasksReplanProcessingBestEffort();
     }
 
-    logger.error("executeScheduledJobTask failed", {
-      jobKey: payload.jobKey,
-      idempotencyKey: payload.idempotencyKey,
-      reason,
+    logOpsError({
+      message: "executeScheduledJobTask failed",
+      functionEntry: "executeScheduledJobTask",
+      operation: "runScheduledJob",
+      cause: error,
+      context: {
+        jobKey: payload.jobKey,
+        idempotencyKey: payload.idempotencyKey,
+        reason,
+        supervisorRunId: payload.supervisorRunId,
+        planningDate: payload.planningDate,
+        plannedRunAt: payload.plannedRunAt,
+      },
     });
     throw error;
   }

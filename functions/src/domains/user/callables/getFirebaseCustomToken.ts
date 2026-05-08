@@ -1,7 +1,7 @@
 import {onRequest} from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { verifyLineIdToken } from "../services/lineAuth";
 
 /**
@@ -56,7 +56,14 @@ export const getFirebaseCustomToken = onRequest(async (request, response) => {
       picture: lineUserInfo.picture,
     });
 
-    logger.info("Firebase custom token created", {userId: lineUserInfo.sub});
+    logOpsSuccess({
+      message: "getFirebaseCustomToken 成功",
+      functionEntry: "getFirebaseCustomToken",
+      context: {
+        userId: lineUserInfo.sub,
+        tokenLength: customToken.length,
+      },
+    });
 
     // レスポンスを返す
     response.status(200).json({
@@ -68,11 +75,15 @@ export const getFirebaseCustomToken = onRequest(async (request, response) => {
       },
     });
   } catch (error) {
+    const authHeader = request.headers.authorization;
+    const idTokenLen =
+      authHeader && authHeader.startsWith("Bearer ") ? authHeader.length - 7 : undefined;
     logOpsError({
       message: "Error in getFirebaseCustomToken",
-      failureType: "internal",
       functionEntry: "getFirebaseCustomToken",
       cause: error,
+      errorKey: "USER_AUTH_CUSTOM_TOKEN_FAILED",
+      context: { idTokenLength: idTokenLen },
     });
 
     if (error instanceof Error) {

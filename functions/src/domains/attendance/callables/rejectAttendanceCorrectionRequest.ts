@@ -1,10 +1,11 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const rejectAttendanceCorrectionRequest = onCall(
   { region: "asia-northeast1", maxInstances: 10 },
   async (request) => {
+    const logContext: Record<string, unknown> = {};
     try {
       // 認証チェックをスキップ
 
@@ -17,6 +18,8 @@ export const rejectAttendanceCorrectionRequest = onCall(
       if (!requestId || !adminUserId || !rejectionReason) {
         throw new Error("Required fields are missing.");
       }
+
+      Object.assign(logContext, { requestId, adminUserId });
 
       const db = admin.firestore();
 
@@ -31,6 +34,11 @@ export const rejectAttendanceCorrectionRequest = onCall(
         throw new Error("Request is not in pending status.");
       }
 
+      Object.assign(logContext, {
+        staffId: requestData?.staffId,
+        date: requestData?.date,
+      });
+
       // 却下処理
       await db.collection("attendanceCorrectionRequests").doc(requestId).update({
         status: "rejected",
@@ -38,6 +46,17 @@ export const rejectAttendanceCorrectionRequest = onCall(
         rejectedBy: adminUserId,
         rejectionReason: rejectionReason.trim(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      logOpsSuccess({
+        message: 'rejectAttendanceCorrectionRequest 成功',
+        functionEntry: 'rejectAttendanceCorrectionRequest',
+        context: {
+          requestId,
+          adminUserId,
+          staffId: requestData?.staffId,
+          date: requestData?.date,
+        },
       });
 
       return {
@@ -49,9 +68,9 @@ export const rejectAttendanceCorrectionRequest = onCall(
     } catch (error) {
       logOpsError({
       message: '勤怠修正申請却下エラー:',
-      failureType: 'business',
       functionEntry: 'rejectAttendanceCorrectionRequest',
       cause: error,
+      context: logContext,
     });
       return {
         success: false,

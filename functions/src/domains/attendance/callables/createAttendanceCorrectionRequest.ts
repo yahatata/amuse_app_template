@@ -1,10 +1,11 @@
 import { onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export const createAttendanceCorrectionRequest = onCall(
   { region: "asia-northeast1", maxInstances: 10 },
   async (request) => {
+    const logContext: Record<string, unknown> = {};
     try {
       console.log('=== createAttendanceCorrectionRequest 開始 ===');
       console.log('認証情報:', request.auth);
@@ -47,6 +48,15 @@ export const createAttendanceCorrectionRequest = onCall(
         throw new Error("Required fields are missing.");
       }
 
+      Object.assign(logContext, {
+        staffId,
+        date,
+        type,
+        ...(attendanceId != null && typeof attendanceId === "string" && attendanceId.trim() !== ""
+          ? { attendanceId: attendanceId.trim() }
+          : {}),
+      });
+
       // 修正種別に応じた時刻の検証
       if (type === "clockIn" && !newClockIn) {
         throw new Error("New clock-in time is required for clock-in correction.");
@@ -86,6 +96,18 @@ export const createAttendanceCorrectionRequest = onCall(
 
       // Firestoreに保存
       const docRef = await db.collection("attendanceCorrectionRequests").add(correctionRequestData);
+      Object.assign(logContext, { requestId: docRef.id });
+
+      logOpsSuccess({
+        message: 'createAttendanceCorrectionRequest 成功',
+        functionEntry: 'createAttendanceCorrectionRequest',
+        context: {
+          requestId: docRef.id,
+          staffId,
+          date,
+          type,
+        },
+      });
 
       return {
         success: true,
@@ -96,9 +118,9 @@ export const createAttendanceCorrectionRequest = onCall(
     } catch (error) {
       logOpsError({
       message: '修正申請保存エラー:',
-      failureType: 'business',
       functionEntry: 'createAttendanceCorrectionRequest',
       cause: error,
+      context: logContext,
     });
       return {
         success: false,

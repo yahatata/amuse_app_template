@@ -3,7 +3,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import * as crypto from 'crypto';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { writeSingleOperationLog } from '../../logs/lib/operationLog';
-import { logOpsError } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 export interface RankingEntryForRollback {
   playerUid: string;
@@ -139,7 +139,18 @@ export const setRankingData = onCall(async (request) => {
       });
     }
 
-    console.log('=== setRankingData 成功 ===');
+    logOpsSuccess({
+      message: 'ランキングデータの保存に成功しました',
+      functionEntry: 'setRankingData',
+      context: {
+        tournamentId,
+        grantIdempotencyKey: grantIdempotencyKey.trim(),
+        callerUid,
+        deviceId: device.id,
+        prizeGrantSkipped: alreadySet,
+        ...(operationId != null ? { operationId } : {}),
+      },
+    });
 
     return {
       success: true,
@@ -151,11 +162,11 @@ export const setRankingData = onCall(async (request) => {
   } catch (error) {
     logOpsError({
       message: '=== setRankingData エラー ===',
-      failureType: 'business',
       functionEntry: 'setRankingData',
+      operation: 'setRankingDataRankings',
       cause: error,
     });
-    
+
     if (error instanceof HttpsError) {
       throw error;
     }
@@ -309,8 +320,8 @@ async function _awardPrizes(
   } catch (error) {
     logOpsError({
       message: '=== プライズ付与処理エラー ===',
-      failureType: 'business',
       functionEntry: 'setRankingData',
+      operation: 'setRankingDataPrizeGrant',
       cause: error,
     });
     throw error;

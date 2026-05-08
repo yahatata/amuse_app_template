@@ -1,6 +1,6 @@
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { logger } from 'firebase-functions';
 import { getRequiredProjectId } from '../../../shared/runtime/projectId';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 export const ENQUEUE_TOURNAMENT_REPLAN_REQUESTS_COLLECTION =
   'enqueueTournamentTasksReplanRequests';
@@ -106,6 +106,13 @@ export async function markEnqueueTournamentTasksReplanCompleted(): Promise<void>
     },
     { merge: true }
   );
+
+  logOpsSuccess({
+    message: 'enqueueTournamentTasksReplanRequests 完了マーク成功',
+    functionEntry: 'executeScheduledJobTask',
+    operation: 'markReplanCompleted',
+    context: { docId: ENQUEUE_TOURNAMENT_REPLAN_REQUEST_DOC_ID },
+  });
 }
 
 export async function releaseEnqueueTournamentTasksReplanProcessing(): Promise<void> {
@@ -120,14 +127,28 @@ export async function releaseEnqueueTournamentTasksReplanProcessing(): Promise<v
     },
     { merge: true }
   );
+
+  logOpsSuccess({
+    message: 'enqueueTournamentTasksReplanRequests 処理フラグ解放成功',
+    functionEntry: 'executeScheduledJobTask',
+    operation: 'releaseReplanProcessing',
+    context: { docId: ENQUEUE_TOURNAMENT_REPLAN_REQUEST_DOC_ID },
+  });
 }
 
 export async function markEnqueueTournamentTasksReplanCompletedBestEffort(): Promise<void> {
   try {
     await markEnqueueTournamentTasksReplanCompleted();
   } catch (error) {
-    logger.error('enqueueTournamentTasksReplanRequests complete update failed', {
-      reason: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'enqueueTournamentTasksReplanRequests complete update failed',
+      functionEntry: 'executeScheduledJobTask',
+      operation: 'markReplanCompletedBestEffort',
+      cause: error,
+      errorKey: 'TOURNAMENT_REPLAN_MARK_FAILED',
+      context: {
+        reason: error instanceof Error ? error.message : String(error),
+      },
     });
   }
 }
@@ -136,8 +157,15 @@ export async function releaseEnqueueTournamentTasksReplanProcessingBestEffort():
   try {
     await releaseEnqueueTournamentTasksReplanProcessing();
   } catch (error) {
-    logger.error('enqueueTournamentTasksReplanRequests release failed', {
-      reason: error instanceof Error ? error.message : String(error),
+    logOpsError({
+      message: 'enqueueTournamentTasksReplanRequests release failed',
+      functionEntry: 'executeScheduledJobTask',
+      operation: 'releaseReplanProcessingBestEffort',
+      cause: error,
+      errorKey: 'TOURNAMENT_REPLAN_RELEASE_FAILED',
+      context: {
+        reason: error instanceof Error ? error.message : String(error),
+      },
     });
   }
 }

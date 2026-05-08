@@ -21,8 +21,8 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
   let db: admin.firestore.Firestore;
   let getUnsettledBillsForClose: typeof import('../../src/domains/storeMeta/services/getUnsettledBillsForClose').getUnsettledBillsForClose;
   let applyCloseSnapshot: typeof import('../../src/domains/storeMeta/services/applyCloseSnapshot').applyCloseSnapshot;
-  let openStore: typeof import('../../src/domains/storeMeta/callables/openStore').openStore;
-  let closeStore: typeof import('../../src/domains/storeMeta/callables/closeStore').closeStore;
+  let openStore: typeof import('../../src/unused_function_lib/openStore').openStore;
+  let closeStore: typeof import('../../src/unused_function_lib/closeStore').closeStore;
   let cleanupActiveStaysOnClose: typeof import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose').cleanupActiveStaysOnClose;
 
   let emulatorAvailable = true;
@@ -39,8 +39,8 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
 
     const getMod = await import('../../src/domains/storeMeta/services/getUnsettledBillsForClose');
     const applyMod = await import('../../src/domains/storeMeta/services/applyCloseSnapshot');
-    const openMod = await import('../../src/domains/storeMeta/callables/openStore');
-    const closeMod = await import('../../src/domains/storeMeta/callables/closeStore');
+    const openMod = await import('../../src/unused_function_lib/openStore');
+    const closeMod = await import('../../src/unused_function_lib/closeStore');
     const cleanupMod = await import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose');
 
     getUnsettledBillsForClose = getMod.getUnsettledBillsForClose;

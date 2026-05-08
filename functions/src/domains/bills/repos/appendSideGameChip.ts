@@ -12,7 +12,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
-import { logOpsError } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { shouldDualWrite, legacyAppendSideGameChipUpdate } from './dualWrite';
@@ -291,12 +291,25 @@ export async function appendSideGameChip(request: AppendSideGameChipRequest): Pr
       result: reused ? 'reused' : 'ok',
       requestHash8: requestHash.substring(0, 8),
     });
+    logOpsSuccess({
+  message: "appendSideGameChip 成功",
+  functionEntry: "appendSideGameChip",
+  context: {
+    op: 'appendSideGameChip',
+    billId,
+    action,
+    idempKey: idempotencyKey,
+    result: 'ok',
+    code: 'ok',
+    requestHash8: requestHash.substring(0, 8),
+  },
+});
+
 
     return result;
   } catch (error) {
     logOpsError({
       message: 'appendSideGameChip: failed',
-      failureType: 'business',
       functionEntry: 'appendSideGameChip',
       cause: error,
       context: {
