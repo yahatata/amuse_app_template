@@ -2,7 +2,12 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
-import { validateStoreTenantForProduction } from "../../../shared/runtime";
+import { isSingleStorePerProjectMode, validateStoreTenantForProduction } from "../../../shared/runtime";
+import {
+  LEGACY_DEFAULT_STORE_ID,
+  LEGACY_DEFAULT_TENANT_ID,
+  resolveStoreTenantForWrite,
+} from "../../../shared/runtime/storeTenantIdentity";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { logger } from "firebase-functions";
 import { logOpsError } from "../../../shared/logging/logOpsError";
@@ -62,8 +67,10 @@ export const createScheduledTournament = onCall(async (request) => {
     // 入力検証
     const validatedData = createScheduledTournamentSchema.parse(request.data);
     validateStoreTenantForProduction(validatedData.storeId, validatedData.tenantId);
-    const storeId = validatedData.storeId ?? "default-store"; // emulator のみ（本番は上で throw 済み）
-    const tenantId = validatedData.tenantId ?? "default-tenant";
+    const { storeId, tenantId } = resolveStoreTenantForWrite(
+      validatedData.storeId,
+      validatedData.tenantId
+    );
     const { templateId, startAt, regEndAt, freeze } = validatedData;
     // selectedBusinessDateKeyはスキーマに含まれていないため、request.dataから直接取得
     const selectedBusinessDateKey = (request.data as any)?.selectedBusinessDateKey as string | undefined;
@@ -130,13 +137,29 @@ export const createScheduledTournament = onCall(async (request) => {
     // const idempotentKey = `${templateId}_${startAtDate.getTime()}`;
     
     // 既存のトーナメントが存在するかチェック
-    const existingQuery = await db.collection('scheduledTournaments')
+    const findExistingTournament = async (
+      candidateStoreId: string,
+      candidateTenantId: string
+    ) => db.collection('scheduledTournaments')
       .where('templateId', '==', templateId)
       .where('startAt', '==', Timestamp.fromDate(startAtDate))
-      .where('storeId', '==', storeId)
-      .where('tenantId', '==', tenantId)
+      .where('storeId', '==', candidateStoreId)
+      .where('tenantId', '==', candidateTenantId)
       .limit(1)
       .get();
+
+    let existingQuery = await findExistingTournament(storeId, tenantId);
+    if (
+      existingQuery.empty &&
+      isSingleStorePerProjectMode() &&
+      (storeId !== LEGACY_DEFAULT_STORE_ID || tenantId !== LEGACY_DEFAULT_TENANT_ID)
+    ) {
+      // 既存データ互換: legacy default で既に作成済みのレコードを重複扱いにする
+      existingQuery = await findExistingTournament(
+        LEGACY_DEFAULT_STORE_ID,
+        LEGACY_DEFAULT_TENANT_ID
+      );
+    }
 
     if (!existingQuery.empty) {
       const existingDoc = existingQuery.docs[0];

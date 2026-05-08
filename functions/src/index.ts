@@ -55,8 +55,7 @@ export * from "./domains/webhook";
 // export は domains/storeMeta 経由で行う
 // トリガ関連（bills）は domains/bills 経由で export
 
-// Google API エラー shape 観察用（管理者のみ。本番業務導線と分離）
-export * from "./debug/errorShapeProbes";
+// Google API エラー shape 観察用 debug functions は本番 export しない
 
 // トーナメント時間管理システム（Phase1）
 import { controlHook } from "./shared/http/controlHook";
