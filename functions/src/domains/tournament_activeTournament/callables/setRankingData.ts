@@ -250,7 +250,22 @@ async function _awardPrizes(
         const logSnap = pointLogSnaps[i];
 
         if (!userSnap.exists) {
-          console.warn(`ユーザー ${award.playerUid} が見つかりません（スキップ）`);
+          logOpsError({
+            message:
+              'setRankingData: 賞品・ポイント付与対象ユーザーが存在せず、該当ランクのみスキップしました',
+            functionEntry: 'setRankingData',
+            operation: 'setRankingDataGrantTargetUserNotFound',
+            errorKey: 'TOURNAMENT_RANKING_GRANT_USER_NOT_FOUND',
+            context: {
+              tournamentId,
+              playerUid: award.playerUid,
+              rank: award.rank,
+              prizeAmount: award.prizeAmount,
+              grantIdempotencyKey,
+              pointType,
+            },
+            cause: new Error('ranking_grant_user_not_found'),
+          });
           continue;
         }
 

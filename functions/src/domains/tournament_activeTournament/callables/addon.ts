@@ -20,6 +20,18 @@ const addonSchema = z.object({
   tableId: z.string().optional(),
 });
 
+/** seats マップから userId が座っている席番号（1–99）を返す。無ければ null */
+function findSeatNumberForUserInSeats(
+  seats: Record<string, unknown>,
+  userId: string
+): number | null {
+  for (let i = 1; i <= 99; i++) {
+    const key = `seat${i.toString().padStart(2, '0')}UserId`;
+    if (seats[key] === userId) return i;
+  }
+  return null;
+}
+
 export const addon = onCall(async (request) => {
   // 認証チェック
   if (!request.auth) {
@@ -143,13 +155,6 @@ export const addon = onCall(async (request) => {
       const tournamentInfo = existingTournamentDoc.data()!;
       const existingAddonCount = tournamentInfo.addonCount || 0;
       if (existingAddonCount >= 1) {
-        console.warn('既にAddon済みと判定', {
-          billId,
-          templateId,
-          userId,
-          existingAddonCount,
-          tournamentInfoKeys: Object.keys(tournamentInfo),
-        });
         throw new FunctionCustomError({
           errorKey: 'TOURNAMENT_ADDON_ALREADY_DONE',
           message: '既にAddon処理済みです',
@@ -232,27 +237,96 @@ export const addon = onCall(async (request) => {
     let tableId: string | null = (tableIdFromRequest != null && tableIdFromRequest !== '') ? tableIdFromRequest : null;
     let seatNumber: number | null = null;
     if (!tableId) {
+      let seatLookupReadOk = false;
       try {
         const tablesSeatSnap = await admin.firestore()
           .collection('scheduledTournaments')
           .doc(tournamentId)
           .collection('tablesSeat')
           .get();
+        seatLookupReadOk = true;
         for (const doc of tablesSeatSnap.docs) {
           if (doc.id === 'waiting' || doc.id === 'busted') continue;
-          const seats = doc.data().seats || {};
-          for (let i = 1; i <= 99; i++) {
-            const key = `seat${i.toString().padStart(2, '0')}UserId`;
-            if (seats[key] === userId) {
-              tableId = doc.id;
-              seatNumber = i;
-              break;
+          const seats = (doc.data().seats || {}) as Record<string, unknown>;
+          const foundSeat = findSeatNumberForUserInSeats(seats, userId);
+          if (foundSeat !== null) {
+            tableId = doc.id;
+            seatNumber = foundSeat;
+            break;
+          }
+        }
+      } catch (error) {
+        logOpsError({
+          message:
+            'アドオン購入: tablesSeat の取得に失敗しました（operationLog に卓・席を付与できません）',
+          functionEntry: 'addon',
+          operation: 'addonResolveSeatReadFailed',
+          cause: error,
+          sourceProductHint: 'firestore',
+          context: { tournamentId, userId },
+        });
+      }
+      if (seatLookupReadOk && !tableId) {
+        logOpsError({
+          message:
+            'アドオン購入: tablesSeat に該当プレイヤーの着席が見つかりません（operationLog に卓・席を付与できません）',
+          functionEntry: 'addon',
+          operation: 'addonResolveSeatNotFound',
+          context: { tournamentId, userId },
+        });
+      }
+    } else {
+      // クライアントが tableId を渡した場合: 全件走査はせず、当該卓ドキュメントのみで席を解決
+      const declaredTableId = tableId;
+      if (declaredTableId === 'waiting' || declaredTableId === 'busted') {
+        logOpsError({
+          message:
+            'アドオン購入: リクエストの tableId が waiting/busted のため seats から席を解決できません',
+          functionEntry: 'addon',
+          operation: 'addonResolveSeatInvalidTableId',
+          context: { tournamentId, userId, tableId: declaredTableId },
+        });
+      } else {
+        try {
+          const tableSeatDoc = await admin
+            .firestore()
+            .collection('scheduledTournaments')
+            .doc(tournamentId)
+            .collection('tablesSeat')
+            .doc(declaredTableId)
+            .get();
+          if (!tableSeatDoc.exists) {
+            logOpsError({
+              message:
+                'アドオン購入: 指定卓の tablesSeat ドキュメントが存在しません（operationLog に席を付与できません）',
+              functionEntry: 'addon',
+              operation: 'addonResolveSeatSingleTableDocMissing',
+              context: { tournamentId, userId, tableId: declaredTableId },
+            });
+          } else {
+            const seats = (tableSeatDoc.data()?.seats || {}) as Record<string, unknown>;
+            seatNumber = findSeatNumberForUserInSeats(seats, userId);
+            if (seatNumber === null) {
+              logOpsError({
+                message:
+                  'アドオン購入: 指定卓の seats に該当プレイヤーが見つかりません（operationLog に席を付与できません）',
+                functionEntry: 'addon',
+                operation: 'addonResolveSeatSingleTableSeatMissing',
+                context: { tournamentId, userId, tableId: declaredTableId },
+              });
             }
           }
-          if (tableId) break;
+        } catch (error) {
+          logOpsError({
+            message:
+              'アドオン購入: 指定卓の tablesSeat 取得に失敗しました（operationLog に席を付与できません）',
+            functionEntry: 'addon',
+            operation: 'addonResolveSeatSingleTableReadFailed',
+            cause: error,
+            sourceProductHint: 'firestore',
+            context: { tournamentId, userId, tableId: declaredTableId },
+          });
         }
-      } catch (_) {
-        // 座席未割当のまま payload に null を入れる
       }
     }
 

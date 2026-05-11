@@ -41,7 +41,40 @@ export const approveAttendanceCorrectionRequest = onCall(
         throw new Error("Request is not in pending status.");
       }
 
-      // 承認処理
+      // 先に勤怠の存在確認（承認のみ先行すると pending でない申請かつ勤怠未更新が残るため）
+      const attendanceQuery = await db.collection("attendances")
+        .where("staffId", "==", requestData.staffId)
+        .where("date", "==", requestData.date)
+        .get();
+
+      if (attendanceQuery.empty) {
+        logOpsError({
+          message:
+            "勤怠修正承認: staffId/date で該当勤怠が見つからず承認を中止しました",
+          functionEntry: "approveAttendanceCorrectionRequest",
+          operation: "approveAttendanceMissingTarget",
+          cause: new Error("approve_attendance_correction_no_attendance_doc"),
+          context: {
+            requestId,
+            adminUserId,
+            staffId: requestData.staffId ?? null,
+            date: requestData.date ?? null,
+            requestAttendanceId:
+              typeof requestData.attendanceId === "string"
+                ? requestData.attendanceId
+                : null,
+          },
+        });
+        return {
+          success: false,
+          error:
+            "該当する勤怠記録が見つかりません。申請は承認されていません。データを確認してください。",
+          requestId,
+        };
+      }
+
+      const attendanceDoc = attendanceQuery.docs[0];
+
       await db.collection("attendanceCorrectionRequests").doc(requestId).update({
         status: "approved",
         approvedAt: admin.firestore.Timestamp.fromDate(new Date()),
@@ -49,87 +82,87 @@ export const approveAttendanceCorrectionRequest = onCall(
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // 承認後に勤怠記録を更新
       try {
-        // 該当する勤怠記録を検索（staffId, dateで特定）
-        const attendanceQuery = await db.collection("attendances")
-          .where("staffId", "==", requestData.staffId)
-          .where("date", "==", requestData.date)
-          .get();
+        const updateData: Record<string, unknown> = {
+          correctedAt: admin.firestore.FieldValue.serverTimestamp(),
+          correctedBy: adminUserId,
+          correctionRequestId: requestId,
+        };
 
-        if (!attendanceQuery.empty) {
-          const attendanceDoc = attendanceQuery.docs[0];
-          
-          // 修正種別に応じて勤怠記録を更新
-          const updateData: any = {
-            correctedAt: admin.firestore.FieldValue.serverTimestamp(),
-            correctedBy: adminUserId,
-            correctionRequestId: requestId,
-          };
-
-          // 修正種別に応じて時刻を更新（文字列をTimestampに変換）
-          if (requestData.type === "clockIn" || requestData.type === "both") {
-            if (requestData.newClockIn && requestData.date) {
-              updateData.clockIn = convertTimeStringToTimestamp(requestData.newClockIn, requestData.date);
-            }
-          }
-          if (requestData.type === "clockOut" || requestData.type === "both") {
-            if (requestData.newClockOut && requestData.date) {
-              updateData.clockOut = convertTimeStringToTimestamp(requestData.newClockOut, requestData.date);
-            }
-          }
-
-          await attendanceDoc.ref.update(updateData);
-
-          // recalculateAttendanceFromBreaks で breakMinutes, actualWorkMinutes, nightWorkMinutes を再集計
-          const updatedData = await attendanceDoc.ref.get();
-          const attData = updatedData.data();
-          const clockInTs = attData?.clockIn as admin.firestore.Timestamp | null | undefined;
-          const clockOutTs = attData?.clockOut as admin.firestore.Timestamp | null | undefined;
-          const config = await getStoreConfig();
-          const recalcResult = await recalculateAttendanceFromBreaks({
-            attendanceRef: attendanceDoc.ref,
-            attendanceData: {
-              clockIn: clockInTs,
-              clockOut: clockOutTs,
-              staffId: attData?.staffId,
-              date: attData?.date,
-            },
-            config,
-          });
-
-          // totalMinutes は clockOut - clockIn で算出（recalculate では更新しない）
-          let totalMinutes = 0;
-          if (clockInTs && clockOutTs) {
-            totalMinutes = Math.floor(
-              (clockOutTs.toDate().getTime() - clockInTs.toDate().getTime()) / (1000 * 60)
+        if (requestData.type === "clockIn" || requestData.type === "both") {
+          if (requestData.newClockIn && requestData.date) {
+            updateData.clockIn = convertTimeStringToTimestamp(
+              requestData.newClockIn,
+              requestData.date
             );
           }
-          await attendanceDoc.ref.update({
-            totalMinutes,
-            nightMinutes: recalcResult.nightWorkMinutes,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-
-          await writeAttendanceLog({
-            db,
-            attendanceId: attendanceDoc.id,
-            actionType: "approve_correction_request",
-            performedByUid: adminUserId,
-            performedByDeviceId: null,
-          });
-        } else {
-          console.warn(`勤怠記録が見つかりません: staffId=${requestData.staffId}, date=${requestData.date}`);
         }
+        if (requestData.type === "clockOut" || requestData.type === "both") {
+          if (requestData.newClockOut && requestData.date) {
+            updateData.clockOut = convertTimeStringToTimestamp(
+              requestData.newClockOut,
+              requestData.date
+            );
+          }
+        }
+
+        await attendanceDoc.ref.update(updateData);
+
+        const updatedData = await attendanceDoc.ref.get();
+        const attData = updatedData.data();
+        const clockInTs = attData?.clockIn as admin.firestore.Timestamp | null | undefined;
+        const clockOutTs = attData?.clockOut as admin.firestore.Timestamp | null | undefined;
+        const config = await getStoreConfig();
+        const recalcResult = await recalculateAttendanceFromBreaks({
+          attendanceRef: attendanceDoc.ref,
+          attendanceData: {
+            clockIn: clockInTs,
+            clockOut: clockOutTs,
+            staffId: attData?.staffId,
+            date: attData?.date,
+          },
+          config,
+        });
+
+        let totalMinutes = 0;
+        if (clockInTs && clockOutTs) {
+          totalMinutes = Math.floor(
+            (clockOutTs.toDate().getTime() - clockInTs.toDate().getTime()) / (1000 * 60)
+          );
+        }
+        await attendanceDoc.ref.update({
+          totalMinutes,
+          nightMinutes: recalcResult.nightWorkMinutes,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        await writeAttendanceLog({
+          db,
+          attendanceId: attendanceDoc.id,
+          actionType: "approve_correction_request",
+          performedByUid: adminUserId,
+          performedByDeviceId: null,
+        });
       } catch (updateError) {
         logOpsError({
-          message: '勤怠記録更新エラー:',
-          functionEntry: 'approveAttendanceCorrectionRequest',
-          operation: 'attendanceRecordUpdate',
+          message:
+            "勤怠記録更新エラー（申請は approved のままです。勤怠を手動確認してください）:",
+          functionEntry: "approveAttendanceCorrectionRequest",
+          operation: "attendanceRecordUpdate",
           cause: updateError,
-          context: { requestId, adminUserId },
+          context: {
+            requestId,
+            adminUserId,
+            attendanceId: attendanceDoc.id,
+          },
         });
-        // 勤怠記録の更新に失敗しても承認処理は成功とする
+        return {
+          success: false,
+          error:
+            "申請は承認されましたが、勤怠記録の更新に失敗しました。勤怠と申請状態を手動で確認してください。",
+          requestId,
+          approvedButAttendanceUpdateFailed: true,
+        };
       }
 
       logOpsSuccess({

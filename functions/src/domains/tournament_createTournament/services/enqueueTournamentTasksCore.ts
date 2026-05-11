@@ -11,6 +11,11 @@ import { logger } from 'firebase-functions';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { validateStoreTenantForProduction, isProductionRuntime } from '../../../shared/runtime';
+import {
+  getStoreConfigForExecution,
+  StoreConfigDocumentMissingError,
+  StoreConfigReadFailedError,
+} from '../../../shared/config/configLoader';
 import { resolveStoreTenantForWrite } from '../../../shared/runtime/storeTenantIdentity';
 import { enqueueTournamentTask } from './tasks';
 
@@ -38,6 +43,8 @@ export interface RunEnqueueResult {
   processedCount: number;
   enqueuedCount: number;
   errors?: Array<{ tournamentId: string; error: string }>;
+  /** storeMeta/config 欠落・読取失敗で enqueue を止めたとき */
+  skippedReason?: 'store_config_document_missing' | 'store_config_read_error_after_retries';
 }
 
 /**
@@ -276,8 +283,50 @@ async function processTournament(
 export async function runEnqueueTournamentTasks(
   options: RunEnqueueOptions = {}
 ): Promise<RunEnqueueResult> {
-  const { getStoreConfig } = await import('../../../shared/config/configLoader');
-  const storeConfig = await getStoreConfig();
+  let storeConfig;
+  try {
+    storeConfig = await getStoreConfigForExecution({
+      functionEntry: 'runEnqueueTournamentTasks',
+      operation: 'loadStoreConfigForTournamentTaskGeneration',
+      action: 'stop_tournament_cloud_tasks_enqueue',
+      context: {
+        storeId: options.storeId ?? null,
+        tenantId: options.tenantId ?? null,
+        storeConfigKeyGroup: 'features.enqueueSchedulerEnabled',
+        rangeStartAt: options.rangeStartAt ?? null,
+        rangeEndAt: options.rangeEndAt ?? null,
+      },
+    });
+  } catch (e) {
+    if (
+      e instanceof StoreConfigDocumentMissingError ||
+      e instanceof StoreConfigReadFailedError
+    ) {
+      const reason =
+        e instanceof StoreConfigDocumentMissingError ?
+          'store_config_document_missing' :
+          'store_config_read_error_after_retries';
+      logger.warn(
+        'runEnqueueTournamentTasks: skipped tournament task generation because store config unavailable',
+        {
+          reason,
+          storeId: options.storeId,
+          tenantId: options.tenantId,
+          targetDate: options.rangeStartAt ?? options.rangeEndAt ?? null,
+          rangeStartAt: options.rangeStartAt,
+          rangeEndAt: options.rangeEndAt,
+        }
+      );
+      return {
+        success: false,
+        processedCount: 0,
+        enqueuedCount: 0,
+        skippedReason: reason,
+      };
+    }
+    throw e;
+  }
+
   if (!storeConfig.features?.enqueueSchedulerEnabled) {
     logger.info('runEnqueueTournamentTasks: スキップ（features.enqueueSchedulerEnabled != true）');
     logOpsSuccess({
@@ -363,9 +412,15 @@ export async function runEnqueueTournamentTasks(
 
     const skipReason = validateRequiredFields(data);
     if (skipReason) {
-      logger.warn('runEnqueueTournamentTasks: skipping doc (incomplete/invalid)', {
-        tournamentId: doc.id,
-        reason: skipReason,
+      logOpsError({
+        message:
+          'runEnqueueTournamentTasks: scheduledTournament が必須検証を満たさずタスク投入をスキップ',
+        functionEntry: 'runEnqueueTournamentTasks',
+        operation: 'skipInvalidScheduledTournamentDoc',
+        context: {
+          tournamentId: doc.id,
+          skipReason,
+        },
       });
       continue;
     }

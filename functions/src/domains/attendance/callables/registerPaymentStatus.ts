@@ -13,6 +13,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
 import {
@@ -95,9 +96,18 @@ export const registerPaymentStatus = onCall(
       const srRef = staffResultsCol.doc(entry.staffId);
       const srDoc = await srRef.get();
       if (!srDoc.exists) {
-        logger.warn('registerPaymentStatus: staffResult not found', {
-          staffId: entry.staffId,
-          runId,
+        logOpsError({
+          message:
+            'registerPaymentStatus: staffResult が存在しないため当該スタッフの支払状態更新をスキップしました',
+          functionEntry: 'registerPaymentStatus',
+          operation: 'resolveStaffResultDocument',
+          cause: new Error('register_payment_staff_result_not_found'),
+          context: {
+            paymentPeriodKey,
+            runId,
+            staffId: entry.staffId,
+            entriesLength: entries.length,
+          },
         });
         continue;
       }

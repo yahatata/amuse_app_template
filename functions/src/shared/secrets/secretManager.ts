@@ -56,6 +56,12 @@ async function loadLineConfig(): Promise<LineConfig> {
     throw new Error("Secret [line-config] の形式が不正です");
   }
 
+  const channelSecretRaw = raw["channelSecret"];
+  const channelSecret =
+    typeof channelSecretRaw === "string" && channelSecretRaw.trim().length > 0
+      ? channelSecretRaw.trim()
+      : undefined;
+
   return {
     channelAccessToken: assertRequiredString(
       raw,
@@ -64,6 +70,7 @@ async function loadLineConfig(): Promise<LineConfig> {
     ),
     staffRichMenuId: assertRequiredString(raw, "staffRichMenuId", "line-config"),
     userRichMenuId: assertRequiredString(raw, "userRichMenuId", "line-config"),
+    ...(channelSecret !== undefined ? { channelSecret } : {}),
   };
 }
 

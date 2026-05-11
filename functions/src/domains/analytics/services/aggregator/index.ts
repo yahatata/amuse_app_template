@@ -38,8 +38,9 @@ export async function enqueueSettlement(bill: BillDoc): Promise<void> {
   await processBillAnalyticsAtomically(db, {
     month: monthKey,
     businessDate,
-    billId: bill.billId,  // 【必須】bill.billId は docId
-    billData: bill,  // BillDoc から必要なフィールドを抽出（categoryBreakdown, paymentTotals, etc.）
+    billId: bill.billId, // 【必須】bill.billId は docId
+    billData: bill,
+    logInvocation: { functionEntry: 'billsOnSettle' },
   });
 
   logger.info('enqueueSettlement: analytics update completed', {

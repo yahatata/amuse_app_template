@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import { logger } from 'firebase-functions';
 import { getScheduledJobQueueName } from '../../../shared/config/cloudTasksConfig';
-import { getSchedulerConfig } from '../../../shared/config/schedulerConfigLoader';
+import { loadSchedulerConfigForTaskGeneration } from '../../../shared/config/schedulerConfigLoader';
 import type {
   SchedulerConfig,
   SchedulerJobConfig,
@@ -24,12 +24,19 @@ import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
+/** task 生成を開始できなかった理由（設定読込フェーズで停止したときのみ設定） */
+export type SchedulerSupervisorStoppedReason =
+  | 'scheduler_config_document_missing'
+  | 'scheduler_config_read_error_after_retries';
+
 export interface SchedulerSupervisorRunResult {
   planningDate: string;
   supervisorRunId: string;
   enqueuedCount: number;
   skippedCount: number;
   failedCount: number;
+  /** {@link loadSchedulerConfigForTaskGeneration} が失敗し enqueue に進めなかったとき */
+  stoppedReason?: SchedulerSupervisorStoppedReason;
 }
 
 export interface ScheduledJobEnqueueInput<K extends SchedulerJobKey = SchedulerJobKey> {
@@ -157,10 +164,36 @@ export async function runSchedulerSupervisorCore(
   enqueueClient: ScheduledJobEnqueueClient = new FirebaseTaskQueueEnqueueClient(),
   now: Date = new Date()
 ): Promise<SchedulerSupervisorRunResult> {
-  const schedulerConfig = await getSchedulerConfig();
   const projectId = getRequiredProjectId();
   const planningDate = toJstDateKey(now);
   const supervisorRunId = createSupervisorRunId(now);
+
+  const loadResult = await loadSchedulerConfigForTaskGeneration({
+    functionEntry: 'schedulerSupervisor',
+    operation: 'loadSchedulerConfigForTaskGeneration',
+    context: {
+      planningDate,
+      supervisorRunId,
+    },
+  });
+
+  if (!loadResult.ok) {
+    const stoppedReason: SchedulerSupervisorStoppedReason =
+      loadResult.reason === 'document_missing'
+        ? 'scheduler_config_document_missing'
+        : 'scheduler_config_read_error_after_retries';
+
+    return {
+      planningDate,
+      supervisorRunId,
+      enqueuedCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      stoppedReason,
+    };
+  }
+
+  const schedulerConfig = loadResult.config;
 
   if (!schedulerConfig.supervisorEnabled) {
     logger.info('schedulerSupervisor: skipped because supervisorEnabled is false');

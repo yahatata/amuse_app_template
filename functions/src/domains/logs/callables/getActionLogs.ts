@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, Query } from "firebase-admin/firestore";
 import { z } from "zod";
+import { logger } from "firebase-functions";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const getActionLogsSchema = z.object({
@@ -76,7 +77,7 @@ export const getActionLogs = onCall(async (request) => {
       const anyDoc = await db.collection("operationLogs").where("tournamentId", "==", tournamentId).limit(1).get();
       const firstDoc = anyDoc.docs[0];
       const firstDocTournamentId = firstDoc?.data()?.tournamentId;
-      console.warn("[getActionLogs] query returned 0 docs", {
+      logger.warn("[getActionLogs] query returned 0 docs", {
         tournamentId,
         tableId: tableId ?? null,
         hasAnyDocWithTournamentId: !anyDoc.empty,

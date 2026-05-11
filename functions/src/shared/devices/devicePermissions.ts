@@ -1,4 +1,5 @@
 import { getFirestore } from "firebase-admin/firestore";
+import { logger } from "firebase-functions";
 
 const db = getFirestore();
 
@@ -18,7 +19,7 @@ export async function getCallerDeviceByUid(uid: string): Promise<DeviceDoc | nul
   const data = doc.data() as Record<string, unknown> | undefined;
   const name = typeof data?.name === "string" && data.name.length > 0 ? data.name : undefined;
   if (!name) {
-    console.warn("[getCallerDeviceByUid] device has no name", { deviceId: doc.id, uid });
+    logger.warn("[getCallerDeviceByUid] device has no name", { deviceId: doc.id, uid });
   }
   return {
     id: doc.id,

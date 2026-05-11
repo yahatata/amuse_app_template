@@ -73,6 +73,102 @@ import type { StoreConfig, StoreConfigRaw } from './types';
 
 const MAX_RETRIES = 2;
 
+/** 危険処理（会計・タスク enqueue・paymentPeriodKey 書込等）で doc 欠落／読取失敗時に付与する errorKey */
+export const STORE_CONFIG_EXECUTION_ERROR_KEYS = {
+  DOCUMENT_MISSING: 'STORE_CONFIG_DOCUMENT_MISSING',
+  READ_FAILED: 'STORE_CONFIG_READ_FAILED',
+} as const;
+
+export class StoreConfigDocumentMissingError extends Error {
+  constructor() {
+    super('store_config_document_missing');
+    this.name = 'StoreConfigDocumentMissingError';
+    Object.setPrototypeOf(this, StoreConfigDocumentMissingError.prototype);
+  }
+}
+
+export class StoreConfigReadFailedError extends Error {
+  readonly readCause?: unknown;
+
+  constructor(cause?: unknown) {
+    super('store_config_read_failed');
+    this.name = 'StoreConfigReadFailedError';
+    this.readCause = cause;
+    Object.setPrototypeOf(this, StoreConfigReadFailedError.prototype);
+  }
+}
+
+export type StoreConfigExecutionLoadParams = {
+  functionEntry: string;
+  operation: string;
+  /** 運用ログ用: どの処理を止めたか */
+  action: string;
+  context?: Record<string, unknown>;
+};
+
+/**
+ * storeMeta/config が存在することを前提にマージ済み設定を返す（危険処理専用）。
+ * doc 欠落・読取失敗時は logOpsError を1回出し、例外で停止する。getStoreConfig() のフォールバックは使わない。
+ */
+export async function getStoreConfigForExecution(
+  params: StoreConfigExecutionLoadParams,
+  db?: Firestore
+): Promise<StoreConfig> {
+  const firestore = db ?? getFirestore();
+  const docRef = firestore.collection('storeMeta').doc('config');
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        logOpsError({
+          message: 'store_config_document_missing',
+          functionEntry: params.functionEntry,
+          operation: params.operation,
+          errorSource: 'function_custom',
+          errorKey: STORE_CONFIG_EXECUTION_ERROR_KEYS.DOCUMENT_MISSING,
+          cause: new Error('store_config_document_missing'),
+          context: {
+            configDocPath: 'storeMeta/config',
+            action: params.action,
+            reason: 'store_config_document_missing',
+            ...params.context,
+          },
+        });
+        throw new StoreConfigDocumentMissingError();
+      }
+      const data = doc.data() as StoreConfigRaw | undefined;
+      return mergeWithDefaults(data ?? {});
+    } catch (err) {
+      if (err instanceof StoreConfigDocumentMissingError) {
+        throw err;
+      }
+      lastError = err;
+      if (attempt < MAX_RETRIES) {
+        continue;
+      }
+      logOpsError({
+        message: 'store_config_read_error',
+        functionEntry: params.functionEntry,
+        operation: params.operation,
+        cause: lastError,
+        sourceProductHint: 'firestore',
+        errorKey: STORE_CONFIG_EXECUTION_ERROR_KEYS.READ_FAILED,
+        context: {
+          configDocPath: 'storeMeta/config',
+          action: params.action,
+          reason: 'store_config_read_error_after_retries',
+          ...params.context,
+        },
+      });
+      throw new StoreConfigReadFailedError(lastError);
+    }
+  }
+
+  throw new StoreConfigReadFailedError(lastError);
+}
+
 /**
  * storeMeta/config を取得する。
  * 未存在時・読み取り失敗時は defaults にフォールバック（リトライ後も失敗時は defaults を返す）。
