@@ -20,7 +20,7 @@ export const SCHEDULED_JOB_QUEUE_BY_KEY = {
 export type ScheduledJobKey = keyof typeof SCHEDULED_JOB_QUEUE_BY_KEY;
 
 export const TOURNAMENT_INVOKER_SA_PREFIX = 'tasks-invoker';
-export const OPENCLOSE_INVOKER_SA_PREFIX = 'openclose-tasks-invoker';
+export const OPENCLOSE_INVOKER_SA_PREFIX = 'tasks-invoker';
 
 export function getScheduledJobQueueName(jobKey: ScheduledJobKey): string {
   const queue = SCHEDULED_JOB_QUEUE_BY_KEY[jobKey];

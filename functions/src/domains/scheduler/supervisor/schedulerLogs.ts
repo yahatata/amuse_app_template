@@ -5,6 +5,14 @@ import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError'
 const DISPATCH_LOG_COLLECTION = 'schedulerDispatchLogs';
 const EXECUTION_LOG_COLLECTION = 'schedulerExecutionLogsByCloudTask';
 
+function omitUndefinedFields(
+  value: Record<string, unknown>
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined)
+  );
+}
+
 export interface SchedulerDispatchLog {
   eventType: 'enqueued' | 'skip' | 'error';
   isSuccess: boolean;
@@ -38,8 +46,9 @@ export async function writeSchedulerDispatchLogBestEffort(
 ): Promise<void> {
   try {
     const db = getFirestore();
+    const safeEntry = omitUndefinedFields(entry as unknown as Record<string, unknown>);
     await db.collection(DISPATCH_LOG_COLLECTION).add({
-      ...entry,
+      ...safeEntry,
       occurredAt: new Date().toISOString(),
       createdAt: FieldValue.serverTimestamp(),
     });
@@ -75,8 +84,9 @@ export async function writeSchedulerExecutionLogByCloudTaskBestEffort(
 ): Promise<void> {
   try {
     const db = getFirestore();
+    const safeEntry = omitUndefinedFields(entry as unknown as Record<string, unknown>);
     await db.collection(EXECUTION_LOG_COLLECTION).add({
-      ...entry,
+      ...safeEntry,
       occurredAt: new Date().toISOString(),
       createdAt: FieldValue.serverTimestamp(),
     });
@@ -109,4 +119,3 @@ export async function writeSchedulerExecutionLogByCloudTaskBestEffort(
     });
   }
 }
-

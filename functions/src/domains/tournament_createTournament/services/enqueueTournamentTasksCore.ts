@@ -16,6 +16,7 @@ import {
   StoreConfigDocumentMissingError,
   StoreConfigReadFailedError,
 } from '../../../shared/config/configLoader';
+import { resolveStoreTenantForWrite } from '../../../shared/runtime/storeTenantIdentity';
 import { enqueueTournamentTask } from './tasks';
 
 const HORIZON_DAYS = 14;
@@ -159,7 +160,7 @@ async function processTournament(
   if (isProductionRuntime()) {
     validateStoreTenantForProduction(doc.storeId, doc.tenantId);
   }
-  const storeId = doc.storeId ?? 'default-store'; // emulator のみ
+  const { storeId } = resolveStoreTenantForWrite(doc.storeId, doc.tenantId);
   const startAt = doc.startAt?.toDate?.() ?? (doc.startAt instanceof Date ? doc.startAt : null);
   if (!startAt) return { enqueued };
 

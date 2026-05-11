@@ -14,7 +14,16 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
-import { isProductionRuntime, validateStoreTenantForProduction } from "../../../shared/runtime";
+import {
+  isProductionRuntime,
+  isSingleStorePerProjectMode,
+  validateStoreTenantForProduction,
+} from "../../../shared/runtime";
+import {
+  LEGACY_DEFAULT_STORE_ID,
+  LEGACY_DEFAULT_TENANT_ID,
+  resolveStoreTenantForWrite,
+} from "../../../shared/runtime/storeTenantIdentity";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { runEnqueueTournamentTasks } from "./enqueueTournamentTasksCore";
 
@@ -90,7 +99,9 @@ export async function runGenerateRecurringTournaments(
       const recurrenceData = recurrenceDoc.data();
       const recurrenceId = recurrenceDoc.id;
 
-      // Phase0A D-13: 本番で storeId/tenantId 欠損・default は skip
+      // Phase0A D-13:
+      // - multi-store 運用時は本番で storeId/tenantId 欠損・default を skip
+      // - single-store 運用時は互換許容（後続フェーズで段階置換）
       if (isProductionRuntime()) {
         try {
           validateStoreTenantForProduction(recurrenceData.storeId, recurrenceData.tenantId);
@@ -109,8 +120,10 @@ export async function runGenerateRecurringTournaments(
 
       console.log(`処理中の定期開催: ${recurrenceId}`);
 
-      const storeId = recurrenceData.storeId || "default-store"; // emulator fallback
-      const tenantId = recurrenceData.tenantId || "default-tenant";
+      const { storeId, tenantId } = resolveStoreTenantForWrite(
+        recurrenceData.storeId,
+        recurrenceData.tenantId
+      );
 
       // テンプレート情報を取得
       const templateDoc = await db
@@ -272,18 +285,25 @@ export async function runGenerateRecurringTournaments(
     // 閾値以下かつ Step 5 経路の場合のみ enqueue を呼び出し。閾値超えは Scheduler に任せる
     if (totalGenerated <= ENQUEUE_AFTER_GENERATE_THRESHOLD) {
       try {
-        // Phase0A D-13: 本番で storeId 欠損・default-store は skip
+        // Phase0A D-13:
+        // - single-store 運用では projectId ベースに正規化
+        // - multi-store 運用のみ strict に skip
         const storeIds = new Set(
           recurrencesSnapshot.docs
             .map((d) => {
-              const sid = d.data().storeId;
-              if (isProductionRuntime() && (!sid || sid === "default-store")) {
-                logger.warn("generateRecurringTournaments: skipping recurrence with missing/invalid storeId", {
-                  recurrenceId: d.id,
-                });
-                return null;
+              const rawStoreId = d.data().storeId;
+              const rawTenantId = d.data().tenantId;
+              if (isProductionRuntime() && !isSingleStorePerProjectMode()) {
+                try {
+                  validateStoreTenantForProduction(rawStoreId, rawTenantId);
+                } catch {
+                  logger.warn("generateRecurringTournaments: skipping recurrence with missing/invalid storeId", {
+                    recurrenceId: d.id,
+                  });
+                  return null;
+                }
               }
-              return sid || "default-store"; // emulator fallback
+              return resolveStoreTenantForWrite(rawStoreId, rawTenantId).storeId;
             })
             .filter((s): s is string => s !== null)
         );
@@ -339,17 +359,33 @@ async function checkDuplicateTournament(
 ): Promise<boolean> {
   const startAtTimestamp = Timestamp.fromDate(startAt);
 
-  const query = await db
-    .collection("scheduledTournaments")
-    .where("templateId", "==", templateId)
-    .where("startAt", "==", startAtTimestamp)
-    .where("storeId", "==", storeId)
-    .where("tenantId", "==", tenantId)
-    .where("status", "==", "scheduled")
-    .limit(1)
-    .get();
+  const findByStoreTenant = async (candidateStoreId: string, candidateTenantId: string) =>
+    db
+      .collection("scheduledTournaments")
+      .where("templateId", "==", templateId)
+      .where("startAt", "==", startAtTimestamp)
+      .where("storeId", "==", candidateStoreId)
+      .where("tenantId", "==", candidateTenantId)
+      .where("status", "==", "scheduled")
+      .limit(1)
+      .get();
 
-  return !query.empty;
+  const primary = await findByStoreTenant(storeId, tenantId);
+  if (!primary.empty) return true;
+
+  if (
+    isSingleStorePerProjectMode() &&
+    (storeId !== LEGACY_DEFAULT_STORE_ID || tenantId !== LEGACY_DEFAULT_TENANT_ID)
+  ) {
+    // 既存データ互換: legacy default で残っている旧データも重複判定に含める
+    const legacy = await findByStoreTenant(
+      LEGACY_DEFAULT_STORE_ID,
+      LEGACY_DEFAULT_TENANT_ID
+    );
+    return !legacy.empty;
+  }
+
+  return false;
 }
 
 /** 定期開催からトーナメントを作成 */

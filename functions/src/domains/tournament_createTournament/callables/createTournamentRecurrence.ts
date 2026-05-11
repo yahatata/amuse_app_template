@@ -6,6 +6,7 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { validateStoreTenantForProduction } from "../../../shared/runtime";
+import { resolveStoreTenantForWrite } from "../../../shared/runtime/storeTenantIdentity";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
 
@@ -58,8 +59,10 @@ export const createTournamentRecurrence = onCall(async (request) => {
     // 入力検証
     const validatedData = createTournamentRecurrenceSchema.parse(request.data);
     validateStoreTenantForProduction(validatedData.storeId, validatedData.tenantId);
-    const storeId = validatedData.storeId ?? "default-store"; // emulator のみ（本番は上で throw 済み）
-    const tenantId = validatedData.tenantId ?? "default-tenant";
+    const { storeId, tenantId } = resolveStoreTenantForWrite(
+      validatedData.storeId,
+      validatedData.tenantId
+    );
     const { templateId, startOn, interval, byWeekday, endsOn, startTime, isActive } = validatedData;
 
     const db = getFirestore();

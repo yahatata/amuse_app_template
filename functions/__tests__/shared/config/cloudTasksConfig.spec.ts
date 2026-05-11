@@ -61,13 +61,13 @@ describe('cloudTasksConfig', () => {
 
   it('Invoker SA プレフィックスとメール生成が期待値であること', () => {
     expect(TOURNAMENT_INVOKER_SA_PREFIX).toBe('tasks-invoker');
-    expect(OPENCLOSE_INVOKER_SA_PREFIX).toBe('openclose-tasks-invoker');
+    expect(OPENCLOSE_INVOKER_SA_PREFIX).toBe('tasks-invoker');
 
     expect(
       buildInvokerSaEmail(TOURNAMENT_INVOKER_SA_PREFIX, 'my-project')
     ).toBe('tasks-invoker@my-project.iam.gserviceaccount.com');
     expect(
       buildInvokerSaEmail(OPENCLOSE_INVOKER_SA_PREFIX, 'my-project')
-    ).toBe('openclose-tasks-invoker@my-project.iam.gserviceaccount.com');
+    ).toBe('tasks-invoker@my-project.iam.gserviceaccount.com');
   });
 });

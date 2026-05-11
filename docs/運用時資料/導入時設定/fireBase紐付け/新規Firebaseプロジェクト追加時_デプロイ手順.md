@@ -234,20 +234,17 @@ gcloud secrets versions access latest \
 ### 8.1 OIDC 用 SA 作成（未作成時）
 
 ```bash
-for sa in tasks-invoker openclose-tasks-invoker; do
-  gcloud iam service-accounts describe "${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --project "$PROJECT_ID" >/dev/null 2>&1 || \
-  gcloud iam service-accounts create "$sa" \
-    --project "$PROJECT_ID" \
-    --display-name "$sa"
-done
+gcloud iam service-accounts describe "tasks-invoker@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --project "$PROJECT_ID" >/dev/null 2>&1 || \
+gcloud iam service-accounts create "tasks-invoker" \
+  --project "$PROJECT_ID" \
+  --display-name "tasks-invoker"
 ```
 
 ### 8.2 Cloud Run 実体への `roles/run.invoker` 付与
 
 ```bash
 TASKS_INVOKER_SA="tasks-invoker@${PROJECT_ID}.iam.gserviceaccount.com"
-OPENCLOSE_INVOKER_SA="openclose-tasks-invoker@${PROJECT_ID}.iam.gserviceaccount.com"
 
 CONTROL_HOOK_SERVICE="$(gcloud functions describe controlHookHttp \
   --v2 --region="asia-northeast1" --project "$PROJECT_ID" \
@@ -269,7 +266,7 @@ for svc in "$CLOSE_ASSESSMENT_SERVICE" "$OPEN_ASSESSMENT_SERVICE"; do
   gcloud run services add-iam-policy-binding "$svc" \
     --region="asia-northeast1" \
     --project "$PROJECT_ID" \
-    --member="serviceAccount:${OPENCLOSE_INVOKER_SA}" \
+    --member="serviceAccount:${TASKS_INVOKER_SA}" \
     --role="roles/run.invoker"
 done
 ```
@@ -290,7 +287,7 @@ gcloud functions list --v2 --regions="us-central1,asia-northeast1" --project "$P
 追加確認:
 
 - `tournament-queue` と `business-date-assessment-queue` が `asia-northeast1` に存在する
-- `tasks-invoker@...` / `openclose-tasks-invoker@...` が存在し、対象 Cloud Run service に `roles/run.invoker` を持つ
+- `tasks-invoker@...` が存在し、対象 Cloud Run service に `roles/run.invoker` を持つ
 
 ## 10. 代表的な失敗と対処観点
 
@@ -303,4 +300,4 @@ gcloud functions list --v2 --regions="us-central1,asia-northeast1" --project "$P
 - `Queue does not exist`
   - `tournament-queue` / `business-date-assessment-queue` を `asia-northeast1` に作成する
 - `403 PERMISSION_DENIED`（Cloud Tasks -> Cloud Run）
-  - `tasks-invoker` / `openclose-tasks-invoker` の `roles/run.invoker` 付与先サービスを確認する
+  - `tasks-invoker` の `roles/run.invoker` 付与先サービスを確認する
