@@ -105,7 +105,17 @@ export const getTodayTournaments = onCall(async (request) => {
           participantCount = viewsDoc.data()?.entries || 0;
         }
       } catch (error) {
-        console.log(`Failed to fetch views data for tournament ${doc.id}:`, error);
+        logOpsError({
+          message:
+            "getTodayTournaments: scheduledTournaments/views/main の取得失敗（participantCount は 0 で続行）",
+          functionEntry: "getTodayTournaments",
+          operation: "fetchViewsMain",
+          cause: error,
+          sourceProductHint: "firestore",
+          context: {
+            tournamentId: doc.id,
+          },
+        });
       }
       
       // templateSnapshotまたはtemplateIdからtournamentTemplateの詳細情報を取得
@@ -243,6 +253,7 @@ export const getTodayTournaments = onCall(async (request) => {
     logOpsError({
       message: 'Error in getTodayTournaments:',
       functionEntry: 'getTodayTournaments',
+      operation: 'getTodayTournamentsCatch',
       cause: error,
       context: logContext,
     });

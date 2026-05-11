@@ -15,6 +15,7 @@ import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { verifyPaymentSplit } from '../../src/domains/bills/callables/verifyPaymentSplit';
+import { seedStoreMetaConfigDocExists } from '../helpers/seedStoreMetaConfig';
 
 describe('verifyPaymentSplit', () => {
   let testEnv: RulesTestEnvironment;
@@ -46,6 +47,7 @@ describe('verifyPaymentSplit', () => {
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
+    await seedStoreMetaConfigDocExists(db);
   });
 
   // テスト用のヘルパ関数: ユーザーを作成

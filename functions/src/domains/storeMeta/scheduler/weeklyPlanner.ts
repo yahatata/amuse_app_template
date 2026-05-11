@@ -16,7 +16,11 @@ import {
   buildInvokerSaEmail,
 } from "../../../shared/config/cloudTasksConfig";
 import { getRequiredProjectId } from "../../../shared/runtime/projectId";
-import { getStoreConfig } from "../../../shared/config/configLoader";
+import {
+  getStoreConfigForExecution,
+  StoreConfigDocumentMissingError,
+  StoreConfigReadFailedError,
+} from "../../../shared/config/configLoader";
 import {
   DEFAULT_TASK_CLOSE_OFFSET_MINUTES,
   DEFAULT_TASK_OPEN_OFFSET_MINUTES,
@@ -89,8 +93,37 @@ export async function runWeeklyPlannerTask(
   let skippedClosedDays = 0;
 
   try {
+    let config;
+    try {
+      config = await getStoreConfigForExecution({
+        functionEntry: "weeklyPlanner",
+        operation: "loadStoreConfigForOpenCloseTaskGeneration",
+        action: "stop_weekly_open_close_task_generation",
+        context: {
+          targetWeekStartDate: input.targetWeekStartDate,
+          planningDate: input.targetWeekStartDate,
+          storeConfigKeyGroup: "autoOpenClose",
+        },
+      });
+    } catch (e) {
+      if (
+        e instanceof StoreConfigDocumentMissingError ||
+        e instanceof StoreConfigReadFailedError
+      ) {
+        const reason =
+          e instanceof StoreConfigDocumentMissingError ?
+            "store_config_document_missing" :
+            "store_config_read_error_after_retries";
+        logger.warn(
+          "weeklyPlanner: skipped open/close task generation because store config unavailable",
+          { reason, targetWeekStartDate: input.targetWeekStartDate }
+        );
+        return { openTasksEnqueued, closeTasksEnqueued, skippedClosedDays };
+      }
+      throw e;
+    }
+
     const projectId = getRequiredProjectId();
-    const config = await getStoreConfig();
     if (!config.autoOpenClose?.enabled) {
       logger.info("weeklyPlanner: skipped because autoOpenClose is disabled");
       logOpsSuccess({

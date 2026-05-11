@@ -4,6 +4,7 @@ import * as logger from "firebase-functions/logger";
 import { logOpsError, logOpsSuccess, truncateForLog } from "../../../shared/logging/logOpsError";
 import { getLineConfig } from "../../../shared/secrets/secretManager";
 import { linkStaffRichMenu, linkUserRichMenu } from "../services/lineRichMenu";
+import { verifyLineWebhookSignature } from "../services/lineWebhookSignature";
 
 // postback リプライ用。リッチメニューリンクは lineRichMenu サービス経由（ensureStaffRichMenu と同一経路）
 async function getLineChannelAccessToken(): Promise<string> {
@@ -34,6 +35,57 @@ export const lineWebhook = onRequest(async (request, response) => {
   // POSTメソッドのみ許可
   if (request.method !== "POST") {
     response.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const lineConfig = await getLineConfig();
+    if (!lineConfig.channelSecret) {
+      logOpsError({
+        message:
+          "line-config に channelSecret が無く Webhook の署名検証ができません（Secret の line-config に channelSecret を追加してください）",
+        functionEntry: "lineWebhook",
+        operation: "lineWebhookMissingChannelSecret",
+      });
+      response.status(503).json({ error: "Configuration error" });
+      return;
+    }
+
+    const rawBody = (request as { rawBody?: Buffer }).rawBody;
+    if (!Buffer.isBuffer(rawBody) || rawBody.length === 0) {
+      logOpsError({
+        message:
+          "lineWebhook: rawBody が無いため署名検証できません（Functions ランタイムが raw body を渡していない可能性があります）",
+        functionEntry: "lineWebhook",
+        operation: "lineWebhookMissingRawBody",
+      });
+      response.status(500).json({ error: "Internal server error" });
+      return;
+    }
+
+    const signatureHeader =
+      request.header("x-line-signature") ?? request.header("X-Line-Signature");
+    if (
+      !verifyLineWebhookSignature(rawBody, signatureHeader, lineConfig.channelSecret)
+    ) {
+      logger.warn("lineWebhook: X-Line-Signature が不一致のため処理しません", {
+        signaturePresent: Boolean(signatureHeader),
+        signaturePrefix:
+          typeof signatureHeader === "string"
+            ? truncateForLog(signatureHeader, 24)
+            : undefined,
+      });
+      response.status(401).send("Unauthorized");
+      return;
+    }
+  } catch (error) {
+    logOpsError({
+      message: "lineWebhook: 署名検証前処理でエラー",
+      functionEntry: "lineWebhook",
+      operation: "lineWebhookSignatureSetupFailed",
+      cause: error,
+    });
+    response.status(500).json({ error: "Internal server error" });
     return;
   }
 

@@ -65,6 +65,25 @@ function getCloudTaskName(req: Request): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
+/**
+ * taskIndex 不在の no-op が「本処理がまだ適用される状態なのに index だけ無い」実行漏れ疑いか。
+ * runTransaction 内の更新条件と整合させる。
+ */
+function isTaskIndexMissingSuspiciousExecutionGap(
+  taskType: NewTaskType,
+  tournamentData: Record<string, unknown>,
+  runtimeData: Record<string, unknown>
+): boolean {
+  const status = tournamentData.status as string | undefined;
+  if (taskType === 'startTournament') {
+    return status === 'scheduled' && !runtimeData.startedAt;
+  }
+  if (taskType === 'closeRegistration') {
+    return status === 'running' && !runtimeData.registAt;
+  }
+  return false;
+}
+
 export const controlHook = async (req: Request, res: Response) => {
   try {
     if (req.method !== 'POST') {
@@ -197,15 +216,43 @@ async function handleNewPayload(
     return;
   }
 
-  // 3. taskIndex 取得 → 存在しない場合 200 no-op
+  const tournamentData = tournamentDoc.data() as Record<string, unknown>;
+  const runtimeData = runtimeDoc.data() as Record<string, unknown>;
+
+  // 3. taskIndex 取得 → 存在しない場合 200 no-op（実行漏れ疑い時は logOpsError）
   const taskIndexSnap = await taskIndexRef.get();
   if (!taskIndexSnap.exists) {
-    logTaskIndexMissing(tournamentId, taskType, planVersion, planHash, cloudTaskName);
+    const typedTaskType = taskType as NewTaskType;
+    const suspicious = isTaskIndexMissingSuspiciousExecutionGap(
+      typedTaskType,
+      tournamentData,
+      runtimeData
+    );
+    if (suspicious) {
+      logOpsError({
+        message:
+          'controlHook: taskIndex 不在かつ本処理未実行状態のため enqueue/データ整合性の確認が必要（Cloud Tasks は 200 で成功扱いのまま）',
+        functionEntry: 'controlHookHttp',
+        operation: 'controlHookTaskIndexMissingSuspicious',
+        cause: new Error('control_hook_task_index_missing_suspicious'),
+        context: {
+          tournamentId,
+          taskType,
+          planVersion,
+          planHash,
+          cloudTaskName: cloudTaskName ?? null,
+          tournamentStatus: (tournamentData.status as string | undefined) ?? null,
+          hasStartedAt: Boolean(runtimeData.startedAt),
+          hasRegistAt: Boolean(runtimeData.registAt),
+        },
+      });
+    } else {
+      logTaskIndexMissing(tournamentId, taskType, planVersion, planHash, cloudTaskName);
+    }
     res.status(200).json({ success: true, message: 'no-op (taskIndex missing)' });
     return;
   }
 
-  const tournamentData = tournamentDoc.data()!;
   const taskIndexData = taskIndexSnap.data()!;
   const schedulePlanVersion = tournamentData.schedulePlanVersion ?? 0;
   const now = Timestamp.now();

@@ -12,7 +12,11 @@ import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 
-import { getStoreConfig } from '../../../shared/config/configLoader';
+import {
+  getStoreConfigForExecution,
+  StoreConfigDocumentMissingError,
+  StoreConfigReadFailedError,
+} from '../../../shared/config/configLoader';
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
 import {
   getPaymentPeriodKey,
@@ -27,6 +31,7 @@ import {
   DEFAULT_PAYROLL_START_DAY,
   DEFAULT_PAYROLL_END_DAY,
 } from '../../../shared/config/defaults';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 export const attendanceOnWrite = onDocumentWritten(
   'attendances/{attendanceId}',
@@ -43,17 +48,60 @@ export const attendanceOnWrite = onDocumentWritten(
       : null;
 
     const date = afterData.date as string | undefined;
+    // 正規 attendance では date（出勤日キー）は必須。欠落は後続の帰属・給与連携をスキップするため運用監視対象とする。
     if (!date) {
-      logger.warn('attendanceOnWrite: date が未設定のためスキップ', {
-        attendanceId: event.params.attendanceId,
+      logOpsError({
+        message: 'attendanceOnWrite で date が未設定のため処理をスキップしました',
+        functionEntry: 'attendanceOnWrite',
+        operation: 'validateAttendanceDate',
+        cause: new Error('attendance_date_missing'),
+        context: {
+          attendanceId: event.params.attendanceId,
+          hasDate: false,
+          staffId: afterData.staffId ?? null,
+          isDeleted: afterData.isDeleted ?? null,
+          lastActionType: afterData.lastActionType ?? null,
+        },
       });
       return;
     }
 
-    const [config, payrollConfig] = await Promise.all([
-      getStoreConfig(),
-      getPayrollConfig(),
-    ]);
+    // 再処理導線（未確定）: config 復旧後に paymentPeriodKey / weekday / weekStartDate を一括補正する手段は未実装。
+    // 欠落期間の attendances はここでは再試行されないため、必要なら別バッチや管理操作での是正を検討する。
+    let config;
+    try {
+      config = await getStoreConfigForExecution({
+        functionEntry: 'attendanceOnWrite',
+        operation: 'loadStoreConfigForAttendancePeriodKeyWrite',
+        action: 'stop_attendance_payment_period_patch',
+        context: {
+          attendanceId: event.params.attendanceId,
+          date,
+          storeConfigKeyGroup: 'payrollPeriod',
+        },
+      });
+    } catch (e) {
+      if (
+        e instanceof StoreConfigDocumentMissingError ||
+        e instanceof StoreConfigReadFailedError
+      ) {
+        const reason =
+          e instanceof StoreConfigDocumentMissingError ?
+            'store_config_document_missing' :
+            'store_config_read_error_after_retries';
+        logger.warn(
+          'attendanceOnWrite: skipped paymentPeriodKey patch because store config unavailable',
+          {
+            attendanceId: event.params.attendanceId,
+            reason,
+          }
+        );
+        return;
+      }
+      throw e;
+    }
+
+    const payrollConfig = await getPayrollConfig();
 
     const startDay = config.payroll?.startDay ?? DEFAULT_PAYROLL_START_DAY;
     const endDay = config.payroll?.endDay ?? DEFAULT_PAYROLL_END_DAY;

@@ -1,6 +1,6 @@
 import { Transaction } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
-import { calculateCategoryAmounts, distributePaymentMethods } from "./helpers";
+import { calculateCategoryAmounts } from "./helpers";
 
 export interface DailySummaryUpdateInfo {
   collection: string;
@@ -15,6 +15,7 @@ export async function addToDailySummary(
   month: string,
   businessDate: string,
   billData: any,
+  paymentTotalsMap: Map<string, number>,
   dailyDoc?: FirebaseFirestore.DocumentSnapshot
 ): Promise<DailySummaryUpdateInfo> {
   const dailyRef = admin.firestore()
@@ -29,11 +30,7 @@ export async function addToDailySummary(
   // 総売上を計算
   const grossSales = Array.from(categoryAmounts.values()).reduce((sum, amount) => sum + amount, 0);
   
-  // 支払い方法の配賦（paymentTotals を直接使用、fallback用に総額を渡す）
-  const paymentTotals = distributePaymentMethods(billData.paymentTotals, {
-    fallbackCashAmount: billData.amounts?.grandTotalRounded || grossSales,
-    validMethods: ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'],
-  });
+  const paymentTotals = paymentTotalsMap;
   
   // 更新データを準備
   const updateData: any = {

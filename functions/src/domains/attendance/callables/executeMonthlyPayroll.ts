@@ -13,7 +13,11 @@ import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError'
 import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue';
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
-import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
+import {
+  getPayrollConfigForPayrollExecution,
+  PayrollConfigDocumentMissingError,
+  PayrollConfigReadFailedError,
+} from '../../../shared/config/payrollConfigLoader';
 import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
 import {
   classifyAttendancesForRun,
@@ -70,22 +74,45 @@ export const executeMonthlyPayroll = onCall(
       }
     }
 
-    // config snapshot 取得
+    // config snapshot 取得（doc 欠落時は default に落とさず停止）
     let payrollConfig;
     try {
-      payrollConfig = await getPayrollConfig();
+      payrollConfig = await getPayrollConfigForPayrollExecution(
+        {
+          functionEntry: 'executeMonthlyPayroll',
+          operation: 'loadPayrollConfigForPayrollExecution',
+          context: {
+            paymentPeriodKey,
+            attendanceIdsCount: attendanceIds.length,
+          },
+        },
+        db
+      );
     } catch (configError) {
+      if (configError instanceof PayrollConfigDocumentMissingError) {
+        throw new HttpsError(
+          'failed-precondition',
+          '給与設定（storeMeta/payrollConfig）が未作成のため、給与計算を開始できません。管理者による初期化後に再度お試しください。',
+          PAYROLL_ERRORS.PAYROLL_CONFIG_DOCUMENT_MISSING
+        );
+      }
+      if (configError instanceof PayrollConfigReadFailedError) {
+        throw new HttpsError(
+          'unavailable',
+          '給与設定の読み取りに失敗しました。時間をおいて再度お試しください。'
+        );
+      }
       logOpsError({
-        message: 'executeMonthlyPayroll: payroll config not found',
+        message: 'executeMonthlyPayroll: payroll config load failed (unexpected)',
         functionEntry: 'executeMonthlyPayroll',
-        operation: 'loadPayrollConfig',
+        operation: 'loadPayrollConfigForPayrollExecution',
         cause: configError,
         context: {
           paymentPeriodKey,
           attendanceIdsCount: attendanceIds.length,
         },
       });
-      throw new HttpsError('not-found', PAYROLL_ERRORS.PAYROLL_CONFIG_NOT_FOUND);
+      throw new HttpsError('internal', PAYROLL_ERRORS.PAYROLL_CONFIG_NOT_FOUND);
     }
     // attendance 一括取得
     const attendanceDocs = await Promise.all(
@@ -95,7 +122,18 @@ export const executeMonthlyPayroll = onCall(
     const attendances: AttendanceForRun[] = [];
     for (const doc of attendanceDocs) {
       if (!doc.exists) {
-        logger.warn('executeMonthlyPayroll: attendance not found', { id: doc.id });
+        logOpsError({
+          message:
+            'executeMonthlyPayroll: 指定された attendances ドキュメントが存在しません（この ID はラン計算から除外されます）',
+          functionEntry: 'executeMonthlyPayroll',
+          operation: 'resolveAttendanceDocumentMissing',
+          cause: new Error('execute_monthly_payroll_attendance_doc_missing'),
+          context: {
+            attendanceId: doc.id,
+            paymentPeriodKey,
+            requestedAttendanceIdsCount: attendanceIds.length,
+          },
+        });
         continue;
       }
       const data = doc.data()!;

@@ -17,6 +17,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { startAccounting } from '../../src/domains/bills/callables/accounting';
 import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 import { appendItem } from '../../src/domains/bills/repos/appendItem';
+import { seedStoreMetaConfigDocExists } from '../helpers/seedStoreMetaConfig';
 
 describe('accounting (startAccounting)', () => {
   let testEnv: RulesTestEnvironment;
@@ -37,6 +38,7 @@ describe('accounting (startAccounting)', () => {
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
+    await seedStoreMetaConfigDocExists(db);
     delete process.env.WRITE_TODAYS_BILLS_IN_PARALLEL;
   });
 

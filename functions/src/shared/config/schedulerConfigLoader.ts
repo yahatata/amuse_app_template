@@ -205,31 +205,24 @@ export async function getSchedulerConfig(db?: Firestore): Promise<SchedulerConfi
           fallbackSource: 'schedulerConfigDefaults.ts',
           reason: 'document_missing',
         });
-    logOpsSuccess({
-  message: "getSchedulerConfig 成功",
-  functionEntry: "getSchedulerConfig",
-  operation: 'config_read',
-  context: {
-      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-      reason: 'read_error',
-      message: 'ok',
-    },
-});
-
+        logOpsSuccess({
+          message: 'getSchedulerConfig 成功',
+          functionEntry: 'getSchedulerConfig',
+          operation: 'config_read',
+          context: {
+            code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,
+            reason: 'document_missing',
+          },
+        });
         return buildSchedulerConfigFromDefaults();
       }
 
-      const data = doc.data() as Record<string, unknown> | undefined;logOpsSuccess({
-  message: "getSchedulerConfig 成功",
-  functionEntry: "getSchedulerConfig",
-  operation: 'config_read',
-  context: {
-      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-      reason: 'read_error',
-      message: 'ok',
-    },
-});
-
+      const data = doc.data() as Record<string, unknown> | undefined;
+      logOpsSuccess({
+        message: 'getSchedulerConfig 成功',
+        functionEntry: 'getSchedulerConfig',
+        operation: 'config_read',
+      });
       return mergeSchedulerConfigWithDefaults(data ?? {});
     } catch (err) {
       lastError = err;
@@ -259,4 +252,78 @@ export async function getSchedulerConfig(db?: Firestore): Promise<SchedulerConfi
   }
 
   return buildSchedulerConfigFromDefaults();
+}
+
+export type LoadSchedulerConfigForTaskGenerationResult =
+  | { ok: true; config: SchedulerConfig }
+  | { ok: false; reason: 'document_missing' | 'read_error_after_retries'; cause?: unknown };
+
+/**
+ * scheduler supervisor / Cloud Tasks 生成向け。
+ * - doc 欠落時: logOpsError のうえ ok:false（default で enqueue しない）
+ * - 読取失敗（リトライ後）: logOpsError のうえ ok:false（default で enqueue しない）
+ *
+ * 初期化・表示などは従来どおり {@link getSchedulerConfig} を使用すること。
+ */
+export async function loadSchedulerConfigForTaskGeneration(
+  params: {
+    functionEntry: string;
+    operation: string;
+    context?: Record<string, unknown>;
+  },
+  db?: Firestore
+): Promise<LoadSchedulerConfigForTaskGenerationResult> {
+  const firestore = db ?? getFirestore();
+  const docRef = firestore.collection('storeMeta').doc('schedulerConfig');
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        logOpsError({
+          message: 'scheduler_config_document_missing: scheduler task generation stopped',
+          functionEntry: params.functionEntry,
+          operation: params.operation,
+          errorSource: 'function_custom',
+          errorKey: 'SCHEDULER_CONFIG_DOCUMENT_MISSING',
+          cause: new Error('scheduler_config_document_missing'),
+          sourceProductHint: 'firestore',
+          context: {
+            configDocPath: 'storeMeta/schedulerConfig',
+            action: 'stop_scheduler_task_generation',
+            reason: 'scheduler_config_document_missing',
+            ...params.context,
+          },
+        });
+        return { ok: false, reason: 'document_missing' };
+      }
+
+      const data = doc.data() as Record<string, unknown> | undefined;
+      return { ok: true, config: mergeSchedulerConfigWithDefaults(data ?? {}) };
+    } catch (err) {
+      lastError = err;
+      if (attempt < MAX_RETRIES) {
+        continue;
+      }
+
+      logOpsError({
+        message: 'config_read_error',
+        functionEntry: params.functionEntry,
+        operation: params.operation,
+        cause: lastError,
+        sourceProductHint: 'firestore',
+        context: {
+          code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
+          reason: 'read_error',
+          message: String(lastError instanceof Error ? lastError.message : lastError),
+          action: 'stop_scheduler_task_generation',
+          ...params.context,
+        },
+      });
+      return { ok: false, reason: 'read_error_after_retries', cause: lastError };
+    }
+  }
+
+  return { ok: false, reason: 'read_error_after_retries' };
 }

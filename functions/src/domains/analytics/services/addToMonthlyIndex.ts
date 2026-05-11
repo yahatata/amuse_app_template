@@ -1,6 +1,6 @@
 import { Transaction } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
-import { calculateCategoryAmounts, distributePaymentMethods } from "./helpers";
+import { calculateCategoryAmounts } from "./helpers";
 
 export interface MonthlyIndexUpdateInfo {
   collection: string;
@@ -14,6 +14,7 @@ export async function addToMonthlyIndex(
   month: string,
   billData: any,
   businessDate: string,
+  paymentTotalsMap: Map<string, number>,
   monthlyDoc?: FirebaseFirestore.DocumentSnapshot
 ): Promise<MonthlyIndexUpdateInfo> {
   const monthlyRef = admin.firestore().collection('analyticsMonthly').doc(month);
@@ -24,11 +25,7 @@ export async function addToMonthlyIndex(
   // 総売上を計算
   const grossSales = Array.from(categoryAmounts.values()).reduce((sum, amount) => sum + amount, 0);
   
-  // 支払い方法の配賦（paymentTotals を直接使用、fallback用に総額を渡す）
-  const paymentTotals = distributePaymentMethods(billData.paymentTotals, {
-    fallbackCashAmount: billData.amounts?.grandTotalRounded || grossSales,
-    validMethods: ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'],
-  });
+  const paymentTotals = paymentTotalsMap;
   
   // 更新データを準備
   const updateData: any = {

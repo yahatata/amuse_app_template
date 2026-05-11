@@ -1,8 +1,14 @@
+import { logger } from 'firebase-functions';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getFirestore } from 'firebase-admin/firestore';
 import { calculatePaymentSplit } from '../services/paymentSplitCalculator';
-import { getStoreConfig } from '../../../shared/config/configLoader';
+import {
+  getStoreConfigForExecution,
+  StoreConfigDocumentMissingError,
+  StoreConfigReadFailedError,
+  STORE_CONFIG_EXECUTION_ERROR_KEYS,
+} from '../../../shared/config/configLoader';
 import { DEFAULT_POINT_PRIORITY } from '../../../shared/config/defaults';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
@@ -41,7 +47,15 @@ export const verifyPaymentSplit = onCall(async (request) => {
     
     // 入力検証
     const validatedData = VerifyPaymentSplitSchema.parse(request.data);
-    const config = await getStoreConfig();
+    const config = await getStoreConfigForExecution({
+      functionEntry: 'verifyPaymentSplit',
+      operation: 'loadStoreConfigForPaymentSplitVerification',
+      action: 'stop_payment_split_verification_without_store_config',
+      context: {
+        billId: validatedData.billId,
+        storeConfigKeyGroup: 'billing.paymentPolicy,billing.sideGameChipRate',
+      },
+    });
     const { billId, clientResult, selectedBaseMethod } = validatedData;
     const pointPriority = validatedData.pointPriority ?? config.billing?.paymentPolicy?.pointPriority ?? DEFAULT_POINT_PRIORITY;
 
@@ -144,10 +158,12 @@ export const verifyPaymentSplit = onCall(async (request) => {
       };
     } else {
       // 不一致の場合はサーバー側の結果を正として返す
-      console.warn('支払い分割計算の不一致を検出', {
+      logger.warn('verifyPaymentSplit: クライアントとサーバの支払い分割計算が不一致のためサーバ結果を返却しました', {
         billId,
-        clientResult,
-        serverResult,
+        selectedBaseMethod,
+        callerUid,
+        verified: false,
+        ...buildPaymentSplitMismatchSummary(clientResult, serverResult),
       });
 
       logOpsSuccess({
@@ -171,6 +187,20 @@ export const verifyPaymentSplit = onCall(async (request) => {
       };
     }
   } catch (error: any) {
+    if (error instanceof StoreConfigDocumentMissingError) {
+      throw new HttpsError(
+        'failed-precondition',
+        '店舗設定を確認できないため、支払い内訳を検証できません。管理者に店舗設定の確認を依頼してください。',
+        { errorKey: STORE_CONFIG_EXECUTION_ERROR_KEYS.DOCUMENT_MISSING }
+      );
+    }
+    if (error instanceof StoreConfigReadFailedError) {
+      throw new HttpsError(
+        'unavailable',
+        '店舗設定の読み取りに失敗しました。時間をおいて再度お試しください。',
+        { errorKey: STORE_CONFIG_EXECUTION_ERROR_KEYS.READ_FAILED }
+      );
+    }
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
     }
@@ -195,6 +225,65 @@ export const verifyPaymentSplit = onCall(async (request) => {
     throw new HttpsError('internal', '支払い分割照合に失敗しました', error.message);
   }
 });
+
+/** ログ用: 巨大オブジェクトは載せずスカラー・件数中心のサマリのみ */
+function buildPaymentSplitMismatchSummary(
+  client: typeof VerifyPaymentSplitSchema._type.clientResult,
+  server: ReturnType<typeof calculatePaymentSplit>
+): Record<string, unknown> {
+  const clientPk = Object.keys(client.usedPoints);
+  const serverPk = Object.keys(server.usedPoints);
+  const clientPkSet = new Set(clientPk);
+  const serverPkSet = new Set(serverPk);
+  const pointsKeysOnlyInClient = clientPk.filter(k => !serverPkSet.has(k)).length;
+  const pointsKeysOnlyInServer = serverPk.filter(k => !clientPkSet.has(k)).length;
+  let pointsValueMismatchCount = 0;
+  for (const k of clientPk) {
+    if (
+      serverPkSet.has(k) &&
+      Math.abs(client.usedPoints[k] - server.usedPoints[k]) > 1
+    ) {
+      pointsValueMismatchCount++;
+    }
+  }
+  const clientCatKeys = Object.keys(client.categoryBreakdown);
+  const serverCatKeys = Object.keys(server.categoryBreakdown);
+  const clientCatSet = new Set(clientCatKeys);
+  const serverCatSet = new Set(serverCatKeys);
+  let categoryFieldMismatchCount = 0;
+  for (const c of clientCatKeys) {
+    if (!serverCatSet.has(c)) {
+      categoryFieldMismatchCount++;
+      continue;
+    }
+    const cc = client.categoryBreakdown[c];
+    const sc = server.categoryBreakdown[c];
+    if (
+      Math.abs(cc.pointsUsed - sc.pointsUsed) > 1 ||
+      Math.abs(cc.baseMethodAmount - sc.baseMethodAmount) > 1
+    ) {
+      categoryFieldMismatchCount++;
+    }
+  }
+  const categoryKeysOnlyInClient = clientCatKeys.filter(c => !serverCatSet.has(c)).length;
+  const categoryKeysOnlyInServer = serverCatKeys.filter(c => !clientCatSet.has(c)).length;
+
+  return {
+    clientCashLikeAmount: client.cashLikeAmount,
+    serverCashLikeAmount: server.cashLikeAmount,
+    cashLikeAmountAbsDelta: Math.abs(client.cashLikeAmount - server.cashLikeAmount),
+    usedPointsKeyCountClient: clientPk.length,
+    usedPointsKeyCountServer: serverPk.length,
+    pointsKeysOnlyInClient,
+    pointsKeysOnlyInServer,
+    pointsValueMismatchCount,
+    categoryKeyCountClient: clientCatKeys.length,
+    categoryKeyCountServer: serverCatKeys.length,
+    categoryKeysOnlyInClient,
+    categoryKeysOnlyInServer,
+    categoryFieldMismatchCount,
+  };
+}
 
 /**
  * クライアント側とサーバー側の計算結果を比較

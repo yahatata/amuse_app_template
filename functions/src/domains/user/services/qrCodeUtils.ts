@@ -177,40 +177,78 @@ async function deleteOldQRCodeFiles(uid: string, type: "user" | "staff"): Promis
   }
 }
 
+/** Cloud Functions の export 名を渡し、内部失敗時の logOpsError と相関させる */
+export type VerifyQRDataLogContext = {
+  functionEntry: string;
+  operation?: string;
+};
+
+const VERIFY_QR_INTERNAL_OPERATION = 'verifyQRDataInternal';
+
 /**
  * QRコードデータを検証する
  * @param {string} qrDataString QRコードから読み取ったJSON文字列
+ * @param logContext 呼び出し元 Callable の functionEntry（service は functionEntry から自動解決）
  * @return {boolean} 検証結果
  */
-export async function verifyQRData(qrDataString: string): Promise<boolean> {
+export async function verifyQRData(
+  qrDataString: string,
+  logContext: VerifyQRDataLogContext
+): Promise<boolean> {
+  let raw: unknown;
   try {
-    const data: QRCodeData = JSON.parse(qrDataString);
+    raw = JSON.parse(qrDataString);
+  } catch {
+    // 不正・破損 QR で自然に起きるパース失敗はログしない
+    return false;
+  }
 
-    // 必須フィールドのチェック
-    if (!data.uid || !data.loginId || !data.timestamp ||
-        !data.token || !data.type) {
+  if (typeof raw !== 'object' || raw === null) {
+    return false;
+  }
+
+  const d = raw as Record<string, unknown>;
+  const uid = d.uid;
+  const loginId = d.loginId;
+  const timestamp = d.timestamp;
+  const token = d.token;
+  const type = d.type;
+
+  if (
+    typeof uid !== 'string' ||
+    typeof loginId !== 'string' ||
+    typeof timestamp !== 'number' ||
+    !Number.isFinite(timestamp) ||
+    typeof token !== 'string' ||
+    (type !== 'user' && type !== 'staff')
+  ) {
+    return false;
+  }
+
+  if (!uid || !loginId || !token) {
+    return false;
+  }
+
+  const now = Date.now();
+  const expiryTime = timestamp + QR_EXPIRY_MINUTES * 60 * 1000;
+  if (!Number.isFinite(expiryTime) || now > expiryTime) {
+    return false;
+  }
+
+  try {
+    const expectedToken = await generateSecurityToken(uid, loginId, timestamp);
+    if (token !== expectedToken) {
       return false;
     }
-
-    // 有効期限のチェック
-    const now = Date.now();
-    const expiryTime = data.timestamp + (QR_EXPIRY_MINUTES * 60 * 1000);
-    if (now > expiryTime) {
-      return false;
-    }
-
-    // セキュリティトークンの検証
-    const expectedToken = await generateSecurityToken(
-      data.uid,
-      data.loginId,
-      data.timestamp
-    );
-    if (data.token !== expectedToken) {
-      return false;
-    }
-
     return true;
   } catch (error) {
+    logOpsError({
+      message: 'QR検証中に内部処理が失敗しました',
+      functionEntry: logContext.functionEntry,
+      operation: logContext.operation ?? VERIFY_QR_INTERNAL_OPERATION,
+      cause: error,
+      context: { uid, type },
+    });
     return false;
   }
 }

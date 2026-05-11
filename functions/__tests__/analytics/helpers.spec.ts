@@ -1,123 +1,146 @@
 /**
  * analytics helpers のテスト
- * 
- * distributePaymentMethods の退行対策を検証
+ *
+ * distributePaymentMethods / distributePaymentMethodsWithIssues の退行対策を検証
  */
 
-import { distributePaymentMethods, calculateCategoryAmounts } from '../../src/domains/analytics/services/helpers';
+import {
+  distributePaymentMethods,
+  distributePaymentMethodsWithIssues,
+  calculateCategoryAmounts,
+} from '../../src/domains/analytics/services/helpers';
 
 describe('analytics helpers', () => {
-  describe('distributePaymentMethods', () => {
-    it('paymentTotals undefined + fallbackCashAmount=1000 -> cash=1000', () => {
-      const result = distributePaymentMethods(undefined, {
+  describe('distributePaymentMethodsWithIssues', () => {
+    it('paymentTotals undefined + fallbackCashAmount=1000 -> cash=1000 + WITH_FALLBACK issue', () => {
+      const result = distributePaymentMethodsWithIssues(undefined, {
         fallbackCashAmount: 1000,
       });
-      
-      expect(result.size).toBe(1);
-      expect(result.get('cash')).toBe(1000);
+
+      expect(result.paymentTotalsMap.size).toBe(1);
+      expect(result.paymentTotalsMap.get('cash')).toBe(1000);
+      expect(result.issues).toEqual([
+        { kind: 'PAYMENT_TOTALS_EMPTY_WITH_FALLBACK', fallbackCashAmount: 1000 },
+      ]);
     });
 
-    it('paymentTotals {} + fallbackCashAmount=1000 -> cash=1000', () => {
-      const result = distributePaymentMethods({}, {
+    it('paymentTotals {} + fallbackCashAmount=1000 -> cash=1000 + WITH_FALLBACK issue', () => {
+      const result = distributePaymentMethodsWithIssues({}, {
         fallbackCashAmount: 1000,
       });
-      
-      expect(result.size).toBe(1);
-      expect(result.get('cash')).toBe(1000);
+
+      expect(result.paymentTotalsMap.size).toBe(1);
+      expect(result.paymentTotalsMap.get('cash')).toBe(1000);
+      expect(result.issues.some(i => i.kind === 'PAYMENT_TOTALS_EMPTY_WITH_FALLBACK')).toBe(true);
     });
 
-    it('paymentTotals { cash: 500, weird: 300 } + validMethods -> cash=800 (weirdがcashへ寄せ)', () => {
-      const result = distributePaymentMethods(
+    it('paymentTotals { cash: 500, weird: 300 } + validMethods -> cash=800 + INVALID_METHODS issue', () => {
+      const result = distributePaymentMethodsWithIssues(
         { cash: 500, weird: 300 },
         {
           validMethods: ['cash', 'credit_card'],
         }
       );
-      
-      expect(result.size).toBe(1);
-      expect(result.get('cash')).toBe(800); // 500 + 300 (weirdがcashへ寄せ)
-      expect(result.has('weird')).toBe(false);
+
+      expect(result.paymentTotalsMap.size).toBe(1);
+      expect(result.paymentTotalsMap.get('cash')).toBe(800);
+      expect(result.paymentTotalsMap.has('weird')).toBe(false);
+      expect(result.issues).toContainEqual({
+        kind: 'PAYMENT_TOTALS_INVALID_METHODS_NORMALIZED',
+        invalidMethodCount: 1,
+      });
     });
 
-    it('paymentTotals { card: 0 } -> empty', () => {
-      const result = distributePaymentMethods({ card: 0 });
-      
-      expect(result.size).toBe(0);
+    it('paymentTotals { card: 0 } -> empty Map + no issues', () => {
+      const result = distributePaymentMethodsWithIssues({ card: 0 });
+
+      expect(result.paymentTotalsMap.size).toBe(0);
+      expect(result.issues).toEqual([]);
     });
 
-    it('paymentTotals が null の場合、fallbackCashAmount があれば cash に配賦', () => {
-      const result = distributePaymentMethods(null, {
+    it('paymentTotals が null で fallbackCashAmount がある場合は cash に配賦 + WITH_FALLBACK', () => {
+      const result = distributePaymentMethodsWithIssues(null, {
         fallbackCashAmount: 2000,
       });
-      
-      expect(result.size).toBe(1);
-      expect(result.get('cash')).toBe(2000);
+
+      expect(result.paymentTotalsMap.size).toBe(1);
+      expect(result.paymentTotalsMap.get('cash')).toBe(2000);
+      expect(result.issues[0]?.kind).toBe('PAYMENT_TOTALS_EMPTY_WITH_FALLBACK');
     });
 
-    it('paymentTotals が undefined で fallbackCashAmount も無い場合、空Mapを返す', () => {
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-      
-      const result = distributePaymentMethods(undefined);
-      
-      expect(result.size).toBe(0);
-      expect(consoleWarnSpy).toHaveBeenCalled();
-      
-      consoleWarnSpy.mockRestore();
+    it('paymentTotals が undefined で fallbackCashAmount も無い場合、空Map + NO_FALLBACK issue', () => {
+      const result = distributePaymentMethodsWithIssues(undefined);
+
+      expect(result.paymentTotalsMap.size).toBe(0);
+      expect(result.issues).toEqual([{ kind: 'PAYMENT_TOTALS_EMPTY_NO_FALLBACK' }]);
     });
 
-    it('有効な method はそのまま使用', () => {
-      const result = distributePaymentMethods({
+    it('有効な method はそのまま使用（issue なし）', () => {
+      const result = distributePaymentMethodsWithIssues({
         cash: 1000,
         credit_card: 2000,
         pointA: 500,
       });
-      
-      expect(result.size).toBe(3);
-      expect(result.get('cash')).toBe(1000);
-      expect(result.get('credit_card')).toBe(2000);
-      expect(result.get('pointA')).toBe(500);
+
+      expect(result.paymentTotalsMap.size).toBe(3);
+      expect(result.paymentTotalsMap.get('cash')).toBe(1000);
+      expect(result.paymentTotalsMap.get('credit_card')).toBe(2000);
+      expect(result.paymentTotalsMap.get('pointA')).toBe(500);
+      expect(result.issues).toEqual([]);
     });
 
-    it('複数の無効methodが cash に寄せられる', () => {
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-      
-      const result = distributePaymentMethods({
-        cash: 1000,
-        invalid1: 200,
-        invalid2: 300,
-      }, {
-        validMethods: ['cash', 'credit_card'],
+    it('複数の無効methodが cash に寄せられる（invalidMethodCount は無効キー数）', () => {
+      const result = distributePaymentMethodsWithIssues(
+        {
+          cash: 1000,
+          invalid1: 200,
+          invalid2: 300,
+        },
+        {
+          validMethods: ['cash', 'credit_card'],
+        }
+      );
+
+      expect(result.paymentTotalsMap.size).toBe(1);
+      expect(result.paymentTotalsMap.get('cash')).toBe(1500);
+      expect(result.issues).toContainEqual({
+        kind: 'PAYMENT_TOTALS_INVALID_METHODS_NORMALIZED',
+        invalidMethodCount: 2,
       });
-      
-      expect(result.size).toBe(1);
-      expect(result.get('cash')).toBe(1500); // 1000 + 200 + 300
-      expect(consoleWarnSpy).toHaveBeenCalled();
-      
-      consoleWarnSpy.mockRestore();
     });
 
     it('amount <= 0 は無視される', () => {
-      const result = distributePaymentMethods({
+      const result = distributePaymentMethodsWithIssues({
         cash: 1000,
         credit_card: 0,
         pointA: -100,
       });
-      
-      expect(result.size).toBe(1);
-      expect(result.get('cash')).toBe(1000);
-      expect(result.has('credit_card')).toBe(false);
-      expect(result.has('pointA')).toBe(false);
+
+      expect(result.paymentTotalsMap.size).toBe(1);
+      expect(result.paymentTotalsMap.get('cash')).toBe(1000);
+      expect(result.paymentTotalsMap.has('credit_card')).toBe(false);
+      expect(result.paymentTotalsMap.has('pointA')).toBe(false);
+    });
+  });
+
+  describe('distributePaymentMethods (Map のみ)', () => {
+    it('互換: WithIssues と同じ Map', () => {
+      const full = distributePaymentMethodsWithIssues(undefined, {
+        fallbackCashAmount: 100,
+      });
+      const mapOnly = distributePaymentMethods(undefined, { fallbackCashAmount: 100 });
+      expect(mapOnly.size).toBe(full.paymentTotalsMap.size);
+      expect([...mapOnly.entries()].sort()).toEqual([...full.paymentTotalsMap.entries()].sort());
     });
   });
 
   describe('calculateCategoryAmounts', () => {
     it('categoryBreakdown から items/extraCost/sideGameChips/tournaments が正しく map される（キーの単複一致も含む）', () => {
-
       const billData = {
         categoryBreakdown: {
           items: 1000,
           extraCost: 500,
-          sideGameChips: 300, // 複数形
+          sideGameChips: 300,
           tournaments: 200,
         },
       };
@@ -126,12 +149,11 @@ describe('analytics helpers', () => {
 
       expect(result.get('items')).toBe(1000);
       expect(result.get('extraCost')).toBe(500);
-      expect(result.get('sideGameChip')).toBe(300); // 単数形にマップ
+      expect(result.get('sideGameChip')).toBe(300);
       expect(result.get('tournaments')).toBe(200);
     });
 
     it('categoryBreakdown が欠損している場合は空Mapを返す', () => {
-
       const billData = {};
 
       const result = calculateCategoryAmounts(billData);
@@ -140,13 +162,10 @@ describe('analytics helpers', () => {
     });
 
     it('categoryBreakdown の一部が欠損している場合も正しく処理', () => {
-
       const billData = {
         categoryBreakdown: {
           items: 1000,
-          // extraCost は欠損
           sideGameChips: 300,
-          // tournaments は欠損
         },
       };
 
@@ -159,4 +178,3 @@ describe('analytics helpers', () => {
     });
   });
 });
-

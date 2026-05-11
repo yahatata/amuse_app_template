@@ -1,6 +1,6 @@
 /**
  * Analytics Monthly 更新用共通関数
- * 
+ *
  * 1つの bill に対する analyticsMonthly 更新を原子的に実行する。
  * トランザクション内で marker チェック・作成、事前読み取り、更新を実施する。
  */
@@ -12,22 +12,116 @@ import { addToDailySummary } from './addToDailySummary';
 import { addToByCategory } from './addToByCategory';
 import { addToByTemplateTournaments } from './addToByTemplateTournaments';
 import { addToByUser } from './addToByUser';
+import {
+  calculateCategoryAmounts,
+  distributePaymentMethodsWithIssues,
+  type PaymentDistributionIssue,
+} from './helpers';
+import { logOpsError } from '../../../shared/logging/logOpsError';
+
+/** analytics 集計ログの functionEntry は export 名（トリガ／Callable）に合わせる */
+export type AnalyticsLogInvocation = {
+  functionEntry: 'billsOnSettle' | 'migrateSettledBillsForBusinessDay';
+};
+
+const ANALYTICS_VALID_PAYMENT_METHODS = [
+  'cash',
+  'credit_card',
+  'electronic_money',
+  'pointA',
+  'pointB',
+  'sideGameChip',
+];
+
+type AnalyticsTxnOutcome =
+  | { applied: false }
+  | {
+      applied: true;
+      issues: PaymentDistributionIssue[];
+      logBase: {
+        functionEntry: AnalyticsLogInvocation['functionEntry'];
+        billId: string;
+        month: string;
+        businessDate: string;
+        grossSales: number;
+        grandTotalRounded: number | null;
+        partyUserId: string | null;
+      };
+    };
+
+function logPaymentDistributionIssuesOnce(
+  issues: PaymentDistributionIssue[],
+  base: {
+    functionEntry: AnalyticsLogInvocation['functionEntry'];
+    billId: string;
+    month: string;
+    businessDate: string;
+    grossSales: number;
+    grandTotalRounded: number | null;
+    partyUserId: string | null;
+  }
+): void {
+  const analyticsStep = 'processBillAnalyticsAtomically';
+  for (const issue of issues) {
+    const commonCtx = {
+      functionEntry: base.functionEntry,
+      analyticsStep,
+      billId: base.billId,
+      month: base.month,
+      businessDate: base.businessDate,
+      grossSales: base.grossSales,
+      grandTotalRounded: base.grandTotalRounded,
+      partyUserId: base.partyUserId,
+    };
+    switch (issue.kind) {
+      case 'PAYMENT_TOTALS_EMPTY_WITH_FALLBACK':
+        logger.warn(
+          'analytics: paymentTotals が空のためフォールバック金額で支払い方法別配賦を継続しました',
+          {
+            ...commonCtx,
+            operation: 'analyticsPaymentTotalsEmptyWithFallback',
+            fallbackCashAmount: issue.fallbackCashAmount,
+          }
+        );
+        break;
+      case 'PAYMENT_TOTALS_EMPTY_NO_FALLBACK':
+        logOpsError({
+          message:
+            'analytics: paymentTotals が空でフォールバックもなく、支払い方法別集計が欠落する可能性があります（売上カテゴリは別経路で計上）',
+          functionEntry: base.functionEntry,
+          operation: 'analyticsPaymentTotalsEmptyNoFallback',
+          errorKey: 'ANALYTICS_PAYMENT_TOTALS_EMPTY_NO_FALLBACK',
+          context: commonCtx,
+          cause: new Error('payment_totals_empty_no_fallback'),
+        });
+        break;
+      case 'PAYMENT_TOTALS_INVALID_METHODS_NORMALIZED':
+        logger.warn('analytics: 無効な支払い方法キーを cash に正規化しました', {
+          ...commonCtx,
+          operation: 'analyticsPaymentTotalsInvalidMethodsNormalized',
+          invalidMethodCount: issue.invalidMethodCount,
+        });
+        break;
+    }
+  }
+}
 
 /**
  * 1つの bill に対する analyticsMonthly 更新を原子的に実行
- * 
+ *
  * 処理内容:
  * 1. トランザクション内で marker をチェック（存在するなら no-op return）
  * 2. analyticsMonthly の必要参照を tx.get で事前読み取り
  * 3. 旧スキーマ更新: addToMonthlyIndex/addToDailySummary/addToByCategory/addToByTemplateTournaments/addToByUser を呼ぶ
  * 4. marker を作成（トランザクション内で必ず実施、tx.create を使用）
- * 
+ *
  * @param db Firestore インスタンス
  * @param params 更新パラメータ
  * @param params.month 月次キー（YYYY-MM 形式）
  * @param params.businessDate 営業日（YYYY-MM-DD 形式）
  * @param params.billId 伝票ID（bills コレクションのドキュメントID、docId）
  * @param params.billData bills 親ドキュメントのデータ（categoryBreakdown, paymentTotals, itemsSnapshot, tournamentsSnapshot, party 等を含む）
+ * @param params.logInvocation functionEntry は billsOnSettle / migrateSettledBillsForBusinessDay のいずれか（内部関数名は context.analyticsStep に載せない）
  * @returns Promise<void>
  */
 export async function processBillAnalyticsAtomically(
@@ -37,9 +131,10 @@ export async function processBillAnalyticsAtomically(
     businessDate: string;
     billId: string;
     billData: any;
+    logInvocation: AnalyticsLogInvocation;
   }
 ): Promise<void> {
-  const { month, businessDate, billId, billData } = params;
+  const { month, businessDate, billId, billData, logInvocation } = params;
 
   // 参照を準備
   const monthlyRef = db.collection('analyticsMonthly').doc(month);
@@ -56,14 +151,14 @@ export async function processBillAnalyticsAtomically(
     const tournamentData = tournamentsSnapshot[key];
     return tournamentData && typeof tournamentData === 'object';
   });
-  const templateRefs = templateKeys.map(key => 
+  const templateRefs = templateKeys.map(key =>
     monthlyRef.collection('byTemplateTournaments').doc(key)
   );
 
-  // トランザクション開始
-  await db.runTransaction(async (tx) => {
+  // トランザクション開始（リトライ時に warn/Ops が二重にならないよう、ログはコミット成功後にのみ行う）
+  const outcome = await db.runTransaction(async (tx): Promise<AnalyticsTxnOutcome> => {
     // --- READ phase ---
-    
+
     // 1. marker チェック（存在するなら早期 return）
     const markerDoc = await tx.get(markerRef);
     if (markerDoc.exists) {
@@ -73,7 +168,7 @@ export async function processBillAnalyticsAtomically(
         businessDate,
         markerPath: markerRef.path,
       });
-      return;  // 既に処理済み → no-op
+      return { applied: false };
     }
 
     logger.info('processBillAnalyticsAtomically: starting analytics update', {
@@ -99,19 +194,57 @@ export async function processBillAnalyticsAtomically(
     const byUserDoc = byUserRef ? results[idx++] : undefined;
     const templateDocs = results.slice(idx);
 
+    // 配賦結果のログはトランザクション成功後に 1 回だけ（リトライでの二重出力を避ける）
+    const categoryAmounts = calculateCategoryAmounts(billData);
+    const grossSales = Array.from(categoryAmounts.values()).reduce((sum, amount) => sum + amount, 0);
+    const grandTotalRoundedRaw = billData.amounts?.grandTotalRounded;
+    const grandTotalRounded =
+      typeof grandTotalRoundedRaw === 'number' ? grandTotalRoundedRaw : null;
+    const fallbackCashAmount = billData.amounts?.grandTotalRounded || grossSales;
+
+    const distResult = distributePaymentMethodsWithIssues(billData.paymentTotals, {
+      fallbackCashAmount,
+      validMethods: [...ANALYTICS_VALID_PAYMENT_METHODS],
+    });
+
     // --- WRITE phase ---
-    
-    // 3. 旧スキーマ更新（既存の addTo* 関数を使用）
-    const monthlyIndexInfo = await addToMonthlyIndex(tx, month, billData, businessDate, monthlyDoc);
-    const dailySummaryInfo = await addToDailySummary(tx, month, businessDate, billData, dailyDoc);
+
+    const monthlyIndexInfo = await addToMonthlyIndex(
+      tx,
+      month,
+      billData,
+      businessDate,
+      distResult.paymentTotalsMap,
+      monthlyDoc
+    );
+    const dailySummaryInfo = await addToDailySummary(
+      tx,
+      month,
+      businessDate,
+      billData,
+      distResult.paymentTotalsMap,
+      dailyDoc
+    );
     const byCategoryInfo = await addToByCategory(tx, month, billData, byCategoryDoc);
-    const byTemplateTournamentsInfos = await addToByTemplateTournaments(tx, month, businessDate, billData, templateDocs);
-    const byUserInfo = byUserDoc ? await addToByUser(tx, month, businessDate, billData, byUserDoc) : null;
+    const byTemplateTournamentsInfos = await addToByTemplateTournaments(
+      tx,
+      month,
+      businessDate,
+      billData,
+      templateDocs
+    );
+    const byUserInfo = byUserDoc
+      ? await addToByUser(
+          tx,
+          month,
+          businessDate,
+          billData,
+          distResult.paymentTotalsMap,
+          byUserDoc
+        )
+      : null;
 
     // 4. marker 作成（トランザクション内で必ず実施、初回のみ作成を保証）
-    // tx.create を使用する（既存ドキュメントが存在する場合にエラーになるため、「初回のみ作成」という意図を明確に表現）
-    // 上記の tx.get(markerRef) で存在確認済みで、存在する場合は早期 return しているため、
-    // この時点では marker が存在しないことが保証されているため、tx.create は必ず成功する
     tx.create(markerRef, {
       billId,
       businessDate,
@@ -140,10 +273,9 @@ export async function processBillAnalyticsAtomically(
       },
     };
 
-    // byTemplateTournaments の更新内容を追加
     if (byTemplateTournamentsInfos.length > 0) {
       const tournamentsUpdates: Record<string, any> = {};
-      byTemplateTournamentsInfos.forEach((info) => {
+      byTemplateTournamentsInfos.forEach(info => {
         tournamentsUpdates[info.documentId] = {
           templateKey: info.templateKey,
           templateName: info.templateName,
@@ -151,10 +283,10 @@ export async function processBillAnalyticsAtomically(
           updatedFields: info.updatedFields,
         };
       });
-      allUpdates[`${byTemplateTournamentsInfos[0].collection}/${byTemplateTournamentsInfos[0].subcollection}`] = tournamentsUpdates;
+      allUpdates[`${byTemplateTournamentsInfos[0].collection}/${byTemplateTournamentsInfos[0].subcollection}`] =
+        tournamentsUpdates;
     }
 
-    // byUser の更新内容を追加
     if (byUserInfo) {
       allUpdates[`${byUserInfo.collection}/${byUserInfo.subcollection}`] = {
         [byUserInfo.documentId]: {
@@ -166,7 +298,6 @@ export async function processBillAnalyticsAtomically(
       };
     }
 
-    // marker の作成情報を追加
     allUpdates[`${monthlyIndexInfo.collection}/aggregationMarkers`] = {
       [billId]: {
         billId,
@@ -175,14 +306,31 @@ export async function processBillAnalyticsAtomically(
       },
     };
 
-    // 1つのログにすべての更新内容を出力
     logger.info('processBillAnalyticsAtomically: analyticsMonthly updates', {
       billId,
       month,
       businessDate,
       updates: allUpdates,
     });
+
+    return {
+      applied: true,
+      issues: distResult.issues,
+      logBase: {
+        functionEntry: logInvocation.functionEntry,
+        billId,
+        month,
+        businessDate,
+        grossSales,
+        grandTotalRounded,
+        partyUserId: typeof userId === 'string' ? userId : null,
+      },
+    };
   });
+
+  if (outcome.applied) {
+    logPaymentDistributionIssuesOnce(outcome.issues, outcome.logBase);
+  }
 
   logger.info('processBillAnalyticsAtomically: analytics update completed', {
     billId,

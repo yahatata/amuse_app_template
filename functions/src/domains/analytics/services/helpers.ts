@@ -20,7 +20,7 @@ export function resolveBusinessDate(createdAt: Date, storeCloseHour: number): st
 
   // storeCloseHour を正規化（24以上は翌日繰り上がり、24で割った余りを使用）
   const normalizedHour = storeCloseHour % 24;
-  
+
   // 現在時刻が店舗締め時間より前の場合は前日の営業日
   if (jstDate.getUTCHours() < normalizedHour) {
     // 前日の日付を取得（JST基準）
@@ -38,65 +38,95 @@ export function resolveBusinessDate(createdAt: Date, storeCloseHour: number): st
   }
 }
 
+export type PaymentDistributionIssueKind =
+  | 'PAYMENT_TOTALS_EMPTY_WITH_FALLBACK'
+  | 'PAYMENT_TOTALS_EMPTY_NO_FALLBACK'
+  | 'PAYMENT_TOTALS_INVALID_METHODS_NORMALIZED';
+
+export interface PaymentDistributionIssue {
+  kind: PaymentDistributionIssueKind;
+  invalidMethodCount?: number;
+  fallbackCashAmount?: number;
+}
+
+export interface DistributePaymentMethodsResult {
+  paymentTotalsMap: Map<string, number>;
+  issues: PaymentDistributionIssue[];
+}
+
+const DEFAULT_VALID_METHODS = [
+  'cash',
+  'credit_card',
+  'electronic_money',
+  'pointA',
+  'pointB',
+  'sideGameChip',
+] as const;
+
 /**
- * 支払い方法の配賦を計算する
+ * 支払い方法の配賦を計算し、フォールバック・正規化の issue を返す（ログは呼び出し側）
+ */
+export function distributePaymentMethodsWithIssues(
+  paymentTotals: Record<string, number> | undefined | null,
+  opts?: { fallbackCashAmount?: number; validMethods?: string[] }
+): DistributePaymentMethodsResult {
+  const paymentTotalsMap = new Map<string, number>();
+  const issues: PaymentDistributionIssue[] = [];
+
+  const validMethods = opts?.validMethods ?? [...DEFAULT_VALID_METHODS];
+  const defaultPaymentMethod = 'cash';
+
+  if (!paymentTotals || typeof paymentTotals !== 'object' || Object.keys(paymentTotals).length === 0) {
+    const fb = opts?.fallbackCashAmount;
+    if (fb != null && fb > 0) {
+      paymentTotalsMap.set(defaultPaymentMethod, fb);
+      issues.push({
+        kind: 'PAYMENT_TOTALS_EMPTY_WITH_FALLBACK',
+        fallbackCashAmount: fb,
+      });
+    } else {
+      issues.push({ kind: 'PAYMENT_TOTALS_EMPTY_NO_FALLBACK' });
+    }
+    return { paymentTotalsMap, issues };
+  }
+
+  let invalidMethodCount = 0;
+  for (const [method, amount] of Object.entries(paymentTotals)) {
+    if (amount <= 0) {
+      continue;
+    }
+
+    if (validMethods.includes(method)) {
+      paymentTotalsMap.set(method, (paymentTotalsMap.get(method) || 0) + amount);
+    } else {
+      paymentTotalsMap.set(
+        defaultPaymentMethod,
+        (paymentTotalsMap.get(defaultPaymentMethod) || 0) + amount
+      );
+      invalidMethodCount++;
+    }
+  }
+
+  if (invalidMethodCount > 0) {
+    issues.push({
+      kind: 'PAYMENT_TOTALS_INVALID_METHODS_NORMALIZED',
+      invalidMethodCount,
+    });
+  }
+
+  return { paymentTotalsMap, issues };
+}
+
+/**
+ * 支払い方法の配賦を計算する（互換: Map のみ返す）
  * @param paymentTotals bills 親ドキュメントの paymentTotals（既に配賦済み）
  * @param opts オプション（fallbackCashAmount, validMethods）
- * @returns 支払い方法別金額
  */
 export function distributePaymentMethods(
   paymentTotals: Record<string, number> | undefined | null,
   opts?: { fallbackCashAmount?: number; validMethods?: string[] }
 ): Map<string, number> {
-  const paymentTotalsMap = new Map<string, number>();
-  
-  // 有効な支払い方法のリスト（デフォルト）
-  const validMethods = opts?.validMethods || ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'];
-  const defaultPaymentMethod = 'cash';
-  
-  // paymentTotals が null/undefined/空の場合
-  if (!paymentTotals || typeof paymentTotals !== 'object' || Object.keys(paymentTotals).length === 0) {
-    if (opts?.fallbackCashAmount && opts.fallbackCashAmount > 0) {
-      // fallbackCashAmount がある場合は cash に配賦
-      paymentTotalsMap.set(defaultPaymentMethod, opts.fallbackCashAmount);
-      console.warn('distributePaymentMethods: paymentTotals is empty, using fallbackCashAmount', {
-        fallbackCashAmount: opts.fallbackCashAmount,
-      });
-    } else {
-      // fallbackCashAmount も無い場合は空Mapを返す（警告のみ）
-      console.warn('distributePaymentMethods: paymentTotals is empty and no fallbackCashAmount provided');
-    }
-    return paymentTotalsMap;
-  }
-  
-  // paymentTotals がある場合
-  let invalidMethodCount = 0;
-  for (const [method, amount] of Object.entries(paymentTotals)) {
-    if (amount <= 0) {
-      // amount <= 0 は無視
-      continue;
-    }
-    
-    // validMethods チェック
-    if (validMethods.includes(method)) {
-      // 有効な method はそのまま使用
-      paymentTotalsMap.set(method, (paymentTotalsMap.get(method) || 0) + amount);
-    } else {
-      // 無効な method は cash に加算（正規化）
-      paymentTotalsMap.set(defaultPaymentMethod, (paymentTotalsMap.get(defaultPaymentMethod) || 0) + amount);
-      invalidMethodCount++;
-    }
-  }
-  
-  // 無効methodをcashへ寄せた場合は警告
-  if (invalidMethodCount > 0) {
-    console.warn('distributePaymentMethods: invalid methods normalized to cash', {
-      invalidMethodCount,
-      validMethods,
-    });
-  }
-  
-  return paymentTotalsMap;
+  return distributePaymentMethodsWithIssues(paymentTotals, opts).paymentTotalsMap;
 }
 
 /**
@@ -108,14 +138,14 @@ export function calculateTournamentSales(tournamentData: any): number {
   if (!tournamentData || typeof tournamentData !== 'object') {
     return 0;
   }
-  
+
   const entryFee = tournamentData.entryFee || 0;
   const reentryCount = tournamentData.reentryCount || 0;
   const reentryFee = tournamentData.reentryFee || 0;
   const addonCount = tournamentData.addonCount || 0;
   const addonFee = tournamentData.addonFee || 0;
-  
-  return entryFee + (reentryFee * reentryCount) + (addonFee * addonCount);
+
+  return entryFee + reentryFee * reentryCount + addonFee * addonCount;
 }
 
 /**
@@ -146,29 +176,29 @@ export function safeMapUpdate(map: Map<string, number>, key: string, value: numb
  */
 export function calculateCategoryAmounts(billData: any): Map<string, number> {
   const categoryAmounts = new Map<string, number>();
-  
+
   // categoryBreakdown を直接参照（bills 親スナップショット）
   const categoryBreakdown = billData.categoryBreakdown || {};
-  
+
   // items
   if (categoryBreakdown.items) {
     categoryAmounts.set('items', categoryBreakdown.items);
   }
-  
+
   // sideGameChip (categoryBreakdown.sideGameChips → analyticsキーは sideGameChip（単数）にマップ)
   if (categoryBreakdown.sideGameChips) {
     categoryAmounts.set('sideGameChip', categoryBreakdown.sideGameChips);
   }
-  
+
   // extraCost
   if (categoryBreakdown.extraCost) {
     categoryAmounts.set('extraCost', categoryBreakdown.extraCost);
   }
-  
+
   // tournaments
   if (categoryBreakdown.tournaments) {
     categoryAmounts.set('tournaments', categoryBreakdown.tournaments);
   }
-  
+
   return categoryAmounts;
 }
