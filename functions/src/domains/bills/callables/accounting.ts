@@ -5,12 +5,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { startAccounting as startAccountingHelper } from '../repos/startAccounting';
 import * as crypto from 'crypto';
 import { getFirestore } from 'firebase-admin/firestore';
-import {
-  getStoreConfigForExecution,
-  StoreConfigDocumentMissingError,
-  StoreConfigReadFailedError,
-  STORE_CONFIG_EXECUTION_ERROR_KEYS,
-} from '../../../shared/config/configLoader';
+import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
@@ -145,34 +140,7 @@ export const startAccounting = onCall(async (request) => {
     const idempotencyKey = providedIdempotencyKey || 
       `${billId}:startAccounting:${clientNonce || crypto.randomUUID()}`;
 
-    let storeConfig;
-    try {
-      storeConfig = await getStoreConfigForExecution({
-        functionEntry: 'startAccounting',
-        operation: 'loadStoreConfigForAccountingStart',
-        action: 'stop_accounting_start_without_store_config',
-        context: {
-          billId,
-          storeConfigKeyGroup: 'billing.sideGameChipRate',
-        },
-      });
-    } catch (e) {
-      if (e instanceof StoreConfigDocumentMissingError) {
-        throw new HttpsError(
-          'failed-precondition',
-          '店舗設定を確認できないため、会計開始処理を実行できません。管理者に店舗設定の確認を依頼してください。',
-          { errorKey: STORE_CONFIG_EXECUTION_ERROR_KEYS.DOCUMENT_MISSING }
-        );
-      }
-      if (e instanceof StoreConfigReadFailedError) {
-        throw new HttpsError(
-          'unavailable',
-          '店舗設定の読み取りに失敗しました。時間をおいて再度お試しください。',
-          { errorKey: STORE_CONFIG_EXECUTION_ERROR_KEYS.READ_FAILED }
-        );
-      }
-      throw e;
-    }
+    const storeConfig = await getStoreConfig();
     const chipRate = storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
 
     // startAccounting ヘルパAPIを呼び出して bills のステータスとops更新

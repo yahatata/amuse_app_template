@@ -38,26 +38,6 @@ import type { PayrollConfig, ExpectedRange, RoundingMethod } from './payrollConf
 
 const MAX_RETRIES = 2;
 
-/** storeMeta/payrollConfig が存在しないとき、給与実行系が送出する（通常の getPayrollConfig は引き続き default にフォールバック） */
-export class PayrollConfigDocumentMissingError extends Error {
-  override readonly name = 'PayrollConfigDocumentMissingError';
-
-  constructor() {
-    super('payroll_config_document_missing');
-    Object.setPrototypeOf(this, new.target.prototype);
-  }
-}
-
-/** 給与実行用の読み取りがリトライ後も失敗したときに送出する */
-export class PayrollConfigReadFailedError extends Error {
-  override readonly name = 'PayrollConfigReadFailedError';
-
-  constructor(readonly readCause?: unknown) {
-    super('payroll_config_read_failed');
-    Object.setPrototypeOf(this, new.target.prototype);
-  }
-}
-
 const VALID_ROUNDING_METHODS: RoundingMethod[] = ['ceil', 'floor', 'round'];
 const VALID_ROUNDING_PRECISIONS = [1, 10, 100, 1000];
 const VALID_PAYMENT_MONTH_OFFSETS = [0, 1, 2] as const;
@@ -163,76 +143,6 @@ export async function getPayrollConfig(db?: Firestore): Promise<PayrollConfig> {
     }
   }
   return buildPayrollConfigFromDefaults();
-}
-
-/**
- * 給与計算実行（run 作成・snapshot・task 投入）向け。
- * - doc 欠落時: logOpsError のうえ PayrollConfigDocumentMissingError を throw（default へはフォールバックしない）
- * - 読取失敗（リトライ後）: logOpsError のうえ PayrollConfigReadFailedError を throw（default へはフォールバックしない）
- *
- * 画面表示・通知・attendance 付与などは従来どおり {@link getPayrollConfig} を使用すること。
- */
-export async function getPayrollConfigForPayrollExecution(
-  params: {
-    functionEntry: string;
-    operation: string;
-    context?: Record<string, unknown>;
-  },
-  db?: Firestore
-): Promise<PayrollConfig> {
-  const firestore = db ?? getFirestore();
-  const docRef = firestore.collection('storeMeta').doc('payrollConfig');
-
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        logOpsError({
-          message: 'payroll_config_document_missing: payroll execution stopped',
-          functionEntry: params.functionEntry,
-          operation: params.operation,
-          errorSource: 'function_custom',
-          errorKey: 'PAYROLL_CONFIG_DOCUMENT_MISSING',
-          cause: new Error('payroll_config_document_missing'),
-          sourceProductHint: 'firestore',
-          context: {
-            configDocPath: 'storeMeta/payrollConfig',
-            action: 'stop_payroll_execution',
-            reason: 'payroll_config_document_missing',
-            ...params.context,
-          },
-        });
-        throw new PayrollConfigDocumentMissingError();
-      }
-      const data = doc.data() as Record<string, unknown> | undefined;
-      return mergePayrollConfigWithDefaults(data ?? {});
-    } catch (err) {
-      if (err instanceof PayrollConfigDocumentMissingError) {
-        throw err;
-      }
-      lastError = err;
-      if (attempt < MAX_RETRIES) {
-        continue;
-      }
-      logOpsError({
-        message: 'config_read_error',
-        functionEntry: params.functionEntry,
-        operation: params.operation,
-        cause: lastError,
-        sourceProductHint: 'firestore',
-        context: {
-          code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-          reason: 'read_error',
-          message: String(lastError instanceof Error ? lastError.message : lastError),
-          action: 'stop_payroll_execution',
-          ...params.context,
-        },
-      });
-      throw new PayrollConfigReadFailedError(lastError);
-    }
-  }
-  throw new PayrollConfigReadFailedError(undefined);
 }
 
 export function buildPayrollConfigFromDefaults(): PayrollConfig {

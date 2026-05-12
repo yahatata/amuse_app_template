@@ -12,11 +12,7 @@ import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 
-import {
-  getStoreConfigForExecution,
-  StoreConfigDocumentMissingError,
-  StoreConfigReadFailedError,
-} from '../../../shared/config/configLoader';
+import { getStoreConfig } from '../../../shared/config/configLoader';
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
 import {
   getPaymentPeriodKey,
@@ -68,40 +64,10 @@ export const attendanceOnWrite = onDocumentWritten(
 
     // 再処理導線（未確定）: config 復旧後に paymentPeriodKey / weekday / weekStartDate を一括補正する手段は未実装。
     // 欠落期間の attendances はここでは再試行されないため、必要なら別バッチや管理操作での是正を検討する。
-    let config;
-    try {
-      config = await getStoreConfigForExecution({
-        functionEntry: 'attendanceOnWrite',
-        operation: 'loadStoreConfigForAttendancePeriodKeyWrite',
-        action: 'stop_attendance_payment_period_patch',
-        context: {
-          attendanceId: event.params.attendanceId,
-          date,
-          storeConfigKeyGroup: 'payrollPeriod',
-        },
-      });
-    } catch (e) {
-      if (
-        e instanceof StoreConfigDocumentMissingError ||
-        e instanceof StoreConfigReadFailedError
-      ) {
-        const reason =
-          e instanceof StoreConfigDocumentMissingError ?
-            'store_config_document_missing' :
-            'store_config_read_error_after_retries';
-        logger.warn(
-          'attendanceOnWrite: skipped paymentPeriodKey patch because store config unavailable',
-          {
-            attendanceId: event.params.attendanceId,
-            reason,
-          }
-        );
-        return;
-      }
-      throw e;
-    }
-
-    const payrollConfig = await getPayrollConfig();
+    const [config, payrollConfig] = await Promise.all([
+      getStoreConfig(),
+      getPayrollConfig(),
+    ]);
 
     const startDay = config.payroll?.startDay ?? DEFAULT_PAYROLL_START_DAY;
     const endDay = config.payroll?.endDay ?? DEFAULT_PAYROLL_END_DAY;

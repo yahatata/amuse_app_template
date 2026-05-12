@@ -15,8 +15,6 @@ import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { billsOnSettle } from '../../src/domains/bills/triggers/billsOnSettle';
-import { seedStoreMetaConfigDocExists } from '../helpers/seedStoreMetaConfig';
-
 describe('bills.onSettle', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
@@ -47,7 +45,6 @@ describe('bills.onSettle', () => {
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
-    await seedStoreMetaConfigDocExists(db);
   });
 
   // テスト用ヘルパ: 最小構成のbillを作成
