@@ -13,11 +13,7 @@ import * as admin from 'firebase-admin';
 import { logger } from 'firebase-functions';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { cleanupIdempotencyOnSettle } from '../services/onSettleCleanupIdempotency';
-import {
-  getStoreConfigForExecution,
-  StoreConfigDocumentMissingError,
-  StoreConfigReadFailedError,
-} from '../../../shared/config/configLoader';
+import { getStoreConfig } from '../../../shared/config/configLoader';
 import {
   calculateAmounts,
   calculateCategoryBreakdown,
@@ -100,35 +96,7 @@ export const billsOnSettle = onDocumentUpdated(
     try {
       // 再処理導線（未確定）: storeMeta/config 復旧後も settled への同一遷移では再発火しないため、
       // amounts/categoryBreakdown 等が未生成のまま残りうる。バックフィル用の別 Callable・バッチの要否は運用設計とする。
-      let storeConfig;
-      try {
-        storeConfig = await getStoreConfigForExecution({
-          functionEntry: 'billsOnSettle',
-          operation: 'loadStoreConfigForSettlementSnapshot',
-          action: 'stop_settled_bill_snapshot_and_settlement_enqueue',
-          context: {
-            billId,
-            businessDate: afterData.businessDate ?? null,
-            storeConfigKeyGroup: 'billing,features.settlementAggregatorEnabled',
-          },
-        });
-      } catch (e) {
-        if (
-          e instanceof StoreConfigDocumentMissingError ||
-          e instanceof StoreConfigReadFailedError
-        ) {
-          const reason =
-            e instanceof StoreConfigDocumentMissingError ?
-              'store_config_document_missing' :
-              'store_config_read_error_after_retries';
-          logger.warn(
-            'billsOnSettle: skipped settlement snapshot because store config unavailable',
-            { billId, reason }
-          );
-          return;
-        }
-        throw e;
-      }
+      const storeConfig = await getStoreConfig();
       const chipRate = storeConfig.billing?.sideGameChipRate;
 
       const [itemsSnapshot, extrasSnapshot, sideGameChipsSnapshot, tournamentsSnapshot, paymentsSnapshot] = await Promise.all([

@@ -4,12 +4,12 @@ import type {
   SchedulerJobConfig,
   SchedulerJobKey,
 } from '../../src/shared/config/schedulerConfigTypes';
-import { loadSchedulerConfigForTaskGeneration } from '../../src/shared/config/schedulerConfigLoader';
+import { getSchedulerConfig } from '../../src/shared/config/schedulerConfigLoader';
 import { getRequiredProjectId } from '../../src/shared/runtime/projectId';
 import { writeSchedulerDispatchLogBestEffort } from '../../src/domains/scheduler/supervisor/schedulerLogs';
 
 jest.mock('../../src/shared/config/schedulerConfigLoader', () => ({
-  loadSchedulerConfigForTaskGeneration: jest.fn(),
+  getSchedulerConfig: jest.fn(),
 }));
 
 jest.mock('../../src/shared/runtime/projectId', () => ({
@@ -55,10 +55,9 @@ function createSchedulerConfigWithSingleJob(
 }
 
 describe('schedulerSupervisorCore', () => {
-  const mockLoadSchedulerConfigForTaskGeneration =
-    loadSchedulerConfigForTaskGeneration as jest.MockedFunction<
-      typeof loadSchedulerConfigForTaskGeneration
-    >;
+  const mockGetSchedulerConfig = getSchedulerConfig as jest.MockedFunction<
+    typeof getSchedulerConfig
+  >;
   const mockGetRequiredProjectId = getRequiredProjectId as jest.MockedFunction<
     typeof getRequiredProjectId
   >;
@@ -71,27 +70,9 @@ describe('schedulerSupervisorCore', () => {
     mockGetRequiredProjectId.mockReturnValue('test-project');
   });
 
-  it('schedulerConfig が読めない場合は stoppedReason を返して enqueue しない', async () => {
-    mockLoadSchedulerConfigForTaskGeneration.mockResolvedValue({
-      ok: false,
-      reason: 'document_missing',
-    });
-
-    const enqueue = jest.fn();
-    const result = await runSchedulerSupervisorCore(
-      { enqueue },
-      new Date('2026-04-01T00:30:00.000Z')
-    );
-
-    expect(result.stoppedReason).toBe('scheduler_config_document_missing');
-    expect(result.enqueuedCount).toBe(0);
-    expect(enqueue).not.toHaveBeenCalled();
-  });
-
   it('supervisorEnabled=false の場合は task を投入しない', async () => {
-    mockLoadSchedulerConfigForTaskGeneration.mockResolvedValue({
-      ok: true,
-      config: createSchedulerConfigWithSingleJob(
+    mockGetSchedulerConfig.mockResolvedValue(
+      createSchedulerConfigWithSingleJob(
         'scheduledCleanup',
         {
           enabled: true,
@@ -100,8 +81,8 @@ describe('schedulerSupervisorCore', () => {
           timezone: 'Asia/Tokyo',
         },
         { supervisorEnabled: false }
-      ),
-    });
+      )
+    );
 
     const enqueue = jest.fn().mockResolvedValue(undefined);
     const result = await runSchedulerSupervisorCore(
@@ -117,15 +98,14 @@ describe('schedulerSupervisorCore', () => {
   });
 
   it('plannedRunAt が過去なら skip ログを残して投入しない', async () => {
-    mockLoadSchedulerConfigForTaskGeneration.mockResolvedValue({
-      ok: true,
-      config: createSchedulerConfigWithSingleJob('scheduledCleanup', {
+    mockGetSchedulerConfig.mockResolvedValue(
+      createSchedulerConfigWithSingleJob('scheduledCleanup', {
         enabled: true,
         scheduleKind: 'daily',
         runAtJst: '03:00',
         timezone: 'Asia/Tokyo',
-      }),
-    });
+      })
+    );
 
     const enqueue = jest.fn().mockResolvedValue(undefined);
     const result = await runSchedulerSupervisorCore(
@@ -146,15 +126,14 @@ describe('schedulerSupervisorCore', () => {
   });
 
   it('投入成功時は enqueued ログを残す', async () => {
-    mockLoadSchedulerConfigForTaskGeneration.mockResolvedValue({
-      ok: true,
-      config: createSchedulerConfigWithSingleJob('scheduledCleanup', {
+    mockGetSchedulerConfig.mockResolvedValue(
+      createSchedulerConfigWithSingleJob('scheduledCleanup', {
         enabled: true,
         scheduleKind: 'daily',
         runAtJst: '23:59',
         timezone: 'Asia/Tokyo',
-      }),
-    });
+      })
+    );
 
     const enqueue = jest.fn().mockResolvedValue(undefined);
     const result = await runSchedulerSupervisorCore(
@@ -175,15 +154,14 @@ describe('schedulerSupervisorCore', () => {
   });
 
   it('ALREADY_EXISTS は skip として継続する', async () => {
-    mockLoadSchedulerConfigForTaskGeneration.mockResolvedValue({
-      ok: true,
-      config: createSchedulerConfigWithSingleJob('scheduledCleanup', {
+    mockGetSchedulerConfig.mockResolvedValue(
+      createSchedulerConfigWithSingleJob('scheduledCleanup', {
         enabled: true,
         scheduleKind: 'daily',
         runAtJst: '23:59',
         timezone: 'Asia/Tokyo',
-      }),
-    });
+      })
+    );
 
     const enqueue = jest.fn().mockRejectedValue({ code: '6', message: 'ALREADY_EXISTS' });
     const result = await runSchedulerSupervisorCore(
@@ -203,15 +181,14 @@ describe('schedulerSupervisorCore', () => {
   });
 
   it('ALREADY_EXISTS 以外の失敗は error ログ後に throw する', async () => {
-    mockLoadSchedulerConfigForTaskGeneration.mockResolvedValue({
-      ok: true,
-      config: createSchedulerConfigWithSingleJob('scheduledCleanup', {
+    mockGetSchedulerConfig.mockResolvedValue(
+      createSchedulerConfigWithSingleJob('scheduledCleanup', {
         enabled: true,
         scheduleKind: 'daily',
         runAtJst: '23:59',
         timezone: 'Asia/Tokyo',
-      }),
-    });
+      })
+    );
 
     const enqueue = jest.fn().mockRejectedValue(new Error('enqueue failed'));
 

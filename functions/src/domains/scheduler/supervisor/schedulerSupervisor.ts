@@ -1,5 +1,4 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { logger } from 'firebase-functions';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { runSchedulerSupervisorCore } from './schedulerSupervisorCore';
 
@@ -15,18 +14,6 @@ export const schedulerSupervisor = onSchedule(
   async () => {
     try {
       const result = await runSchedulerSupervisorCore();
-      if (result.stoppedReason) {
-        logger.warn('schedulerSupervisor: skipped scheduled task generation', {
-          planningDate: result.planningDate,
-          supervisorRunId: result.supervisorRunId,
-          stoppedReason: result.stoppedReason,
-          enqueuedCount: result.enqueuedCount,
-          skippedCount: result.skippedCount,
-          failedCount: result.failedCount,
-        });
-        return;
-      }
-
       logOpsSuccess({
         message: 'schedulerSupervisor 成功',
         functionEntry: 'schedulerSupervisor',

@@ -13,11 +13,7 @@ import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError'
 import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue';
 
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
-import {
-  getPayrollConfigForPayrollExecution,
-  PayrollConfigDocumentMissingError,
-  PayrollConfigReadFailedError,
-} from '../../../shared/config/payrollConfigLoader';
+import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
 import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
 import {
   classifyAttendancesForRun,
@@ -74,45 +70,22 @@ export const executeMonthlyPayroll = onCall(
       }
     }
 
-    // config snapshot 取得（doc 欠落時は default に落とさず停止）
+    // config snapshot 取得
     let payrollConfig;
     try {
-      payrollConfig = await getPayrollConfigForPayrollExecution(
-        {
-          functionEntry: 'executeMonthlyPayroll',
-          operation: 'loadPayrollConfigForPayrollExecution',
-          context: {
-            paymentPeriodKey,
-            attendanceIdsCount: attendanceIds.length,
-          },
-        },
-        db
-      );
+      payrollConfig = await getPayrollConfig(db);
     } catch (configError) {
-      if (configError instanceof PayrollConfigDocumentMissingError) {
-        throw new HttpsError(
-          'failed-precondition',
-          '給与設定（storeMeta/payrollConfig）が未作成のため、給与計算を開始できません。管理者による初期化後に再度お試しください。',
-          PAYROLL_ERRORS.PAYROLL_CONFIG_DOCUMENT_MISSING
-        );
-      }
-      if (configError instanceof PayrollConfigReadFailedError) {
-        throw new HttpsError(
-          'unavailable',
-          '給与設定の読み取りに失敗しました。時間をおいて再度お試しください。'
-        );
-      }
       logOpsError({
-        message: 'executeMonthlyPayroll: payroll config load failed (unexpected)',
+        message: 'executeMonthlyPayroll: payroll config not found',
         functionEntry: 'executeMonthlyPayroll',
-        operation: 'loadPayrollConfigForPayrollExecution',
+        operation: 'loadPayrollConfig',
         cause: configError,
         context: {
           paymentPeriodKey,
           attendanceIdsCount: attendanceIds.length,
         },
       });
-      throw new HttpsError('internal', PAYROLL_ERRORS.PAYROLL_CONFIG_NOT_FOUND);
+      throw new HttpsError('not-found', PAYROLL_ERRORS.PAYROLL_CONFIG_NOT_FOUND);
     }
     // attendance 一括取得
     const attendanceDocs = await Promise.all(

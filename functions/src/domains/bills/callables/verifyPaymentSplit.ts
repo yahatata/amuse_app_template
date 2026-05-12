@@ -3,12 +3,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getFirestore } from 'firebase-admin/firestore';
 import { calculatePaymentSplit } from '../services/paymentSplitCalculator';
-import {
-  getStoreConfigForExecution,
-  StoreConfigDocumentMissingError,
-  StoreConfigReadFailedError,
-  STORE_CONFIG_EXECUTION_ERROR_KEYS,
-} from '../../../shared/config/configLoader';
+import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_POINT_PRIORITY } from '../../../shared/config/defaults';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
@@ -47,15 +42,7 @@ export const verifyPaymentSplit = onCall(async (request) => {
     
     // 入力検証
     const validatedData = VerifyPaymentSplitSchema.parse(request.data);
-    const config = await getStoreConfigForExecution({
-      functionEntry: 'verifyPaymentSplit',
-      operation: 'loadStoreConfigForPaymentSplitVerification',
-      action: 'stop_payment_split_verification_without_store_config',
-      context: {
-        billId: validatedData.billId,
-        storeConfigKeyGroup: 'billing.paymentPolicy,billing.sideGameChipRate',
-      },
-    });
+    const config = await getStoreConfig();
     const { billId, clientResult, selectedBaseMethod } = validatedData;
     const pointPriority = validatedData.pointPriority ?? config.billing?.paymentPolicy?.pointPriority ?? DEFAULT_POINT_PRIORITY;
 
@@ -187,20 +174,6 @@ export const verifyPaymentSplit = onCall(async (request) => {
       };
     }
   } catch (error: any) {
-    if (error instanceof StoreConfigDocumentMissingError) {
-      throw new HttpsError(
-        'failed-precondition',
-        '店舗設定を確認できないため、支払い内訳を検証できません。管理者に店舗設定の確認を依頼してください。',
-        { errorKey: STORE_CONFIG_EXECUTION_ERROR_KEYS.DOCUMENT_MISSING }
-      );
-    }
-    if (error instanceof StoreConfigReadFailedError) {
-      throw new HttpsError(
-        'unavailable',
-        '店舗設定の読み取りに失敗しました。時間をおいて再度お試しください。',
-        { errorKey: STORE_CONFIG_EXECUTION_ERROR_KEYS.READ_FAILED }
-      );
-    }
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
     }
