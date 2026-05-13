@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { logger } from 'firebase-functions';
-import { logOpsError, logOpsSuccess } from '../logging/logOpsError';
+import { logOpsError, logOpsInfo, logOpsSuccess } from '../logging/logOpsError';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
 /**
@@ -133,6 +133,18 @@ async function handleNewPayload(
   res: Response,
   body: NewPayload
 ): Promise<void> {
+  logOpsInfo({
+    message: 'controlHookHttp start',
+    functionEntry: 'controlHookHttp',
+    operation: 'start',
+    context: {
+      tournamentId: body.tournamentId,
+      taskType: body.taskType,
+      planVersion: body.planVersion,
+      planHash: body.planHash,
+    },
+  });
+
   const { tournamentId, taskType, planVersion, planHash } = body;
   const db = getFirestore();
   const taskIndexRef = db
@@ -371,6 +383,17 @@ async function handleOldPayload(
   res: Response,
   body: { action: string; tournamentId: string; rev: number }
 ): Promise<void> {
+  logOpsInfo({
+    message: 'controlHookHttp start',
+    functionEntry: 'controlHookHttp',
+    operation: 'start',
+    context: {
+      action: body.action,
+      tournamentId: body.tournamentId,
+      rev: body.rev,
+    },
+  });
+
   const { action, tournamentId, rev } = body;
 
   if (!action || !tournamentId || rev === undefined) {

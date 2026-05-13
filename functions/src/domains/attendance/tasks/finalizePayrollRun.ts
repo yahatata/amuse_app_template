@@ -8,7 +8,7 @@
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsInfo, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 import { aggregateStaffResults } from '../helpers/payrollRunHelpers';
 import { generateAnomalyFlags } from '../helpers/generateAnomalyFlags';
@@ -30,6 +30,13 @@ export const finalizePayrollRun = onTaskDispatched(
   async (req) => {
     const { runId, paymentPeriodKey } = req.data as TaskPayload;
     const db = getFirestore();
+
+    logOpsInfo({
+      message: 'finalizePayrollRun start',
+      functionEntry: 'finalizePayrollRun',
+      operation: 'start',
+      context: {runId, paymentPeriodKey},
+    });
 
     const runRef = db
       .collection('monthlyPayroll').doc(paymentPeriodKey)

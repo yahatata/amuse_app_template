@@ -17,7 +17,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsInfo, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 type ManualOverrideLike = {
@@ -70,6 +70,16 @@ export const closeAssessmentTask = onRequest(
 
       // idempotencyKeyの生成
       const idempotencyKey = `close_assessment_${payload.intendedBusinessDateKey}_${payload.scheduledAt}`;
+
+      logOpsInfo({
+        message: 'closeAssessmentTask start',
+        functionEntry: 'closeAssessmentTask',
+        operation: 'start',
+        context: {
+          intendedBusinessDateKey: payload.intendedBusinessDateKey,
+          idempotencyKey,
+        },
+      });
 
       // トランザクション内で認定処理を実行
       await db.runTransaction(async (transaction) => {
