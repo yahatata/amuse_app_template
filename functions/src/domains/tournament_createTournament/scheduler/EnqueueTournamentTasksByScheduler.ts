@@ -1,5 +1,5 @@
 import { logger } from "firebase-functions";
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsInfo, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import {
   runEnqueueTournamentTasks,
   type RunEnqueueResult,
@@ -13,6 +13,16 @@ export interface EnqueueTournamentTasksBySchedulerInput {
 export async function runEnqueueTournamentTasksBySchedulerTask(
   input: EnqueueTournamentTasksBySchedulerInput
 ): Promise<RunEnqueueResult> {
+  logOpsInfo({
+    message: "enqueueTournamentTasksByScheduler start",
+    functionEntry: "enqueueTournamentTasksByScheduler",
+    operation: "start",
+    context: {
+      rangeStartAt: input.rangeStartAt,
+      rangeEndAt: input.rangeEndAt,
+    },
+  });
+
   try {
     const result = await runEnqueueTournamentTasks({
       rangeStartAt: input.rangeStartAt,

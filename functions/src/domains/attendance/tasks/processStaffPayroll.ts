@@ -8,7 +8,7 @@
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsInfo, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { getRegionalTaskQueue } from '../../../shared/tasks/getRegionalTaskQueue';
 
 import { calculateStaffPayroll, calculateCarryOverPayroll } from '../helpers/payrollCalcEngine';
@@ -30,6 +30,13 @@ export const processStaffPayroll = onTaskDispatched(
   async (req) => {
     const { runId, paymentPeriodKey, staffId } = req.data as TaskPayload;
     const db = getFirestore();
+
+    logOpsInfo({
+      message: 'processStaffPayroll start',
+      functionEntry: 'processStaffPayroll',
+      operation: 'start',
+      context: {runId, paymentPeriodKey, staffId},
+    });
 
     const runRef = db
       .collection('monthlyPayroll').doc(paymentPeriodKey)

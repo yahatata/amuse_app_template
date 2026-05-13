@@ -1,5 +1,5 @@
 import type { SchedulerJobKey } from "../../../shared/config/schedulerConfigTypes";
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsInfo, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import {
   assertScheduledJobTaskPayloadMatchesExpectedJobKey,
   assertValidScheduledJobTaskPayload,
@@ -254,6 +254,18 @@ export async function executeScheduledJobTask(
   rawPayload: unknown
 ): Promise<void> {
   const payload = parsePayload(expectedJobKey, rawPayload);
+
+  logOpsInfo({
+    message: "executeScheduledJobTask start",
+    functionEntry: "executeScheduledJobTask",
+    operation: "start",
+    context: {
+      jobKey: payload.jobKey,
+      idempotencyKey: payload.idempotencyKey,
+      supervisorRunId: payload.supervisorRunId,
+      plannedRunAt: payload.plannedRunAt,
+    },
+  });
 
   await writeSchedulerExecutionLogByCloudTaskBestEffort({
     eventType: "started",

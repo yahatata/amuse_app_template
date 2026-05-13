@@ -1,0 +1,148 @@
+---
+description: Scheduler / Cloud Tasks / Task Queue / HTTP Task 追加時の開始ログ（logOpsInfo start）と予定時刻・突合キーのルール
+globs: functions/src/**/*.ts
+alwaysApply: false
+---
+
+# Cloud Functions — Scheduler / Task 系の開始ログ・予定時刻ルール
+
+このルールは、`functions/src/**/*.ts` に **Scheduler / Cloud Tasks / Task Queue / HTTP Task** など GCP 側の仕組みで後続 handler を実行する経路を**新規追加または拡張する際**に従う。**未実行・未配送・未到達疑い**を、管理用アプリがなくても Logs Explorer / Firestore / Cloud Tasks / Cloud Scheduler から確認できるようにすることを目的とする。
+
+**実装の正**: `functions/src/shared/logging/logOpsError.ts` の `logOpsInfo`（`eventType: "start"`）。**`logOpsSuccess` / `logOpsError` のルール**は `.cursor/rules/cloud-functions-error-logging.mdc` を優先する。
+
+要件の整理は `docs/エラーログ運用/GCP未実行検知/GCP側未実行検知_要件定義.md` を参照。
+
+---
+
+## 1. 基本方針（必須）
+
+新たに Scheduler / Cloud Tasks / Task Queue / HTTP Task などにより後続処理を実行する機能を追加する場合は、次の **3 点を必須**とする。
+
+1. **実行される handler 側**で、処理入口に **開始ログ**を出す（`logOpsInfo`，原則 `eventType: "start"`。実装は共通ヘルパに寄せる）。
+2. **前段の処理**で、後続がいつ実行される**予定**であるか、または未実行判定の**判定起点時刻**を確認できるようにする。
+3. **予定時刻（または起点時刻）と開始ログを突合できるキー**を、payload / Firestore / ログ context のいずれかで残す。
+
+**目的**: 管理用アプリ作成前でも、未実行・未配送・未到達疑いを突き合わせ可能にする。
+
+---
+
+## 2. handler 側の開始ログ
+
+Scheduler / Task によって呼び出される **handler の処理入口**（主要な Firestore read・外部 API・本処理より前、相関 ID が取れる最小の位置）で **`logOpsInfo`** を呼び、原則 **`eventType: "start"`**（共通実装で付与される）を出力する。
+
+- **意味**: このログは **正常完了を意味しない**。**handler に到達した証跡**のみ。
+- **完了・失敗**: 既存どおり `logOpsSuccess` / `logOpsError` を使う（開始ログの意味は変更しない）。
+
+### 2-1. 必須となる観点（共通ヘルパ利用時）
+
+`logOpsInfo` 経由なら、実装上は少なくとも次が構造化 payload に載る。
+
+- `functionEntry`（export 名と原則一致。例外は `serviceByFunctionEntry.ts` に従う）
+- `operation`（開始なら原則 `"start"`）
+- `eventType: "start"`（共通ヘルパが付与）
+- `service`（`functionEntry` から解決）
+- `projectId`
+- 突合に必要な **`context`**（対象に応じた最小キー）
+
+### 2-2. `context` に含めるべき情報
+
+対象に応じて、次のような **突合キー**を載せる。**すべてを毎回含める必要はない**が、**前段で作った task / 予定時刻 / 業務対象とログを突合できる情報**は必ず含める。
+
+例:
+
+- `jobKey`, `idempotencyKey`, `supervisorRunId`, `plannedRunAt`
+- `scheduledAt`（ISO 文字列など、body と対応するもの）
+- `runId`, `staffId`, `paymentPeriodKey`
+- `tournamentId`, `taskType`, `planVersion`, `planHash`
+- `intendedBusinessDateKey`
+- `targetDate`, `todayStr`（処理対象日として）
+- レンジ系: `rangeStartAt`, `rangeEndAt`, `evaluationDate`, `windowEndDate`
+
+### 2-3. `context` に載せないもの
+
+- **リクエスト body 全文**・**巨大な配列**・**不要な個人情報**
+- **秘密・トークン**
+
+詳細は `cloud-functions-error-logging.mdc` の **`context` 最小限**の考え方に合わせる。
+
+---
+
+## 3. 前段処理側の「予定時刻／判定起点」の記録
+
+Scheduler / Task を作成する **前段**では、後続 handler がいつ動く**予定**か（または未実行判定で見る**起点時刻**が何か）を、後から追えるようにする。
+
+次の **種別に応じて**、いずれかを記録するか、参照可能にする。
+
+| 種別 | 記録・参照する時刻の例 |
+|---|---|
+| Scheduler 直起動（`onSchedule`） | cron / schedule 定義に基づく予定実行時刻 |
+| scheduled job（Task Queue + payload） | payload の `plannedRunAt`（enqueue の `scheduleTime` と意図を揃える） |
+| Cloud Tasks / HTTP Task（遅延実行） | Cloud Tasks の **`scheduleTime`** または HTTP body の **`scheduledAt`** |
+| 即時 Task Queue（`scheduleTime` 未指定） | **`enqueuedAt`** または **`expectedStartBy`**（現状未実装なら別 ChangeSpec で検討） |
+| 業務状態依存で enqueue | 実行可能になった**業務時刻**、または **`expectedStartBy` / `deadlineAt`**（別 ChangeSpec可） |
+
+---
+
+## 4. 予定時刻の保存・確認場所
+
+予定時刻（または判定起点）は、運用で **後から確認できる場所**に残す。
+
+候補:
+
+- task **payload**
+- Firestore の **execution log**（例: `schedulerDispatchLogs`, `schedulerExecutionLogsByCloudTask`）
+- Firestore の **taskIndex** 等
+- Firestore の **業務状態ドキュメント**（例: `payrollRuns`）
+- Cloud Tasks メタデータの **`scheduleTime`**
+- **`logOpsInfo(start)` の `context`**（突合キー用。時刻そのものが payload に無い場合は他ソースと組み合わせる）
+- 前段の **`logOpsSuccess` / `logOpsInfo` の `context`**（dispatch 証跡との相関）
+
+Cloud Tasks / Task Queue を使う場合は、次の **いずれか以上**が、Firestore・payload・GCP コンソール・ログのどこかで追えるようにする。
+
+```text
+scheduleTime
+scheduledAt
+plannedRunAt
+enqueuedAt
+expectedStartBy
+deadlineAt
+```
+
+（即時 enqueue で時刻が無い場合は、その旨を設計判断としてドキュメントまたはコードコメントで明示し、SLA 起点を要件定義に合わせる。）
+
+---
+
+## 5. その他の実装メモ
+
+- 新しい **`functionEntry`** を増やす場合は **`serviceByFunctionEntry.ts`** にマッピングを追加する（`cloud-functions-error-logging.mdc` の **1-4** と同じ）。
+- **replan・delay enqueue** など、`plannedRunAt` と実ディスパッチがずれる経路は、通常経路と **別判定**にできるようキーやドキュメントを分ける。
+- 既存 handler に **開始ログが無い**経路を触る場合は、本ルールに沿って追加を検討する（別 ChangeSpec で明示されている場合はそれに従う）。
+
+---
+
+## 6. 実装時チェックリスト
+
+新規実装・改修の完了前に確認する。実装 AI がこのチェックリストを確認し結果を出力するときは次を守る。
+
+- **機械的な項目**は、コード・検索・差分など**根拠を示して**よい。
+- **文脈・判断が必要な項目**は、仕様や運用意図が読み取れない部分は**断定しない**。**曖昧・未確定・要人間レビュー**である旨を明示し、チェック済みと**言い切らない**。
+
+### 機械的に確認できる項目（検索・差分で判定しやすい）
+
+- [ ] **Task / Scheduler により呼ばれる handler** の入口に **`logOpsInfo`**（開始用、`operation` は原則 `"start"`）がある。
+- [ ] 開始ログが **`logOpsSuccess` と同一視されていない**（start は到達のみ、完了は別ログ）。
+- [ ] 新規 **`functionEntry`** を増やした場合、`functions/src/shared/logging/serviceByFunctionEntry.ts` に **`functionEntry` → `service`** が登録されている。
+- [ ] **`context`** に、前段の task / payload / Firestore と **突合できるキー**が含まれている（該当経路で使う idempotency・runId・plannedRunAt 等）。
+- [ ] **`context`** に **リクエスト全文・巨大配列・トークン・不要な個人情報**を載せていない。
+- [ ] **scheduled job** 経路では、payload の **`plannedRunAt`** と enqueue の **`scheduleTime`**（または同等の遅延指定）の意図がコード上ずれていない（通常経路）。
+- [ ] **HTTP Cloud Task** 経路では、body の **`scheduledAt`** と（あれば）Cloud Tasks の **`scheduleTime`** が追える。
+- [ ] **即時 enqueue** で `scheduleTime` を付けていない場合、`docs/エラーログ運用/GCP未実行検知/GCP側未実行検知_要件定義.md` で想定している **SLA 起点**（run 開始・全 staff 完了等）と整合する記録・コメントまたはドキュメント更新がある。
+
+### 文脈・判断が必要な項目（仕様・運用意図に照らして確認）
+
+- [ ] **判定起点時刻**が、要件定義の分類（cron / `plannedRunAt` / `scheduleTime` / SLA 型）のどれに当たるか、運用で説明できる。
+- [ ] **親子関係**がある（例: `executeScheduledJobTask` → 内部処理）場合、**親の `plannedRunAt`** と **子 handler の start** の突合方針が一貫している。
+- [ ] **replan・`scheduleDelaySeconds` 等**で通常経路と異なる場合、**別判定・別キー**で混同しない設計か。
+- [ ] Firestore **execution log / dispatch log / taskIndex** を書く経路では、未実行確認に必要な **`plannedRunAt` 相当・jobKey・idempotencyKey** が欠けていないか（書かない方針なら理由が明確か）。
+- [ ] **複数経路**から同一 HTTP handler が呼ばれる場合、経路ごとに **task id / scheduledAt / context** で追えるか、または運用上の限界がドキュメント化されている。
+

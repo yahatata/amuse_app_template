@@ -1,4 +1,4 @@
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsInfo, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import {
   runGenerateRecurringTournaments,
   type GenerateRecurringTournamentsResult,
@@ -12,6 +12,16 @@ export interface GenerateRecurringTournamentsBySchedulerInput {
 export async function runGenerateRecurringTournamentsBySchedulerTask(
   input: GenerateRecurringTournamentsBySchedulerInput
 ): Promise<GenerateRecurringTournamentsResult> {
+  logOpsInfo({
+    message: "generateRecurringTournamentsByScheduler start",
+    functionEntry: "generateRecurringTournamentsByScheduler",
+    operation: "start",
+    context: {
+      evaluationDate: input.evaluationDate,
+      windowEndDate: input.windowEndDate,
+    },
+  });
+
   try {
     const result = await runGenerateRecurringTournaments({
       evaluationDate: input.evaluationDate,
