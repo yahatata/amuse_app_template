@@ -5,9 +5,9 @@
 import { PAYROLL_ERRORS } from '../../src/domains/attendance/helpers/payrollErrors';
 
 describe('payrollErrors', () => {
-  it('全12エラーコードが export されている', () => {
+  it('全13エラーコードが export されている', () => {
     const keys = Object.keys(PAYROLL_ERRORS);
-    expect(keys).toHaveLength(12);
+    expect(keys).toHaveLength(13);
   });
 
   it('各エラーコードが正しい値を持つ', () => {
@@ -23,6 +23,9 @@ describe('payrollErrors', () => {
     expect(PAYROLL_ERRORS.NOT_CONFIRMED).toBe('not-confirmed');
     expect(PAYROLL_ERRORS.ALREADY_PAID).toBe('already-paid');
     expect(PAYROLL_ERRORS.STAFF_ALREADY_PAID).toBe('staff-already-paid');
+    expect(PAYROLL_ERRORS.ATTENDANCE_NOT_READY_FOR_PAYROLL_RUN).toBe(
+      'attendance-not-ready-for-payroll-run'
+    );
   });
 
   it('PAYROLL_ERRORS の値が全て string である', () => {

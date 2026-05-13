@@ -2,9 +2,9 @@
 
 ## 1. この文書の位置付け
 
-- **対象**: 次の 2 つの仕様フォルダに分散している内容を、**実装の流れと到達点を俯瞰するため**に 1 本にまとめたものです。
-  - `docs/共通化/flutter/04_仕様書/logOpsError実装/`
-  - `docs/共通化/flutter/04_仕様書/エラーログ拡張/`
+- **対象**: 次の 2 つに分散している内容を、**実装の流れと到達点を俯瞰するため**に 1 本にまとめたものです。
+  - `docs/共通化/flutter/04_仕様書/logOpsError実装/`（上流・起点）
+  - **`docs/エラーログ運用/`**（差分仕様・監視・269 件調査・`functionEntry` 対応表。**索引**: [`README.md`](../../../エラーログ運用/README.md)）
 - **詳細の正**: 各個別ドキュメントおよび **`functions/src/shared/logging/logOpsError.ts`**（`logOpsError` / `logOpsSuccess`）、`functionCustomError.ts`、`externalFromCause.ts`、`serviceByFunctionEntry.ts`。
 - **開発時ルール**: `.cursor/rules/cloud-functions-error-logging.mdc`（`logOpsError` / `logOpsSuccess`、`context` 相関、成功ログの二重化回避など）。
 
@@ -34,7 +34,9 @@
 
 ---
 
-## 3. `エラーログ拡張` フォルダで述べていること（実装仕様・差分・監視）
+## 3. `docs/エラーログ運用/` で述べていること（実装仕様・差分・監視）
+
+※旧フォルダ名は **`flutter/04_仕様書/エラーログ拡張/`**。現在の直下は **`warning/`** と **`logOps/`**。`warning/` 配下は **`方針/`**・**`実装サマリ/`**。`logOps/` 配下は **`仕様/`**・**`調査269件/`**・**`要件/`**・**`functionEntry/`**・**`changeSpec/`**・**`実装サマリ/`**（`logOpsError実装サマリA/B`）。
 
 ### 3.1 `エラーログ拡張仕様書_差分実装版.md`（実装の柱）
 
@@ -81,7 +83,7 @@
 
 ---
 
-## 5. 両フォルダの文書一覧（オリジナル）
+## 5. 参照元フォルダの文書一覧（オリジナル）
 
 ### `logOpsError実装/`
 
@@ -90,22 +92,18 @@
 | `保守運用時のエラーログ.md` |
 | `As-is_エラー出力箇所の洗い出しと分類.md` |
 
-### `エラーログ拡張/`
+### `docs/エラーログ運用/`（`warning/` と `logOps/`）
 
-| ファイル |
-|----------|
-| `エラーログ拡張仕様書_差分実装版.md` |
-| `エラーログ監視_再試行と相関キー.md` |
-| `エラーログ_context推奨_269件.md` |
-| `エラーログ_context調査_269件.md` |
-| `エラーログ_成功ログ調査_269件.md` |
-| `エラーログ_成功ログ調査_269件_機械集計.md` |
-| `エラーログ_重要度判定要件定義.md` |
-| `functionEntry_service_対応表.md` |
-| `functionEntry_業務役割一覧.md` |
-| `実装ベース精査_function_custom_20260408.md` |
-| `Part2_推奨値_UI操作経路_分析.md` |
-| `_part1_majfreq.json`（機械集計用データ） |
+| 場所 | ファイル |
+|----------|----------|
+| **`warning/方針/`** | `warningログ方針.md` |
+| **`warning/実装サマリ/`** | `warningログ_実装サマリ_20260511.md` |
+| **`logOps/仕様/`** | `エラーログ拡張仕様書_差分実装版.md`、`エラーログ監視_再試行と相関キー.md`、`メイン完了後の補助処理失敗_初期方針.md` |
+| **`logOps/調査269件/`** | `エラーログ_context推奨_269件.md`、`エラーログ_context調査_269件.md`、`エラーログ_成功ログ調査_269件.md`、`エラーログ_成功ログ調査_269件_機械集計.md`、`Part2_推奨値_UI操作経路_分析.md`、`_part1_majfreq.json` |
+| **`logOps/要件/`** | `エラーログ_重要度判定要件定義.md`、`実装ベース精査_function_custom_20260408.md` |
+| **`logOps/functionEntry/`** | `functionEntry_service_対応表.md`、`functionEntry_業務役割一覧.md` |
+| **`logOps/changeSpec/`** | `changeSpec_エラーログ拡張.md` |
+| **`logOps/実装サマリ/`** | `実装サマリ_エラーログ拡張_20260406.md`、`logOpsError実装サマリA.md`、`logOpsError実装サマリB.md` |
 
 ---
 
@@ -113,4 +111,5 @@
 
 | 日付 | 内容 |
 |------|------|
-| （初版） | `logOpsError実装` と `エラーログ拡張` の実装内容を 1 ファイルにサマリ化。 |
+| （初版） | `logOpsError実装` と **`docs/エラーログ運用/`**（旧 `エラーログ拡張/`）の実装内容を 1 ファイルにサマリ化。 |
+| 2026-05-06 | **`docs/エラーログ運用/`** 直下を **`warning/`** と **`logOps/`** に再編（各サブフォルダは README.md の索引に準拠）。 |

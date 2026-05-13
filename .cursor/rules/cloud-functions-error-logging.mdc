@@ -8,7 +8,7 @@ alwaysApply: false
 
 このルールの目的は、`functions/src/**/*.ts` に新規実装または改修を行う際、**本番運用で観測したい失敗**を `logOpsError` で統一的に記録し、**再試行・再実行後のログ追跡に必要なら `logOpsSuccess` と `context` で失敗・成功を相関**できるようにすることです。あわせて **warning ログは `console.warn` を使わず**、`logger.warn` または業務上は `logOpsError` に整理します（**§11**）。
 
-詳細仕様は `docs/共通化/flutter/05_changeSpec/changeSpec_エラーログ拡張.md` および `docs/共通化/flutter/04_仕様書/エラーログ拡張/` を参照。**warning の判断基準の正本**は `docs/共通化/flutter/04_仕様書/エラーログ拡張/warningログ方針.md`。運用上の整理は `docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ監視_再試行と相関キー.md`。**実装の正**は `functions/src/shared/logging/logOpsError.ts`・`functionCustomError.ts`・`externalFromCause.ts`・`serviceByFunctionEntry.ts`。
+詳細仕様は `docs/エラーログ運用/logOps/changeSpec/changeSpec_エラーログ拡張.md` および `docs/エラーログ運用/README.md`（索引）を参照。**warning の判断基準の正本**は `docs/エラーログ運用/warning/方針/warningログ方針.md`。運用上の整理は `docs/エラーログ運用/logOps/仕様/エラーログ監視_再試行と相関キー.md`。**実装の正**は `functions/src/shared/logging/logOpsError.ts`・`functionCustomError.ts`・`externalFromCause.ts`・`serviceByFunctionEntry.ts`。
 
 ---
 
@@ -42,7 +42,7 @@ alwaysApply: false
 
 原則として `functionEntry` は **export 名と一致**させる。
 
-ただし、既存運用上の例外がある場合は、`docs/共通化/flutter/04_仕様書/エラーログ拡張/functionEntry_service_対応表.md` および `functions/src/shared/logging/serviceByFunctionEntry.ts` の定義に従う。
+ただし、既存運用上の例外がある場合は、`docs/エラーログ運用/logOps/functionEntry/functionEntry_service_対応表.md` および `functions/src/shared/logging/serviceByFunctionEntry.ts` の定義に従う。
 
 新規追加時は、特別な理由がない限り export 名と一致させる。
 
@@ -145,7 +145,7 @@ alwaysApply: false
 
 再試行・再実行・手動のやり直しのあとに、**同一処理の失敗ログと成功ログを Cloud Logging 上で突き合わせやすくする**ため、運用上追う経路では **`logOpsError` と `logOpsSuccess` の両方に `context` で相関に必要なキーを載せる**ことを検討する。
 
-推奨キー一覧・調査結果は `docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ_context推奨_269件.md`。運用・監視の説明は `docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ監視_再試行と相関キー.md`。
+推奨キー一覧・調査結果は `docs/エラーログ運用/logOps/調査269件/エラーログ_context推奨_269件.md`。運用・監視の説明は `docs/エラーログ運用/logOps/仕様/エラーログ監視_再試行と相関キー.md`。
 
 ### 6-2. `logOpsSuccess` の使い方
 
@@ -202,7 +202,7 @@ alwaysApply: false
 
 ## 11. Warning ログ（`warningログ方針`）
 
-本節は `docs/共通化/flutter/04_仕様書/エラーログ拡張/warningログ方針.md` と整合させる。細目・例は同ファイルを参照。
+本節は `docs/エラーログ運用/warning/方針/warningログ方針.md` と整合させる。細目・例は同ファイルを参照。
 
 ### 11-1. 基本方針
 

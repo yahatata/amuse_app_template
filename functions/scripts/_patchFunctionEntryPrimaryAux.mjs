@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mdPath = path.join(
   __dirname,
-  "../../docs/共通化/flutter/04_仕様書/エラーログ拡張/functionEntry_業務役割一覧.md"
+  "../../docs/エラーログ運用/logOps/functionEntry/functionEntry_業務役割一覧.md"
 );
 
 const part1 = Object.fromEntries(
