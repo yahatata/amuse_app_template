@@ -9,7 +9,7 @@
   - Part 1 = operation を持たない functionEntry（101 件）— `functionEntry` のみで判定単位が決まるもの
   - Part 2 = operation を持つ functionEntry（76 種 → operation 168 行）— `functionEntry + operation` で判定単位が決まるもの
 - **主処理/補助列**: 業務上の役割の説明に基づき、当該判定単位が **主処理**（その操作の主目的の成否に直結）か **補助処理**（主成功後の付随・記録・通知・同期・二次ログ・ベストエフォート・補償等）かを二分。優先ルール・迷う場合は「主目的未達か」で判断。迷う場合は備考に `要確認`。
-- **FC静列**: 当該判定単位の `logOpsError` 呼び出しが、ソース上 **静的に** `errorSource === function_custom` と確定する場合に **✓**（同一判定単位に複数呼び出しがある場合も、269 件スコープでは **すべて** が静的確定のときのみ ✓。件数は **52 / 269**）。判定規則は `docs/共通化/flutter/04_仕様書/エラーログ拡張/実装ベース精査_function_custom_20260408.md` §1 および `functions/scripts/countStaticFunctionCustomLogOps.cjs`（`LIST=1` でソース行一覧）と同じ。実装側の解決は `functions/src/shared/logging/logOpsError.ts` の `resolveErrorSource`（`errorKey` 文字列リテラル / `errorSource: 'function_custom'` リテラル / `FunctionCustomError` の `instanceof` 分岐内呼び出し 等）。
+- **FC静列**: 当該判定単位の `logOpsError` 呼び出しが、ソース上 **静的に** `errorSource === function_custom` と確定する場合に **✓**（同一判定単位に複数呼び出しがある場合も、269 件スコープでは **すべて** が静的確定のときのみ ✓。件数は **52 / 269**）。判定規則は `docs/エラーログ運用/logOps/要件/実装ベース精査_function_custom_20260408.md` §1 および `functions/scripts/countStaticFunctionCustomLogOps.cjs`（`LIST=1` でソース行一覧）と同じ。実装側の解決は `functions/src/shared/logging/logOpsError.ts` の `resolveErrorSource`（`errorKey` 文字列リテラル / `errorSource: 'function_custom'` リテラル / `FunctionCustomError` の `instanceof` 分岐内呼び出し 等）。
 
 ---
 

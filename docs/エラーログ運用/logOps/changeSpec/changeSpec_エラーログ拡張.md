@@ -50,10 +50,10 @@
 
 | 資料 | パス / 役割 |
 |------|-------------|
-| 差分仕様 | `docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ拡張仕様書_差分実装版.md` |
-| functionEntry → service | `docs/共通化/flutter/04_仕様書/エラーログ拡張/functionEntry_service_対応表.md`（**正**。推測で service を決めない） |
+| 差分仕様 | `docs/エラーログ運用/logOps/仕様/エラーログ拡張仕様書_差分実装版.md` |
+| functionEntry → service | `docs/エラーログ運用/logOps/functionEntry/functionEntry_service_対応表.md`（**正**。推測で service を決めない） |
 | catch 一次抽出 | `functions/scripts/auditLogopsCatch.cjs`（`--missing-only --suspect`） |
-| 本 changeSpec | `docs/共通化/flutter/05_changeSpec/changeSpec_エラーログ拡張.md`（当ファイル） |
+| 本 changeSpec | `docs/エラーログ運用/logOps/changeSpec/changeSpec_エラーログ拡張.md`（当ファイル） |
 
 ### 4.1 ソースとビルド成果物（`functions/`）
 
@@ -303,7 +303,7 @@ Cloud Tasks `createTask` 失敗は **`errorSource = external_api`** とし、**`
 
 | パス | 理由 |
 |------|------|
-| `docs/共通化/flutter/04_仕様書/エラーログ拡張/functionEntry_service_対応表.md` | 新規 export / 新規 `functionEntry` の追記（正の維持） |
+| `docs/エラーログ運用/logOps/functionEntry/functionEntry_service_対応表.md` | 新規 export / 新規 `functionEntry` の追記（正の維持） |
 | （任意）`errorKey` マッピング表 MD | §12 の別添全行 |
 
 ---
@@ -388,5 +388,9 @@ Cloud Tasks `createTask` 失敗は **`errorSource = external_api`** とし、**`
 | 2026-04-06 | 改訂：`failureType` を仕様上廃止方向・実装は段階廃止と明記（差分仕様 §5.5 等）。本 changeSpec から **完全削除タスクを対象外**とする。payload / 共通処理 / §13 表 / 検証観点を **`errorSource` 等主軸**に整理。§13 から `failureType` 列を削除 |
 | 2026-04-06 | 改訂：差分仕様 §14.1 の主軸と `failureType`（互換）の記述を分離。§6 項目 7・§14.2 に既存呼び出しの `failureType` 削除可否を追記 |
 | 2026-03-28 | 改訂：**§4.1** に `src`（編集）と `lib`（`tsc` 生成）の対応を追記。`logOpsError` / 新規 `FunctionCustomError` のパスを現行構成に合わせ、`functionCustomError.ts`（ソース）と `functionCustomError.js`（ビルド出力）を明記 |
+| 2026-05-06 | 改訂：差分仕様・対応表・269 件調査などを **`docs/エラーログ運用/`** へ移転（`docs/共通化/flutter/04_仕様書/エラーログ拡張/` は誘導用 README のみ）。§4 前提資料・§14.4 の実体パスを追随更新 |
+| 2026-05-06 | 改訂：本ファイルおよび **`実装サマリ_エラーログ拡張_20260406.md`** を **`docs/エラーログ運用/logOps/changeSpec/`** に配置（`docs/共通化/flutter/05_changeSpec/` から移転）。§4 の当ファイルパスを更新 |
+| 2026-05-06 | 改訂：直下を **`warning/`**（`方針/`・`実装サマリ/`）と **`logOps/`**（`仕様/`・`調査269件/`・`要件/`・`functionEntry/`・`changeSpec/`・`実装サマリ/` に `logOpsError実装サマリA/B` を含む）へ再編。§4 の絶対パスを追随更新 |
+| 2026-05-06 | 改訂：**`実装サマリ_エラーログ拡張_20260406.md`** を **`docs/エラーログ運用/logOps/実装サマリ/`** に配置（`logOps/changeSpec/` から移動）。参照ドキュメントのパスを追随更新 |
 | 2026-03-28 | 改訂：前提資料・§14.4 のパスを **`04_仕様書/エラーログ拡張/`** 配下に更新（フォルダ再配置に伴う） |
 | 2026-03-28 | 改訂：本ファイルを **`05_changeSpec/changeSpec_エラーログ拡張.md`** に移動（ローディング表示の changeSpec と同階層） |

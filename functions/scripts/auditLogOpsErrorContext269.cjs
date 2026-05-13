@@ -1,7 +1,7 @@
 /**
  * 269 件スコープの logOpsError について、context の十分性を静的解析する。
  *
- * 出力: docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ_context調査_269件.md
+ * 出力: docs/エラーログ運用/logOps/調査269件/エラーログ_context調査_269件.md
  *
  * 解析内容（AST ベース）:
  *  1) logOpsError 呼び出しごとに
@@ -38,10 +38,9 @@ const OUT = path.join(
   "..",
   "..",
   "docs",
-  "共通化",
-  "flutter",
-  "04_仕様書",
-  "エラーログ拡張",
+  "エラーログ運用",
+  "logOps",
+  "調査269件",
   "エラーログ_context調査_269件.md"
 );
 
