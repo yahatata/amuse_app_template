@@ -1,3 +1,4 @@
+import { logger } from 'firebase-functions';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -144,10 +145,12 @@ export const verifyPaymentSplit = onCall(async (request) => {
       };
     } else {
       // 不一致の場合はサーバー側の結果を正として返す
-      console.warn('支払い分割計算の不一致を検出', {
+      logger.warn('verifyPaymentSplit: クライアントとサーバの支払い分割計算が不一致のためサーバ結果を返却しました', {
         billId,
-        clientResult,
-        serverResult,
+        selectedBaseMethod,
+        callerUid,
+        verified: false,
+        ...buildPaymentSplitMismatchSummary(clientResult, serverResult),
       });
 
       logOpsSuccess({
@@ -195,6 +198,65 @@ export const verifyPaymentSplit = onCall(async (request) => {
     throw new HttpsError('internal', '支払い分割照合に失敗しました', error.message);
   }
 });
+
+/** ログ用: 巨大オブジェクトは載せずスカラー・件数中心のサマリのみ */
+function buildPaymentSplitMismatchSummary(
+  client: typeof VerifyPaymentSplitSchema._type.clientResult,
+  server: ReturnType<typeof calculatePaymentSplit>
+): Record<string, unknown> {
+  const clientPk = Object.keys(client.usedPoints);
+  const serverPk = Object.keys(server.usedPoints);
+  const clientPkSet = new Set(clientPk);
+  const serverPkSet = new Set(serverPk);
+  const pointsKeysOnlyInClient = clientPk.filter(k => !serverPkSet.has(k)).length;
+  const pointsKeysOnlyInServer = serverPk.filter(k => !clientPkSet.has(k)).length;
+  let pointsValueMismatchCount = 0;
+  for (const k of clientPk) {
+    if (
+      serverPkSet.has(k) &&
+      Math.abs(client.usedPoints[k] - server.usedPoints[k]) > 1
+    ) {
+      pointsValueMismatchCount++;
+    }
+  }
+  const clientCatKeys = Object.keys(client.categoryBreakdown);
+  const serverCatKeys = Object.keys(server.categoryBreakdown);
+  const clientCatSet = new Set(clientCatKeys);
+  const serverCatSet = new Set(serverCatKeys);
+  let categoryFieldMismatchCount = 0;
+  for (const c of clientCatKeys) {
+    if (!serverCatSet.has(c)) {
+      categoryFieldMismatchCount++;
+      continue;
+    }
+    const cc = client.categoryBreakdown[c];
+    const sc = server.categoryBreakdown[c];
+    if (
+      Math.abs(cc.pointsUsed - sc.pointsUsed) > 1 ||
+      Math.abs(cc.baseMethodAmount - sc.baseMethodAmount) > 1
+    ) {
+      categoryFieldMismatchCount++;
+    }
+  }
+  const categoryKeysOnlyInClient = clientCatKeys.filter(c => !serverCatSet.has(c)).length;
+  const categoryKeysOnlyInServer = serverCatKeys.filter(c => !clientCatSet.has(c)).length;
+
+  return {
+    clientCashLikeAmount: client.cashLikeAmount,
+    serverCashLikeAmount: server.cashLikeAmount,
+    cashLikeAmountAbsDelta: Math.abs(client.cashLikeAmount - server.cashLikeAmount),
+    usedPointsKeyCountClient: clientPk.length,
+    usedPointsKeyCountServer: serverPk.length,
+    pointsKeysOnlyInClient,
+    pointsKeysOnlyInServer,
+    pointsValueMismatchCount,
+    categoryKeyCountClient: clientCatKeys.length,
+    categoryKeyCountServer: serverCatKeys.length,
+    categoryKeysOnlyInClient,
+    categoryKeysOnlyInServer,
+    categoryFieldMismatchCount,
+  };
+}
 
 /**
  * クライアント側とサーバー側の計算結果を比較

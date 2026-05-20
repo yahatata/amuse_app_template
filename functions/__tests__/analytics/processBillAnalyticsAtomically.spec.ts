@@ -112,6 +112,7 @@ describe('processBillAnalyticsAtomically', () => {
         businessDate,
         billId,
         billData,
+        logInvocation: { functionEntry: 'billsOnSettle' },
       });
 
       // 更新内容を確認
@@ -140,6 +141,7 @@ describe('processBillAnalyticsAtomically', () => {
         businessDate,
         billId,
         billData,
+        logInvocation: { functionEntry: 'billsOnSettle' },
       });
 
       // 値が増えていないことを確認
@@ -164,6 +166,7 @@ describe('processBillAnalyticsAtomically', () => {
         businessDate,
         billId: billId1,
         billData,
+        logInvocation: { functionEntry: 'billsOnSettle' },
       });
 
       // bill2 を処理
@@ -172,6 +175,7 @@ describe('processBillAnalyticsAtomically', () => {
         businessDate,
         billId: billId2,
         billData,
+        logInvocation: { functionEntry: 'billsOnSettle' },
       });
 
       // 両方が計上されていることを確認
@@ -212,6 +216,7 @@ describe('processBillAnalyticsAtomically', () => {
         businessDate,
         billId,
         billData,
+        logInvocation: { functionEntry: 'billsOnSettle' },
       });
 
       // 月次ドキュメントの確認
@@ -255,6 +260,7 @@ describe('processBillAnalyticsAtomically', () => {
         businessDate,
         billId,
         billData,
+        logInvocation: { functionEntry: 'billsOnSettle' },
       });
 
       const byCategoryDoc = await db
@@ -292,6 +298,7 @@ describe('processBillAnalyticsAtomically', () => {
         businessDate,
         billId,
         billData,
+        logInvocation: { functionEntry: 'billsOnSettle' },
       });
 
       const byUserDoc = await db
@@ -321,6 +328,7 @@ describe('processBillAnalyticsAtomically', () => {
         businessDate,
         billId,
         billData,
+        logInvocation: { functionEntry: 'billsOnSettle' },
       });
 
       const templateDoc = await db
@@ -352,6 +360,7 @@ describe('processBillAnalyticsAtomically', () => {
         businessDate,
         billId,
         billData,
+        logInvocation: { functionEntry: 'billsOnSettle' },
       });
 
       // byUser ドキュメントが存在しないことを確認
@@ -392,6 +401,7 @@ describe('processBillAnalyticsAtomically', () => {
         businessDate,
         billId,
         billData,
+        logInvocation: { functionEntry: 'billsOnSettle' },
       });
 
       // 月次ドキュメントが存在しないか、値が0であることを確認

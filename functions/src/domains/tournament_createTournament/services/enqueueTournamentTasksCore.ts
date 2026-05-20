@@ -38,6 +38,8 @@ export interface RunEnqueueResult {
   processedCount: number;
   enqueuedCount: number;
   errors?: Array<{ tournamentId: string; error: string }>;
+  /** storeMeta/config 欠落・読取失敗で enqueue を止めたとき */
+  skippedReason?: 'store_config_document_missing' | 'store_config_read_error_after_retries';
 }
 
 /**
@@ -363,9 +365,15 @@ export async function runEnqueueTournamentTasks(
 
     const skipReason = validateRequiredFields(data);
     if (skipReason) {
-      logger.warn('runEnqueueTournamentTasks: skipping doc (incomplete/invalid)', {
-        tournamentId: doc.id,
-        reason: skipReason,
+      logOpsError({
+        message:
+          'runEnqueueTournamentTasks: scheduledTournament が必須検証を満たさずタスク投入をスキップ',
+        functionEntry: 'runEnqueueTournamentTasks',
+        operation: 'skipInvalidScheduledTournamentDoc',
+        context: {
+          tournamentId: doc.id,
+          skipReason,
+        },
       });
       continue;
     }

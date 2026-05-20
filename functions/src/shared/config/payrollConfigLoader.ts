@@ -37,6 +37,7 @@ import {
 import type { PayrollConfig, ExpectedRange, RoundingMethod } from './payrollConfigTypes';
 
 const MAX_RETRIES = 2;
+
 const VALID_ROUNDING_METHODS: RoundingMethod[] = ['ceil', 'floor', 'round'];
 const VALID_ROUNDING_PRECISIONS = [1, 10, 100, 1000];
 const VALID_PAYMENT_MONTH_OFFSETS = [0, 1, 2] as const;

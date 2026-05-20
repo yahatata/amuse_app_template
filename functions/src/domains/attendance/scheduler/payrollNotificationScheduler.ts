@@ -1,4 +1,4 @@
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsInfo, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { getPayrollConfig } from "../../../shared/config/payrollConfigLoader";
 import { getRegionalTaskQueue } from "../../../shared/tasks/getRegionalTaskQueue";
 
@@ -46,6 +46,13 @@ export async function runPayrollNotificationSchedulerTask(
   let scheduleTimeUtc: string | undefined;
 
   try {
+    logOpsInfo({
+      message: "payrollNotificationScheduler start",
+      functionEntry: "payrollNotificationScheduler",
+      operation: "start",
+      context: {targetDate: input.targetDate},
+    });
+
     const payrollConfig = await getPayrollConfig();
     notificationHour = payrollConfig.schedulerNotificationHour;
 

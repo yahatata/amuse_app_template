@@ -4,6 +4,7 @@
  * 手動実行用。enqueueTournamentTasksCore を呼び出す。
  */
 
+import { logger } from 'firebase-functions';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { runEnqueueTournamentTasks } from '../services/enqueueTournamentTasksCore';
@@ -27,6 +28,15 @@ export const enqueueTournamentTasks = onCall(async (request) => {
 
   try {
     const result = await runEnqueueTournamentTasks({});
+    // storeMeta/config 欠落・読取失敗時はコア側で logOpsError + skippedReason。成功ログは出さず warn のみ（scheduler 経路と整合）。
+    if (result.skippedReason) {
+      logger.warn('enqueueTournamentTasks callable: skipped tournament enqueue (store config)', {
+        skippedReason: result.skippedReason,
+        callerUid: request.auth.uid,
+        deviceId: device.id,
+      });
+      return result;
+    }
     if (!result.success) {
       logOpsError({
         message: '=== enqueue バッチエラー（手動 Callable） ===',

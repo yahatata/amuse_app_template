@@ -56,7 +56,18 @@ export const billsOnSettle = onDocumentUpdated(
     const afterData = event.data?.after.data();
 
     if (!beforeData || !afterData) {
-      logger.warn('billsOnSettle: before or after data is missing');
+      logOpsError({
+        message:
+          'billsOnSettle で before / after data が取得できませんでした（後続のスナップショット処理をスキップ）',
+        functionEntry: 'billsOnSettle',
+        operation: 'validateEventSnapshot',
+        cause: new Error('billsOnSettle_before_or_after_data_missing'),
+        context: {
+          billId: event.params.billId,
+          hasBeforeData: !!beforeData,
+          hasAfterData: !!afterData,
+        },
+      });
       return;
     }
 
@@ -71,8 +82,22 @@ export const billsOnSettle = onDocumentUpdated(
 
     // 追加ガード: ops.accountingStartedAt または ops.accountingCompletedAt が存在することを確認
     const ops = afterData.ops || {};
-    if (!ops.accountingStartedAt && !ops.accountingCompletedAt) {
-      logger.warn('billsOnSettle: ops.accountingStartedAt and ops.accountingCompletedAt are both missing', { billId });
+    const hasAccountingStartedAt = Boolean(ops.accountingStartedAt);
+    const hasAccountingCompletedAt = Boolean(ops.accountingCompletedAt);
+    if (!hasAccountingStartedAt && !hasAccountingCompletedAt) {
+      logOpsError({
+        message:
+          'billsOnSettle: settled に至ったが ops に accountingStartedAt / accountingCompletedAt がいずれも無いため後続スナップショット・enqueue をスキップ',
+        functionEntry: 'billsOnSettle',
+        operation: 'validateAccountingOpsForSettlement',
+        context: {
+          billId,
+          businessDate: afterData.businessDate ?? null,
+          status: afterStatus,
+          hasAccountingStartedAt,
+          hasAccountingCompletedAt,
+        },
+      });
       return;
     }
 
@@ -86,6 +111,8 @@ export const billsOnSettle = onDocumentUpdated(
     const billRef = db.collection('bills').doc(billId);
 
     try {
+      // 再処理導線（未確定）: storeMeta/config 復旧後も settled への同一遷移では再発火しないため、
+      // amounts/categoryBreakdown 等が未生成のまま残りうる。バックフィル用の別 Callable・バッチの要否は運用設計とする。
       const storeConfig = await getStoreConfig();
       const chipRate = storeConfig.billing?.sideGameChipRate;
 
@@ -331,6 +358,7 @@ export const billsOnSettle = onDocumentUpdated(
       logOpsError({
         message: 'billsOnSettle failed',
         functionEntry: 'billsOnSettle',
+        operation: 'billsOnSettleMainCatch',
         cause: error,
         context: { billId },
       });

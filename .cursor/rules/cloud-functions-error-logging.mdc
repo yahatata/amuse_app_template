@@ -1,13 +1,14 @@
 ---
-description: Cloud Functions の運用ログ（logOpsError / logOpsSuccess）実装ルール
+description: Cloud Functions の運用ログ（logOpsError / logOpsSuccess）と warning ログ（logger.warn）実装ルール
 globs: functions/src/**/*.ts
 alwaysApply: false
 ---
 
 # Cloud Functions — 運用ログ（logOpsError / logOpsSuccess）実装ルール
 
-このルールの目的は、`functions/src/**/*.ts` に新規実装または改修を行う際、**本番運用で観測したい失敗**を `logOpsError` で統一的に記録し、**再試行・再実行後のログ追跡に必要なら `logOpsSuccess` と `context` で失敗・成功を相関**できるようにすることです。  
-詳細仕様は `docs/共通化/flutter/05_changeSpec/changeSpec_エラーログ拡張.md` および `docs/共通化/flutter/04_仕様書/エラーログ拡張/` を参照。運用上の整理は `docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ監視_再試行と相関キー.md`。**実装の正**は `functions/src/shared/logging/logOpsError.ts`・`functionCustomError.ts`・`externalFromCause.ts`・`serviceByFunctionEntry.ts`。
+このルールの目的は、`functions/src/**/*.ts` に新規実装または改修を行う際、**本番運用で観測したい失敗**を `logOpsError` で統一的に記録し、**再試行・再実行後のログ追跡に必要なら `logOpsSuccess` と `context` で失敗・成功を相関**できるようにすることです。あわせて **warning ログは `console.warn` を使わず**、`logger.warn` または業務上は `logOpsError` に整理します（**§11**）。
+
+詳細仕様は `docs/エラーログ運用/logOps/changeSpec/changeSpec_エラーログ拡張.md` および `docs/エラーログ運用/README.md`（索引）を参照。**warning の判断基準の正本**は `docs/エラーログ運用/warning/方針/warningログ方針.md`。運用上の整理は `docs/エラーログ運用/logOps/仕様/エラーログ監視_再試行と相関キー.md`。**実装の正**は `functions/src/shared/logging/logOpsError.ts`・`functionCustomError.ts`・`externalFromCause.ts`・`serviceByFunctionEntry.ts`。
 
 ---
 
@@ -24,7 +25,8 @@ alwaysApply: false
 - 上記から直接呼ばれる、運用上重要な主要処理
 
 **原則**: 本番運用で失敗を観測したい箇所では `logOpsError` を検討する。  
-**原則**: 運用向けの失敗を `logger.error` / `console.error` のみで終わらせない（`logOpsError` に寄せる）。
+**原則**: 運用向けの失敗を `logger.error` / `console.error` のみで終わらせない（`logOpsError` に寄せる）。  
+**原則**: warning を残す場合も **`console.warn` は使わない**（`logger.warn` または業務上は `logOpsError`。§11）。
 
 ---
 
@@ -40,7 +42,7 @@ alwaysApply: false
 
 原則として `functionEntry` は **export 名と一致**させる。
 
-ただし、既存運用上の例外がある場合は、`docs/共通化/flutter/04_仕様書/エラーログ拡張/functionEntry_service_対応表.md` および `functions/src/shared/logging/serviceByFunctionEntry.ts` の定義に従う。
+ただし、既存運用上の例外がある場合は、`docs/エラーログ運用/logOps/functionEntry/functionEntry_service_対応表.md` および `functions/src/shared/logging/serviceByFunctionEntry.ts` の定義に従う。
 
 新規追加時は、特別な理由がない限り export 名と一致させる。
 
@@ -143,7 +145,7 @@ alwaysApply: false
 
 再試行・再実行・手動のやり直しのあとに、**同一処理の失敗ログと成功ログを Cloud Logging 上で突き合わせやすくする**ため、運用上追う経路では **`logOpsError` と `logOpsSuccess` の両方に `context` で相関に必要なキーを載せる**ことを検討する。
 
-推奨キー一覧・調査結果は `docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ_context推奨_269件.md`。運用・監視の説明は `docs/共通化/flutter/04_仕様書/エラーログ拡張/エラーログ監視_再試行と相関キー.md`。
+推奨キー一覧・調査結果は `docs/エラーログ運用/logOps/調査269件/エラーログ_context推奨_269件.md`。運用・監視の説明は `docs/エラーログ運用/logOps/仕様/エラーログ監視_再試行と相関キー.md`。
 
 ### 6-2. `logOpsSuccess` の使い方
 
@@ -190,6 +192,7 @@ alwaysApply: false
 ## 10. 禁止・ビルド
 
 - 運用で追いたい失敗を **`console.error` のみ**で済ませない。
+- 本番業務コード（`functions/src`）で **`console.warn` を使わない**（§11）。警告は `logger.warn` または `logOpsError` に寄せる。
 - `functions/lib/**` を手で編集しない（`npm run build` の生成物）。
 - `functionEntry` を export 名（および対応表）と勝手にズラす。
 - 未登録のまま `functionEntry` を増やして `unknown_service` のままにする。
@@ -197,7 +200,70 @@ alwaysApply: false
 
 ---
 
-## 11. 実装時チェックリスト
+## 11. Warning ログ（`warningログ方針`）
+
+本節は `docs/エラーログ運用/warning/方針/warningログ方針.md` と整合させる。細目・例は同ファイルを参照。
+
+### 11-1. 基本方針
+
+`functions/src` 配下の本番業務コードでは、原則 **`console.warn` を使用しない**。warning を残す場合は次で選ぶ。
+
+| 使用するログ | 用途 |
+|---|---|
+| `logger.warn`（`firebase-functions` の `logger`） | 軽微・想定内・補助的な警告 |
+| `logOpsError` | 業務影響があり、中央監視・重要度判定・復旧対象にしたい異常 |
+
+**`console.warn` を使わない理由（要点）**: 構造化 context を持たせにくく、`logger.warn` / `logOpsError` と混在すると運用ルールが曖昧になり、監視・検索・復旧判断に向きにくい。
+
+### 11-2. `logger.warn` にする基準（例）
+
+- 想定内の入力不備、期限切れ・削除済みによる no-op
+- **業務本体は成功**だが補助処理だけ失敗（即時人間対応ほどではない）
+- 監視に載せるとノイズが大きいが、調査のために状況だけ残したい
+- 仕様上許容されるスキップ・フォールバック
+
+### 11-3. warning を `logOpsError` に寄せる基準（例）
+
+- 金額・会計・集計・給与・勤怠に影響する / SSoT と派生がズレうる
+- 主要業務の整合性が崩れる、復旧や人間確認が必要
+- **中央監視で検知しないと見逃す**／重要度判定の対象にしたい
+
+（業務例外として throw する場合は **`FunctionCustomError`** と Callable 境界の変換ルール（§4）も参照。ログのみで記録する異常とセットで設計する。）
+
+### 11-4. warning を「削除」する基準
+
+次に該当する **`console.warn` / `logger.warn` は置き換えず削除**してよい。
+
+- 直後に例外を throw し、**上位で同一事象が `logOpsError` 等で記録される**
+- **同一異常の二重記録**になっている
+- 本番調査・復旧に役立たない診断だけを増やしている
+
+### 11-5. `logger.warn` / `logOpsError` に載せる情報
+
+- **載せる**: ドキュメント ID、業務日・対象月、処理段階、スキップ／fallback 理由、件数・サマリ等（運用判断に必要な最小限）。
+- **載せない**: 秘密・生認証情報・QR／トークン生値・巨大ペイロード・Firestore ドキュメント全体・過度な個人情報（詳細は `warningログ方針.md` §7・§8）。
+
+### 11-6. `logger.warn` と `logOpsError` の迷いどき
+
+次の順で切る: 業務本体は成功か → 整合性は崩れるか → 金額／集計／勤怠影響か → 復旧要か → 監視に載せないと見逃すか → `logOpsError` がノイズになりすぎないか。  
+業務影響・整合性・復旧必要性があるものは **`logOpsError` 寄り**。想定内・軽微・補助は **`logger.warn` 寄り**。
+
+### 11-7. 結論（貼り付け用）
+
+```text
+軽微・想定内・補助的な警告:
+  logger.warn
+
+業務影響があり、監視・重要度判定・復旧対象にしたい異常:
+  logOpsError
+
+上位で同じ事象が記録される重複 warning:
+  削除
+```
+
+---
+
+## 12. 実装時チェックリスト
 
 新規実装・改修の完了前に確認する。実装 AI がこのチェックリストを確認し結果を出力するときは次を守る。
 
@@ -212,6 +278,8 @@ alwaysApply: false
 - [ ] **`functionEntry`** の文字列が、**当該モジュールの `export` 名と一致**するか、または **`serviceByFunctionEntry.ts` のキー**として登録されている（既存の**例外キー**もここに含まれる。同一ファイル内の export 名との照合は diff / 検索で機械的に確認できる）。
 - [ ] **Cloud Tasks `createTask` を呼ぶ経路**では、gRPC **`code === 6`（ALREADY_EXISTS）** を成功扱いにしている。
 - [ ] 運用で追いたい失敗が **`logger.error` / `console.error` のみ**で終わっておらず、**`logOpsError` 経由**になっている。
+- [ ] 本番経路に **`console.warn` を追加していない**（§11。必要なら `logger.warn` / `logOpsError`、または重複なら削除）。
+- [ ] **上位の `logOpsError` と同じ事象**を増やすだけの `logger.warn` を置いていない（§11-4）。
 
 ### 文脈・判断が必要な項目（仕様・運用意図に照らして確認）
 
@@ -221,3 +289,4 @@ alwaysApply: false
 - [ ] **外部エラーの `cause`** を包み直して **shape を潰していない**（分類・`sdkCode` / `httpStatus` が取れる形を残している）。
 - [ ] **再試行・再実行で追う処理**では、`logOpsError` と対になる **`logOpsSuccess` に `context` を載せ、相関キーの意味を揃えられるか**検討する（網羅度はレビューで判断）。
 - [ ] **成功の運用観測**を **`logger.info` / `console.log` だけで言い直し**しておらず、**`logOpsSuccess` に寄せている**（冗長な重複がないか）。
+- [ ] **warning** は `warningログ方針.md`（§11）に沿い、`logger.warn` と `logOpsError` のどちらかに整理されている（または重複のみ削除）。

@@ -93,6 +93,7 @@ export async function runMigrateSettledBillsForBusinessDay(
         businessDate,
         billId,
         billData,
+        logInvocation: { functionEntry: 'migrateSettledBillsForBusinessDay' },
       });
 
       processedCount++;

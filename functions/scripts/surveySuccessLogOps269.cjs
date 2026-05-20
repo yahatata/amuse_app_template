@@ -1,7 +1,7 @@
 /**
  * エラーログ_context調査_269件.md を読み、ファイル・functionEntry 別に
  * 成功経路の手がかり（writeSingleOperationLog / logger.info / console.log）を数える。
- * 出力: docs/.../エラーログ_成功ログ調査_269件_機械集計.md
+ * 出力: docs/エラーログ運用/logOps/調査269件/エラーログ_成功ログ調査_269件_機械集計.md
  */
 const fs = require("fs");
 const path = require("path");
@@ -11,10 +11,9 @@ const IN = path.join(
   "..",
   "..",
   "docs",
-  "共通化",
-  "flutter",
-  "04_仕様書",
-  "エラーログ拡張",
+  "エラーログ運用",
+  "logOps",
+  "調査269件",
   "エラーログ_context調査_269件.md"
 );
 const OUT = path.join(
@@ -22,10 +21,9 @@ const OUT = path.join(
   "..",
   "..",
   "docs",
-  "共通化",
-  "flutter",
-  "04_仕様書",
-  "エラーログ拡張",
+  "エラーログ運用",
+  "logOps",
+  "調査269件",
   "エラーログ_成功ログ調査_269件_機械集計.md"
 );
 

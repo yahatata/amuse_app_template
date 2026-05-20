@@ -205,31 +205,24 @@ export async function getSchedulerConfig(db?: Firestore): Promise<SchedulerConfi
           fallbackSource: 'schedulerConfigDefaults.ts',
           reason: 'document_missing',
         });
-    logOpsSuccess({
-  message: "getSchedulerConfig 成功",
-  functionEntry: "getSchedulerConfig",
-  operation: 'config_read',
-  context: {
-      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-      reason: 'read_error',
-      message: 'ok',
-    },
-});
-
+        logOpsSuccess({
+          message: 'getSchedulerConfig 成功',
+          functionEntry: 'getSchedulerConfig',
+          operation: 'config_read',
+          context: {
+            code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,
+            reason: 'document_missing',
+          },
+        });
         return buildSchedulerConfigFromDefaults();
       }
 
-      const data = doc.data() as Record<string, unknown> | undefined;logOpsSuccess({
-  message: "getSchedulerConfig 成功",
-  functionEntry: "getSchedulerConfig",
-  operation: 'config_read',
-  context: {
-      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-      reason: 'read_error',
-      message: 'ok',
-    },
-});
-
+      const data = doc.data() as Record<string, unknown> | undefined;
+      logOpsSuccess({
+        message: 'getSchedulerConfig 成功',
+        functionEntry: 'getSchedulerConfig',
+        operation: 'config_read',
+      });
       return mergeSchedulerConfigWithDefaults(data ?? {});
     } catch (err) {
       lastError = err;

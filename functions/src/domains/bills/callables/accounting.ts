@@ -113,8 +113,6 @@ export const startAccounting = onCall(async (request) => {
 
   const adminId = request.auth.uid;
   const db = getFirestore();
-  const storeConfig = await getStoreConfig();
-  const chipRate = storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
 
   try {
     // デバイス権限の確認（role: admin または options.accounting: true）
@@ -141,6 +139,9 @@ export const startAccounting = onCall(async (request) => {
     // idempotencyKey を生成（提供されない場合は自動生成）
     const idempotencyKey = providedIdempotencyKey || 
       `${billId}:startAccounting:${clientNonce || crypto.randomUUID()}`;
+
+    const storeConfig = await getStoreConfig();
+    const chipRate = storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
 
     // startAccounting ヘルパAPIを呼び出して bills のステータスとops更新
     const startAccountingResult = await startAccountingHelper({
@@ -647,10 +648,28 @@ export const completeAccountingV2 = onCall(async (request) => {
               isActive: false,
             });
           } else {
-            console.warn(`activeStays billId mismatch: userId=${userId}, expected=${billId}, actual=${activeStayData.billId}`);
+            logOpsError({
+              message:
+                'completeAccountingV2: activeStays の billId が伝票と一致しません（isActive は変更していません）',
+              functionEntry: 'completeAccountingV2',
+              operation: 'completeAccountingV2ActiveStayBillIdMismatch',
+              cause: new Error('active_stays_bill_id_mismatch'),
+              context: {
+                billId,
+                userId,
+                actualBillIdOnActiveStay: activeStayData.billId ?? null,
+              },
+            });
           }
         } else {
-          console.warn(`activeStays not found: userId=${userId}, billId=${billId}`);
+          logOpsError({
+            message:
+              'completeAccountingV2: activeStays ドキュメントが存在しません（会計は settled 済み）',
+            functionEntry: 'completeAccountingV2',
+            operation: 'completeAccountingV2ActiveStayNotFound',
+            cause: new Error('active_stays_not_found_for_party_user'),
+            context: { billId, userId },
+          });
         }
 
         // visitLogsの最新の未完了ログを更新（legacy completeAccountingと同様の処理）
@@ -675,16 +694,34 @@ export const completeAccountingV2 = onCall(async (request) => {
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         }
-      } catch (activeStayError: any) {
-        // activeStays の更新失敗は警告ログのみ（会計完了処理自体は成功とする）
-        console.warn('activeStays/visitLogs update failed:', {
-          userId,
-          billId,
-          error: activeStayError.message,
+      } catch (activeStayError: unknown) {
+        const err = activeStayError as { message?: string; code?: string };
+        logOpsError({
+          message:
+            'completeAccountingV2: 会計は settled 済みですが activeStays / visitLogs の事後更新に失敗しました',
+          functionEntry: 'completeAccountingV2',
+          operation: 'completeAccountingV2PostSettleStayVisitLogFailed',
+          errorKey: 'ACCOUNTING_POST_SETTLE_STAY_VISIT_LOG_UPDATE_FAILED',
+          cause: activeStayError,
+          context: {
+            billId,
+            userId,
+            adminId,
+            firestoreCode: typeof err.code === 'string' ? err.code : undefined,
+            errorMessage: typeof err.message === 'string' ? err.message : undefined,
+          },
         });
       }
     } else {
-      console.warn(`party.userId not found in bill: billId=${billId}`);
+      logOpsError({
+        message:
+          'completeAccountingV2: settled 済みですが bill に party.userId がなく、activeStay / visitLog 更新をスキップしました',
+        functionEntry: 'completeAccountingV2',
+        operation: 'completeAccountingV2PartyUserIdMissingAtSettle',
+        errorKey: 'ACCOUNTING_SETTLE_PARTY_USER_ID_MISSING',
+        context: { billId, adminId },
+        cause: new Error('party_user_id_missing'),
+      });
     }
 
     logOpsSuccess({

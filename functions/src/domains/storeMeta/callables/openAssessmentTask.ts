@@ -17,7 +17,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsInfo, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 type OpenAssessmentAction = 'open_assessment' | 'open_assessment_recheck';
@@ -87,6 +87,17 @@ export const openAssessmentTask = onRequest(
 
       // idempotencyKeyの生成
       const idempotencyKey = `${action}_${payload.intendedBusinessDateKey}_${payload.scheduledAt}`;
+
+      logOpsInfo({
+        message: 'openAssessmentTask start',
+        functionEntry: 'openAssessmentTask',
+        operation: 'start',
+        context: {
+          action,
+          intendedBusinessDateKey: payload.intendedBusinessDateKey,
+          idempotencyKey,
+        },
+      });
 
       // トランザクション内で認定処理を実行
       await db.runTransaction(async (transaction) => {

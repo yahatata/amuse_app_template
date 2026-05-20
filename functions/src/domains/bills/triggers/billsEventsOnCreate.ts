@@ -25,7 +25,18 @@ export const billsEventsOnCreate = onDocumentCreated(
   async (event) => {
     const eventData = event.data;
     if (!eventData) {
-      logger.warn('billsEventsOnCreate: event data is missing');
+      logOpsError({
+        message:
+          'billsEventsOnCreate で event data が取得できませんでした（後続のイベント反映をスキップ）',
+        functionEntry: 'billsEventsOnCreate',
+        operation: 'validateEventData',
+        cause: new Error('bills_events_on_create_event_data_missing'),
+        context: {
+          billId: event.params.billId,
+          eventId: event.params.eventId,
+          hasEventData: false,
+        },
+      });
       return;
     }
 
@@ -210,6 +221,7 @@ export const billsEventsOnCreate = onDocumentCreated(
       logOpsError({
         message: 'billsEventsOnCreate failed',
         functionEntry: 'billsEventsOnCreate',
+        operation: 'billsEventsOnCreateMainCatch',
         cause: error,
         context: {
           billId,

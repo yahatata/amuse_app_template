@@ -33,7 +33,9 @@ export const verifyQRCode = onCall(
     }
 
     try {
-      const isValid = await verifyQRData(qrData);
+      const isValid = await verifyQRData(qrData, {
+        functionEntry: 'verifyQRCode',
+      });
 
       if (!isValid) {
         return {

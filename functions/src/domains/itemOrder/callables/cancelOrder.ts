@@ -10,6 +10,7 @@
  */
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { logger } from "firebase-functions";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
@@ -125,7 +126,12 @@ export const cancelOrder = onCall(async (request) => {
         });
       } else {
         // ドキュメントが存在しない場合は警告ログを出して続行（後方互換性のため）
-        console.warn(`_TodaysOrders ドキュメントが見つかりません: ${orderId}`);
+        logger.warn("_TodaysOrders ドキュメントが見つかりません（bill items の取消は継続）", {
+          orderId,
+          billId: billId || null,
+          dateString,
+          deviceId: device.id,
+        });
       }
     });
     logOpsSuccess({

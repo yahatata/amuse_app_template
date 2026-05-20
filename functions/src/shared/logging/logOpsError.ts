@@ -185,6 +185,34 @@ export function logOpsSuccess(args: LogOpsSuccessArgs): void {
   logger.info(args.message, payload);
 }
 
+export type LogOpsInfoArgs = {
+  message: string;
+  functionEntry: string;
+  operation?: string;
+  projectId?: string;
+  context?: Record<string, unknown>;
+};
+
+/**
+ * handler 到達などの情報ログ（未実行検知用）。`outcome: info` / `eventType: start`。
+ */
+export function logOpsInfo(args: LogOpsInfoArgs): void {
+  const projectId = args.projectId ?? resolveProjectId();
+  const service = resolveService(args);
+  const payload: Record<string, unknown> = {
+    outcome: "info" as const,
+    eventType: "start" as const,
+    service,
+    functionEntry: args.functionEntry,
+    projectId,
+    operation: args.operation ?? "start",
+  };
+  if (args.context !== undefined && Object.keys(args.context).length > 0) {
+    payload.context = args.context;
+  }
+  logger.info(args.message, payload);
+}
+
 /** postback 等、全文を載せず先頭だけ残す */
 export function truncateForLog(value: string, maxLen = 64): string {
   if (value.length <= maxLen) return value;

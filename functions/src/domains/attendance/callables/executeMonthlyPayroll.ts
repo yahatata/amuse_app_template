@@ -16,6 +16,11 @@ import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
 import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
 import {
+  PAYROLL_PERIOD_KEY_REGEX,
+  validatePayrollAttendanceDocuments,
+  DEFAULT_INVALID_ATTENDANCE_SAMPLE_LIMIT,
+} from '../helpers/payrollAttendanceValidation';
+import {
   classifyAttendancesForRun,
   groupByStaffId,
   buildRunSnapshot,
@@ -25,8 +30,6 @@ import {
   buildEventIdempotencyKey,
 } from '../helpers/payrollNotificationHelper';
 import type { AttendanceForRun } from '../helpers/payrollRunHelpers';
-
-const PERIOD_KEY_REGEX = /^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/;
 
 export const executeMonthlyPayroll = onCall(
   { timeoutSeconds: 300 },
@@ -49,7 +52,7 @@ export const executeMonthlyPayroll = onCall(
       attendanceIds?: string[];
     };
 
-    if (!paymentPeriodKey || !PERIOD_KEY_REGEX.test(paymentPeriodKey)) {
+    if (!paymentPeriodKey || !PAYROLL_PERIOD_KEY_REGEX.test(paymentPeriodKey)) {
       throw new HttpsError('invalid-argument', PAYROLL_ERRORS.INVALID_PERIOD);
     }
     if (!attendanceIds || attendanceIds.length === 0) {
@@ -73,7 +76,7 @@ export const executeMonthlyPayroll = onCall(
     // config snapshot 取得
     let payrollConfig;
     try {
-      payrollConfig = await getPayrollConfig();
+      payrollConfig = await getPayrollConfig(db);
     } catch (configError) {
       logOpsError({
         message: 'executeMonthlyPayroll: payroll config not found',
@@ -92,21 +95,49 @@ export const executeMonthlyPayroll = onCall(
       attendanceIds.map((id) => db.collection('attendances').doc(id).get())
     );
 
-    const attendances: AttendanceForRun[] = [];
-    for (const doc of attendanceDocs) {
-      if (!doc.exists) {
-        logger.warn('executeMonthlyPayroll: attendance not found', { id: doc.id });
-        continue;
-      }
+    const validationItems = attendanceDocs.map((doc) => ({
+      attendanceId: doc.id,
+      exists: doc.exists,
+      data: doc.exists ? ((doc.data() ?? {}) as Record<string, unknown>) : null,
+    }));
+
+    const attendanceValidation = validatePayrollAttendanceDocuments(
+      validationItems,
+      paymentPeriodKey,
+      { invalidSampleLimit: DEFAULT_INVALID_ATTENDANCE_SAMPLE_LIMIT }
+    );
+
+    if (!attendanceValidation.ok) {
+      logOpsError({
+        message: 'executeMonthlyPayroll: attendance integrity validation failed before payroll run',
+        functionEntry: 'executeMonthlyPayroll',
+        operation: 'validateAttendanceBeforePayrollRun',
+        errorSource: 'function_custom',
+        errorKey: 'PAYROLL_ATTENDANCE_INTEGRITY_INVALID',
+        cause: new Error('payroll_attendance_integrity_invalid'),
+        context: {
+          paymentPeriodKey,
+          attendanceIdsCount: attendanceIds.length,
+          invalidAttendanceCount: attendanceValidation.invalidAttendanceCount,
+          invalidAttendanceSamples: attendanceValidation.invalidAttendanceSamples,
+        },
+      });
+      throw new HttpsError(
+        'failed-precondition',
+        PAYROLL_ERRORS.ATTENDANCE_NOT_READY_FOR_PAYROLL_RUN
+      );
+    }
+
+    const attendances: AttendanceForRun[] = attendanceDocs.map((doc) => {
       const data = doc.data()!;
-      attendances.push({
+      return {
         id: doc.id,
         staffId: data.staffId ?? '',
         paymentPeriodKey: data.paymentPeriodKey ?? '',
         clockOut: data.clockOut,
         isDeleted: data.isDeleted === true,
-      });
-    }
+      };
+    });
 
     // 分類 + グルーピング
     const classified = classifyAttendancesForRun(attendances, paymentPeriodKey);

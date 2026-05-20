@@ -17,7 +17,6 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { startAccounting } from '../../src/domains/bills/callables/accounting';
 import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 import { appendItem } from '../../src/domains/bills/repos/appendItem';
-
 describe('accounting (startAccounting)', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;

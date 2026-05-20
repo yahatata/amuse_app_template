@@ -8,14 +8,13 @@
  * - snapshot生成（amounts/categoryBreakdown/itemsSnapshot/tournamentsSnapshot/paymentTotals/paymentsSummary/postEvents/closedAt/meta.contentHash）
  * - contentHash一致で完全no-op（updatedAt/closedAt不変）
  * - /payments 有り/無し両ケース
- * - ENABLE_SETTLEMENT_AGGREGATOR=true/false で enqueue 呼び分け（spy）
+ * - storeMeta/config の features.settlementAggregatorEnabled で enqueue 呼び分け（spy）
  */
 
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { billsOnSettle } from '../../src/domains/bills/triggers/billsOnSettle';
-
 describe('bills.onSettle', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
@@ -742,10 +741,12 @@ describe('bills.onSettle', () => {
     });
   });
 
-  describe('ENABLE_SETTLEMENT_AGGREGATOR の enqueue 分岐', () => {
-    it('ENABLE_SETTLEMENT_AGGREGATOR=true の場合、enqueueSettlement が呼ばれる', async () => {
-      const originalEnv = process.env.ENABLE_SETTLEMENT_AGGREGATOR;
-      process.env.ENABLE_SETTLEMENT_AGGREGATOR = 'true';
+  describe('settlementAggregatorEnabled（store config）の enqueue 分岐', () => {
+    it('true の場合、enqueueSettlement が呼ばれる', async () => {
+      await db
+        .collection('storeMeta')
+        .doc('config')
+        .set({ features: { settlementAggregatorEnabled: true } }, { merge: true });
 
       // 動的 import を spy するため、モジュールを事前に読み込む
       const aggregatorModule = await import('../../src/domains/analytics/services/aggregator');
@@ -773,18 +774,13 @@ describe('bills.onSettle', () => {
       expect(billData.meta?.contentHash).toBeDefined();
 
       enqueueSettlementSpy.mockRestore();
-
-      // 環境変数を元に戻す
-      if (originalEnv) {
-        process.env.ENABLE_SETTLEMENT_AGGREGATOR = originalEnv;
-      } else {
-        delete process.env.ENABLE_SETTLEMENT_AGGREGATOR;
-      }
     });
 
-    it('ENABLE_SETTLEMENT_AGGREGATOR=false の場合、enqueueSettlement が呼ばれない', async () => {
-      const originalEnv = process.env.ENABLE_SETTLEMENT_AGGREGATOR;
-      process.env.ENABLE_SETTLEMENT_AGGREGATOR = 'false';
+    it('false の場合、enqueueSettlement が呼ばれない', async () => {
+      await db
+        .collection('storeMeta')
+        .doc('config')
+        .set({ features: { settlementAggregatorEnabled: false } }, { merge: true });
 
       // 動的 import を spy するため、モジュールを事前に読み込む
       const aggregatorModule = await import('../../src/domains/analytics/services/aggregator');
@@ -809,13 +805,6 @@ describe('bills.onSettle', () => {
       expect(billData.meta?.contentHash).toBeDefined();
 
       enqueueSettlementSpy.mockRestore();
-
-      // 環境変数を元に戻す
-      if (originalEnv) {
-        process.env.ENABLE_SETTLEMENT_AGGREGATOR = originalEnv;
-      } else {
-        delete process.env.ENABLE_SETTLEMENT_AGGREGATOR;
-      }
     });
   });
 

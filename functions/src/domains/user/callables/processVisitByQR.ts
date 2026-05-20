@@ -49,7 +49,9 @@ export const processVisitByQR = onCall(async (request) => {
   }
 
   // QRの整合性検証（期限・トークン）
-  const valid = await verifyQRData(qrData);
+  const valid = await verifyQRData(qrData, {
+    functionEntry: 'processVisitByQR',
+  });
   if (!valid) {
     return {
       success: false,

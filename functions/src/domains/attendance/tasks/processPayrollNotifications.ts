@@ -10,6 +10,7 @@
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
+import { logOpsInfo } from '../../../shared/logging/logOpsError';
 
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
 import { getStoreConfig } from '../../../shared/config/configLoader';
@@ -190,19 +191,6 @@ export const processPayrollNotifications = onTaskDispatched(
     retryConfig: { maxAttempts: 3, minBackoffSeconds: 10, maxBackoffSeconds: 60 },
   },
   async (request) => {
-    const db = getFirestore();
-
-    const [payrollConfig, storeConfig] = await Promise.all([
-      getPayrollConfig(db),
-      getStoreConfig(db),
-    ]);
-
-    const startDay = storeConfig.payroll?.startDay ?? DEFAULT_PAYROLL_START_DAY;
-    const endDay = storeConfig.payroll?.endDay ?? DEFAULT_PAYROLL_END_DAY;
-    const paymentDayOfMonth = payrollConfig.paymentDayOfMonth;
-    const paymentMonthOffset = payrollConfig.paymentMonthOffset;
-    const reminderStartDays = payrollConfig.reminderStartDaysAfterPeriodEnd;
-
     const payload = (request.data ?? {}) as ProcessPayrollNotificationsTaskPayload;
     const todayStr = payload.targetDate && /^\d{4}-\d{2}-\d{2}$/.test(payload.targetDate) ?
       payload.targetDate :
@@ -218,6 +206,26 @@ export const processPayrollNotifications = onTaskDispatched(
           String(jstDate.getDate()).padStart(2, '0'),
         ].join('-');
       })();
+
+    logOpsInfo({
+      message: 'processPayrollNotifications start',
+      functionEntry: 'processPayrollNotifications',
+      operation: 'start',
+      context: {todayStr},
+    });
+
+    const db = getFirestore();
+
+    const [payrollConfig, storeConfig] = await Promise.all([
+      getPayrollConfig(db),
+      getStoreConfig(db),
+    ]);
+
+    const startDay = storeConfig.payroll?.startDay ?? DEFAULT_PAYROLL_START_DAY;
+    const endDay = storeConfig.payroll?.endDay ?? DEFAULT_PAYROLL_END_DAY;
+    const paymentDayOfMonth = payrollConfig.paymentDayOfMonth;
+    const paymentMonthOffset = payrollConfig.paymentMonthOffset;
+    const reminderStartDays = payrollConfig.reminderStartDaysAfterPeriodEnd;
 
     // 対象期間: today が属する期間 → その直前の期間
     const activePeriod = getPayrollPeriodRange(todayStr, startDay, endDay);

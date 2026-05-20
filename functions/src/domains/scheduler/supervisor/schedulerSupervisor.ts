@@ -1,8 +1,18 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsInfo, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { runSchedulerSupervisorCore } from './schedulerSupervisorCore';
 
 const SCHEDULER_SUPERVISOR_CRON = '0 3 * * *';
+
+/** `schedulerSupervisorCore.toJstDateKey` と同一の JST 日付キー（Firestore read なし） */
+function supervisorPlanningDateKey(now: Date): string {
+  const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const jst = new Date(now.getTime() + JST_OFFSET_MS);
+  const year = jst.getUTCFullYear();
+  const month = String(jst.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(jst.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 export const schedulerSupervisor = onSchedule(
   {
@@ -13,6 +23,13 @@ export const schedulerSupervisor = onSchedule(
   },
   async () => {
     try {
+      const planningDate = supervisorPlanningDateKey(new Date());
+      logOpsInfo({
+        message: 'schedulerSupervisor start',
+        functionEntry: 'schedulerSupervisor',
+        operation: 'start',
+        context: {planningDate},
+      });
       const result = await runSchedulerSupervisorCore();
       logOpsSuccess({
         message: 'schedulerSupervisor 成功',
@@ -36,4 +53,3 @@ export const schedulerSupervisor = onSchedule(
     }
   }
 );
-

@@ -1,6 +1,6 @@
 import { Transaction } from "firebase-admin/firestore";
 import * as admin from "firebase-admin";
-import { calculateCategoryAmounts, distributePaymentMethods } from "./helpers";
+import { calculateCategoryAmounts } from "./helpers";
 
 export interface ByUserUpdateInfo {
   collection: string;
@@ -17,6 +17,7 @@ export async function addToByUser(
   month: string,
   businessDate: string,
   billData: any,
+  paymentTotalsMap: Map<string, number>,
   byUserDoc?: FirebaseFirestore.DocumentSnapshot
 ): Promise<ByUserUpdateInfo | null> {
   const userId = billData.party?.userId;
@@ -34,11 +35,7 @@ export async function addToByUser(
   // 総売上を計算
   const grossSales = Array.from(categoryAmounts.values()).reduce((sum, amount) => sum + amount, 0);
   
-  // 支払い方法の配賦（paymentTotals を直接使用、fallback用に総額を渡す）
-  const paymentTotals = distributePaymentMethods(billData.paymentTotals, {
-    fallbackCashAmount: billData.amounts?.grandTotalRounded || grossSales,
-    validMethods: ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'],
-  });
+  const paymentTotals = paymentTotalsMap;
   
   // pokerName を取得（値があるときだけ更新するため）
   const pokerName = billData.party?.pokerName;

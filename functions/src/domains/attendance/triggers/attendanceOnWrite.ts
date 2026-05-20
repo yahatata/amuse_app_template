@@ -27,6 +27,7 @@ import {
   DEFAULT_PAYROLL_START_DAY,
   DEFAULT_PAYROLL_END_DAY,
 } from '../../../shared/config/defaults';
+import { logOpsError } from '../../../shared/logging/logOpsError';
 
 export const attendanceOnWrite = onDocumentWritten(
   'attendances/{attendanceId}',
@@ -43,13 +44,26 @@ export const attendanceOnWrite = onDocumentWritten(
       : null;
 
     const date = afterData.date as string | undefined;
+    // 正規 attendance では date（出勤日キー）は必須。欠落は後続の帰属・給与連携をスキップするため運用監視対象とする。
     if (!date) {
-      logger.warn('attendanceOnWrite: date が未設定のためスキップ', {
-        attendanceId: event.params.attendanceId,
+      logOpsError({
+        message: 'attendanceOnWrite で date が未設定のため処理をスキップしました',
+        functionEntry: 'attendanceOnWrite',
+        operation: 'validateAttendanceDate',
+        cause: new Error('attendance_date_missing'),
+        context: {
+          attendanceId: event.params.attendanceId,
+          hasDate: false,
+          staffId: afterData.staffId ?? null,
+          isDeleted: afterData.isDeleted ?? null,
+          lastActionType: afterData.lastActionType ?? null,
+        },
       });
       return;
     }
 
+    // 再処理導線（未確定）: config 復旧後に paymentPeriodKey / weekday / weekStartDate を一括補正する手段は未実装。
+    // 欠落期間の attendances はここでは再試行されないため、必要なら別バッチや管理操作での是正を検討する。
     const [config, payrollConfig] = await Promise.all([
       getStoreConfig(),
       getPayrollConfig(),

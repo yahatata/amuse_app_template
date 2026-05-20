@@ -128,7 +128,18 @@ export const createStaffAccount = onCall(
         await linkStaffRichMenu(uid);
       } catch (richMenuError) {
         // リッチメニュー更新失敗はログのみ。スタッフ登録は成功とする
-        console.warn("スタッフ登録: リッチメニュー更新に失敗（登録は成功）", richMenuError);
+        functions.logger.warn("スタッフ登録は成功しましたが、リッチメニュー更新に失敗しました", {
+          uid,
+          richMenuErrorMessage:
+            richMenuError instanceof Error
+              ? richMenuError.message
+              : typeof richMenuError === "object" &&
+                  richMenuError !== null &&
+                  "message" in richMenuError &&
+                  typeof (richMenuError as { message?: unknown }).message === "string"
+                ? (richMenuError as { message: string }).message
+                : String(richMenuError),
+        });
       }
 
       logOpsSuccess({
