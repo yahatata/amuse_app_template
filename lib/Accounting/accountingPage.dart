@@ -63,7 +63,7 @@ class AccountingPage extends StatefulWidget {
 class _AccountingPageState extends State<AccountingPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseFunctions _functions = FunctionsClient.instance;
-  
+
   List<Map<String, dynamic>> _activeBills = [];
   List<Map<String, dynamic>> _settledBills = [];
   bool _isLoading = false;
@@ -96,8 +96,11 @@ class _AccountingPageState extends State<AccountingPage> {
   @override
   void initState() {
     super.initState();
-    if (widget.forUnsettledBillId != null && widget.forUnsettledBillId!.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadSingleUnsettledBill(widget.forUnsettledBillId!));
+    if (widget.forUnsettledBillId != null &&
+        widget.forUnsettledBillId!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _loadSingleUnsettledBill(widget.forUnsettledBillId!),
+      );
     }
   }
 
@@ -116,7 +119,9 @@ class _AccountingPageState extends State<AccountingPage> {
       final data = doc.data()!;
       final ops = data['ops'] as Map<String, dynamic>?;
       final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>?;
-      final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(doc.id);
+      final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(
+        doc.id,
+      );
 
       final mappedData = <String, dynamic>{
         'id': doc.id,
@@ -140,7 +145,9 @@ class _AccountingPageState extends State<AccountingPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('請求書の取得に失敗しました: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('請求書の取得に失敗しました: $e')));
       }
     }
   }
@@ -160,7 +167,7 @@ class _AccountingPageState extends State<AccountingPage> {
           .get();
 
       final filteredDocs = querySnapshot.docs.where((doc) {
-          final data = doc.data();
+        final data = doc.data();
         final closeSnapshot = data['closeSnapshot'];
         if (closeSnapshot == null || closeSnapshot is! Map) return true;
         final unresolved = closeSnapshot['unresolved'];
@@ -171,8 +178,11 @@ class _AccountingPageState extends State<AccountingPage> {
         filteredDocs.map((doc) async {
           final data = doc.data();
           final ops = data['ops'] as Map<String, dynamic>?;
-          final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>?;
-          final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(doc.id);
+          final paymentsSummary =
+              data['paymentsSummary'] as Map<String, dynamic>?;
+          final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(
+            doc.id,
+          );
 
           return <String, dynamic>{
             'id': doc.id,
@@ -187,7 +197,8 @@ class _AccountingPageState extends State<AccountingPage> {
             'paymentMethodsByAmount': paymentsSummary?['byMethod'],
             'totalPrice': null,
             'sideGameChipPurchaseChipQty': sideGameChipSummary.chipQtyTotal,
-            'sideGameChipPurchaseAmountIncl': sideGameChipSummary.amountInclTotal,
+            'sideGameChipPurchaseAmountIncl':
+                sideGameChipSummary.amountInclTotal,
           };
         }),
       );
@@ -214,58 +225,94 @@ class _AccountingPageState extends State<AccountingPage> {
 
   Future<void> _loadSettledBills(String businessDate) async {
     try {
-      // 当日の営業日の会計完了済みの請求書を取得
+      // 当日の営業日の会計完了済み / 差額対応中の請求書を取得
       debugPrint('[_loadSettledBills] 検索営業日: $businessDate');
-      
+
       final querySnapshot = await _firestore
           .collection('bills')
           .where('businessDate', isEqualTo: businessDate)
-          .where('status', isEqualTo: 'settled')
-          .orderBy('ops.accountingCompletedAt', descending: true)
           .get();
 
       debugPrint('[_loadSettledBills] 取得件数: ${querySnapshot.docs.length}');
-      
+
       // 取得したドキュメントの詳細をログ出力
       for (var doc in querySnapshot.docs) {
         final data = doc.data();
         debugPrint('[_loadSettledBills] ドキュメントID: ${doc.id}');
         debugPrint('[_loadSettledBills] businessDate: ${data['businessDate']}');
         debugPrint('[_loadSettledBills] status: ${data['status']}');
-        debugPrint('[_loadSettledBills] pokerName: ${(data['party'] as Map<String, dynamic>?)?['pokerName']}');
-        debugPrint('[_loadSettledBills] amounts.grandTotalRounded: ${(data['amounts'] as Map<String, dynamic>?)?['grandTotalRounded']}');
-        debugPrint('[_loadSettledBills] ops.accountingCompletedAt: ${(data['ops'] as Map<String, dynamic>?)?['accountingCompletedAt']}');
+        debugPrint(
+          '[_loadSettledBills] pokerName: ${(data['party'] as Map<String, dynamic>?)?['pokerName']}',
+        );
+        debugPrint(
+          '[_loadSettledBills] amounts.grandTotalRounded: ${(data['amounts'] as Map<String, dynamic>?)?['grandTotalRounded']}',
+        );
+        debugPrint(
+          '[_loadSettledBills] ops.accountingCompletedAt: ${(data['ops'] as Map<String, dynamic>?)?['accountingCompletedAt']}',
+        );
       }
 
       final mappedSettledBills = await Future.wait(
-        querySnapshot.docs.map((doc) async {
-          final data = doc.data();
-          final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>?;
-          final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(doc.id);
-          return <String, dynamic>{
-            'id': doc.id,
-            'userId': (data['party'] as Map<String, dynamic>?)?['userId'],
-            'pokerName': (data['party'] as Map<String, dynamic>?)?['pokerName'],
-            'currentTable': (data['place'] as Map<String, dynamic>?)?['table'],
-            'currentSeat': (data['place'] as Map<String, dynamic>?)?['seat'],
-            'status': data['status'],
-            'createdAt': data['createdAt'],
-            'updatedAt': data['updatedAt'],
-            'totalPrice': (data['amounts'] as Map<String, dynamic>?)?['grandTotalRounded'],
-            'accountingCompletedAt': (data['ops'] as Map<String, dynamic>?)?['accountingCompletedAt'],
-            'paymentMethodsByAmount': paymentsSummary?['byMethod'],
-            'sideGameChipPurchaseChipQty': sideGameChipSummary.chipQtyTotal,
-            'sideGameChipPurchaseAmountIncl': sideGameChipSummary.amountInclTotal,
-          };
-        }),
+        querySnapshot.docs
+            .where((doc) {
+              final data = doc.data();
+              final status = data['status'] as String?;
+              return status == 'settled' || status == 'post_settlement_pending';
+            })
+            .map((doc) async {
+              final data = doc.data();
+              final paymentsSummary =
+                  data['paymentsSummary'] as Map<String, dynamic>?;
+              final sideGameChipSummary =
+                  await _fetchSideGameChipPurchaseSummary(doc.id);
+              return <String, dynamic>{
+                'id': doc.id,
+                'userId': (data['party'] as Map<String, dynamic>?)?['userId'],
+                'pokerName':
+                    (data['party'] as Map<String, dynamic>?)?['pokerName'],
+                'currentTable':
+                    (data['place'] as Map<String, dynamic>?)?['table'],
+                'currentSeat':
+                    (data['place'] as Map<String, dynamic>?)?['seat'],
+                'status': data['status'],
+                'createdAt': data['createdAt'],
+                'updatedAt': data['updatedAt'],
+                'totalPrice':
+                    (data['amounts']
+                        as Map<String, dynamic>?)?['grandTotalRounded'],
+                'accountingCompletedAt':
+                    (data['ops']
+                        as Map<String, dynamic>?)?['accountingCompletedAt'],
+                'postSettlementState': data['postSettlementState'],
+                'paymentMethodsByAmount': paymentsSummary?['byMethod'],
+                'sideGameChipPurchaseChipQty': sideGameChipSummary.chipQtyTotal,
+                'sideGameChipPurchaseAmountIncl':
+                    sideGameChipSummary.amountInclTotal,
+              };
+            }),
       );
 
+      mappedSettledBills.sort((a, b) {
+        final aTimestamp = a['accountingCompletedAt'];
+        final bTimestamp = b['accountingCompletedAt'];
+        final aDate = aTimestamp is Timestamp
+            ? aTimestamp.toDate()
+            : (aTimestamp as DateTime?);
+        final bDate = bTimestamp is Timestamp
+            ? bTimestamp.toDate()
+            : (bTimestamp as DateTime?);
+        if (aDate == null && bDate == null) return 0;
+        if (aDate == null) return 1;
+        if (bDate == null) return -1;
+        return bDate.compareTo(aDate);
+      });
+
       if (mounted) {
-      setState(() {
+        setState(() {
           _settledBills = mappedSettledBills;
         });
       }
-      
+
       debugPrint('[_loadSettledBills] マッピング後の件数: ${_settledBills.length}');
     } catch (e, stackTrace) {
       debugPrint('[_loadSettledBills] エラー: $e');
@@ -307,7 +354,9 @@ class _AccountingPageState extends State<AccountingPage> {
       });
 
       // sideGameChips サブコレクション（action='purchase'のみ）
-      final sideGameChipsSnapshot = await billRef.collection('sideGameChips').get();
+      final sideGameChipsSnapshot = await billRef
+          .collection('sideGameChips')
+          .get();
       final sideGameChipsList = sideGameChipsSnapshot.docs
           .where((doc) => doc.data()['action'] == 'purchase')
           .map((doc) => doc.data())
@@ -319,8 +368,8 @@ class _AccountingPageState extends State<AccountingPage> {
       // tournaments サブコレクション
       final tournamentsSnapshot = await billRef.collection('tournaments').get();
       final tournamentsList = tournamentsSnapshot.docs.map((doc) {
-          final data = doc.data();
-          return {
+        final data = doc.data();
+        return {
           'templateName': data['templateName'] ?? '不明',
           'entryCount': (data['entryCount'] as num?)?.toInt() ?? 0,
           'entryFeeIncl': (data['entryFeeIncl'] as num?)?.toInt() ?? 0,
@@ -328,8 +377,8 @@ class _AccountingPageState extends State<AccountingPage> {
           'reentryFeeIncl': (data['reentryFeeIncl'] as num?)?.toInt() ?? 0,
           'addonCount': (data['addonCount'] as num?)?.toInt() ?? 0,
           'addonFeeIncl': (data['addonFeeIncl'] as num?)?.toInt() ?? 0,
-          };
-        }).toList();
+        };
+      }).toList();
       int tournamentsAmount = tournamentsList.fold(0, (sum, data) {
         return sum +
             (data['entryFeeIncl'] as int) * (data['entryCount'] as int) +
@@ -337,7 +386,11 @@ class _AccountingPageState extends State<AccountingPage> {
             (data['addonFeeIncl'] as int) * (data['addonCount'] as int);
       });
 
-      final grandTotal = extraCostAmount + itemsAmount + sideGameChipAmount + tournamentsAmount;
+      final grandTotal =
+          extraCostAmount +
+          itemsAmount +
+          sideGameChipAmount +
+          tournamentsAmount;
 
       if (!mounted) return;
 
@@ -362,7 +415,7 @@ class _AccountingPageState extends State<AccountingPage> {
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
-                
+
                 // 入店料（再入店の場合など、amountIncl が 0 でも表示）
                 if (hasExtras) ...[
                   _buildCategorySection(
@@ -370,20 +423,31 @@ class _AccountingPageState extends State<AccountingPage> {
                     totalAmount: extraCostAmount,
                     children: [
                       ...extrasList.map((extra) {
-                        final amount = (extra['amountIncl'] as num?)?.toInt() ?? 0;
+                        final amount =
+                            (extra['amountIncl'] as num?)?.toInt() ?? 0;
                         final name = extra['name'] as String? ?? '入店料';
                         return Padding(
-                          padding: const EdgeInsets.only(left: 16, top: 4, bottom: 4),
+                          padding: const EdgeInsets.only(
+                            left: 16,
+                            top: 4,
+                            bottom: 4,
+                          ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
                                 name,
-                                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey,
+                                ),
                               ),
                               Text(
                                 '¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey,
+                                ),
                               ),
                             ],
                           ),
@@ -406,28 +470,41 @@ class _AccountingPageState extends State<AccountingPage> {
                             return (item['voided'] as bool?) != true;
                           })
                           .map((item) {
-                        final name = item['name'] as String? ?? '不明';
-                        final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
-                        final totalPriceIncl = (item['totalPriceIncl'] as num?)?.toInt() ?? 0;
-                        return Padding(
-                          padding: const EdgeInsets.only(left: 16, top: 4, bottom: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '$name × $quantity',
-                                  style: const TextStyle(fontSize: 13, color: Colors.grey),
-                                ),
+                            final name = item['name'] as String? ?? '不明';
+                            final quantity =
+                                (item['quantity'] as num?)?.toInt() ?? 0;
+                            final totalPriceIncl =
+                                (item['totalPriceIncl'] as num?)?.toInt() ?? 0;
+                            return Padding(
+                              padding: const EdgeInsets.only(
+                                left: 16,
+                                top: 4,
+                                bottom: 4,
                               ),
-                              Text(
-                                '¥${totalPriceIncl.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '$name × $quantity',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '¥${totalPriceIncl.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        );
-                      }),
+                            );
+                          }),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -441,22 +518,33 @@ class _AccountingPageState extends State<AccountingPage> {
                     children: [
                       ...sideGameChipsList.map((chip) {
                         final chipQty = (chip['chipQty'] as num?)?.toInt() ?? 0;
-                        final amountIncl = (chip['amountIncl'] as num?)?.toInt() ?? 0;
+                        final amountIncl =
+                            (chip['amountIncl'] as num?)?.toInt() ?? 0;
                         final name = chip['name'] as String? ?? 'チップ購入';
                         return Padding(
-                          padding: const EdgeInsets.only(left: 16, top: 4, bottom: 4),
+                          padding: const EdgeInsets.only(
+                            left: 16,
+                            top: 4,
+                            bottom: 4,
+                          ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Expanded(
                                 child: Text(
                                   '$name: ${chipQty}chip',
-                                  style: const TextStyle(fontSize: 13, color: Colors.grey),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey,
+                                  ),
                                 ),
                               ),
                               Text(
                                 '¥${amountIncl.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey,
+                                ),
                               ),
                             ],
                           ),
@@ -474,63 +562,100 @@ class _AccountingPageState extends State<AccountingPage> {
                     totalAmount: tournamentsAmount,
                     children: [
                       ...tournamentsList.map((tournament) {
-                        final templateName = tournament['templateName'] as String;
+                        final templateName =
+                            tournament['templateName'] as String;
                         final entryCount = tournament['entryCount'] as int;
                         final entryFeeIncl = tournament['entryFeeIncl'] as int;
                         final reentryCount = tournament['reentryCount'] as int;
-                        final reentryFeeIncl = tournament['reentryFeeIncl'] as int;
+                        final reentryFeeIncl =
+                            tournament['reentryFeeIncl'] as int;
                         final addonCount = tournament['addonCount'] as int;
                         final addonFeeIncl = tournament['addonFeeIncl'] as int;
-                        final tournamentTotal = 
+                        final tournamentTotal =
                             entryCount * entryFeeIncl +
                             reentryCount * reentryFeeIncl +
                             addonCount * addonFeeIncl;
-                        
+
                         return Padding(
-                          padding: const EdgeInsets.only(left: 16, top: 4, bottom: 4),
+                          padding: const EdgeInsets.only(
+                            left: 16,
+                            top: 4,
+                            bottom: 4,
+                          ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 templateName,
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey,
+                                ),
                               ),
                               if (entryCount > 0)
                                 Padding(
-                                  padding: const EdgeInsets.only(left: 8, top: 2),
+                                  padding: const EdgeInsets.only(
+                                    left: 8,
+                                    top: 2,
+                                  ),
                                   child: Text(
                                     '  エントリー: ${entryCount}回 × ¥${entryFeeIncl.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} = ¥${(entryCount * entryFeeIncl).toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
                                   ),
                                 ),
                               if (reentryCount > 0)
                                 Padding(
-                                  padding: const EdgeInsets.only(left: 8, top: 2),
+                                  padding: const EdgeInsets.only(
+                                    left: 8,
+                                    top: 2,
+                                  ),
                                   child: Text(
                                     '  リエントリー: ${reentryCount}回 × ¥${reentryFeeIncl.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} = ¥${(reentryCount * reentryFeeIncl).toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
                                   ),
                                 ),
                               if (addonCount > 0)
                                 Padding(
-                                  padding: const EdgeInsets.only(left: 8, top: 2),
+                                  padding: const EdgeInsets.only(
+                                    left: 8,
+                                    top: 2,
+                                  ),
                                   child: Text(
                                     '  アドオン: ${addonCount}回 × ¥${addonFeeIncl.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} = ¥${(addonCount * addonFeeIncl).toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
                                   ),
                                 ),
                               Padding(
                                 padding: const EdgeInsets.only(left: 8, top: 2),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     const Text(
                                       '  小計',
-                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.grey),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.grey,
+                                      ),
                                     ),
                                     Text(
                                       '¥${tournamentTotal.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.grey),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.grey,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -551,11 +676,17 @@ class _AccountingPageState extends State<AccountingPage> {
                   children: [
                     const Text(
                       '合計',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     Text(
                       '¥${grandTotal.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -577,9 +708,9 @@ class _AccountingPageState extends State<AccountingPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('合計金額の計算に失敗しました: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('合計金額の計算に失敗しました: $e')));
       }
     }
   }
@@ -620,10 +751,7 @@ class _AccountingPageState extends State<AccountingPage> {
             ],
           ),
           // 詳細リスト（インデント・小さめのフォント）
-          if (children.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            ...children,
-          ],
+          if (children.isNotEmpty) ...[const SizedBox(height: 8), ...children],
         ],
       ),
     );
@@ -737,45 +865,47 @@ class _AccountingPageState extends State<AccountingPage> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          ...categoryAmounts.displayValues.entries.where((e) => e.value > 0).map((
-                            entry,
-                          ) {
-                            final categoryKey = entry.key;
-                            final categoryValue = entry.value;
-                            String displayAmount;
+                          ...categoryAmounts.displayValues.entries
+                              .where((e) => e.value > 0)
+                              .map((entry) {
+                                final categoryKey = entry.key;
+                                final categoryValue = entry.value;
+                                String displayAmount;
 
-                            // サイドゲームチップの場合はチップ枚数と円換算額を表示
-                            if (categoryKey == 'sideGameChip') {
-                              final yenAmount = sideGameChipSummary.amountInclTotal;
-                              final chipCount = sideGameChipSummary.chipQtyTotal;
-                              displayAmount =
-                                  'チップ${chipCount.toString()}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
-                            } else {
-                              displayAmount =
-                                  '¥${categoryValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
-                            }
+                                // サイドゲームチップの場合はチップ枚数と円換算額を表示
+                                if (categoryKey == 'sideGameChip') {
+                                  final yenAmount =
+                                      sideGameChipSummary.amountInclTotal;
+                                  final chipCount =
+                                      sideGameChipSummary.chipQtyTotal;
+                                  displayAmount =
+                                      'チップ${chipCount.toString()}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
+                                } else {
+                                  displayAmount =
+                                      '¥${categoryValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
+                                }
 
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    _getCategoryName(categoryKey),
-                                    style: const TextStyle(fontSize: 14),
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        _getCategoryName(categoryKey),
+                                        style: const TextStyle(fontSize: 14),
+                                      ),
+                                      Text(
+                                        displayAmount,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  Text(
-                                    displayAmount,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
+                                );
+                              }),
                           const Divider(height: 24),
 
                           // 合計金額
@@ -815,8 +945,10 @@ class _AccountingPageState extends State<AccountingPage> {
                             String displayText;
 
                             if (method == 'sideGameChip') {
-                              final yenAmount = sideGameChipSummary.amountInclTotal;
-                              final chipCount = sideGameChipSummary.chipQtyTotal;
+                              final yenAmount =
+                                  sideGameChipSummary.amountInclTotal;
+                              final chipCount =
+                                  sideGameChipSummary.chipQtyTotal;
                               displayText =
                                   'チップ${chipCount.toString()}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
                             } else {
@@ -908,8 +1040,22 @@ class _AccountingPageState extends State<AccountingPage> {
             // 円換算値を格納（チップ枚数 × 換算率）
             // CategoryPaymentMethodDialog では残高チェック時に円換算しているため、
             // チップ枚数を計算してから円換算値を格納
-            final chips = (categoryAmount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round();
-            final yenAmount = (chips * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
+            final chips =
+                (categoryAmount /
+                        (StoreConfigService
+                                .instance
+                                .latestData
+                                ?.sideGameChipRate ??
+                            kDefaultSideGameChipRate))
+                    .round();
+            final yenAmount =
+                (chips *
+                        (StoreConfigService
+                                .instance
+                                .latestData
+                                ?.sideGameChipRate ??
+                            kDefaultSideGameChipRate))
+                    .toInt();
             paymentMethodsByAmount[paymentValue] =
                 (paymentMethodsByAmount[paymentValue] ?? 0) + yenAmount;
           } else {
@@ -926,7 +1072,14 @@ class _AccountingPageState extends State<AccountingPage> {
 
               // サイドゲームチップの場合は円換算値を格納（amountはチップ枚数）
               if (method == 'sideGameChip') {
-                final yenAmount = (amount * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
+                final yenAmount =
+                    (amount *
+                            (StoreConfigService
+                                    .instance
+                                    .latestData
+                                    ?.sideGameChipRate ??
+                                kDefaultSideGameChipRate))
+                        .toInt();
                 paymentMethodsByAmount[method] =
                     (paymentMethodsByAmount[method] ?? 0) + yenAmount;
               } else {
@@ -1021,7 +1174,14 @@ class _AccountingPageState extends State<AccountingPage> {
 
               // サイドゲームチップの場合は円換算値を格納（amountはチップ枚数）
               if (method == 'sideGameChip') {
-                final yenAmount = (amount * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
+                final yenAmount =
+                    (amount *
+                            (StoreConfigService
+                                    .instance
+                                    .latestData
+                                    ?.sideGameChipRate ??
+                                kDefaultSideGameChipRate))
+                        .toInt();
                 paymentMethodsByAmount[method] =
                     (paymentMethodsByAmount[method] ?? 0) + yenAmount;
               } else {
@@ -1047,9 +1207,13 @@ class _AccountingPageState extends State<AccountingPage> {
   }
 
   /// getBillPreviewTotals からカテゴリ別金額を取得して _CategoryAmounts を生成
-  Future<_CategoryAmounts?> _fetchCategoryAmountsFromServer(String billId) async {
+  Future<_CategoryAmounts?> _fetchCategoryAmountsFromServer(
+    String billId,
+  ) async {
     try {
-      final HttpsCallable callable = _functions.httpsCallable('getBillPreviewTotals');
+      final HttpsCallable callable = _functions.httpsCallable(
+        'getBillPreviewTotals',
+      );
       final result = await callable.call({'billId': billId});
 
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -1059,17 +1223,22 @@ class _AccountingPageState extends State<AccountingPage> {
       final displayValues = <String, int>{
         'extraCost': (categories['extraCost']['display'] as num?)?.toInt() ?? 0,
         'items': (categories['items']['display'] as num?)?.toInt() ?? 0,
-        'tournaments': (categories['tournaments']['display'] as num?)?.toInt() ?? 0,
+        'tournaments':
+            (categories['tournaments']['display'] as num?)?.toInt() ?? 0,
         // sideGameChip は displayChips を表示用とする
-        'sideGameChip': (categories['sideGameChip']['displayChips'] as num?)?.toInt() ?? 0,
+        'sideGameChip':
+            (categories['sideGameChip']['displayChips'] as num?)?.toInt() ?? 0,
       };
 
       // monetaryValues: 金額計算・auto split 用
       final monetaryValues = <String, int>{
-        'extraCost': (categories['extraCost']['monetary'] as num?)?.toInt() ?? 0,
+        'extraCost':
+            (categories['extraCost']['monetary'] as num?)?.toInt() ?? 0,
         'items': (categories['items']['monetary'] as num?)?.toInt() ?? 0,
-        'tournaments': (categories['tournaments']['monetary'] as num?)?.toInt() ?? 0,
-        'sideGameChip': (categories['sideGameChip']['monetary'] as num?)?.toInt() ?? 0,
+        'tournaments':
+            (categories['tournaments']['monetary'] as num?)?.toInt() ?? 0,
+        'sideGameChip':
+            (categories['sideGameChip']['monetary'] as num?)?.toInt() ?? 0,
       };
 
       return _CategoryAmounts(
@@ -1078,9 +1247,9 @@ class _AccountingPageState extends State<AccountingPage> {
       );
     } catch (e) {
       if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('会計プレビュー情報の取得に失敗しました: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('会計プレビュー情報の取得に失敗しました: $e')));
       }
       return null;
     }
@@ -1291,7 +1460,8 @@ class _AccountingPageState extends State<AccountingPage> {
                           final value = entry.value;
                           String amountText;
                           if (category == 'sideGameChip') {
-                            final yenValue = sideGameChipSummary.amountInclTotal;
+                            final yenValue =
+                                sideGameChipSummary.amountInclTotal;
                             final chipQty = sideGameChipSummary.chipQtyTotal;
                             amountText =
                                 'チップ$chipQty枚 (${_formatCurrency(yenValue)})';
@@ -1384,10 +1554,14 @@ class _AccountingPageState extends State<AccountingPage> {
 
       final splitResult = calculatePaymentSplit(
         selectedBaseMethod: baseMethod,
-        categoryPaymentMethods: StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods,
+        categoryPaymentMethods:
+            StoreConfigService.instance.latestData?.categoryPaymentMethods ??
+            kDefaultCategoryPaymentMethods,
         bill: categoryAmounts,
         balances: balancesForCalculator,
-        pointPriority: StoreConfigService.instance.latestData?.pointPriority ?? kDefaultPointPriority,
+        pointPriority:
+            StoreConfigService.instance.latestData?.pointPriority ??
+            kDefaultPointPriority,
       );
 
       final verifyResponse = await _functions
@@ -1396,7 +1570,9 @@ class _AccountingPageState extends State<AccountingPage> {
             'billId': billId,
             'clientResult': splitResult.toMap(),
             'selectedBaseMethod': baseMethod,
-            'pointPriority': StoreConfigService.instance.latestData?.pointPriority ?? kDefaultPointPriority,
+            'pointPriority':
+                StoreConfigService.instance.latestData?.pointPriority ??
+                kDefaultPointPriority,
           });
 
       final responseData = Map<String, dynamic>.from(
@@ -1428,11 +1604,24 @@ class _AccountingPageState extends State<AccountingPage> {
         final amount = (value as num?)?.toInt() ?? 0;
         if (amount <= 0) return;
         if (method == 'sideGameChip') {
-          final chips = (amount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate))
-              .round();
+          final chips =
+              (amount /
+                      (StoreConfigService
+                              .instance
+                              .latestData
+                              ?.sideGameChipRate ??
+                          kDefaultSideGameChipRate))
+                  .round();
           if (chips > 0) {
             // 円換算値を格納（チップ枚数 × 換算率）
-            paymentMethodsByAmount['sideGameChip'] = (chips * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
+            paymentMethodsByAmount['sideGameChip'] =
+                (chips *
+                        (StoreConfigService
+                                .instance
+                                .latestData
+                                ?.sideGameChipRate ??
+                            kDefaultSideGameChipRate))
+                    .toInt();
           }
         } else {
           paymentMethodsByAmount[method] = amount;
@@ -1501,10 +1690,14 @@ class _AccountingPageState extends State<AccountingPage> {
 
       final splitResult = calculatePaymentSplit(
         selectedBaseMethod: baseMethod,
-        categoryPaymentMethods: StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods,
+        categoryPaymentMethods:
+            StoreConfigService.instance.latestData?.categoryPaymentMethods ??
+            kDefaultCategoryPaymentMethods,
         bill: categoryAmounts,
         balances: balancesForCalculator,
-        pointPriority: StoreConfigService.instance.latestData?.pointPriority ?? kDefaultPointPriority,
+        pointPriority:
+            StoreConfigService.instance.latestData?.pointPriority ??
+            kDefaultPointPriority,
       );
 
       final verifyResponse = await _functions
@@ -1513,7 +1706,9 @@ class _AccountingPageState extends State<AccountingPage> {
             'billId': billId,
             'clientResult': splitResult.toMap(),
             'selectedBaseMethod': baseMethod,
-            'pointPriority': StoreConfigService.instance.latestData?.pointPriority ?? kDefaultPointPriority,
+            'pointPriority':
+                StoreConfigService.instance.latestData?.pointPriority ??
+                kDefaultPointPriority,
           });
 
       final responseData = Map<String, dynamic>.from(
@@ -1546,11 +1741,24 @@ class _AccountingPageState extends State<AccountingPage> {
         final amount = (value as num?)?.toInt() ?? 0;
         if (amount <= 0) return;
         if (method == 'sideGameChip') {
-          final chips = (amount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate))
-              .round();
+          final chips =
+              (amount /
+                      (StoreConfigService
+                              .instance
+                              .latestData
+                              ?.sideGameChipRate ??
+                          kDefaultSideGameChipRate))
+                  .round();
           if (chips > 0) {
             // 円換算値を格納（チップ枚数 × 換算率）
-            verifiedPaymentMethodsByAmount['sideGameChip'] = (chips * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
+            verifiedPaymentMethodsByAmount['sideGameChip'] =
+                (chips *
+                        (StoreConfigService
+                                .instance
+                                .latestData
+                                ?.sideGameChipRate ??
+                            kDefaultSideGameChipRate))
+                    .toInt();
           }
         } else {
           verifiedPaymentMethodsByAmount[method] = amount;
@@ -1578,69 +1786,69 @@ class _AccountingPageState extends State<AccountingPage> {
 
       if (!mounted) return;
 
-        if (result.data['success'] == true) {
-          final shouldComplete = await showDialog<bool>(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.green),
-                  SizedBox(width: 8),
-                  Text('会計開始完了'),
-                ],
-              ),
-              content: const Text(
-                '会計を開始しました。\n\nこのまま会計を完了しますか？',
-                style: TextStyle(fontSize: 16),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('後で', style: TextStyle(fontSize: 16)),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text(
-                    '会計完了',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
+      if (result.data['success'] == true) {
+        final shouldComplete = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green),
+                SizedBox(width: 8),
+                Text('会計開始完了'),
               ],
             ),
-          );
+            content: const Text(
+              '会計を開始しました。\n\nこのまま会計を完了しますか？',
+              style: TextStyle(fontSize: 16),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('後で', style: TextStyle(fontSize: 16)),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text(
+                  '会計完了',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        );
 
-          if (shouldComplete == true) {
-            await _completeAccounting(billId);
-          } else {
+        if (shouldComplete == true) {
+          await _completeAccounting(billId);
+        } else {
           if (_currentBusinessDateKey != null) {
             _loadActiveBills(_currentBusinessDateKey!);
           }
-          }
-        } else {
-          await showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.error_outline, color: Colors.red),
-                  SizedBox(width: 8),
-                  Text('会計開始エラー'),
-                ],
-              ),
-              content: Text(result.data['message'] ?? '会計開始に失敗しました'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('閉じる'),
-                ),
+        }
+      } else {
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.red),
+                SizedBox(width: 8),
+                Text('会計開始エラー'),
               ],
             ),
-          );
+            content: Text(result.data['message'] ?? '会計開始に失敗しました'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('閉じる'),
+              ),
+            ],
+          ),
+        );
       }
     } catch (e) {
       // エラー時もローディングダイアログを閉じる
@@ -1654,24 +1862,24 @@ class _AccountingPageState extends State<AccountingPage> {
 
       if (!mounted) return;
 
-        await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.error_outline, color: Colors.red),
-                SizedBox(width: 8),
-                Text('会計開始エラー'),
-              ],
-            ),
-            content: Text(_extractUserFriendlyMessage(e.toString())),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('閉じる'),
-              ),
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.red),
+              SizedBox(width: 8),
+              Text('会計開始エラー'),
             ],
           ),
+          content: Text(_extractUserFriendlyMessage(e.toString())),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('閉じる'),
+            ),
+          ],
+        ),
       );
     }
   }
@@ -1741,7 +1949,9 @@ class _AccountingPageState extends State<AccountingPage> {
                 Text('0円会計の確認'),
               ],
             ),
-            content: Text('この${pokerName}様の伝票は0円の状態で登録されています。確認したのち、問題がなければ確認ボタンを押下してください。'),
+            content: Text(
+              'この${pokerName}様の伝票は0円の状態で登録されています。確認したのち、問題がなければ確認ボタンを押下してください。',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
@@ -1769,7 +1979,9 @@ class _AccountingPageState extends State<AccountingPage> {
       }
 
       final userBalances = await _getUserBalances(bill['userId']?.toString());
-      final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(billId);
+      final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(
+        billId,
+      );
 
       final startOptions = await _showPaymentStartOptionsDialog(
         bill,
@@ -1802,10 +2014,11 @@ class _AccountingPageState extends State<AccountingPage> {
         // カスタム選択結果から paymentMethodsByAmount を計算
         // CategoryPaymentMethodDialog は既に残高チェックと分割処理を行っているため、
         // その結果をそのまま使用
-        paymentMethodsByAmount = _calculatePaymentMethodsByAmountFromCategorySelection(
-          customSelection,
-          categoryAmounts.monetaryValues,
-        );
+        paymentMethodsByAmount =
+            _calculatePaymentMethodsByAmountFromCategorySelection(
+              customSelection,
+              categoryAmounts.monetaryValues,
+            );
       } else if (action == 'auto') {
         final baseMethod = startOptions['baseMethod']?.toString();
         if (baseMethod == null || baseMethod.isEmpty) {
@@ -1825,10 +2038,14 @@ class _AccountingPageState extends State<AccountingPage> {
 
         final splitResult = calculatePaymentSplit(
           selectedBaseMethod: baseMethod,
-          categoryPaymentMethods: StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods,
+          categoryPaymentMethods:
+              StoreConfigService.instance.latestData?.categoryPaymentMethods ??
+              kDefaultCategoryPaymentMethods,
           bill: categoryAmounts.monetaryValues,
           balances: balancesForCalculator,
-          pointPriority: StoreConfigService.instance.latestData?.pointPriority ?? kDefaultPointPriority,
+          pointPriority:
+              StoreConfigService.instance.latestData?.pointPriority ??
+              kDefaultPointPriority,
         );
 
         final cashLikeAmount = splitResult.cashLikeAmount;
@@ -1847,10 +2064,24 @@ class _AccountingPageState extends State<AccountingPage> {
           final amount = value.toInt();
           if (amount <= 0) return;
           if (method == 'sideGameChip') {
-            final chips = (amount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round();
+            final chips =
+                (amount /
+                        (StoreConfigService
+                                .instance
+                                .latestData
+                                ?.sideGameChipRate ??
+                            kDefaultSideGameChipRate))
+                    .round();
             if (chips > 0) {
               // 円換算値を格納（チップ枚数 × 換算率）
-              paymentMethodsByAmount['sideGameChip'] = (chips * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
+              paymentMethodsByAmount['sideGameChip'] =
+                  (chips *
+                          (StoreConfigService
+                                  .instance
+                                  .latestData
+                                  ?.sideGameChipRate ??
+                              kDefaultSideGameChipRate))
+                      .toInt();
             }
           } else {
             paymentMethodsByAmount[method] = amount;
@@ -1892,9 +2123,9 @@ class _AccountingPageState extends State<AccountingPage> {
         } catch (_) {
           // ダイアログが既に閉じられている場合は無視
         }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('会計開始処理中にエラーが発生しました: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('会計開始処理中にエラーが発生しました: $e')));
       }
     } finally {
       // 念のため、確実にローディングダイアログを閉じる
@@ -1935,11 +2166,13 @@ class _AccountingPageState extends State<AccountingPage> {
     try {
       // 0円会計の場合、空のpaymentMethodsByAmountでstartAccountingを呼ぶ
       // Functions側で0円の場合の処理を許可する必要がある
-      final startResult = await _functions.httpsCallable('startAccounting').call({
-        'billId': billId,
-        'paymentMethodsByAmount': <String, int>{}, // 空のMap
-        'clientNonce': DateTime.now().millisecondsSinceEpoch.toString(),
-      });
+      final startResult = await _functions
+          .httpsCallable('startAccounting')
+          .call({
+            'billId': billId,
+            'paymentMethodsByAmount': <String, int>{}, // 空のMap
+            'clientNonce': DateTime.now().millisecondsSinceEpoch.toString(),
+          });
 
       // ローディングダイアログを閉じる
       if (mounted) {
@@ -1956,7 +2189,11 @@ class _AccountingPageState extends State<AccountingPage> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('会計開始に失敗しました: ${startResult.data['message'] ?? '不明なエラー'}')),
+            SnackBar(
+              content: Text(
+                '会計開始に失敗しました: ${startResult.data['message'] ?? '不明なエラー'}',
+              ),
+            ),
           );
         }
       }
@@ -1968,9 +2205,9 @@ class _AccountingPageState extends State<AccountingPage> {
         } catch (_) {
           // ダイアログが既に閉じられている場合は無視
         }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('0円会計処理に失敗しました: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('0円会計処理に失敗しました: $e')));
       }
     }
   }
@@ -1999,9 +2236,9 @@ class _AccountingPageState extends State<AccountingPage> {
     );
 
     try {
-      final result = await _functions.httpsCallable('completeAccountingV2').call({
-        'billId': billId,
-      });
+      final result = await _functions
+          .httpsCallable('completeAccountingV2')
+          .call({'billId': billId});
 
       // デバッグログを追加
       print('会計完了結果: ${result.data}');
@@ -2024,15 +2261,20 @@ class _AccountingPageState extends State<AccountingPage> {
           ).showSnackBar(const SnackBar(content: Text('会計を完了しました')));
         }
         // 未会計会計フローの場合は users と closeSnapshot.unresolved の更新を呼んでから戻る
-        if (mounted && widget.forUnsettledBillId != null && widget.forUnsettledBillId!.isNotEmpty) {
+        if (mounted &&
+            widget.forUnsettledBillId != null &&
+            widget.forUnsettledBillId!.isNotEmpty) {
           try {
-            await _functions.httpsCallable('finalizeUnsettledBillAfterAccounting').call({
-              'billId': billId,
-            });
+            await _functions
+                .httpsCallable('finalizeUnsettledBillAfterAccounting')
+                .call({'billId': billId});
           } catch (e) {
             if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('未会計後処理に失敗しました: $e'), backgroundColor: Colors.orange),
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('未会計後処理に失敗しました: $e'),
+                  backgroundColor: Colors.orange,
+                ),
               );
             }
           }
@@ -2046,9 +2288,9 @@ class _AccountingPageState extends State<AccountingPage> {
         }
       } else {
         if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('会計完了に失敗しました: ${result.data['message']}')),
-        );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('会計完了に失敗しました: ${result.data['message']}')),
+          );
         }
       }
     } catch (e) {
@@ -2095,12 +2337,12 @@ class _AccountingPageState extends State<AccountingPage> {
     // Firebase Functions のエラーメッセージから実際のメッセージ部分を抽出
     final regex = RegExp(r'の残高が不足しています。現在の残高: \d+円、必要な金額: \d+円');
     final match = regex.firstMatch(errorMessage);
-    
+
     if (match != null) {
       // マッチした部分の前後を含めて、より自然なメッセージを構築
       final beforeMatch = errorMessage.substring(0, match.start);
       final matchedPart = match.group(0)!;
-      
+
       // 技術的な部分を除去して、ポイント名と残高不足メッセージのみを抽出
       if (beforeMatch.contains('ポイントA')) {
         return 'ポイントA$matchedPart';
@@ -2110,7 +2352,7 @@ class _AccountingPageState extends State<AccountingPage> {
         return 'サイドゲームチップ$matchedPart';
       }
     }
-    
+
     // マッチしない場合は元のメッセージを返す（フォールバック）
     return errorMessage;
   }
@@ -2118,7 +2360,8 @@ class _AccountingPageState extends State<AccountingPage> {
   @override
   Widget build(BuildContext context) {
     // 未会計会計フロー: 1 件のみ表示し、完了時に finalize して pop
-    if (widget.forUnsettledBillId != null && widget.forUnsettledBillId!.isNotEmpty) {
+    if (widget.forUnsettledBillId != null &&
+        widget.forUnsettledBillId!.isNotEmpty) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('未会計の会計'),
@@ -2175,11 +2418,12 @@ class _AccountingPageState extends State<AccountingPage> {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          
+
           final data = snapshot.data?.data() as Map<String, dynamic>?;
           final status = data?['status'] as String?;
-          final currentBusinessDateKey = data?['currentBusinessDateKey'] as String?;
-          
+          final currentBusinessDateKey =
+              data?['currentBusinessDateKey'] as String?;
+
           if (status != 'running' || currentBusinessDateKey == null) {
             // 閉店中は「閉店中」と表示（body部分を薄いグレーアウト）
             return Container(
@@ -2192,7 +2436,7 @@ class _AccountingPageState extends State<AccountingPage> {
               ),
             );
           }
-          
+
           // 営業中の場合のみデータを読み込む
           if (_currentBusinessDateKey != currentBusinessDateKey) {
             _currentBusinessDateKey = currentBusinessDateKey;
@@ -2201,32 +2445,32 @@ class _AccountingPageState extends State<AccountingPage> {
               _loadSettledBills(currentBusinessDateKey);
             });
           }
-          
+
           return _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : DefaultTabController(
-              length: 2,
-              child: Column(
-                children: [
-                  const TabBar(
-                    tabs: [
-                      Tab(text: '未会計'),
-                      Tab(text: '会計完了'),
+              ? const Center(child: CircularProgressIndicator())
+              : DefaultTabController(
+                  length: 2,
+                  child: Column(
+                    children: [
+                      const TabBar(
+                        tabs: [
+                          Tab(text: '未会計'),
+                          Tab(text: '会計完了'),
+                        ],
+                      ),
+                      Expanded(
+                        child: TabBarView(
+                          children: [
+                            _buildActiveBillsTab(),
+                            _buildSettledBillsTab(),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _buildActiveBillsTab(),
-                        _buildSettledBillsTab(),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
                 );
         },
-            ),
+      ),
     );
   }
 
@@ -2264,7 +2508,7 @@ class _AccountingPageState extends State<AccountingPage> {
             Icon(Icons.check_circle_outline, size: 64, color: Colors.grey),
             SizedBox(height: 16),
             Text(
-              '会計完了済みの請求書はありません',
+              '会計完了 / 差額対応中の請求書はありません',
               style: TextStyle(fontSize: 18, color: Colors.grey),
             ),
           ],
@@ -2283,7 +2527,7 @@ class _AccountingPageState extends State<AccountingPage> {
   Widget _buildBillCard(Map<String, dynamic> bill) {
     final totalPrice = bill['totalPrice'] ?? 0;
     final status = bill['status'] ?? 'open';
-    final accountingStarted = bill['accountingStartedAt'] != null;
+    final accountingStarted = status == 'settling';
     final pokerName = bill['pokerName'] ?? '不明';
     final createdAt = bill['createdAt']?.toDate() ?? DateTime.now();
     final screenWidth = MediaQuery.of(context).size.width;
@@ -2293,13 +2537,13 @@ class _AccountingPageState extends State<AccountingPage> {
       child: SizedBox(
         width: cardWidth,
         child: Card(
-      elevation: 4,
-      child: Padding(
+          elevation: 4,
+          child: Padding(
             padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
-          children: [
+              children: [
                 // 上部：左上にuserName、作成日時、ボタン（横並び）、右上にステータス
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2310,23 +2554,30 @@ class _AccountingPageState extends State<AccountingPage> {
                         spacing: 8,
                         runSpacing: 4,
                         crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(
-                  pokerName,
-                  style: const TextStyle(
+                        children: [
+                          Text(
+                            pokerName,
+                            style: const TextStyle(
                               fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                           Text(
                             '作成日時: ${_formatDateTime(createdAt)}',
-                            style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 11,
+                            ),
                           ),
                           if (totalPrice == null || totalPrice == 0)
                             ElevatedButton.icon(
-                              onPressed: () => _showCategoryBreakdownDialog(bill['id']),
+                              onPressed: () =>
+                                  _showCategoryBreakdownDialog(bill['id']),
                               icon: const Icon(Icons.calculate, size: 14),
-                              label: const Text('現在の合計金額を計算', style: TextStyle(fontSize: 10)),
+                              label: const Text(
+                                '現在の合計金額を計算',
+                                style: TextStyle(fontSize: 10),
+                              ),
                               style: ElevatedButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 6,
@@ -2338,58 +2589,58 @@ class _AccountingPageState extends State<AccountingPage> {
                       ),
                     ),
                     // 右上：ステータスバッジ
-                Container(
+                    Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
                         vertical: 4,
                       ),
-                  decoration: BoxDecoration(
-                    color: accountingStarted ? Colors.orange : Colors.blue,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    accountingStarted ? '会計中' : '未会計',
-                    style: const TextStyle(
-                      color: Colors.white,
+                      decoration: BoxDecoration(
+                        color: accountingStarted ? Colors.orange : Colors.blue,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        accountingStarted ? '会計中' : '未会計',
+                        style: const TextStyle(
+                          color: Colors.white,
                           fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
+                const SizedBox(height: 8),
                 // 会計額表示（縮小版）
                 if (totalPrice != null && totalPrice > 0)
-            Container(
-              width: double.infinity,
+                  Container(
+                    width: double.infinity,
                     padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue[200]!),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    '¥${totalPrice.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                    style: const TextStyle(
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue[200]!),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '¥${totalPrice.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                          style: const TextStyle(
                             fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const Text(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                        const Text(
                           '会計額（参考値）',
-                    style: TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
-                      color: Colors.blue,
-                      fontWeight: FontWeight.w500,
+                            color: Colors.blue,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
                 // 会計中の表示（支払い方法と操作）
                 if (accountingStarted) ...[
                   const SizedBox(height: 8),
@@ -2398,7 +2649,7 @@ class _AccountingPageState extends State<AccountingPage> {
                   // 右下：ボタン
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
-              children: [
+                    children: [
                       // TODO: 会計開始「後で」選択後の再開用。後で実装する
                       // ElevatedButton.icon(
                       //   onPressed: () => _completeAccounting(bill['id']),
@@ -2419,22 +2670,34 @@ class _AccountingPageState extends State<AccountingPage> {
                           }
                         },
                         icon: const Icon(Icons.edit, size: 16),
-                        label: const Text('支払い方法変更', style: TextStyle(fontSize: 11)),
+                        label: const Text(
+                          '支払い方法変更',
+                          style: TextStyle(fontSize: 11),
+                        ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.blue,
                           side: const BorderSide(color: Colors.blue),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
                       OutlinedButton.icon(
                         onPressed: () => _revertAccountingStart(bill['id']),
                         icon: const Icon(Icons.undo, size: 16),
-                        label: const Text('会計開始前に戻る', style: TextStyle(fontSize: 11)),
+                        label: const Text(
+                          '会計開始前に戻る',
+                          style: TextStyle(fontSize: 11),
+                        ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.red,
                           side: const BorderSide(color: Colors.red),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
                         ),
                       ),
                     ],
@@ -2451,26 +2714,35 @@ class _AccountingPageState extends State<AccountingPage> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.blue,
                           side: const BorderSide(color: Colors.blue),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
                       SizedBox(
                         width: 300, // 横幅を300%相当（元の3倍）に設定
-                    child: ElevatedButton.icon(
+                        child: ElevatedButton.icon(
                           onPressed: () => _startAccounting(bill['id']),
                           icon: const Icon(Icons.play_arrow, size: 16),
-                          label: const Text('会計開始', style: TextStyle(fontSize: 11)),
-                      style: ElevatedButton.styleFrom(
+                          label: const Text(
+                            '会計開始',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
               ],
-            ),
-          ],
             ),
           ),
         ),
@@ -2481,9 +2753,9 @@ class _AccountingPageState extends State<AccountingPage> {
   // 会計開始前に戻す（Cloud Function 呼び出し）
   Future<bool> _revertAccountingStart(String billId) async {
     try {
-      final result = await _functions
-          .httpsCallable('cancelAccounting')
-          .call({'billId': billId});
+      final result = await _functions.httpsCallable('cancelAccounting').call({
+        'billId': billId,
+      });
       if (mounted) {
         if (_currentBusinessDateKey != null) {
           _loadActiveBills(_currentBusinessDateKey!);
@@ -2503,17 +2775,199 @@ class _AccountingPageState extends State<AccountingPage> {
     }
   }
 
+  Future<({String reason})?> _showReopenConfirmationDialog(
+    Map<String, dynamic> bill,
+  ) async {
+    var canSubmit = false;
+    var reasonText = '';
+
+    final pokerName = bill['pokerName'] ?? '不明';
+    final totalPrice = bill['totalPrice'] as int?;
+
+    final result = await showDialog<({String reason})>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setLocalState) {
+            return AlertDialog(
+              title: const Text('会計前に戻す'),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$pokerName の会計済み伝票を、会計前の状態へ戻します。',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      if (totalPrice != null)
+                        Text('現在の会計額: ${_formatCurrency(totalPrice)}'),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'この操作は当日営業日分の伝票だけに許可します。戻した後は未会計一覧へ移り、必要に応じて再会計をやり直してください。',
+                        style: TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: '理由メモ（任意）',
+                          helperText: '例: 誤請求 / 入力ミス / 会計方法のやり直し',
+                        ),
+                        onChanged: (value) {
+                          reasonText = value;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        decoration: const InputDecoration(
+                          labelText: '確認入力',
+                          helperText: '実行するには「戻す」と入力してください',
+                        ),
+                        onChanged: (value) {
+                          setLocalState(() {
+                            canSubmit = value.trim() == '戻す';
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('キャンセル'),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.orange[800],
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: canSubmit
+                      ? () => Navigator.of(
+                          context,
+                        ).pop((reason: reasonText.trim()))
+                      : null,
+                  child: const Text('会計前に戻す'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    return result;
+  }
+
+  Future<void> _reopenSettledBill(Map<String, dynamic> bill) async {
+    final confirmation = await _showReopenConfirmationDialog(bill);
+    if (confirmation == null) return;
+
+    var loadingVisible = false;
+
+    Future<void> closeLoadingDialog() async {
+      if (!loadingVisible || !mounted) return;
+      try {
+        Navigator.of(context).pop();
+      } catch (_) {
+        // ダイアログが既に閉じられている場合は無視
+      } finally {
+        loadingVisible = false;
+      }
+    }
+
+    try {
+      final billId = bill['id'] as String;
+
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('会計前に戻す処理中...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      loadingVisible = true;
+
+      final result = await _functions
+          .httpsCallable('reopenAccountedBill')
+          .call({
+            'billId': billId,
+            'clientNonce': DateTime.now().microsecondsSinceEpoch.toString(),
+            'reason': confirmation.reason.isEmpty ? null : confirmation.reason,
+          });
+
+      await closeLoadingDialog();
+      if (!mounted) return;
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('会計前に戻しました'),
+            content: Text(
+              'oldCycle: ${result.data['oldCycleNo'] ?? '—'} / newCycle: ${result.data['newCycleNo'] ?? '—'}\n未会計一覧に戻しました。',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (!mounted) return;
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+
+      if (!mounted) return;
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      if (_currentBusinessDateKey != null) {
+        await _loadActiveBills(_currentBusinessDateKey!);
+        await _loadSettledBills(_currentBusinessDateKey!);
+      }
+    } catch (e) {
+      await closeLoadingDialog();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('会計前に戻す処理に失敗しました: $e')));
+    }
+  }
+
   Widget _buildSettledBillCard(Map<String, dynamic> bill) {
     final billId = bill['id'] ?? 'unknown';
     final totalPrice = bill['totalPrice'] as int?;
     final pokerName = bill['pokerName'] ?? '不明';
     final accountingCompletedAt =
         bill['accountingCompletedAt']?.toDate() ?? DateTime.now();
-    final refundAmount = bill['refundAmount'] ?? 0;
-    final paymentMethod = bill['paymentMethod'] ?? 'cash';
+    final pendingLabel = _buildSettledBillPendingLabel(bill);
+    final hasRefundHistory = _settledBillRefundedIncl(bill) > 0;
+    final hasCollectionHistory = _settledBillCollectedIncl(bill) > 0;
     final screenWidth = MediaQuery.of(context).size.width;
     final cardWidth = screenWidth * 0.95;
-    
+
     print('=== _buildSettledBillCard ===');
     print('billId: $billId, pokerName: $pokerName, totalPrice: $totalPrice');
 
@@ -2521,81 +2975,109 @@ class _AccountingPageState extends State<AccountingPage> {
       child: SizedBox(
         width: cardWidth,
         child: Card(
-      elevation: 4,
-      child: Padding(
+          elevation: 4,
+          child: Padding(
             padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
-          children: [
-                // 上部：左上にuserName、右上にステータス
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  pokerName,
-                  style: const TextStyle(
-                        fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                // 上部：左上にuserName、右上にステータス
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        pokerName,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                  decoration: BoxDecoration(
-                    color: Colors.green,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    '会計完了',
-                    style: TextStyle(
-                      color: Colors.white,
-                          fontSize: 11,
-                      fontWeight: FontWeight.bold,
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        alignment: WrapAlignment.end,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.green,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Text(
+                              '会計完了',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          if (pendingLabel != null)
+                            _buildSettledBillStateChip(
+                              label: pendingLabel,
+                              color: Colors.orange,
+                            ),
+                          if (pendingLabel == null && hasRefundHistory)
+                            _buildSettledBillStateChip(
+                              label: '返金履歴あり',
+                              color: Colors.blue,
+                            ),
+                          if (pendingLabel == null && hasCollectionHistory)
+                            _buildSettledBillStateChip(
+                              label: '追加徴収履歴あり',
+                              color: Colors.deepOrange,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
                 const SizedBox(height: 4),
-            // 会計完了日時
-            Text(
-              '会計完了: ${accountingCompletedAt.year}年${accountingCompletedAt.month}月${accountingCompletedAt.day}日 ${accountingCompletedAt.hour.toString().padLeft(2, '0')}:${accountingCompletedAt.minute.toString().padLeft(2, '0')}',
+                // 会計完了日時
+                Text(
+                  '会計完了: ${accountingCompletedAt.year}年${accountingCompletedAt.month}月${accountingCompletedAt.day}日 ${accountingCompletedAt.hour.toString().padLeft(2, '0')}:${accountingCompletedAt.minute.toString().padLeft(2, '0')}',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
                 const SizedBox(height: 8),
-                // 合計金額（縮小版）
+                // 初回会計金額（縮小版）
                 if (totalPrice != null)
-            Container(
+                  Container(
                     padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.green.shade200),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    '会計額',
-                    style: TextStyle(
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green.shade200),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          '初回会計額',
+                          style: TextStyle(
                             fontSize: 12,
-                      color: Colors.green,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  Text(
+                            color: Colors.green,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
                           '${totalPrice.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}円',
-                    style: TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green.shade700,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade700,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
                   )
                 else
                   Container(
@@ -2609,7 +3091,7 @@ class _AccountingPageState extends State<AccountingPage> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '会計額',
+                          '初回会計額',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.orange,
@@ -2632,35 +3114,115 @@ class _AccountingPageState extends State<AccountingPage> {
                 _buildPaymentMethodsByAmount(bill),
                 const SizedBox(height: 8),
                 // 右下：アクションボタン
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                    OutlinedButton.icon(
-                    onPressed: () => _showEditDialog(bill),
-                      icon: const Icon(Icons.edit, size: 16),
-                      label: const Text('修正', style: TextStyle(fontSize: 11)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.blue,
-                      side: const BorderSide(color: Colors.blue),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                    onPressed: () => _showCancelDialog(bill),
-                      icon: const Icon(Icons.cancel, size: 16),
-                      label: const Text('キャンセル', style: TextStyle(fontSize: 11)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => _showEditDialog(bill),
+                        icon: const Icon(Icons.edit, size: 16),
+                        label: const Text('修正', style: TextStyle(fontSize: 11)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.blue,
+                          side: const BorderSide(color: Colors.blue),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _showCancelDialog(bill),
+                        icon: const Icon(Icons.cancel, size: 16),
+                        label: const Text(
+                          'キャンセル',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: const BorderSide(color: Colors.red),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
+                        ),
+                      ),
+                      FilledButton.icon(
+                        onPressed: () => _reopenSettledBill(bill),
+                        icon: const Icon(Icons.undo, size: 16),
+                        label: const Text(
+                          '会計前に戻す',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.orange[800],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-          ],
-            ),
           ),
+        ),
+      ),
+    );
+  }
+
+  int _settledBillRefundedIncl(Map<String, dynamic> bill) {
+    final postSettlementState =
+        bill['postSettlementState'] as Map<String, dynamic>? ?? const {};
+    return (postSettlementState['totalRefundedIncl'] as num?)?.toInt() ?? 0;
+  }
+
+  int _settledBillCollectedIncl(Map<String, dynamic> bill) {
+    final postSettlementState =
+        bill['postSettlementState'] as Map<String, dynamic>? ?? const {};
+    return (postSettlementState['totalCollectedIncl'] as num?)?.toInt() ?? 0;
+  }
+
+  String? _buildSettledBillPendingLabel(Map<String, dynamic> bill) {
+    final postSettlementState =
+        bill['postSettlementState'] as Map<String, dynamic>? ?? const {};
+    final requiredActionType =
+        postSettlementState['requiredActionType'] as String? ?? 'none';
+    final requiredActionIncl =
+        (postSettlementState['requiredActionIncl'] as num?)?.toInt() ?? 0;
+
+    if (requiredActionIncl <= 0) return null;
+    if (requiredActionType == 'refund') {
+      return '要返金 ${_formatCurrency(requiredActionIncl)}';
+    }
+    if (requiredActionType == 'collection') {
+      return '追加徴収待ち ${_formatCurrency(requiredActionIncl)}';
+    }
+    return null;
+  }
+
+  Widget _buildSettledBillStateChip({
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          color: color,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );
@@ -2684,7 +3246,7 @@ class _AccountingPageState extends State<AccountingPage> {
     // トーナメント参加費
     final tournamentsData = bill['tournaments'];
     int totalTournamentFee = 0;
-    
+
     // tournamentsはMapまたはListの可能性があるため、型チェックを行う
     if (tournamentsData is Map<String, dynamic>) {
       for (final tournamentEntry in tournamentsData.values) {
@@ -2696,7 +3258,7 @@ class _AccountingPageState extends State<AccountingPage> {
     } else if (tournamentsData is List) {
       // Listの場合は空配列なので何もしない
     }
-    
+
     if (totalTournamentFee > 0) {
       breakdown.add(
         _buildBreakdownItem(
@@ -2728,7 +3290,7 @@ class _AccountingPageState extends State<AccountingPage> {
     for (final chip in sideGameChips) {
       // action='purchase'のデータのみを集計
       if (chip['action'] == 'purchase') {
-      totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
+        totalSideGameChipAmount += (chip['price'] as num? ?? 0).toInt();
       }
     }
     if (totalSideGameChipAmount > 0) {
@@ -2807,7 +3369,11 @@ class _AccountingPageState extends State<AccountingPage> {
     String displayText;
     if (method == 'sideGameChip' && amount != null) {
       final yenAmount = amount; // amountは円換算値
-      final chipCount = (yenAmount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round(); // チップ枚数に変換
+      final chipCount =
+          (yenAmount /
+                  (StoreConfigService.instance.latestData?.sideGameChipRate ??
+                      kDefaultSideGameChipRate))
+              .round(); // チップ枚数に変換
       displayText =
           '${_getPaymentMethodName(method)} チップ${chipCount}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
     } else if (amount != null) {
@@ -2816,7 +3382,7 @@ class _AccountingPageState extends State<AccountingPage> {
     } else {
       displayText = _getPaymentMethodName(method);
     }
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -2848,7 +3414,7 @@ class _AccountingPageState extends State<AccountingPage> {
 
   void _showCategoryDetail(String categoryName, Map<String, dynamic> bill) {
     List<dynamic> items = [];
-    
+
     switch (categoryName) {
       case '入店料':
         items = bill['extraCost'] as List<dynamic>? ?? [];
@@ -2951,9 +3517,14 @@ class _AccountingPageState extends State<AccountingPage> {
       // サイドゲームチップの場合はチップ枚数と換算額を表示
       String displayText;
       if (method == 'sideGameChip') {
-        final yenAmount = (bill['sideGameChipPurchaseAmountIncl'] as num?)?.toInt() ?? amount;
-        final chipCount = (bill['sideGameChipPurchaseChipQty'] as num?)?.toInt() ??
-            (yenAmount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round();
+        final yenAmount =
+            (bill['sideGameChipPurchaseAmountIncl'] as num?)?.toInt() ?? amount;
+        final chipCount =
+            (bill['sideGameChipPurchaseChipQty'] as num?)?.toInt() ??
+            (yenAmount /
+                    (StoreConfigService.instance.latestData?.sideGameChipRate ??
+                        kDefaultSideGameChipRate))
+                .round();
         displayText =
             'チップ${chipCount.toString()} (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
       } else {

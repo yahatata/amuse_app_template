@@ -296,6 +296,24 @@ service cloud.firestore {
         // 書き込み: Functions のみ許可
         allow write: if false;
       }
+
+      // Step02 / Step03 / Step04 / Step05 の nested subcollections
+      // 実機確認と current-scope UI が baseline / adjustments / cashActions を直接参照するため read を許可する。
+      // write は引き続き Functions 専任。
+      match /settlementCycles/{cycleNo}/baselineSnapshot/{snapshotId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      match /settlementCycles/{cycleNo}/adjustments/{adjustmentId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      match /settlementCycles/{cycleNo}/cashActions/{cashActionId} {
+        allow read: if true;
+        allow write: if false;
+      }
     }
 
     // storeMeta/config ドキュメント（店舗設定。StoreConfigService が購読）

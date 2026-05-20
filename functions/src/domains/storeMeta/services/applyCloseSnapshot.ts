@@ -29,6 +29,14 @@ function isCloseSnapshotValidShape(snapshot: unknown): boolean {
   return false;
 }
 
+function isCloseSummaryValidShape(summary: unknown): boolean {
+  if (summary == null || typeof summary !== 'object') return false;
+  const s = summary as Record<string, unknown>;
+  if (s.unresolved === true) return true;
+  if (typeof s.lastCloseRunId === 'string' && s.lastCloseRunId.length > 0) return true;
+  return false;
+}
+
 /** amountsByBillId から指定 bill の金額を取得。無い/不正なら null */
 function getAmountForBill(
   amountsByBillId: Record<string, number> | undefined,
@@ -94,6 +102,7 @@ export async function applyCloseSnapshotCore(
         const businessDate = billData.businessDate as string | undefined;
         const status = billData.status as string | undefined;
         const existingCloseSnapshot = billData.closeSnapshot;
+        const existingCloseSummary = billData.closeSummary;
         const userId = (billData.party?.userId as string) ?? '';
         const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
 
@@ -102,6 +111,12 @@ export async function applyCloseSnapshotCore(
         }
         if (!status || !ALLOWED_STATUSES.includes(status as (typeof ALLOWED_STATUSES)[number])) {
           return { action: 'skipped' as const, reason: 'status_mismatch' };
+        }
+        if (existingCloseSummary != null && typeof existingCloseSummary === 'object') {
+          if (isCloseSummaryValidShape(existingCloseSummary)) {
+            return { action: 'skipped' as const, reason: 'already_marked' };
+          }
+          return { action: 'skipped' as const, reason: 'invalid_closeSummary_shape' };
         }
         if (existingCloseSnapshot != null && typeof existingCloseSnapshot === 'object') {
           if (isCloseSnapshotValidShape(existingCloseSnapshot)) {
@@ -114,6 +129,13 @@ export async function applyCloseSnapshotCore(
         }
 
         txn.update(billRef, {
+          closeSummary: {
+            lastCloseRunId: closeRunId,
+            markedAt: now,
+            closedBusinessDate,
+            unresolved: true,
+            displayAmountAtMark: amount,
+          },
           closeSnapshot: {
             lastCloseRunId: closeRunId,
             markedAt: now,

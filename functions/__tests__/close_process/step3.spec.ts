@@ -17,6 +17,7 @@ describe('Phase6 Step3: close_process', () => {
   let db: admin.firestore.Firestore;
   let applyCloseSnapshot: typeof import('../../src/domains/storeMeta/services/applyCloseSnapshot').applyCloseSnapshot;
   let getUnsettledBillsForClose: typeof import('../../src/domains/storeMeta/services/getUnsettledBillsForClose').getUnsettledBillsForClose;
+  let finalizeUnsettledBillAfterAccounting: typeof import('../../src/domains/storeMeta/services/finalizeUnsettledBillAfterAccounting').finalizeUnsettledBillAfterAccounting;
 
   let emulatorAvailable = true;
 
@@ -30,8 +31,10 @@ describe('Phase6 Step3: close_process', () => {
     db = getFirestore();
     const applyMod = await import('../../src/domains/storeMeta/services/applyCloseSnapshot');
     const getMod = await import('../../src/domains/storeMeta/services/getUnsettledBillsForClose');
+    const finalizeMod = await import('../../src/domains/storeMeta/services/finalizeUnsettledBillAfterAccounting');
     applyCloseSnapshot = applyMod.applyCloseSnapshot;
     getUnsettledBillsForClose = getMod.getUnsettledBillsForClose;
+    finalizeUnsettledBillAfterAccounting = finalizeMod.finalizeUnsettledBillAfterAccounting;
   });
 
   afterAll(async () => {
@@ -95,6 +98,45 @@ describe('Phase6 Step3: close_process', () => {
 
       const bill = await db.collection('bills').doc('bill-1').get();
       expect(bill.data()?.closeSnapshot?.lastCloseRunId).toBe('step2-manual');
+      expect(bill.data()?.closeSummary?.lastCloseRunId).toBe('step2-manual');
+      expect(bill.data()?.closeSummary?.unresolved).toBe(true);
+    });
+
+    it('finalizeUnsettledBillAfterAccounting で closeSummary / closeSnapshot の unresolved が false になる', async () => {
+      if (!emulatorAvailable) return;
+      const businessDate = '2026-02-09';
+      await db.collection('bills').doc('bill-2').set({
+        businessDate,
+        status: 'settled',
+        party: { userId: 'user-1', pokerName: 'Test' },
+        closeSummary: {
+          lastCloseRunId: 'step2-manual',
+          markedAt: Timestamp.now(),
+          closedBusinessDate: businessDate,
+          unresolved: true,
+          displayAmountAtMark: 1000,
+        },
+        closeSnapshot: {
+          lastCloseRunId: 'step2-manual',
+          markedAt: Timestamp.now(),
+          closedBusinessDate: businessDate,
+          unresolved: true,
+          displayAmountAtMark: 1000,
+        },
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+
+      const result = await finalizeUnsettledBillAfterAccounting.run({
+        auth: { uid: 'admin-uid-1' },
+        data: { billId: 'bill-2' },
+      } as any);
+
+      expect(result.success).toBe(true);
+
+      const bill = await db.collection('bills').doc('bill-2').get();
+      expect(bill.data()?.closeSummary?.unresolved).toBe(false);
+      expect(bill.data()?.closeSnapshot?.unresolved).toBe(false);
     });
   });
 

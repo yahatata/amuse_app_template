@@ -274,6 +274,65 @@ export function buildItemsSnapshot(items: admin.firestore.QueryDocumentSnapshot[
   return snapshot;
 }
 
+export function buildBaselineItems(items: admin.firestore.QueryDocumentSnapshot[]) {
+  const baselineItems: Array<{
+    menuItemId: string | null;
+    name: string;
+    category: string | null;
+    qty: number;
+    unitPriceIncl: number;
+    salesIncl: number;
+  }> = [];
+
+  for (const doc of items) {
+    const data = doc.data();
+    if (data.voided === true) {
+      continue;
+    }
+
+    const qty = (data.quantity as number | undefined) ?? 0;
+    const unitPriceIncl =
+      (data.unitPriceIncl as number | undefined) ??
+      (qty > 0 && data.totalPriceIncl !== undefined ? Number(data.totalPriceIncl) / qty : 0);
+    const salesIncl =
+      (data.totalPriceIncl as number | undefined) ??
+      unitPriceIncl * qty;
+
+    baselineItems.push({
+      menuItemId: (data.menuItemId as string | undefined) ?? doc.id,
+      name: (data.name as string | undefined) ?? '',
+      category: (data.category as string | undefined) ?? null,
+      qty,
+      unitPriceIncl,
+      salesIncl,
+    });
+  }
+
+  return baselineItems;
+}
+
+export function buildBaselineExtras(extras: admin.firestore.QueryDocumentSnapshot[]) {
+  return extras.map((doc) => {
+    const data = doc.data();
+    const qty = (data.quantity as number | undefined) ?? 1;
+    const unitPriceIncl =
+      (data.unitPriceIncl as number | undefined) ??
+      (data.amountIncl as number | undefined) ??
+      0;
+    const salesIncl =
+      (data.amountIncl as number | undefined) ??
+      unitPriceIncl * qty;
+
+    return {
+      extraType: (data.extraType as string | undefined) ?? null,
+      name: (data.name as string | undefined) ?? '',
+      qty,
+      unitPriceIncl,
+      salesIncl,
+    };
+  });
+}
+
 /**
  * sideGameChipsSummary を構築
  */
@@ -309,6 +368,17 @@ export function buildSideGameChipsSummary(sideGameChips: admin.firestore.QueryDo
     withdrawn,
     net: purchased + deposited - withdrawn,
   };
+}
+
+export function buildBaselineSideGameChips(sideGameChips: admin.firestore.QueryDocumentSnapshot[]) {
+  return sideGameChips.map((doc) => {
+    const data = doc.data();
+    return {
+      chipActionType: (data.action as string | undefined) ?? null,
+      qty: (data.chipQty as number | undefined) ?? 0,
+      amountIncl: (data.amountIncl as number | undefined) ?? 0,
+    };
+  });
 }
 
 /**
@@ -376,6 +446,38 @@ export function buildTournamentsSnapshot(tournaments: admin.firestore.QueryDocum
   }
 
   return snapshot;
+}
+
+export function buildBaselineTournaments(tournaments: admin.firestore.QueryDocumentSnapshot[]) {
+  return tournaments.map((doc) => {
+    const data = doc.data();
+    const entryFeeIncl = (data.entryFeeIncl as number | undefined) ?? 0;
+    const entryCount = (data.entryCount as number | undefined) ?? 0;
+    const reentryFeeIncl = (data.reentryFeeIncl as number | undefined) ?? 0;
+    const reentryCount = (data.reentryCount as number | undefined) ?? 0;
+    const addonFeeIncl = (data.addonFeeIncl as number | undefined) ?? 0;
+    const addonCount = (data.addonCount as number | undefined) ?? 0;
+    const entrySalesIncl = entryFeeIncl * entryCount;
+    const reentrySalesIncl = reentryFeeIncl * reentryCount;
+    const addonSalesIncl = addonFeeIncl * addonCount;
+
+    return {
+      templateId: (data.templateId as string | undefined) ?? doc.id,
+      templateName: (data.templateName as string | undefined) ?? '',
+      entryCount,
+      entrySalesIncl,
+      reentryCount,
+      reentrySalesIncl,
+      addonCount,
+      addonSalesIncl,
+      totalTournamentSalesIncl: entrySalesIncl + reentrySalesIncl + addonSalesIncl,
+      pointsAwardedTotal:
+        (data.pointsAwardedTotal as number | undefined) ??
+        (data.pointsAwarded as number | undefined) ??
+        0,
+      prizeAmountTotalIncl: (data.prizeAmountTotalIncl as number | undefined) ?? 0,
+    };
+  });
 }
 
 /**
@@ -555,4 +657,3 @@ function normalizeObject(obj: any): any {
 
   return normalized;
 }
-

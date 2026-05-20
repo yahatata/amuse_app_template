@@ -8,6 +8,10 @@ export { migrateTodaysBillsAccountingFields } from "./callables/migrateTodaysBil
 export { updateAccounting } from "./callables/updateAccounting";
 export { cancelAccounting } from "./callables/cancelAccounting";
 export { processRefund, getRefundHistory } from "./callables/refundProcessing";
+export { createPostSettlementAdjustment } from "./callables/createPostSettlementAdjustment";
+export { recordPostSettlementRefund } from "./callables/recordPostSettlementRefund";
+export { recordPostSettlementCollection } from "./callables/recordPostSettlementCollection";
+export { reopenAccountedBill } from "./callables/reopenAccountedBill";
 export { appendExtraCallable as appendExtra } from "./callables/appendExtra";
 export { getOpenBills } from "./callables/getOpenBills";
 export { billsOnSettle } from "./triggers/billsOnSettle";

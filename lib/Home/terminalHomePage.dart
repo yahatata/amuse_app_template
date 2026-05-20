@@ -11,9 +11,11 @@ import 'package:amuse_app_template/tournament/scheduling/pages/scheduled_tournam
 import 'package:amuse_app_template/Home/systemSettingsPage.dart';
 import 'package:amuse_app_template/tournament/scheduling/pages/tournament_creation_menu_page.dart';
 import 'package:amuse_app_template/Accounting/accountingPage.dart';
-import 'package:amuse_app_template/Accounting/unsettledAccountingPage.dart';
+import 'package:amuse_app_template/Accounting/requireSpecialAttentionPage.dart';
 import 'package:amuse_app_template/Accounting/payment_split_test_page.dart';
 import 'package:amuse_app_template/Accounting/postAccountingAdjustmentsPage.dart';
+import 'package:amuse_app_template/Accounting/postSettlementIdempotencyReplayPage.dart';
+import 'package:amuse_app_template/Accounting/postSettlementOperationsPage.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_list.dart';
 import 'package:amuse_app_template/OrderView/OrderManagement/order_management_page.dart';
 import 'package:amuse_app_template/dashboard/home/dashboard_home_page.dart';
@@ -1487,8 +1489,18 @@ class _terminalHomePageState extends State<terminalHomePage> {
         optionKeys: [DeviceOptionKeys.accounting],
       ),
       (
-        label: '未会計の会計',
-        destination: const UnsettledAccountingPage(),
+        label: '要対応の会計',
+        destination: const RequireSpecialAttentionPage(),
+        optionKeys: [DeviceOptionKeys.accounting],
+      ),
+      (
+        label: '会計後操作',
+        destination: const PostSettlementOperationsPage(),
+        optionKeys: [DeviceOptionKeys.accounting],
+      ),
+      (
+        label: '会計後操作 冪等再送確認',
+        destination: const PostSettlementIdempotencyReplayPage(),
         optionKeys: [DeviceOptionKeys.accounting],
       ),
       (
@@ -1508,7 +1520,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
       ),
       // テスト用: 会計後調整画面への遷移ボタン
       (
-        label: '会計後調整（テスト）',
+        label: '会計後調整（旧テスト）',
         destination: const PostAccountingAdjustmentsPage(),
         optionKeys: null,
       ),
@@ -1571,27 +1583,27 @@ class _terminalHomePageState extends State<terminalHomePage> {
                   ? () => _onBusinessContinue(context)
                   : null,
               child: GridView.custom(
-        padding: const EdgeInsets.all(16),
-        physics: const AlwaysScrollableScrollPhysics(), // スクロール可能に変更
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 5,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          mainAxisExtent: buttonHeight,
-        ),
+                padding: const EdgeInsets.all(16),
+                physics: const AlwaysScrollableScrollPhysics(), // スクロール可能に変更
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 5,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  mainAxisExtent: buttonHeight,
+                ),
                 childrenDelegate: SliverChildListDelegate.fixed([
                   // 通常ボタン
                   ...visibleButtons.map((btn) {
-            return ElevatedButton(
+                    return ElevatedButton(
                       onPressed: () async {
                         if (context.mounted) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => btn.destination),
-                );
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => btn.destination),
+                          );
                         }
-              },
-              child: Text(btn.label, textAlign: TextAlign.center),
+                      },
+                      child: Text(btn.label, textAlign: TextAlign.center),
                     );
                   }),
                   // 営業管理ボタン（開閉店管理ダイアログ）
@@ -1694,8 +1706,8 @@ class _terminalHomePageState extends State<terminalHomePage> {
                         return DropdownMenuItem<int>(
                           value: h,
                           child: Text('$h 時間'),
-            );
-          }).toList(),
+                        );
+                      }).toList(),
                       onChanged: (value) {
                         if (value != null)
                           setState(() => selectedHours = value);

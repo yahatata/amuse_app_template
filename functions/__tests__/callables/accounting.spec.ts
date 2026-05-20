@@ -134,6 +134,10 @@ describe('accounting (startAccounting)', () => {
       expect(billData.status).toBe('settling');
       expect(billData.ops?.accountingStartedAt).toBeDefined();
       expect(billData.ops?.accountingStartedBy).toBe(adminId);
+      expect(billData.draftAccountingInput).toEqual({
+        paymentMethodsByCategory: null,
+        paymentMethodsByAmount: { cash: 2000 },
+      });
     });
 
     it('meta.paymentMethodsByCategory が保存されること', async () => {
@@ -189,6 +193,10 @@ describe('accounting (startAccounting)', () => {
       const billData = billDoc.data()!;
       expect(billData.meta?.paymentMethodsByCategory).toBeDefined();
       expect(billData.meta?.paymentMethodsByCategory).toEqual(paymentMethodsByCategory);
+      expect(billData.draftAccountingInput).toEqual({
+        paymentMethodsByCategory,
+        paymentMethodsByAmount: { cash: 2000 },
+      });
     });
   });
 
@@ -460,4 +468,3 @@ describe('accounting (startAccounting)', () => {
     });
   });
 });
-

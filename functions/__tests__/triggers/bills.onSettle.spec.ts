@@ -195,6 +195,50 @@ describe('bills.onSettle', () => {
       expect(billData.meta?.contentHash).toBeDefined();
       expect(billData.closedAt).toBeDefined();
       expect(billData.amounts?.grandTotalRounded).toBe(1000);
+      expect(billData.settlementSnapshot?.amounts?.grandTotalRounded).toBe(1000);
+      expect(billData.currentSummary).toEqual({
+        claimTotalIncl: 1000,
+        receivedTotalIncl: 0,
+        refundedTotalIncl: 0,
+        netSalesIncl: 1000,
+      });
+      expect(billData.postSettlementState).toEqual({
+        hasPostSettlementActivity: false,
+        totalAdjustmentsIncl: 0,
+        totalCollectedIncl: 0,
+        totalRefundedIncl: 0,
+        requiredActionType: 'none',
+        requiredActionIncl: 0,
+        lastRecordType: 'none',
+        lastRecordAt: null,
+        lastRecordId: null,
+      });
+      expect(billData.reopenSummary?.latestSettledCycle).toBe(1);
+      expect(billData.reopenSummary?.lastResettledAt).toBeDefined();
+
+      const cycleDoc = await db.collection('bills').doc(billId)
+        .collection('settlementCycles').doc('1').get();
+      const cycleDocs = await db.collection('bills').doc(billId)
+        .collection('settlementCycles').get();
+      expect(cycleDocs.size).toBe(1);
+      expect(cycleDoc.exists).toBe(true);
+      expect(cycleDoc.data()).toMatchObject({
+        cycleNo: 1,
+        cycleState: 'settled',
+        openedReason: 'initial',
+        nextSequenceNo: 1,
+      });
+      expect(cycleDoc.data()?.baselineSummary?.contentHash).toBeDefined();
+      expect(cycleDoc.data()?.settledAt).toBeDefined();
+      expect(cycleDoc.data()?.closedReason).toBe('settle');
+
+      const baselineDoc = await db.collection('bills').doc(billId)
+        .collection('settlementCycles').doc('1')
+        .collection('baselineSnapshot').doc('snapshot').get();
+      expect(baselineDoc.exists).toBe(true);
+      expect(Array.isArray(baselineDoc.data()?.items)).toBe(true);
+      expect(baselineDoc.data()?.amounts?.grandTotalRounded).toBe(1000);
+      expect(baselineDoc.data()?.contentHash).toBeDefined();
     });
 
     it('open -> settled では実行される（実装では before.status !== settled && after.status === settled で発火）', async () => {
@@ -383,6 +427,79 @@ describe('bills.onSettle', () => {
       expect(billData.postEvents?.totalRefundedIncl).toBe(0);
       expect(billData.postEvents?.totalAdjustmentsIncl).toBe(0);
       expect(billData.postEvents?.netSalesIncl).toBe(3200);
+
+      // 新 parent summary の検証
+      expect(billData.settlementSnapshot?.amounts?.grandTotalRounded).toBe(3200);
+      expect(billData.settlementSnapshot?.categoryBreakdown?.items).toBe(2000);
+      expect(billData.currentSummary).toEqual({
+        claimTotalIncl: 3200,
+        receivedTotalIncl: 0,
+        refundedTotalIncl: 0,
+        netSalesIncl: 3200,
+      });
+      expect(billData.postSettlementState?.requiredActionType).toBe('none');
+      expect(billData.postSettlementState?.requiredActionIncl).toBe(0);
+      expect(billData.postSettlementState?.lastRecordType).toBe('none');
+      expect(billData.reopenSummary?.latestSettledCycle).toBe(1);
+      expect(billData.draftAccountingInput).toEqual({
+        paymentMethodsByCategory: null,
+        paymentMethodsByAmount: null,
+      });
+
+      const cycleDoc = await db.collection('bills').doc(billId)
+        .collection('settlementCycles').doc('1').get();
+      expect(cycleDoc.exists).toBe(true);
+      expect(cycleDoc.data()?.baselineSummary).toEqual({
+        amounts: billData.amounts,
+        categoryBreakdown: billData.categoryBreakdown,
+        paymentTotals: billData.paymentTotals,
+        paymentsSummary: billData.paymentsSummary,
+        contentHash: billData.meta?.contentHash,
+      });
+
+      const baselineDoc = await db.collection('bills').doc(billId)
+        .collection('settlementCycles').doc('1')
+        .collection('baselineSnapshot').doc('snapshot').get();
+      expect(baselineDoc.exists).toBe(true);
+      expect(baselineDoc.data()?.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            menuItemId: 'menu1',
+            salesIncl: 1000,
+          }),
+          expect.objectContaining({
+            menuItemId: 'menu2',
+            salesIncl: 1000,
+          }),
+        ]),
+      );
+      expect(baselineDoc.data()?.extras).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            salesIncl: 300,
+          }),
+        ]),
+      );
+      expect(baselineDoc.data()?.tournaments).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            templateId: 'template1',
+            totalTournamentSalesIncl: 700,
+          }),
+        ]),
+      );
+      expect(baselineDoc.data()?.sideGameChips).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            chipActionType: 'purchase',
+            amountIncl: 200,
+          }),
+          expect.objectContaining({
+            chipActionType: 'deposit',
+            amountIncl: 100,
+          }),
+        ]),
+      );
 
       // closedAt の設定
       expect(billData.closedAt).toBeDefined();

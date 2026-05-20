@@ -104,8 +104,8 @@ describe('cancelAccounting (pre-settlement 専用)', () => {
       const billDoc = await db.collection('bills').doc(billId).get();
       const billData = billDoc.data()!;
       expect(billData.status).toBe('open');
-      expect(billData.ops?.accountingStartedAt).toBeUndefined();
-      expect(billData.ops?.accountingStartedBy).toBeUndefined();
+      expect(billData.ops?.accountingStartedAt).toBeNull();
+      expect(billData.ops?.accountingStartedBy).toBeNull();
       expect(billData.ops?.accountingCanceledAt).toBeDefined();
       expect(billData.ops?.accountingCanceledBy).toBe(adminId);
     });
@@ -231,7 +231,7 @@ describe('cancelAccounting (pre-settlement 専用)', () => {
       const billDocAfterCancel = await db.collection('bills').doc(billId).get();
       const billDataAfterCancel = billDocAfterCancel.data()!;
       expect(billDataAfterCancel.status).toBe('open');
-      expect(billDataAfterCancel.ops?.accountingStartedAt).toBeUndefined();
+      expect(billDataAfterCancel.ops?.accountingStartedAt).toBeNull();
 
       // 再度 startAccounting を実行
       const idempotencyKey = `${billId}:startAccounting:nonce_reopen_001`;
@@ -275,4 +275,3 @@ describe('cancelAccounting (pre-settlement 専用)', () => {
     });
   });
 });
-

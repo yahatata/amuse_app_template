@@ -22,11 +22,16 @@ import { addToByUser } from './addToByUser';
  * 3. 旧スキーマ更新: addToMonthlyIndex/addToDailySummary/addToByCategory/addToByTemplateTournaments/addToByUser を呼ぶ
  * 4. marker を作成（トランザクション内で必ず実施、tx.create を使用）
  * 
+ * Step07 changeSpec §4.2 / §5.3.4: marker docId は次の優先順位で決定する。
+ * - `cycleNo` が指定されていれば `{billId}_cycle{cycleNo}_settle` （新仕様、reopen 後 resettle で再反映可能）
+ * - 未指定なら legacy `{billId}` （後方互換、既存テスト / 古い呼び出し用）
+ * 
  * @param db Firestore インスタンス
  * @param params 更新パラメータ
  * @param params.month 月次キー（YYYY-MM 形式）
  * @param params.businessDate 営業日（YYYY-MM-DD 形式）
  * @param params.billId 伝票ID（bills コレクションのドキュメントID、docId）
+ * @param params.cycleNo settlement cycle 番号（Step07 changeSpec §4.2、未指定は legacy 互換）
  * @param params.billData bills 親ドキュメントのデータ（categoryBreakdown, paymentTotals, itemsSnapshot, tournamentsSnapshot, party 等を含む）
  * @returns Promise<void>
  */
@@ -36,16 +41,21 @@ export async function processBillAnalyticsAtomically(
     month: string;
     businessDate: string;
     billId: string;
+    cycleNo?: number;
     billData: any;
   }
 ): Promise<void> {
-  const { month, businessDate, billId, billData } = params;
+  const { month, businessDate, billId, cycleNo, billData } = params;
+
+  // Step07 changeSpec §4.2: cycleNo 指定時は `{billId}_cycle{cycleNo}_settle`、未指定時は legacy `{billId}`
+  const markerDocId =
+    typeof cycleNo === 'number' && cycleNo > 0 ? `${billId}_cycle${cycleNo}_settle` : billId;
 
   // 参照を準備
   const monthlyRef = db.collection('analyticsMonthly').doc(month);
   const dailyRef = monthlyRef.collection('days').doc(businessDate);
   const byCategoryRef = monthlyRef.collection('byCategory').doc('summary');
-  const markerRef = monthlyRef.collection('aggregationMarkers').doc(billId);
+  const markerRef = monthlyRef.collection('aggregationMarkers').doc(markerDocId);
 
   const userId = billData.party?.userId;
   const byUserRef = userId ? monthlyRef.collection('byUser').doc(userId) : undefined;
@@ -113,7 +123,9 @@ export async function processBillAnalyticsAtomically(
     // 上記の tx.get(markerRef) で存在確認済みで、存在する場合は早期 return しているため、
     // この時点では marker が存在しないことが保証されているため、tx.create は必ず成功する
     tx.create(markerRef, {
+      type: 'settle',
       billId,
+      cycleNo: typeof cycleNo === 'number' ? cycleNo : null,
       businessDate,
       processedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -168,8 +180,10 @@ export async function processBillAnalyticsAtomically(
 
     // marker の作成情報を追加
     allUpdates[`${monthlyIndexInfo.collection}/aggregationMarkers`] = {
-      [billId]: {
+      [markerDocId]: {
+        type: 'settle',
         billId,
+        cycleNo: typeof cycleNo === 'number' ? cycleNo : null,
         businessDate,
         processedAt: 'serverTimestamp()',
       },
