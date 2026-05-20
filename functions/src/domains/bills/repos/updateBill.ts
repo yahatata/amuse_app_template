@@ -21,7 +21,7 @@ export interface UpdateBillRequest {
     status?: string;
     'ops.*'?: any; // ただし ops.accountingStartedAt は基本的に startAccounting の責務
     'meta.*'?: any;
-    // businessDate, amounts.*, categoryBreakdown, paymentTotals, itemsSnapshot, postEvents.*, paymentsSummary.* は更新不可
+    // businessDate と parent summary 群は更新不可
   };
 }
 
@@ -42,6 +42,12 @@ const FORBIDDEN_FIELDS = [
   'itemsSnapshot',
   'postEvents',
   'paymentsSummary',
+  'settlementSnapshot',
+  'currentSummary',
+  'postSettlementState',
+  'reopenSummary',
+  'closeSummary',
+  'draftAccountingInput',
 ];
 
 /**
@@ -200,4 +206,3 @@ export async function updateBill(request: UpdateBillRequest): Promise<UpdateBill
     throw new HttpsError('internal', `updateBill failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
-

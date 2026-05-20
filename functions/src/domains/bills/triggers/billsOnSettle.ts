@@ -17,6 +17,10 @@ import { getStoreConfig } from '../../../shared/config/configLoader';
 import {
   calculateAmounts,
   calculateCategoryBreakdown,
+  buildBaselineExtras,
+  buildBaselineItems,
+  buildBaselineSideGameChips,
+  buildBaselineTournaments,
   buildItemsSnapshot,
   buildSideGameChipsSummary,
   buildTournamentsSnapshot,
@@ -25,6 +29,19 @@ import {
   calculateContentHash,
 } from '../services/snapshots';
 import { enqueueSettlement } from '../../analytics/services/aggregator';
+import {
+  buildCurrentSummaryFromSettlement,
+  buildDraftAccountingInput,
+  buildInitialPostSettlementState,
+  buildSettlementSnapshot,
+} from '../services/parentSummary';
+import {
+  BASELINE_SNAPSHOT_DOC_ID,
+  buildBaselineSnapshot,
+  buildBaselineSummary,
+  buildInitialCycleDoc,
+  buildSettledCycleDocPatch,
+} from '../services/settlementCycles';
 
 
 /**
@@ -131,6 +148,10 @@ export const billsOnSettle = onDocumentUpdated(
       const itemsSnapshotData = buildItemsSnapshot(itemsSnapshot.docs);
       const sideGameChipsSummary = buildSideGameChipsSummary(sideGameChipsSnapshot.docs);
       const tournamentsSnapshotData = buildTournamentsSnapshot(tournamentsSnapshot.docs);
+      const baselineItems = buildBaselineItems(itemsSnapshot.docs);
+      const baselineExtras = buildBaselineExtras(extrasSnapshot.docs);
+      const baselineSideGameChips = buildBaselineSideGameChips(sideGameChipsSnapshot.docs);
+      const baselineTournaments = buildBaselineTournaments(tournamentsSnapshot.docs);
 
       const paymentTotals = calculatePaymentTotals({
         paymentsDocs: paymentsDocsSnapshot?.docs || [],
@@ -176,6 +197,50 @@ export const billsOnSettle = onDocumentUpdated(
 
       // 親ドキュメントを更新（transaction 推奨）
       const now = admin.firestore.Timestamp.now();
+      const currentSettlementCycle = afterData.reopenSummary?.currentSettlementCycle || 1;
+      const settlementSnapshot = buildSettlementSnapshot({
+        amounts,
+        categoryBreakdown,
+        paymentTotals,
+        paymentsSummary,
+        closedAt: now,
+        contentHash,
+      });
+      const baselineSummary = buildBaselineSummary({
+        amounts,
+        categoryBreakdown,
+        paymentTotals,
+        paymentsSummary,
+        contentHash,
+      });
+      const baselineSnapshot = buildBaselineSnapshot({
+        items: baselineItems,
+        extras: baselineExtras,
+        tournaments: baselineTournaments,
+        sideGameChips: baselineSideGameChips,
+        amounts,
+        categoryBreakdown,
+        paymentTotals,
+        paymentsSummary,
+        contentHash,
+      });
+      const currentSummary = buildCurrentSummaryFromSettlement({
+        claimTotalIncl: amounts.grandTotalRounded,
+        receivedTotalIncl: paymentsSummary.paidTotalIncl,
+        refundedTotalIncl: 0,
+        netSalesIncl: amounts.grandTotalRounded,
+      });
+      const postSettlementState = buildInitialPostSettlementState();
+      const draftAccountingInput = buildDraftAccountingInput({
+        paymentMethodsByCategory:
+          afterData.draftAccountingInput?.paymentMethodsByCategory ??
+          afterData.meta?.paymentMethodsByCategory ??
+          null,
+        paymentMethodsByAmount:
+          afterData.draftAccountingInput?.paymentMethodsByAmount ??
+          afterData.meta?.paymentMethodsByAmount ??
+          null,
+      });
       const updateData: Record<string, any> = {
         'amounts.subTotalIncl': amounts.subTotalIncl,
         'amounts.discountTotalIncl': amounts.discountTotalIncl,
@@ -195,12 +260,53 @@ export const billsOnSettle = onDocumentUpdated(
         'postEvents.totalAdjustmentsIncl': 0,
         'postEvents.netSalesIncl': amounts.grandTotalRounded,
         closedAt: now,
+        settlementSnapshot,
+        currentSummary,
+        postSettlementState,
+        'reopenSummary.latestSettledCycle': currentSettlementCycle,
+        'reopenSummary.lastResettledAt': now,
+        draftAccountingInput,
         'meta.contentHash': contentHash,
         updatedAt: now, // 初回生成時は updatedAt を更新（既存ポリシーに従う）
       };
 
+      const cycleRef = billRef.collection('settlementCycles').doc(String(currentSettlementCycle));
+      const baselineSnapshotRef = cycleRef
+        .collection('baselineSnapshot')
+        .doc(BASELINE_SNAPSHOT_DOC_ID);
+      const cycleSnap = await cycleRef.get();
+      const existingCycleData = cycleSnap.exists ? cycleSnap.data() : null;
+      const cycleBase =
+        existingCycleData ??
+        buildInitialCycleDoc({
+          cycleNo: currentSettlementCycle,
+          openedAt: afterData.createdAt ?? now,
+          openedBy: null,
+          openedReason: currentSettlementCycle === 1 ? 'initial' : 'reopen',
+          openedFromCycleNo: currentSettlementCycle > 1 ? currentSettlementCycle - 1 : null,
+        });
+
+      const batch = db.batch();
+
       // 重要: status は絶対に書き換えない（ループ事故防止）
-      await billRef.update(updateData);
+      batch.update(billRef, updateData);
+      batch.set(
+        cycleRef,
+        {
+          ...cycleBase,
+          ...buildSettledCycleDocPatch({
+            settledAt: now,
+            settledBy:
+              afterData.ops?.accountingCompletedBy ??
+              afterData.ops?.accountingStartedBy ??
+              null,
+            baselineSummary,
+          }),
+        },
+        { merge: true },
+      );
+      batch.set(baselineSnapshotRef, baselineSnapshot, { merge: false });
+      await batch.commit();
 
       logger.info('billsOnSettle: snapshot updated', {
         billId,
@@ -219,6 +325,11 @@ export const billsOnSettle = onDocumentUpdated(
             billId,
             businessDate: updatedBillData.businessDate,
             status: updatedBillData.status,
+            // Step07 changeSpec §4.2 / §5.3.5: settle marker docId 構成に使う cycle 番号
+            cycleNo:
+              typeof updatedBillData.reopenSummary?.currentSettlementCycle === 'number'
+                ? updatedBillData.reopenSummary.currentSettlementCycle
+                : 1,
             amounts: updatedBillData.amounts,
             categoryBreakdown: updatedBillData.categoryBreakdown,
             itemsSnapshot: updatedBillData.itemsSnapshot,
@@ -257,4 +368,3 @@ export const billsOnSettle = onDocumentUpdated(
     }
   }
 );
-

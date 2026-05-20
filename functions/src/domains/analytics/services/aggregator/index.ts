@@ -35,12 +35,13 @@ export async function enqueueSettlement(bill: BillDoc): Promise<void> {
 
   // 共通関数で旧スキーマ更新（トランザクション内で marker チェック・作成）
   // bill.billId は bills コレクションのドキュメントID（docId）であることを前提
+  // Step07 changeSpec §4.2 / §5.3.5: cycleNo を渡すことで marker docId が `{billId}_cycle{cycleNo}_settle` になる
   await processBillAnalyticsAtomically(db, {
     month: monthKey,
     businessDate,
-    billId: bill.billId, // 【必須】bill.billId は docId
-    billData: bill,
-    logInvocation: { functionEntry: 'billsOnSettle' },
+    billId: bill.billId,  // 【必須】bill.billId は docId
+    cycleNo: bill.cycleNo,  // Step07: 未指定なら legacy `{billId}` marker
+    billData: bill,  // BillDoc から必要なフィールドを抽出（categoryBreakdown, paymentTotals, etc.）
   });
 
   logger.info('enqueueSettlement: analytics update completed', {

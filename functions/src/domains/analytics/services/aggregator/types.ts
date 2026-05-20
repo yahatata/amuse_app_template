@@ -8,6 +8,8 @@ export interface BillDoc {
   billId: string;
   businessDate: string;
   status: string;
+  /** Step07 changeSpec §4.2 / §5.3.5: settle marker docId 構成に使う cycle 番号 */
+  cycleNo?: number;
   amounts?: {
     grandTotalRounded: number;
   };

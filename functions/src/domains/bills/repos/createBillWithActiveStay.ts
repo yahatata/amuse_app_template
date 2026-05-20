@@ -18,10 +18,23 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
-import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
+import {
+  FunctionCustomError,
+  mapFunctionCustomErrorToHttpsCode,
+} from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { dualWriteTodaysBillsSkeleton, shouldDualWrite } from './dualWrite';
 import { getCurrentBusinessDateKeyOrThrow } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
+import {
+  buildDraftAccountingInput,
+  buildInitialCloseSummary,
+  buildInitialCurrentSummary,
+  buildInitialOps,
+  buildInitialPostSettlementState,
+  buildInitialReopenSummary,
+  buildInitialSettlementSnapshot,
+} from '../services/parentSummary';
+import { buildInitialCycleDoc, INITIAL_SETTLEMENT_CYCLE } from '../services/settlementCycles';
 
 /**
  * リクエストペイロードの正規化ハッシュを生成
@@ -83,6 +96,9 @@ export async function createBillWithActiveStay(
   const idempotencyRef = db.collection('bills').doc(billId).collection('idempotency').doc(idempotencyKeyFull);
   const billRef = db.collection('bills').doc(billId);
   const activeStayRef = db.collection('activeStays').doc(userId);
+  const initialCycleRef = billRef
+    .collection('settlementCycles')
+    .doc(String(INITIAL_SETTLEMENT_CYCLE));
 
   // リクエストハッシュ生成（冪等性検証用）
   const requestHash = stableHash({
@@ -170,11 +186,30 @@ export async function createBillWithActiveStay(
           table: null,
           seat: null,
         },
+        ops: buildInitialOps(),
+        draftAccountingInput: buildDraftAccountingInput(),
+        settlementSnapshot: buildInitialSettlementSnapshot(),
+        currentSummary: buildInitialCurrentSummary(),
+        postSettlementState: buildInitialPostSettlementState(),
+        reopenSummary: buildInitialReopenSummary(),
+        closeSummary: buildInitialCloseSummary(),
         meta: {
           schemaVersion: '1.3',
           contentHash: null,
         },
       }, { merge: false });
+
+      tx.set(
+        initialCycleRef,
+        buildInitialCycleDoc({
+          cycleNo: INITIAL_SETTLEMENT_CYCLE,
+          openedAt: admin.firestore.FieldValue.serverTimestamp(),
+          openedBy: null,
+          openedReason: 'initial',
+          openedFromCycleNo: null,
+        }),
+        { merge: false },
+      );
 
       // 4) activeStays/{uid} 作成
       tx.set(activeStayRef, {
@@ -261,7 +296,10 @@ export async function createBillWithActiveStay(
           requestHash8: requestHash.substring(0, 8),
         },
       });
-      throw error;
+      throw new HttpsError(
+        mapFunctionCustomErrorToHttpsCode(error.errorKey),
+        error.message
+      );
     }
 
     logOpsError({

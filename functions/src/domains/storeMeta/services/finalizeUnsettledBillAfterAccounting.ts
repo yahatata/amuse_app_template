@@ -1,7 +1,8 @@
 /**
  * 未会計ラベル付き bill の会計完了後に呼ぶ Callable。
  * 通常の会計処理（completeAccountingV2）とは別に、未会計専用の後処理のみ行う。
- * - bills/{billId}.closeSnapshot.unresolved を false に更新
+ * - bills/{billId}.closeSummary.unresolved を false に更新
+ * - bills/{billId}.closeSnapshot.unresolved も互換のため false に更新
  * - users/{userId}.unsettledBillsCount を 1 減らす
  *
  * ※ Step3 で storeMeta 内のサブコレクション（閉店実行ログ・未会計索引等）の更新が必要になる可能性あり。
@@ -46,15 +47,21 @@ export const finalizeUnsettledBillAfterAccounting = onCall(async (request) => {
       });
     }
 
+    const closeSummary = billData.closeSummary;
     const closeSnapshot = billData.closeSnapshot;
-    if (closeSnapshot == null || typeof closeSnapshot !== 'object') {
-      return { success: true, message: 'closeSnapshot が無いためスキップしました' };
-    }
-    if (closeSnapshot.unresolved !== true) {
+    const isCloseSummaryUnresolved = closeSummary != null &&
+      typeof closeSummary === 'object' &&
+      (closeSummary as { unresolved?: boolean }).unresolved === true;
+    const isCloseSnapshotUnresolved = closeSnapshot != null &&
+      typeof closeSnapshot === 'object' &&
+      (closeSnapshot as { unresolved?: boolean }).unresolved === true;
+
+    if (!isCloseSummaryUnresolved && !isCloseSnapshotUnresolved) {
       return { success: true, message: '既に unresolved が true でないためスキップしました' };
     }
 
     await billRef.update({
+      'closeSummary.unresolved': false,
       'closeSnapshot.unresolved': false,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });

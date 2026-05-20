@@ -85,8 +85,8 @@ export const cancelAccounting = onCall(async (request) => {
       // - 必要に応じて ops.accountingCanceledAt / ops.accountingCanceledBy を追加
       const updateData: Record<string, any> = {
         status: 'open',
-        'ops.accountingStartedAt': admin.firestore.FieldValue.delete(),
-        'ops.accountingStartedBy': admin.firestore.FieldValue.delete(),
+        'ops.accountingStartedAt': null,
+        'ops.accountingStartedBy': null,
         'ops.accountingCanceledAt': now,
         'ops.accountingCanceledBy': adminId,
         updatedAt: now,

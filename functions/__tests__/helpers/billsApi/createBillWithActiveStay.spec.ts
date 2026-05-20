@@ -101,6 +101,59 @@ describe('createBillWithActiveStay', () => {
       expect(billData.party.userId).toBe(userId);
       expect(billData.party.pokerName).toBe('テスト太郎');
       expect(billData.meta.schemaVersion).toBe('1.3');
+      expect(billData.ops).toEqual({
+        accountingStartedAt: null,
+        accountingStartedBy: null,
+        accountingCompletedAt: null,
+        accountingCompletedBy: null,
+        accountingCanceledAt: null,
+        accountingCanceledBy: null,
+      });
+      expect(billData.draftAccountingInput).toEqual({
+        paymentMethodsByCategory: null,
+        paymentMethodsByAmount: null,
+      });
+      expect(billData.settlementSnapshot).toEqual({
+        amounts: null,
+        categoryBreakdown: null,
+        paymentTotals: null,
+        paymentsSummary: null,
+        closedAt: null,
+        contentHash: null,
+      });
+      expect(billData.currentSummary).toEqual({
+        claimTotalIncl: 0,
+        receivedTotalIncl: 0,
+        refundedTotalIncl: 0,
+        netSalesIncl: 0,
+      });
+      expect(billData.postSettlementState).toEqual({
+        hasPostSettlementActivity: false,
+        totalAdjustmentsIncl: 0,
+        totalCollectedIncl: 0,
+        totalRefundedIncl: 0,
+        requiredActionType: 'none',
+        requiredActionIncl: 0,
+        lastRecordType: 'none',
+        lastRecordAt: null,
+        lastRecordId: null,
+      });
+      expect(billData.reopenSummary).toEqual({
+        hasReopenHistory: false,
+        reopenCount: 0,
+        currentSettlementCycle: 1,
+        latestSettledCycle: 0,
+        lastReopenedAt: null,
+        lastReopenedBy: null,
+        lastResettledAt: null,
+      });
+      expect(billData.closeSummary).toEqual({
+        unresolved: false,
+        markedAt: null,
+        closedBusinessDate: null,
+        displayAmountAtMark: null,
+        lastCloseRunId: null,
+      });
 
       // activeStays/{uid} が作成されている
       const stayDoc = await db.collection('activeStays').doc(userId).get();
@@ -118,6 +171,25 @@ describe('createBillWithActiveStay', () => {
       const idemData = idemDoc.data()!;
       expect(idemData.requestHash).toBeDefined();
       expect(idemData.expiresAt).toBeDefined();
+
+      // settlementCycles/1 が初期 open 状態で作成されている
+      const cycleDoc = await db.collection('bills').doc(billId)
+        .collection('settlementCycles').doc('1').get();
+      expect(cycleDoc.exists).toBe(true);
+      expect(cycleDoc.data()).toMatchObject({
+        cycleNo: 1,
+        cycleState: 'open',
+        openedBy: null,
+        openedReason: 'initial',
+        openedFromCycleNo: null,
+        settledAt: null,
+        settledBy: null,
+        closedAt: null,
+        closedReason: null,
+        nextSequenceNo: 1,
+        baselineSummary: null,
+      });
+      expect(cycleDoc.data()?.openedAt).toBeDefined();
     });
   });
 
@@ -375,4 +447,3 @@ describe('createBillWithActiveStay', () => {
     });
   });
 });
-

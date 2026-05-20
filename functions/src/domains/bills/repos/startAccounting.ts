@@ -16,6 +16,7 @@ import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError'
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import * as crypto from 'crypto';
 import { shouldDualWrite, legacyStartAccountingUpdate } from './dualWrite';
+import { buildDraftAccountingInput } from '../services/parentSummary';
 
 /**
  * リクエストペイロードの正規化ハッシュを生成
@@ -260,6 +261,21 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
   }
 }
 
+export function buildDraftAccountingInputUpdate(options: {
+  paymentMethodsByCategory?: Record<string, unknown> | null;
+  paymentMethodsByAmount?: Record<string, number> | null;
+}) {
+  const draftAccountingInput = buildDraftAccountingInput({
+    paymentMethodsByCategory: options.paymentMethodsByCategory ?? null,
+    paymentMethodsByAmount: options.paymentMethodsByAmount ?? null,
+  });
+
+  return {
+    'draftAccountingInput.paymentMethodsByCategory': draftAccountingInput.paymentMethodsByCategory,
+    'draftAccountingInput.paymentMethodsByAmount': draftAccountingInput.paymentMethodsByAmount,
+  };
+}
+
 function operationForStartAccountingKey(key: string): string {
   switch (key) {
     case 'ACCOUNTING_ALREADY_STARTED':
@@ -271,4 +287,3 @@ function operationForStartAccountingKey(key: string): string {
       return 'runAccountingTransaction';
   }
 }
-

@@ -2,7 +2,7 @@ import * as admin from 'firebase-admin';
 import { z } from 'zod';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
-import { startAccounting as startAccountingHelper } from '../repos/startAccounting';
+import { buildDraftAccountingInputUpdate, startAccounting as startAccountingHelper } from '../repos/startAccounting';
 import * as crypto from 'crypto';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStoreConfig } from '../../../shared/config/configLoader';
@@ -232,6 +232,10 @@ export const startAccounting = onCall(async (request) => {
       if (Object.keys(metaUpdate).length > 0) {
         await billRef.update({
           ...metaUpdate,
+          ...buildDraftAccountingInputUpdate({
+            paymentMethodsByAmount: metaUpdate['meta.paymentMethodsByAmount'] ?? {},
+            paymentMethodsByCategory: metaUpdate['meta.paymentMethodsByCategory'] ?? null,
+          }),
         });
       }
 
@@ -342,6 +346,10 @@ export const startAccounting = onCall(async (request) => {
     if (Object.keys(metaUpdate).length > 0) {
       await billRef.update({
         ...metaUpdate,
+        ...buildDraftAccountingInputUpdate({
+          paymentMethodsByAmount: inputPaymentMethodsByAmount ?? null,
+          paymentMethodsByCategory: paymentMethodsByCategory ?? null,
+        }),
         // updatedAt は既存ポリシーに従い、冪等リプレイ時は更新しない（startAccountingHelper 側で制御）
       });
     }
