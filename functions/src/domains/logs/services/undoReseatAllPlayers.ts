@@ -25,16 +25,10 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
       // すべての読み取りを先に実行
       const mainViewDoc = await transaction.get(mainViewRef);
 
-      let seatedCount = 0;
       let waitingCount = 0;
       for (const [tableId, tableData] of Object.entries(params.previousSeatingData)) {
         if (tableId === 'waiting') {
           waitingCount = Object.keys((tableData as { waiting?: Record<string, unknown> }).waiting || {}).length;
-        } else {
-          const seats = (tableData as { seats?: Record<string, unknown> }).seats || {};
-          for (const [k, v] of Object.entries(seats)) {
-            if (k.endsWith('UserId') && v != null && v !== '') seatedCount++;
-          }
         }
       }
 
@@ -69,8 +63,8 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
       }
 
       if (mainViewDoc.exists) {
+        // seatedCount は forward で維持していないため、undo で書き換えない（waitingCount のみ復元）
         transaction.update(mainViewRef, {
-          seatedCount,
           waitingCount,
           updatedAt: now,
         });

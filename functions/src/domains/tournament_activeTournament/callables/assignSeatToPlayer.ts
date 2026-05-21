@@ -1,4 +1,5 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { logger } from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
@@ -119,23 +120,48 @@ export const assignSeatToPlayer = onCall(async (request) => {
           context: { tournamentId, userId, reason: 'billId_missing_on_active_stay' },
         });
       }
+
+      const viewsMainRef = db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main');
+
+      const viewsMainDoc = await transaction.get(viewsMainRef);
+      if (!viewsMainDoc.exists) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントのviews/mainドキュメントが存在しません',
+          context: { tournamentId, reason: 'views_main_missing' },
+        });
+      }
+      const viewsMainData = viewsMainDoc.data()!;
       
       // 5. ユーザー情報を取得（pokerNameはactiveStaysから取得、todaysBillsには依存しない）
       const pokerName = activeStayData.pokerName || `Player_${userId}`;
       
       // すべての読み取り操作が完了したので、ここから書き込み操作を開始
       
-      // 6. 待機者リストから削除（書き込み操作）
+      // 6. 待機者リストから削除（書き込み操作）。waiting にいた場合のみ views/main.waitingCount を -1
+      let waitingCountMismatchAtRead: number | undefined;
       if (waitingDoc.exists) {
         const waitingData = waitingDoc.data()!;
         if (waitingData.waiting && waitingData.waiting[userId]) {
-          // 待機者リストから削除
           const updatedWaiting = { ...waitingData.waiting };
           delete updatedWaiting[userId];
           
           transaction.update(waitingRef, {
             waiting: updatedWaiting,
             count: Object.keys(updatedWaiting).length,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          const currentWaitingCount = viewsMainData.waitingCount || 0;
+          if (currentWaitingCount <= 0) {
+            waitingCountMismatchAtRead = currentWaitingCount;
+          }
+          transaction.update(viewsMainRef, {
+            waitingCount: Math.max(0, currentWaitingCount - 1),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         }
@@ -152,7 +178,15 @@ export const assignSeatToPlayer = onCall(async (request) => {
       });
       
       // billId, pokerName を返してトランザクション外で updatePlace と operationLog に使用
-      return { success: true, userId, pokerName, tableId, seatNumber, billId };
+      return {
+        success: true,
+        userId,
+        pokerName,
+        tableId,
+        seatNumber,
+        billId,
+        waitingCountMismatchAtRead,
+      };
       
       // 5. usersサブコレクションにユーザー情報を記録
       // TODO: 今後実装予定 - usersサブコレクションへの記録
@@ -193,6 +227,18 @@ export const assignSeatToPlayer = onCall(async (request) => {
       //   timestamp: admin.firestore.FieldValue.serverTimestamp(),
       // });
     });
+
+    if (transactionResult.waitingCountMismatchAtRead !== undefined) {
+      logger.warn(
+        'assignSeatToPlayer: views/main.waitingCount に対して waiting からの削除と不整合（<=0 のまま -1 を繰り越し）',
+        {
+          tournamentId,
+          userId,
+          reason: 'waiting_count_non_positive_while_user_in_waiting',
+          waitingCountAtRead: transactionResult.waitingCountMismatchAtRead,
+        },
+      );
+    }
     
     // トランザクション完了後、トランザクション外でupdatePlaceを呼び出す
     if (transactionResult.billId) {
