@@ -5,7 +5,7 @@
 - 根拠仕様: `保守運用時のエラーログ/保守運用時のエラーログ.md` および `保守運用時のエラーログ/エラーログ拡張仕様書_差分実装版.md`（`service` の観点）
 - 根拠コード: `functions/src/index.ts` および各 `domains/*/index.ts`・`shared/*/index.ts`・`demo_data/index.ts` の **export 名**（= 原則 `functionEntry`）
 - 補足: 本表は **デプロイ対象の Cloud Functions エントリ**（`onCall` / `onRequest` / トリガ等に紐づく export）を対象とする。`shared/firebase` の `getEnv` はユーティリティの re-export であり CF 名ではないため **本表に含めない**。**ログ上の `functionEntry` だけが export 名と異なるもの**は §「export 外の functionEntry 対応表」を参照。
-- 件数: **166**（上記コードベースと一致）
+- 件数: **170**（上記コードベースと一致）
 - **`platform` は廃止**（横断インフラの粒度が業務 `service` と揃わないため）。**`device`**（店舗端末）、**`scheduler`**（スケジューラ／ジョブ基盤）、**`config`**（店舗設定ロード）に分割する。
 - **重要度判定の十分性（主対象）**: `generateDummyData` / `debugSideGame` は `エラーログ_重要度判定要件定義.md` **§4** に従い、十分性評価の**主対象外**（上記 2 呼び出し）。**主対象は 269 件**（旧 **278 件**（280 − 2）から `unused_function_lib` へ移管した **9 呼び出し分**を除く）。**`service` マッピングや `logOpsError` の有無とは独立**。対応表の備考列に記載。
 
@@ -19,9 +19,11 @@
 | `addon` | `tournament` | |
 | `appendExtra` | `accounting` | `appendExtraCallable` の export 名 |
 | `applyCloseSnapshot` | `store` | |
+| `applyOkibakeAddon` | `tournament` | |
 | `approveAttendanceCorrectionRequest` | `attendance` | |
 | `archiveBlindTemplate` | `tournament_schedule` | |
 | `archiveTournamentTemplate` | `tournament_schedule` | |
+| `assignOkibakeTemporaryEntryToSeat` | `tournament` | |
 | `assignSeatToPlayer` | `tournament` | |
 | `attendanceOnWrite` | `attendance` | |
 | `bulkAddon` | `tournament` | |
@@ -29,6 +31,7 @@
 | `billsOnSettle` | `accounting` | |
 | `bustAndExit` | `tournament` | |
 | `bustAndReentry` | `tournament` | |
+| `bustOkibakeTemporaryEntry` | `tournament` | |
 | `calculateInsufficientDays` | `shift` | |
 | `cancelAccounting` | `accounting` | |
 | `cancelOrder` | `orders` | |
@@ -52,6 +55,7 @@
 | `createManualClockInRecord` | `attendance` | |
 | `createMenuItem` | `orders` | |
 | `createMultipleShifts` | `staff` | |
+| `createOkibakeTemporaryEntry` | `tournament` | |
 | `createRecruitments` | `shift` | |
 | `createScheduledTournament` | `tournament_schedule` | |
 | `createStaffAccount` | `staff` | |
@@ -115,6 +119,7 @@
 | `interimConfirmRequests` | `shift` | |
 | `initializeStoreConfigCallable` | `store` | |
 | `leaveSeat` | `side_game` | |
+| `linkOkibakeTemporaryEntryToBill` | `tournament` | |
 | `lineWebhook` | `line` | |
 | `manualCheckIn` | `user` | |
 | `migrateSettledBillsForBusinessDay` | `analytics` | 精算済み→月次分析への移管 |
@@ -254,7 +259,7 @@
 - **side_game**: `debugSideGame`（**重要度十分性の主対象外**・§4）、`depositTip`, `leaveSeat`, `registerForSideGame`, `withdrawTip`
 - **staff**: `confirmShiftRequest`, `createMultipleShifts`, `createStaffAccount`, `createStaffByApp`, `getShifts`, `scheduledCleanup`, `updateShiftRequest`, `updateStaffBankInfo`, `updateStaffHourlyWage`
 - **store**: `applyCloseSnapshot`, `cleanupActiveStaysOnClose`, `closeAssessmentTask`, `closeStore`, `closeStoreTerminal`, `continueBusinessTerminal`, `createInitialStateDocCallable`, `finalizeUnsettledBillAfterAccounting`, `getCloseIntegrityData`, `getUnclockedStaffForClose`, `getUnclosedTournamentsForClose`, `getUnsettledBillsForClose`, `initializeStoreConfigCallable`, `openAssessmentTask`, `openStore`, `openStoreTerminal`, `resetAllSideGames`, `resetAllTables`, `temporaryUnlockAlreadyRunningDifferentDateTerminal`, `updateUnclockedAttendanceWithAuth`, `verifyUnclockedAttendanceEditPassword`, `weeklyPlanner`
-- **tournament**: `addTableToTournament`, `addon`, `assignSeatToPlayer`, `bulkAddon`, `bustAndExit`, `bustAndReentry`, `createTemporaryTable`, `endTournament`, `getAvailableTables`, `getPrizeData`, `getRankingData`, `getTodayTournaments`, `getUpcomingTournaments`, `pauseTournament`, `registerForTournament`, `registerParticipants`, `removeTableFromTournament`, `resumeTournament`, `reseatAllPlayers`, `setPrizeData`, `setRankingData`, `validateEndTournament`
+- **tournament**: `addTableToTournament`, `addon`, `applyOkibakeAddon`, `assignOkibakeTemporaryEntryToSeat`, `assignSeatToPlayer`, `bulkAddon`, `bustAndExit`, `bustAndReentry`, `bustOkibakeTemporaryEntry`, `createOkibakeTemporaryEntry`, `createTemporaryTable`, `endTournament`, `getAvailableTables`, `getPrizeData`, `getRankingData`, `getTodayTournaments`, `getUpcomingTournaments`, `linkOkibakeTemporaryEntryToBill`, `pauseTournament`, `registerForTournament`, `registerParticipants`, `removeTableFromTournament`, `resumeTournament`, `reseatAllPlayers`, `setPrizeData`, `setRankingData`, `validateEndTournament`
 - **tournament_schedule**: `archiveBlindTemplate`, `archiveTournamentTemplate`, `controlHookHttp`, `createBlindTemplate`, `createScheduledTournament`, `createTournamentRecurrence`, `createTournamentTemplate`, `deleteTournamentRecurrence`, `enqueueTournamentTasks`, `enqueueTournamentTasksByScheduler`, `generateRecurringTournaments`, `generateRecurringTournamentsByScheduler`, `getBlindTemplates`, `getScheduledTournamentsForEdit`, `getTournamentRecurrences`, `getTournamentTemplates`, `updateBlindTemplate`, `updateScheduledTournamentStartAt`, `updateScheduledTournamentStatus`, `updateTournamentRecurrence`, `updateTournamentTemplate`
 - **user**: `createUserAccount`, `createUserByApp`, `generateQRCode`, `getFirebaseCustomToken`, `getUserStatus`, `manualCheckIn`, `processVisitByQR`, `verifyQRCode`
 

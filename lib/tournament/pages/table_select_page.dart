@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
+import 'package:amuse_app_template/tournament/active/models/scheduled_tournament_seat_map.dart';
 
 /// 卓選択ページ
 /// デバイスに卓番付与がある場合はその卓のみ表示
@@ -123,16 +124,21 @@ class _TableSelectPageState extends State<TableSelectPage> {
                     final table = _tables[index];
                     final name = table['name'] as String;
                     final seats = table['seats'] as Map<String, dynamic>? ?? {};
-                    // seatXXUserIdで終わるキーの値がnullでないものを数える
-                    final occupiedCount = seats.entries
-                        .where((entry) => entry.key.endsWith('UserId') && entry.value != null && (entry.value as String).isNotEmpty)
-                        .length;
-                    final maxSeats = table['maxSeats'] as int? ?? seats.length;
+                    final maxSeatsResolved =
+                        ScheduledTournamentSeatMap.resolvedTableMaxSeats(
+                      table['maxSeats'],
+                      seats,
+                      fallbackWhenUnresolved: 6,
+                    );
+                    final occupiedCount = ScheduledTournamentSeatMap.occupiedCount(
+                      seats,
+                      maxSeatsResolved,
+                    );
 
                     return ListTile(
                       leading: const Icon(Icons.table_restaurant),
                       title: Text(name),
-                      subtitle: Text('$occupiedCount / $maxSeats 席'),
+                      subtitle: Text('$occupiedCount / $maxSeatsResolved 席'),
                       onTap: () {
                         widget.onSelected(table['id'] as String, name);
                       },

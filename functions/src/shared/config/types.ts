@@ -17,6 +17,13 @@ export interface RequiredStaffByTimeSlot {
   requiredCount: number;
 }
 
+/** 詳細仕様書 §14.15: storeMeta/config.okibake.loginPromptMode（フラット構成） */
+export type OkibakeLoginPromptMode = 'none' | 'notice_only' | 'link_prompt';
+
+export interface OkibakeConfig {
+  loginPromptMode: OkibakeLoginPromptMode;
+}
+
 export interface StoreConfig {
   features?: {
     dualWriteEnabled?: boolean;
@@ -72,6 +79,7 @@ export interface StoreConfig {
   menuCategories?: string[];
   sideGameTypes?: string[];
   tournament?: TournamentConfig;
+  okibake?: OkibakeConfig;
 }
 
 /** B-04: トーナメント設定（賞金・プライズ） */

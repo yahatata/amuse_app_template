@@ -11,7 +11,14 @@ import 'package:amuse_app_template/tournament/active/widgets/dialogs/remove_tabl
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/assign_seat_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/reseat_all_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/register_participants_dialog.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_list_dialog.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_register_dialog.dart';
+import 'package:amuse_app_template/tournament/active/widgets/okibake_waiting_list_tile.dart';
+import 'package:amuse_app_template/tournament/active/widgets/regular_waiting_list_tile.dart';
+import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
 import 'package:amuse_app_template/tournament/active/models/table_and_users.dart';
+import 'package:amuse_app_template/tournament/active/models/scheduled_tournament_seat_map.dart';
+import 'package:amuse_app_template/tournament/active/models/okibake_temporary_entry.dart';
 import 'package:amuse_app_template/tournament/active/services/tournament_data_service.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/ActionHistory/tournamentActionsHistoryPage.dart';
@@ -73,7 +80,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           onSeatAssigned: () {
             // 着席後の処理
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('待機者が着席しました')),
+              const SnackBar(content: Text('着席操作が完了しました')),
             );
             // データを再読み込み
             _loadTournamentData();
@@ -96,13 +103,46 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           onSeatAssigned: () {
             // 着席後の処理
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('待機者が着席しました')),
+              const SnackBar(content: Text('着席操作が完了しました')),
             );
             // データを再読み込み
             _loadTournamentData();
           },
           service: _service,
         );
+      },
+    );
+  }
+
+  void _offerAssignSeat(WaitingPlayer player) {
+    _showAssignSeatDialogForPlayer(player.userId);
+  }
+
+  void _showOkibakeRegisterDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return OkibakeRegisterDialog(
+          tournamentId: widget.tournamentId,
+          service: _service,
+          onRegistered: _loadTournamentData,
+        );
+      },
+    );
+  }
+
+  /// Phase 4 補完: トーナメント操作タブ「置きバケ一覧」（§12.8）。
+  /// 主目的は busted + unlinked の伝票紐付け導線。
+  /// registered の席配置は一覧側からは行わず、ダイアログを閉じた上で
+  /// 既存の `AssignSeatDialog` を `okibakeTemporary:{id}` で開く。
+  void _showOkibakeListDialog() {
+    showOkibakeListDialog(
+      context: context,
+      tournamentId: widget.tournamentId,
+      service: _service,
+      onRequestAssignSeat: (okibakeEntryId, _) {
+        _showAssignSeatDialogForPlayer('okibakeTemporary:$okibakeEntryId');
       },
     );
   }
@@ -1023,7 +1063,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 左列: 参加者登録、全員リシート、プライズ確定
+              // 左列: 参加者登録、全員リシート、プライズ確定、操作履歴
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1059,10 +1099,21 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                       minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => _showActionHistory(),
+                    icon: const Icon(Icons.history),
+                    label: const Text('操作履歴'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey,
+                      foregroundColor: Colors.white,
+                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(width: 16),
-              // 右列: 順位確定、終了処理
+              // 右列: 順位確定、置きバケ登録、終了処理（§11.6: 置きバケは順位の次・終了の前）
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1078,22 +1129,34 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
-                    onPressed: _isEndingTournament ? null : () => _endTournament(),
-                    icon: const Icon(Icons.stop),
-                    label: const Text('終了処理'),
+                    onPressed: () => _showOkibakeRegisterDialog(),
+                    icon: const Icon(Icons.person_add_alt_1),
+                    label: const Text('置きバケ登録'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
+                      backgroundColor: Colors.teal.shade700,
+                      foregroundColor: Colors.white,
+                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Phase 4 補完 §12.8: 「置きバケ登録」と「終了処理」の間に配置。
+                  ElevatedButton.icon(
+                    onPressed: () => _showOkibakeListDialog(),
+                    icon: const Icon(Icons.list_alt),
+                    label: const Text('置きバケ一覧'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.amber.shade800,
                       foregroundColor: Colors.white,
                       minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
                     ),
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
-                    onPressed: () => _showActionHistory(),
-                    icon: const Icon(Icons.history),
-                    label: const Text('操作履歴'),
+                    onPressed: _isEndingTournament ? null : () => _endTournament(),
+                    icon: const Icon(Icons.stop),
+                    label: const Text('終了処理'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey,
+                      backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                       minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
                     ),
@@ -1360,140 +1423,234 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                         child: Column(
                           children: [
                             Expanded(
-                              child: StreamBuilder<DocumentSnapshot>(
+                              child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                                 stream: FirebaseFirestore.instance
-                                  .collection('scheduledTournaments')
-                                  .doc(widget.tournamentId)
-                                  .collection('tablesSeat')
-                                  .doc('waiting')
-                                  .snapshots(),
-                              builder: (context, waitingSnapshot) {
-                                int waitingCount = 0;
-                                List<WaitingPlayer> playersFromStream = [];
-
-                                if (!waitingSnapshot.hasError &&
-                                    waitingSnapshot.connectionState == ConnectionState.active &&
-                                    waitingSnapshot.data != null) {
-                                  final waitingData = waitingSnapshot.data!.data() != null
-                                      ? Map<String, dynamic>.from(waitingSnapshot.data!.data()! as Map)
-                                      : null;
-                                  final waitingList = waitingData?['waiting'] as Map<String, dynamic>? ?? {};
-                                  waitingCount = waitingList.length;
-                                  for (final e in waitingList.entries) {
-                                    final userId = e.key;
-                                    final v = e.value;
-                                    if (v is Map<String, dynamic>) {
-                                      final pokerName = v['pokerName'] as String? ?? 'ユーザー$userId';
-                                      DateTime joinedAt = DateTime.now();
-                                      if (v['joinedAt'] != null && v['joinedAt'] is Timestamp) {
-                                        joinedAt = (v['joinedAt'] as Timestamp).toDate();
-                                      }
-                                      playersFromStream.add(WaitingPlayer(
-                                        userId: userId,
-                                        displayName: pokerName,
-                                        joinedAt: joinedAt,
-                                      ));
-                                    }
+                                    .collection('scheduledTournaments')
+                                    .doc(widget.tournamentId)
+                                    .snapshots(),
+                                builder: (context, tourSnap) {
+                                  var resolvedAddonLimit = -1;
+                                  final addonLimitLoading =
+                                      tourSnap.connectionState == ConnectionState.waiting &&
+                                          !tourSnap.hasData;
+                                  if (tourSnap.hasData && tourSnap.data!.exists) {
+                                    final tourData = tourSnap.data!.data() ?? {};
+                                    final snap = Map<String, dynamic>.from(
+                                      (tourData['snapshot'] as Map?) ?? {},
+                                    );
+                                    resolvedAddonLimit = resolveAddonLimitPerPlayerUi(
+                                      isAddon: snap['isAddon'] == true,
+                                      addonLimitPerPlayer: snap['addonLimitPerPlayer'],
+                                    );
                                   }
-                                }
 
-                                return Column(
-                                  children: [
-                                    Container(
-                                      width: double.infinity,
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.orange[100],
-                                        borderRadius: const BorderRadius.only(
-                                          topLeft: Radius.circular(8),
-                                          topRight: Radius.circular(8),
-                                        ),
-                                      ),
-                                      child: Row(
+                                  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                                stream: FirebaseFirestore.instance
+                                    .collection('scheduledTournaments')
+                                    .doc(widget.tournamentId)
+                                    .collection('tablesSeat')
+                                    .doc('waiting')
+                                    .snapshots(),
+                                builder: (context, waitingSnapshot) {
+                                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                    stream: FirebaseFirestore.instance
+                                        .collection('scheduledTournaments')
+                                        .doc(widget.tournamentId)
+                                        .collection('okibakeTemporaryEntries')
+                                        .where('entryStatus', isEqualTo: 'registered')
+                                        .snapshots(),
+                                    builder: (context, okibakeSnap) {
+                                      final merged = <WaitingPlayer>[];
+
+                                      if (!waitingSnapshot.hasError &&
+                                          waitingSnapshot.hasData &&
+                                          waitingSnapshot.data!.exists) {
+                                        final waitingData =
+                                            waitingSnapshot.data!.data() != null
+                                                ? Map<String, dynamic>.from(
+                                                    waitingSnapshot.data!.data()! as Map)
+                                                : null;
+                                        final waitingList =
+                                            waitingData?['waiting'] as Map<String, dynamic>? ??
+                                                {};
+                                        for (final e in waitingList.entries) {
+                                          final userId = e.key;
+                                          final v = e.value;
+                                          if (v is Map<String, dynamic>) {
+                                            final pokerName =
+                                                v['pokerName'] as String? ?? 'ユーザー$userId';
+                                            DateTime joinedAt = DateTime.now();
+                                            if (v['joinedAt'] != null &&
+                                                v['joinedAt'] is Timestamp) {
+                                              joinedAt =
+                                                  (v['joinedAt'] as Timestamp).toDate();
+                                            }
+                                            merged.add(WaitingPlayer(
+                                              userId: userId,
+                                              displayName: pokerName,
+                                              joinedAt: joinedAt,
+                                            ));
+                                          }
+                                        }
+                                      }
+
+                                      if (!okibakeSnap.hasError && okibakeSnap.hasData) {
+                                        for (final doc in okibakeSnap.data!.docs) {
+                                          final entry = OkibakeTemporaryEntry.fromDoc(doc);
+                                          if (!entry.isWaitingUnlinked) continue;
+                                          merged.add(
+                                            WaitingPlayer.okibakeTemporary(
+                                              okibakeEntryId: entry.okibakeEntryId,
+                                              displayName: entry.waitingListDisplayName,
+                                              createdAt: entry.createdAt ?? DateTime.now(),
+                                              okibakeAddonCount: entry.okibakeAddonCount,
+                                              billLinkStatus: entry.billLinkStatus,
+                                            ),
+                                          );
+                                        }
+                                      }
+
+                                      merged.sort((a, b) => b.joinedAt.compareTo(a.joinedAt));
+
+                                      final mainWaitingCount =
+                                          (data?['waitingCount'] as num?)?.toInt();
+                                      final badgeCount = mainWaitingCount ?? merged.length;
+
+                                      final streamsLoading =
+                                          (waitingSnapshot.connectionState ==
+                                                      ConnectionState.waiting &&
+                                                  !waitingSnapshot.hasData) ||
+                                              (okibakeSnap.connectionState ==
+                                                      ConnectionState.waiting &&
+                                                  !okibakeSnap.hasData);
+
+                                      final errMsgs = [
+                                        if (waitingSnapshot.hasError)
+                                          '待機: ${waitingSnapshot.error}',
+                                        if (okibakeSnap.hasError)
+                                          'オキバケ一覧: ${okibakeSnap.error}',
+                                      ].join('\n');
+
+                                      return Column(
                                         children: [
-                                          Icon(Icons.hourglass_empty, color: Colors.orange[700]),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            '待機者一覧',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.orange[700],
-                                              fontSize: 16,
-                                            ),
-                                          ),
-                                          const Spacer(),
-                                          ElevatedButton.icon(
-                                            onPressed: () => _assignSeatToWaiting(),
-                                            icon: const Icon(Icons.event_seat, size: 16),
-                                            label: const Text('着席', style: TextStyle(fontSize: 12)),
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: Colors.orange[600],
-                                              foregroundColor: Colors.white,
-                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                              minimumSize: const Size(0, 28),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            '${waitingCount}人',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.orange[700],
-                                              fontSize: 18,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: waitingSnapshot.hasError
-                                          ? Center(
-                                              child: Text(
-                                                '待機者データエラー: ${waitingSnapshot.error}',
-                                                style: const TextStyle(color: Colors.red),
+                                          Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange[100],
+                                              borderRadius: const BorderRadius.only(
+                                                topLeft: Radius.circular(8),
+                                                topRight: Radius.circular(8),
                                               ),
-                                            )
-                                          : waitingSnapshot.connectionState == ConnectionState.waiting
-                                              ? const Center(child: CircularProgressIndicator())
-                                              : waitingCount == 0
-                                                  ? const Center(
-                                                      child: Text(
-                                                        '待機者がいません',
-                                                        style: TextStyle(color: Colors.grey),
-                                                      ),
-                                                    )
-                                                  : ListView.builder(
-                                                      padding: const EdgeInsets.all(8),
-                                                      itemCount: playersFromStream.length,
-                                                      itemBuilder: (context, index) {
-                                                        final player = playersFromStream[index];
-                                                        return Card(
-                                                          margin: const EdgeInsets.only(bottom: 4),
-                                                          child: ListTile(
-                                                            leading: CircleAvatar(
-                                                              backgroundColor: Colors.orange[100],
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.hourglass_empty,
+                                                    color: Colors.orange[700]),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  '待機者一覧',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.orange[700],
+                                                    fontSize: 16,
+                                                  ),
+                                                ),
+                                                const Spacer(),
+                                                ElevatedButton.icon(
+                                                  onPressed: () => _assignSeatToWaiting(),
+                                                  icon:
+                                                      const Icon(Icons.event_seat, size: 16),
+                                                  label: const Text('着席',
+                                                      style: TextStyle(fontSize: 12)),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: Colors.orange[600],
+                                                    foregroundColor: Colors.white,
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                            horizontal: 8, vertical: 4),
+                                                    minimumSize: const Size(0, 28),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  '$badgeCount人',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.orange[700],
+                                                    fontSize: 18,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: streamsLoading && merged.isEmpty
+                                                ? const Center(child: CircularProgressIndicator())
+                                                : merged.isEmpty
+                                                    ? Center(
+                                                        child: Padding(
+                                                          padding: const EdgeInsets.all(16),
+                                                          child: Text(
+                                                            errMsgs.isEmpty ? '待機者がいません' : errMsgs,
+                                                            style: TextStyle(
+                                                                color:
+                                                                    errMsgs.isEmpty ? Colors.grey : Colors.red),
+                                                            textAlign: TextAlign.center,
+                                                          ),
+                                                        ),
+                                                      )
+                                                    : Column(
+                                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                                        children: [
+                                                          if (errMsgs.isNotEmpty)
+                                                            Padding(
+                                                              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
                                                               child: Text(
-                                                                '${index + 1}',
-                                                                style: TextStyle(
-                                                                  color: Colors.orange[700],
-                                                                  fontWeight: FontWeight.bold,
-                                                                ),
+                                                                errMsgs,
+                                                                style: const TextStyle(color: Colors.red, fontSize: 12),
+                                                                textAlign: TextAlign.center,
                                                               ),
                                                             ),
-                                                            title: Text(player.displayName),
-                                                            subtitle: Text('待機時間: ${player.waitingMinutes}分'),
-                                                            trailing: IconButton(
-                                                              icon: const Icon(Icons.event_seat, color: Colors.green),
-                                                              onPressed: () => _showAssignSeatDialogForPlayer(player.userId),
+                                                          Expanded(
+                                                            child: ListView.builder(
+                                                              padding: const EdgeInsets.all(8),
+                                                              itemCount: merged.length,
+                                                              itemBuilder: (context, index) {
+                                                                final player = merged[index];
+                                                                if (player.isOkibakeTemporary) {
+                                                                  return OkibakeWaitingListTile(
+                                                                    tournamentId: widget.tournamentId,
+                                                                    player: player,
+                                                                    listIndex: index,
+                                                                    resolvedAddonLimit: resolvedAddonLimit,
+                                                                    addonLimitLoading: addonLimitLoading,
+                                                                    service: _service,
+                                                                    onAssignSeat: () => _offerAssignSeat(player),
+                                                                  );
+                                                                }
+                                                                return RegularWaitingListTile(
+                                                                  tournamentId: widget.tournamentId,
+                                                                  player: player,
+                                                                  listIndex: index,
+                                                                  resolvedAddonLimit: resolvedAddonLimit,
+                                                                  addonLimitLoading: addonLimitLoading,
+                                                                  service: _service,
+                                                                  onAssignSeat: () => _offerAssignSeat(player),
+                                                                );
+                                                              },
                                                             ),
                                                           ),
-                                                        );
-                                                      },
-                                                    ),
-                                    ),
-                                  ],
-                                );
-                              },
+                                                        ],
+                                                      ),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  );
+                                },
+                              );
+                                },
                               ),
                             ),
                           ],
@@ -1596,12 +1753,22 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                         final tableData = tableDoc.data() != null 
                                             ? Map<String, dynamic>.from(tableDoc.data()! as Map)
                                             : null;
-                                        final seats = tableData?['seats'] as Map<String, dynamic>? ?? {};
-                                        
-                                        // nullでないseatXXUserIdフィールドの数をカウント
-                                        final occupiedSeats = seats.entries
-                                            .where((entry) => entry.key.endsWith('UserId') && entry.value != null)
-                                            .length;
+                                        final seats =
+                                            tableData?['seats'] as Map<String, dynamic>? ?? {};
+                                        final maxSeats =
+                                            ScheduledTournamentSeatMap
+                                                .resolvedTableMaxSeats(
+                                          tableData?['maxSeats'],
+                                          seats,
+                                          fallbackWhenUnresolved: 6,
+                                        );
+
+                                        final occupiedSeats =
+                                            ScheduledTournamentSeatMap
+                                                .occupiedCount(
+                                          seats,
+                                          maxSeats,
+                                        );
                                         totalOccupiedSeats += occupiedSeats;
                                       }
 
@@ -1671,13 +1838,19 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                           ? Map<String, dynamic>.from(tableDoc.data()! as Map)
                                           : null;
                                       final seats = tableData?['seats'] as Map<String, dynamic>? ?? {};
-                                      // seatXXUserIdフィールドの数をカウント
-                                      final userIdFields = seats.keys.where((key) => key.endsWith('UserId')).length;
-                                      // nullでないseatXXUserIdフィールドの数をカウント
-                                      final occupiedSeats = seats.entries
-                                          .where((entry) => entry.key.endsWith('UserId') && entry.value != null)
-                                          .length;
-                                      final totalSeats = userIdFields;
+                                      final safeMax =
+                                          ScheduledTournamentSeatMap
+                                              .resolvedTableMaxSeats(
+                                        tableData?['maxSeats'],
+                                        seats,
+                                        fallbackWhenUnresolved: 6,
+                                      );
+                                      final occupiedSeats =
+                                          ScheduledTournamentSeatMap.occupiedCount(
+                                        seats,
+                                        safeMax,
+                                      );
+                                      final totalSeats = safeMax;
                                       final isOccupied = occupiedSeats > 0;
 
                                       return Card(

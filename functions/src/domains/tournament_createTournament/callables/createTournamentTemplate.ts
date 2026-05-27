@@ -1,13 +1,16 @@
+import { logger } from "firebase-functions";
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
 
 export const createTournamentTemplate = onCall(async (request) => {
   const logContext: Record<string, unknown> = { callerUid: request.auth?.uid ?? null };
   try {
     const {
       name, entryFee, isReentry, maxReentries, reentryFee, startStack,
-      isAddon, addonFee, addonStack, blindStructure, prizeRatio,
+      isAddon, addonFee, addonStack, addonLimitPerPlayer: rawAddonLimitPerPlayer,
+      blindStructure, prizeRatio,
       color, pointType
     } = request.data;
 
@@ -21,7 +24,7 @@ export const createTournamentTemplate = onCall(async (request) => {
     if (!startStack || typeof startStack !== 'number' || startStack <= 0) {
       return { success: false, error: '有効な開始スタックを入力してください' };
     }
-    if (!isAddon || typeof isAddon !== 'boolean') {
+    if (typeof isAddon !== 'boolean') {
       return { success: false, error: 'アドオンの有無を選択してください' };
     }
     if (isAddon) {
@@ -42,6 +45,22 @@ export const createTournamentTemplate = onCall(async (request) => {
       return { success: false, error: '色を選択してください' };
     }
 
+    const addonLimitPerPlayer = resolveAddonLimitPerPlayer({
+      isAddon,
+      addonLimitPerPlayer: rawAddonLimitPerPlayer,
+    });
+    if (
+      isAddon &&
+      rawAddonLimitPerPlayer !== undefined &&
+      (!(typeof rawAddonLimitPerPlayer === 'number') ||
+        !Number.isInteger(rawAddonLimitPerPlayer) ||
+        rawAddonLimitPerPlayer < 1)
+    ) {
+      logger.warn(
+        'createTournamentTemplate: addonLimitPerPlayer は不正または未満のため正規化しました',
+      );
+    }
+
     Object.assign(logContext, { name });
 
     const db = getFirestore();
@@ -57,6 +76,7 @@ export const createTournamentTemplate = onCall(async (request) => {
       isAddon,
       addonFee: isAddon ? addonFee : null,
       addonStack: isAddon ? addonStack : null,
+      addonLimitPerPlayer,
       blindStructure,
       prizeRatio,
       color,

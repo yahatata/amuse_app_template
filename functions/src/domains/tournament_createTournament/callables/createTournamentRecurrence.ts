@@ -9,6 +9,7 @@ import { validateStoreTenantForProduction } from "../../../shared/runtime";
 import { resolveStoreTenantForWrite } from "../../../shared/runtime/storeTenantIdentity";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
+import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
 
 // 入力スキーマの定義
 const createTournamentRecurrenceSchema = z.object({
@@ -478,6 +479,10 @@ async function createScheduledTournamentFromRecurrence(
         isAddon: templateData.isAddon || false,
         addonFee: templateData.addonFee || null,
         addonStack: templateData.addonStack || null,
+        addonLimitPerPlayer: resolveAddonLimitPerPlayer({
+          isAddon: templateData.isAddon,
+          addonLimitPerPlayer: templateData.addonLimitPerPlayer,
+        }),
         startStack: templateData.startStack || 0,
         blindStructure: templateData.blindStructure || templateData.blindStructureId || '',
         prizeRatio: templateData.prizeRatio || 0.7,

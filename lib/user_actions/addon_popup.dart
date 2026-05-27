@@ -4,6 +4,7 @@ import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/device_service.dart';
+import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
 
 /// Addon確認ダイアログ
 Future<void> showAddonDialog({
@@ -57,9 +58,19 @@ Future<void> showAddonDialog({
     return;
   }
 
-  // isAddonがfalseの場合はエラーメッセージを表示
-  final isAddon = tournamentData?['snapshot']?['isAddon'] as bool? ?? false;
-  if (!isAddon) {
+  final td = tournamentData!;
+  final snapshot = td['snapshot'] as Map<String, dynamic>? ?? {};
+  final templateIdStr =
+      (td['templateId'] as String?) ??
+      '';
+
+  final addonLimit = resolveAddonLimitPerPlayerUi(
+    isAddon: snapshot['isAddon'] as bool? ?? false,
+    addonLimitPerPlayer: snapshot['addonLimitPerPlayer'],
+  );
+
+  // addonLimit が 0（Addon 機能オフ）は Functions の TOURNAMENT_ADDON_NOT_ALLOWED と揃える
+  if (addonLimit <= 0) {
     if (outerCtx.mounted) {
       await showDialog(
         context: outerCtx,
@@ -84,36 +95,45 @@ Future<void> showAddonDialog({
     return;
   }
 
-  // 既にAddon済みかチェック
+  if (templateIdStr.isEmpty) {
+    if (outerCtx.mounted) {
+      ScaffoldMessenger.of(outerCtx).showSnackBar(
+        const SnackBar(
+          content: Text('トーナメントの templateId が取得できません。'),
+        ),
+      );
+    }
+    return;
+  }
+
+  // Addon 実施可否の事前チェック（bills 側ドキュメント ID は Callable と同様 templateId）
+  int addonCount = 0;
   try {
-    // activeStays から billId を取得
     final activeStayDoc = await FirebaseFirestore.instance
         .collection('activeStays')
         .doc(userId)
         .get();
-    
-    int addonCount = 0;
-    
+
     if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
       final billId = activeStayDoc.data()!['billId'] as String?;
-      
+
       if (billId != null) {
-        // bills サブコレクションからトーナメント情報を取得
-        final tournamentDoc = await FirebaseFirestore.instance
+        final billTournamentDoc = await FirebaseFirestore.instance
             .collection('bills')
             .doc(billId)
             .collection('tournaments')
-            .doc(tournamentId)
+            .doc(templateIdStr)
             .get();
-        
-        if (tournamentDoc.exists) {
-          final tournamentData = tournamentDoc.data()!;
-          addonCount = tournamentData['addonCount'] as int? ?? 0;
+
+        if (billTournamentDoc.exists) {
+          final bd = billTournamentDoc.data()!;
+          addonCount =
+              bd['addonCount'] is int ? bd['addonCount'] as int : ((bd['addonCount'] as num?)?.toInt() ?? 0);
         }
       }
     }
 
-    if (addonCount >= 1) {
+    if (addonCount >= addonLimit) {
       if (outerCtx.mounted) {
         await showDialog(
           context: outerCtx,
@@ -122,10 +142,12 @@ Future<void> showAddonDialog({
               children: const [
                 Icon(Icons.info, color: Colors.orange),
                 SizedBox(width: 8),
-                Text('Addon済み'),
+                Text('Addon上限'),
               ],
             ),
-            content: Text('$pokerName様は既にAddon処理済みです。'),
+            content: Text(
+              '$pokerName様は Addon 上限に達しています（$addonCount / $addonLimit 回）。',
+            ),
             actions: [
               ElevatedButton(
                 onPressed: () => Navigator.of(dCtx).pop(),
@@ -138,10 +160,14 @@ Future<void> showAddonDialog({
       return;
     }
   } catch (e) {
-    // 重複チェック失敗時はログのみ、処理は継続
+    // 重複チェック失敗時はログのみ、処理は継続（最終判定は Callable）
     // ignore: avoid_print
-    print('Addon重複チェックエラー: $e');
+    print('Addon事前チェックエラー: $e');
   }
+
+  final addonSummaryLine = '現在 $addonCount / $addonLimit 回';
+
+  if (!outerCtx.mounted) return;
 
   // Addon確認ダイアログを表示（builderのcontext=dialogCtx。UI操作はouterCtxで行う）
   await showDialog<void>(
@@ -173,6 +199,8 @@ Future<void> showAddonDialog({
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(addonSummaryLine),
+                  const SizedBox(height: 8),
                   Text('Addonフィー: ¥${tournamentData?['snapshot']?['addonFee'] ?? 0}'),
                   const SizedBox(height: 8),
                   Text('Addonスタック: ${tournamentData?['snapshot']?['addonStack'] ?? 0}'),

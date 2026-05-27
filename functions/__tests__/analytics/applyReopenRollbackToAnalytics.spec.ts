@@ -98,6 +98,7 @@ describe('processReopenRollbackAnalyticsAtomically (Emulator)', () => {
       billId: 'bill-r1',
       cycleNo: 1,
       billData,
+      logInvocation: { functionEntry: 'billsOnSettle' },
     });
 
     // 2) reopen rollback を実施
@@ -169,6 +170,7 @@ describe('processReopenRollbackAnalyticsAtomically (Emulator)', () => {
       billId: 'bill-r2',
       cycleNo: 1,
       billData: { ...billData, billId: 'bill-r2' },
+      logInvocation: { functionEntry: 'billsOnSettle' },
     });
 
     // adjustment: tournament line を 1 entry 追加（+500）
@@ -251,6 +253,7 @@ describe('processReopenRollbackAnalyticsAtomically (Emulator)', () => {
       billId: 'bill-r3',
       cycleNo: 1,
       billData: { ...billData, billId: 'bill-r3' },
+      logInvocation: { functionEntry: 'billsOnSettle' },
     });
 
     const input: ReopenRollbackInput = {

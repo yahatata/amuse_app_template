@@ -1,5 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import * as bcrypt from "bcryptjs";
 import * as crypto from "crypto";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
@@ -13,7 +13,7 @@ import { FunctionCustomError } from "../../../shared/logging/functionCustomError
  * When: 店舗端末から手動で入店処理を行うとき
  * Where: Cloud Functions (Callable)
  * What: loginId と PIN を認証し、ユーザーを入店状態にし、必要であれば入店料を bills に追加
- * How: Firestore 検索 → PIN 検証 → users 更新 → createBillWithActiveStay ヘルパ呼び出し
+ * How: Firestore 検索 → PIN 検証 → createBillWithActiveStay 成功後に users.lastCheckInAt 更新
  */
 export const manualCheckIn = onCall(async (request) => {
   // 認証チェック
@@ -155,6 +155,10 @@ export const manualCheckIn = onCall(async (request) => {
         error: '入店処理に失敗しました'
       };
     }
+
+    await userDoc.ref.update({
+      lastCheckInAt: FieldValue.serverTimestamp(),
+    });
 
     logOpsSuccess({
       message: "manualCheckIn 成功",

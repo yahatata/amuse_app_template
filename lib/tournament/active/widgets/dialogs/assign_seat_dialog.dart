@@ -1,23 +1,37 @@
+import 'package:amuse_app_template/tournament/active/models/scheduled_tournament_seat_map.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_callable_error_formatter.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/models/table_and_users.dart';
 import 'package:amuse_app_template/tournament/active/services/tournament_data_service.dart';
 
-
 class AssignSeatDialog extends StatefulWidget {
   final String tournamentId;
   final VoidCallback onSeatAssigned;
-  final String? preselectedUserId; // 事前選択されたユーザーID
+
+  /// 事前選択される `WaitingPlayer.userId`（通常 userId または `okibakeTemporary:…`）。
+  final String? preselectedUserId;
+
+  /// 空セルタップ導線: 卓・席を固定するときのみ両方セット。
+  final String? prelockedTableId;
+  final int? prelockedSeatNumber;
+
   final TournamentService service;
 
-  const AssignSeatDialog({
+  AssignSeatDialog({
     super.key,
     required this.tournamentId,
     required this.onSeatAssigned,
     this.preselectedUserId,
+    this.prelockedTableId,
+    this.prelockedSeatNumber,
     required this.service,
-  });
+  }) : assert(
+          (prelockedTableId == null && prelockedSeatNumber == null) ||
+              (prelockedTableId != null && prelockedSeatNumber != null),
+          'prelocked は tableId と seat をセットで指定',
+        );
 
   @override
   State<AssignSeatDialog> createState() => _AssignSeatDialogState();
@@ -33,14 +47,19 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
   List<TournamentTable> _tournamentTables = [];
   final TournamentDataService _dataService = TournamentDataService();
 
+  bool get _seatDestinationLocked =>
+      widget.prelockedTableId != null && widget.prelockedSeatNumber != null;
+
   @override
   void initState() {
     super.initState();
-    // 事前選択されたユーザーIDがある場合は設定
     if (widget.preselectedUserId != null) {
       _selectedUserId = widget.preselectedUserId;
     }
-    // データを読み込み
+    if (_seatDestinationLocked) {
+      _selectedTableId = widget.prelockedTableId;
+      _selectedSeatNumber = widget.prelockedSeatNumber;
+    }
     _loadData();
   }
 
@@ -75,38 +94,61 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
                             labelText: '待機者',
                             border: OutlineInputBorder(),
                           ),
-                          value: _selectedUserId,
+                          value: _waitingPlayers.any((w) => w.userId == _selectedUserId)
+                              ? _selectedUserId
+                              : null,
                           items: _waitingPlayers
                               .map((player) => DropdownMenuItem(
                                     value: player.userId,
-                                    child: Text('${player.displayName} (待機${player.waitingMinutes}分)'),
+                                    child: Text(
+                                      player.isOkibakeTemporary
+                                          ? '${player.displayName}（置きバケ・待機${player.waitingMinutes}分）'
+                                          : '${player.displayName} (待機${player.waitingMinutes}分)',
+                                    ),
                                   ))
                               .toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedUserId = value;
-                            });
-                          },
+                          onChanged: _isLoading
+                              ? null
+                              : (value) {
+                                  setState(() {
+                                    _selectedUserId = value;
+                                  });
+                                },
                         ),
 
                       const SizedBox(height: 16),
 
-                      // テーブル選択（リアルタイム状態監視）
-                      if (_isLoadingData)
-                        const SizedBox.shrink()
-                      else
-                        _buildTableSelectionWithStatus(),
+                      if (!_seatDestinationLocked) ...[
+                        if (_isLoadingData)
+                          const SizedBox.shrink()
+                        else
+                          _buildTableSelectionWithStatus(),
 
-                      const SizedBox(height: 16),
+                        const SizedBox(height: 16),
 
-                      // シート選択（リアルタイム状態監視）
-                      if (_selectedTableId != null) ...[
-                        _buildSeatSelectionWithStatus(),
+                        if (_selectedTableId != null) ...[
+                          _buildSeatSelectionWithStatus(),
+                          const SizedBox(height: 16),
+                        ],
+                      ] else ...[
+                        if (_isLoadingData)
+                          const Center(child: CircularProgressIndicator())
+                        else
+                          Text(
+                            '着席先: 卓 ${_selectedTableId ?? ''}・シート ${_selectedSeatNumber ?? ''}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.blueGrey.shade800,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         const SizedBox(height: 16),
                       ],
 
                       // 選択内容の確認表示
-                      if (_selectedUserId != null && _selectedTableId != null && _selectedSeatNumber != null) ...[
+                      if (_selectedUserId != null &&
+                          _selectedTableId != null &&
+                          _selectedSeatNumber != null) ...[
                         _buildAssignmentConfirmation(),
                         const SizedBox(height: 16),
                       ],
@@ -115,13 +157,12 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                    onPressed:
+                        _isLoading ? null : () => Navigator.of(context).pop(),
                     child: const Text('キャンセル'),
                   ),
                   ElevatedButton(
-                    onPressed: _isLoading || _selectedUserId == null || _selectedTableId == null || _selectedSeatNumber == null
-                        ? null
-                        : _assignSeatToPlayer,
+                    onPressed: !_canTapAssign() ? null : _submitSeatAssignment,
                     child: const Text('着席'),
                   ),
                 ],
@@ -144,22 +185,13 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
     );
   }
 
-  /// シート番号の選択肢を生成
-  List<DropdownMenuItem<int>> _buildSeatItems() {
-    final selectedTable = _tournamentTables.firstWhere(
-      (table) => table.tableId == _selectedTableId,
-    );
-    
-    return List.generate(selectedTable.maxSeats, (index) {
-      final seatNumber = index + 1;
-      return DropdownMenuItem(
-        value: seatNumber,
-        child: Text('シート $seatNumber'),
-      );
-    });
+  bool _canTapAssign() {
+    if (_isLoading) return false;
+    return _selectedUserId != null &&
+        _selectedTableId != null &&
+        _selectedSeatNumber != null;
   }
 
-  /// テーブル選択（リアルタイム状態監視）
   Widget _buildTableSelectionWithStatus() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -169,54 +201,59 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Text('エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red));
+          return Text('エラー: ${snapshot.error}',
+              style: const TextStyle(color: Colors.red));
         }
-        
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        
+
         final allDocs = snapshot.data?.docs ?? [];
-        final tables = allDocs.where((doc) => doc.id != 'waiting' && doc.id != 'busted').toList();
-        
+        final tables =
+            allDocs.where((doc) => doc.id != 'waiting' && doc.id != 'busted').toList();
+
         return DropdownButtonFormField<String>(
           decoration: const InputDecoration(
             labelText: 'テーブル',
             border: OutlineInputBorder(),
           ),
-          value: _selectedTableId,
+          value: tables.any((d) => d.id == _selectedTableId)
+              ? _selectedTableId
+              : null,
           items: tables.map((tableDoc) {
             final tableId = tableDoc.id;
-            final tableData = tableDoc.data() != null 
+            final tableData = tableDoc.data() != null
                 ? Map<String, dynamic>.from(tableDoc.data()! as Map)
                 : null;
             final seats = tableData?['seats'] as Map<String, dynamic>? ?? {};
-            
-            // 着席数をカウント
-            final occupiedSeats = seats.entries
-                .where((entry) => entry.key.endsWith('UserId') && entry.value != null)
-                .length;
-            
-            // 最大席数を取得
-            final maxSeats = tableData?['maxSeats'] as int? ?? 0;
-            
+
+            final maxSeats = ScheduledTournamentSeatMap.resolvedTableMaxSeats(
+              tableData?['maxSeats'],
+              seats,
+              fallbackWhenUnresolved: 6,
+            );
+            final occupiedSeats =
+                ScheduledTournamentSeatMap.occupiedCount(seats, maxSeats);
+
             return DropdownMenuItem(
               value: tableId,
               child: Text('$tableId ($occupiedSeats/$maxSeats席)'),
             );
           }).toList(),
-          onChanged: (value) {
-            setState(() {
-              _selectedTableId = value;
-              _selectedSeatNumber = null; // テーブル変更時はシートをリセット
-            });
-          },
+          onChanged: _isLoading
+              ? null
+              : (value) {
+                  setState(() {
+                    _selectedTableId = value;
+                    _selectedSeatNumber = null;
+                  });
+                },
         );
       },
     );
   }
 
-  /// 座席の状態を取得するStreamBuilder
   Widget _buildSeatSelectionWithStatus() {
     if (_selectedTableId == null) {
       return const SizedBox.shrink();
@@ -231,50 +268,57 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Text('エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red));
+          return Text('エラー: ${snapshot.error}',
+              style: const TextStyle(color: Colors.red));
         }
-        
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        
-        final data = snapshot.data?.data() != null 
+
+        final data = snapshot.data?.data() != null
             ? Map<String, dynamic>.from(snapshot.data!.data()! as Map)
             : null;
         final seats = data?['seats'] as Map<String, dynamic>? ?? {};
-        
+
         return DropdownButtonFormField<int>(
           decoration: const InputDecoration(
             labelText: 'シート番号',
             border: OutlineInputBorder(),
           ),
-          value: _selectedSeatNumber,
+          value:
+              _seatNumberSelectable(seats, _selectedSeatNumber) ? _selectedSeatNumber : null,
           items: _buildSeatItemsWithStatus(seats),
-          onChanged: (value) {
-            setState(() {
-              _selectedSeatNumber = value;
-            });
-          },
+          onChanged: _isLoading
+              ? null
+              : (value) {
+                  setState(() {
+                    _selectedSeatNumber = value;
+                  });
+                },
         );
       },
     );
   }
 
-  /// 座席の状態を考慮したシート選択肢を生成
-  List<DropdownMenuItem<int>> _buildSeatItemsWithStatus(Map<String, dynamic> seats) {
-    final selectedTable = _tournamentTables.firstWhere(
-      (table) => table.tableId == _selectedTableId,
-    );
-    
+  bool _seatNumberSelectable(Map<String, dynamic> seats, int? seatNum) {
+    if (seatNum == null) return false;
+    if (seatNum < 1) return false;
+    return !ScheduledTournamentSeatMap.isOccupiedAt(seats, seatNum);
+  }
+
+  List<DropdownMenuItem<int>> _buildSeatItemsWithStatus(
+      Map<String, dynamic> seats) {
+    final selectedTable = _tableForSelectedId();
+
     return List.generate(selectedTable.maxSeats, (index) {
       final seatNumber = index + 1;
-      final seatNoStr = seatNumber.toString().padLeft(2, '0');
-      final userId = seats['seat${seatNoStr}UserId'] as String?;
-      final isOccupied = userId != null && userId.isNotEmpty;
-      
+      final isOccupied =
+          ScheduledTournamentSeatMap.isOccupiedAt(seats, seatNumber);
+
       return DropdownMenuItem(
         value: seatNumber,
-        enabled: !isOccupied, // 着席済みの場合は無効化
+        enabled: !isOccupied,
         child: Row(
           children: [
             Icon(
@@ -287,7 +331,8 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
               'シート $seatNumber',
               style: TextStyle(
                 color: isOccupied ? Colors.grey : Colors.black,
-                fontWeight: isOccupied ? FontWeight.normal : FontWeight.bold,
+                fontWeight:
+                    isOccupied ? FontWeight.normal : FontWeight.bold,
               ),
             ),
             if (isOccupied) ...[
@@ -306,14 +351,28 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
     });
   }
 
-  /// 選択内容の確認表示
+  TournamentTable _tableForSelectedId() {
+    final id = _selectedTableId;
+    if (id == null) {
+      throw StateError('tableId');
+    }
+    for (final t in _tournamentTables) {
+      if (t.tableId == id) return t;
+    }
+    return TournamentTable(
+      tableId: id,
+      name: id,
+      maxSeats: 9,
+      status: 'open',
+      isEnabled: true,
+      seats: const {},
+    );
+  }
+
   Widget _buildAssignmentConfirmation() {
-    final selectedPlayer = _waitingPlayers.firstWhere(
-      (player) => player.userId == _selectedUserId,
-    );
-    final selectedTable = _tournamentTables.firstWhere(
-      (table) => table.tableId == _selectedTableId,
-    );
+    final selectedPlayer =
+        _waitingPlayers.firstWhere((p) => p.userId == _selectedUserId);
+    final selectedTable = _tableForSelectedId();
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -333,7 +392,11 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
             ),
           ),
           const SizedBox(height: 8),
-          Text('待機者: ${selectedPlayer.displayName}'),
+          Text(
+            selectedPlayer.isOkibakeTemporary
+                ? '待機者: ${selectedPlayer.displayName}（置きバケ）'
+                : '待機者: ${selectedPlayer.displayName}',
+          ),
           Text('テーブル: ${selectedTable.name}'),
           Text('シート: $_selectedSeatNumber'),
         ],
@@ -341,36 +404,75 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
     );
   }
 
-  /// 待機者を着席させる
-  Future<void> _assignSeatToPlayer() async {
-    if (_selectedUserId == null || _selectedTableId == null || _selectedSeatNumber == null) return;
+  Future<void> _submitSeatAssignment() async {
+    if (_isLoading) return;
+    if (_selectedUserId == null ||
+        _selectedTableId == null ||
+        _selectedSeatNumber == null) {
+      return;
+    }
+
+    final selectedPlayer = _waitingPlayers.firstWhere(
+      (player) => player.userId == _selectedUserId,
+    );
 
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final service = TournamentServiceImpl();
-      final result = await service.assignSeatToPlayer(
-        tournamentId: widget.tournamentId,
-        userId: _selectedUserId!,
-        tableId: _selectedTableId!,
-        seatNumber: _selectedSeatNumber!,
-      );
+      if (selectedPlayer.isOkibakeTemporary) {
+        final okibakeEntryId = selectedPlayer.okibakeEntryId;
+        if (okibakeEntryId == null || okibakeEntryId.isEmpty) {
+          throw StateError('置きバケ参加者の okibakeEntryId が取得できません');
+        }
 
-      if (result['success'] == true) {
-        if (mounted) {
-          Navigator.of(context).pop();
-          widget.onSeatAssigned();
+        final seatKey =
+            ScheduledTournamentSeatMap.canonicalSeatKeyFromSeatNumber(
+                _selectedSeatNumber!);
+
+        final result = await widget.service.assignOkibakeTemporaryEntryToSeat(
+          tournamentId: widget.tournamentId,
+          okibakeEntryId: okibakeEntryId,
+          tableId: _selectedTableId!,
+          seatKey: seatKey,
+        );
+
+        if (result.success) {
+          if (mounted) {
+            Navigator.of(context).pop();
+            widget.onSeatAssigned();
+          }
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result.errorMessage ?? '着席に失敗しました'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
       } else {
-        throw Exception('着席に失敗しました');
+        final result = await widget.service.assignSeatToPlayer(
+          tournamentId: widget.tournamentId,
+          userId: _selectedUserId!,
+          tableId: _selectedTableId!,
+          seatNumber: _selectedSeatNumber!,
+        );
+
+        if (result['success'] == true) {
+          if (mounted) {
+            Navigator.of(context).pop();
+            widget.onSeatAssigned();
+          }
+        } else {
+          throw Exception('着席に失敗しました');
+        }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('エラーが発生しました: $e'),
+            content: Text(formatTournamentCallableError(e)),
             backgroundColor: Colors.red,
           ),
         );
@@ -383,18 +485,31 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
       }
     }
   }
-  
-  /// データを読み込み
+
   Future<void> _loadData() async {
     try {
-      final waitingPlayers = await _dataService.getWaitingPlayers(widget.tournamentId);
-      final tournamentTables = await _dataService.getTournamentTables(widget.tournamentId);
-      
+      final waitingPlayers =
+          await _dataService.getMergedWaitingPlayers(widget.tournamentId);
+      final tournamentTables =
+          await _dataService.getTournamentTables(widget.tournamentId);
+
       setState(() {
         _waitingPlayers = waitingPlayers;
         _tournamentTables = tournamentTables;
         _isLoadingData = false;
       });
+
+      if (widget.preselectedUserId != null &&
+          !_waitingPlayers.any((w) => w.userId == widget.preselectedUserId)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('選択した参加者は現在待機リストにいません'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
     } catch (e) {
       setState(() {
         _isLoadingData = false;

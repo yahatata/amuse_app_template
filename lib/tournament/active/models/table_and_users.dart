@@ -1,4 +1,5 @@
 // Firestoreから読み込むトーナメントデータのモデル
+import 'scheduled_tournament_seat_map.dart';
 import 'seat_data.dart';
 
 class TournamentTable {
@@ -7,7 +8,10 @@ class TournamentTable {
   final int maxSeats;
   final String status;
   final bool isEnabled;
-  final Map<String, SeatData?> seats; // seat01UserId: SeatData, seat01PokerName: SeatData, ...
+
+  /// 席番号（1 始まり）→ seatXX 単位でまとめた 1 席のデータ
+  final Map<int, SeatData> seats;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -23,79 +27,57 @@ class TournamentTable {
   });
 
   factory TournamentTable.fromFirestore(Map<String, dynamic> data, String tableId) {
-    final seatsData = data['seats'] as Map<String, dynamic>? ?? {};
-    final seats = <String, SeatData?>{};
-    
-    // 新しい形式: seatXXUserId, seatXXPokerName
-    final seatNumbers = <int>{};
-    seatsData.keys.forEach((key) {
-      if (key.startsWith('seat') && key.endsWith('UserId')) {
-        final seatNo = int.tryParse(key.substring(4, key.length - 6)); // "seat" + number + "UserId"
-        if (seatNo != null) {
-          seatNumbers.add(seatNo);
-        }
-      }
-    });
-    
-    for (final seatNo in seatNumbers) {
-      final seatNumber = seatNo.toString().padLeft(2, '0');
-      final userIdKey = 'seat${seatNumber}UserId';
-      final pokerNameKey = 'seat${seatNumber}PokerName';
-      
-      final userId = seatsData[userIdKey] as String?;
-      final pokerName = seatsData[pokerNameKey] as String?;
-      
-      if (userId != null && userId.isNotEmpty) {
-        seats[userIdKey] = SeatData(userId: userId, pokerName: pokerName);
-        seats[pokerNameKey] = SeatData(userId: userId, pokerName: pokerName);
-      } else {
-        seats[userIdKey] = null;
-        seats[pokerNameKey] = null;
-      }
-    }
-    
+    final seatsDataRaw = data['seats'];
+    final seatsData = seatsDataRaw is Map<String, dynamic>
+        ? Map<String, dynamic>.from(seatsDataRaw)
+        : <String, dynamic>{};
+
+    final safeMaxSeats =
+        ScheduledTournamentSeatMap.resolvedTableMaxSeats(
+      data['maxSeats'],
+      seatsData,
+      fallbackWhenUnresolved: 6,
+    );
+
+    final seatsByNumber = <int, SeatData>{
+      for (var i = 1; i <= safeMaxSeats; i++)
+        i: ScheduledTournamentSeatMap.seatDataAt(seatsData, i),
+    };
+
     return TournamentTable(
       tableId: tableId,
       name: data['name'] ?? 'テーブル$tableId',
-      maxSeats: data['maxSeats'] ?? 6,
+      maxSeats: safeMaxSeats,
       status: data['status'] ?? 'open',
       isEnabled: data['isEnabled'] ?? true,
-      seats: seats,
+      seats: seatsByNumber,
       createdAt: data['createdAt']?.toDate(),
       updatedAt: data['updatedAt']?.toDate(),
     );
   }
 
-  // 空席数を取得
-  int get availableSeats {
-    return seats.values.where((userId) => userId == null).length;
-  }
+  SeatData seatAt(int seatNumber) =>
+      seats[seatNumber] ?? SeatData();
 
-  // 着席者数を取得
-  int get occupiedSeats {
-    return seats.values.where((userId) => userId != null).length;
-  }
+  bool getSeatOccupied(int seatNumber) =>
+      seats[seatNumber]?.isOccupied ?? false;
 
-  // 特定のシートが空いているかチェック
-  bool isSeatAvailable(int seatNumber) {
-    final seatNumberStr = seatNumber.toString().padLeft(2, '0');
-    final seatKey = 'seat${seatNumberStr}UserId';
-    return seats[seatKey] == null;
-  }
+  /// 通常ユーザーまたは置きバケを含む着席済み席の数（1 席につき 1 カウント）
+  int get occupiedSeats =>
+      seats.values.where((SeatData s) => s.isOccupied).length;
 
-  // 特定のシートのユーザーIDを取得
-  String? getSeatUserId(int seatNumber) {
-    final seatNumberStr = seatNumber.toString().padLeft(2, '0');
-    final seatKey = 'seat${seatNumberStr}UserId';
-    return seats[seatKey]?.userId;
-  }
+  int get availableSeats =>
+      seats.values.where((SeatData s) => !s.isOccupied).length;
 
-  // 特定のシートのポーカー名を取得
-  String? getSeatPokerName(int seatNumber) {
-    final seatNumberStr = seatNumber.toString().padLeft(2, '0');
-    final seatKey = 'seat${seatNumberStr}PokerName';
-    return seats[seatKey]?.pokerName;
-  }
+  bool isSeatAvailable(int seatNumber) =>
+      !(seats[seatNumber]?.isOccupied ?? false);
+
+  String? getSeatUserId(int seatNumber) => seats[seatNumber]?.userId;
+
+  String? getSeatPokerName(int seatNumber) => seats[seatNumber]?.pokerName;
+
+  String? getSeatOkibakeEntryId(int seatNumber) =>
+      seats[seatNumber]?.okibakeEntryId;
 }
 
 class TournamentUser {
@@ -156,12 +138,43 @@ class WaitingPlayer {
   final String displayName;
   final DateTime joinedAt;
   final int waitingMinutes;
+  /// Phase2 置きバケ一時参加者行。着席・アサイン Callable は別フェーズ。
+  final bool isOkibakeTemporary;
+  /// `isOkibakeTemporary` のときのみ。`assignOkibakeTemporaryEntryToSeat` に渡す ID。
+  final String? okibakeEntryId;
+  /// `isOkibakeTemporary` のときのみ。`okibakeTemporaryEntries.okibakeAddonCount`。
+  final int okibakeAddonCount;
+  /// `isOkibakeTemporary` のときのみ。`okibakeTemporaryEntries.billLinkStatus`。
+  final String? okibakeBillLinkStatus;
 
   WaitingPlayer({
     required this.userId,
     required this.displayName,
     required this.joinedAt,
+    this.isOkibakeTemporary = false,
+    this.okibakeEntryId,
+    this.okibakeAddonCount = 0,
+    this.okibakeBillLinkStatus,
   }) : waitingMinutes = DateTime.now().difference(joinedAt).inMinutes;
+
+  /// Firestore `okibakeTemporaryEntries/{okibakeEntryId}` の待機表示用。
+  factory WaitingPlayer.okibakeTemporary({
+    required String okibakeEntryId,
+    required String displayName,
+    required DateTime createdAt,
+    int okibakeAddonCount = 0,
+    String billLinkStatus = 'unlinked',
+  }) {
+    return WaitingPlayer(
+      userId: 'okibakeTemporary:$okibakeEntryId',
+      displayName: displayName,
+      joinedAt: createdAt,
+      isOkibakeTemporary: true,
+      okibakeEntryId: okibakeEntryId,
+      okibakeAddonCount: okibakeAddonCount,
+      okibakeBillLinkStatus: billLinkStatus,
+    );
+  }
 
   factory WaitingPlayer.fromFirestore(String userId, Map<String, dynamic> userData) {
     return WaitingPlayer(

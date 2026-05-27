@@ -11,12 +11,13 @@ jest.unmock('../../src/shared/config/configLoader');
 
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getStoreConfig, buildFromDefaults } from '../../src/shared/config/configLoader';
+import { getStoreConfig, buildFromDefaults, mergeWithDefaults, mergeConfigForUpsert } from '../../src/shared/config/configLoader';
 import {
   DEFAULT_AUTO_OPEN_CLOSE_ENABLED,
   DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES,
   DEFAULT_ENTRANCE_FEE,
   DEFAULT_LINE_PLAN,
+  DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE,
   DEFAULT_MENU_CATEGORIES,
   DEFAULT_SIDE_GAME_TYPES,
   DEFAULT_TOURNAMENT_PRIZE_RATIO,
@@ -66,14 +67,84 @@ describe('configLoader', () => {
       expect(config.tournament?.prizeRoundingUnit).toBe(DEFAULT_TOURNAMENT_PRIZE_ROUNDING_UNIT);
       expect(config.tournament?.prizeDistribution?.['1']).toEqual([100.0]);
       expect(config.tournament?.prizeDistribution?.['3']).toEqual([50.0, 30.0, 20.0]);
+      expect(config.okibake?.loginPromptMode).toBe(DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE);
+    });
+  });
+
+  describe('mergeWithDefaults: okibake.loginPromptMode', () => {
+    it('okibake がないとき notice_only', () => {
+      expect(mergeWithDefaults({}).okibake?.loginPromptMode).toBe('notice_only');
+    });
+
+    it('okibake があっても loginPromptMode がないとき notice_only', () => {
+      expect(
+        mergeWithDefaults({ okibake: {} } as Record<string, unknown>).okibake?.loginPromptMode,
+      ).toBe('notice_only');
+    });
+
+    it('不正値なら notice_only', () => {
+      expect(
+        mergeWithDefaults({ okibake: { loginPromptMode: 'invalid' } } as Record<string, unknown>)
+          .okibake?.loginPromptMode,
+      ).toBe('notice_only');
+      expect(warnSpy).toHaveBeenCalledWith('config_fallback', expect.objectContaining({
+        configKey: 'okibake.loginPromptMode',
+        reason: 'invalid_value',
+      }));
+    });
+
+    it.each<[string]>([
+      ['none'],
+      ['notice_only'],
+      ['link_prompt'],
+    ])('有効値 %s はそのまま', (mode) => {
+      expect(
+        mergeWithDefaults({ okibake: { loginPromptMode: mode } } as Record<string, unknown>)
+          .okibake?.loginPromptMode,
+      ).toBe(mode);
+    });
+
+    it('他フィールドのマージを壊さない', () => {
+      const merged = mergeWithDefaults({
+        linePlan: 'standard',
+        okibake: { loginPromptMode: 'none' },
+      } as Record<string, unknown>);
+      expect(merged.linePlan).toBe('standard');
+      expect(merged.okibake?.loginPromptMode).toBe('none');
+    });
+  });
+
+  describe('mergeConfigForUpsert: okibake', () => {
+    it('既存に okibake がない場合 defaults を補完する', () => {
+      const defs = buildFromDefaults();
+      const out = mergeConfigForUpsert({ linePlan: 'light' }, defs);
+      expect(out.okibake).toEqual({ loginPromptMode: DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE });
+    });
+
+    it('okibake.loginPromptMode が不正なら defaults', () => {
+      const defs = buildFromDefaults();
+      const out = mergeConfigForUpsert({ okibake: { loginPromptMode: 'oops' } }, defs);
+      expect(out.okibake).toEqual({ loginPromptMode: DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE });
+    });
+
+    it.each<[string]>([
+      ['none'],
+      ['notice_only'],
+      ['link_prompt'],
+    ])('有効な loginPromptMode は保持（%s）', (mode) => {
+      const defs = buildFromDefaults();
+      const out = mergeConfigForUpsert({ okibake: { loginPromptMode: mode } }, defs);
+      expect(out.okibake).toEqual({ loginPromptMode: mode });
     });
   });
 
   describe('getStoreConfig', () => {
-    // Firestore Emulator が起動している場合のみ実行
-    const itWithEmulator = process.env.FIRESTORE_EMULATOR_HOST ? it : it.skip;
+    // Firestore Emulator が起動している場合のみ実行（beforeEach はスキップ時も走るため必ずゲート）
+    const hasFirestoreEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+    const itWithEmulator = hasFirestoreEmulator ? it : it.skip;
 
     beforeEach(async () => {
+      if (!hasFirestoreEmulator) return;
       const configRef = db.collection('storeMeta').doc('config');
       const snap = await configRef.get();
       if (snap.exists) await configRef.delete();

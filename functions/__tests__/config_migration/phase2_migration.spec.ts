@@ -41,6 +41,7 @@ import {
   DEFAULT_TOURNAMENT_PRIZE_RECEIVER_PERCENTAGE,
   DEFAULT_TOURNAMENT_PRIZE_ROUNDING_METHOD,
   DEFAULT_TOURNAMENT_PRIZE_ROUNDING_UNIT,
+  DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE,
   DEFAULT_DUAL_WRITE_ENABLED,
   DEFAULT_ENQUEUE_SCHEDULER_ENABLED,
   DEFAULT_TEMPLATE_BUSINESSDATE_CHECK,
@@ -107,6 +108,10 @@ describe('buildFromDefaults: 全フィールド網羅チェック', () => {
     expect(config.linePlan).toBe(DEFAULT_LINE_PLAN);
   });
 
+  test('okibake が defaults と一致', () => {
+    expect(config.okibake?.loginPromptMode).toBe(DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE);
+  });
+
   test('shift 系が defaults と一致', () => {
     expect(config.shift?.submissionStartDay).toBe(DEFAULT_SHIFT_SUBMISSION_START_DAY);
     expect(config.shift?.submissionEndDay).toBe(DEFAULT_SHIFT_SUBMISSION_END_DAY);
@@ -168,10 +173,12 @@ describe('getter 関数: nullable 対応', () => {
 // 3. Emulator テスト: Firestore 値のマージ
 // =====================================================================
 describe('getStoreConfig with Firestore (emulator)', () => {
-  const itWithEmulator = process.env.FIRESTORE_EMULATOR_HOST ? it : it.skip;
+  const hasFirestoreEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+  const itWithEmulator = hasFirestoreEmulator ? it : it.skip;
   const db = getFirestore();
 
   beforeEach(async () => {
+    if (!hasFirestoreEmulator) return;
     warnSpy.mockClear();
     const configRef = db.collection('storeMeta').doc('config');
     const snap = await configRef.get();
@@ -410,10 +417,12 @@ describe('getStoreConfig with Firestore (emulator)', () => {
 // 4. businessHoursStyles 個別テスト
 // =====================================================================
 describe('getBusinessHoursByStyleId (styles.ts)', () => {
-  const itWithEmulator = process.env.FIRESTORE_EMULATOR_HOST ? it : it.skip;
+  const hasFirestoreEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+  const itWithEmulator = hasFirestoreEmulator ? it : it.skip;
   const db = getFirestore();
 
   beforeEach(async () => {
+    if (!hasFirestoreEmulator) return;
     const configRef = db.collection('storeMeta').doc('config');
     const snap = await configRef.get();
     if (snap.exists) await configRef.delete();

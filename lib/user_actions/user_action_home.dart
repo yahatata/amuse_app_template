@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
 import 'order_from_user_action_popup.dart';
 import 'bust_and_reentry_popup.dart';
 import 'bust_and_exit_popup.dart';
@@ -78,6 +80,17 @@ Future<void> showUserActionHome({
                     ],
                   ),
                   const SizedBox(height: 12),
+                  if (sourcePage == 'tableHomeInScheduledTournament' &&
+                      user['tournamentId'] is String &&
+                      (user['tournamentId'] as String).isNotEmpty &&
+                      user['userId'] is String &&
+                      (user['userId'] as String).isNotEmpty) ...[
+                    _TournamentUserAddonCounter(
+                      tournamentId: user['tournamentId'] as String,
+                      userId: user['userId'] as String,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   GridView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -706,6 +719,154 @@ class _ActionTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _TournamentUserAddonCounter extends StatelessWidget {
+  const _TournamentUserAddonCounter({
+    required this.tournamentId,
+    required this.userId,
+  });
+
+  final String tournamentId;
+  final String userId;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<_AddonCounterSnapshot>(
+      future: _loadAddonCounterSnapshot(
+        tournamentId: tournamentId,
+        userId: userId,
+      ),
+      builder: (context, snap) {
+        final style = Theme.of(context)
+            .textTheme
+            .bodySmall
+            ?.copyWith(color: Colors.black54);
+
+        if (snap.connectionState == ConnectionState.waiting) {
+          return Text('Addon: 読み込み中...', style: style);
+        }
+        final data = snap.data;
+        if (data == null || data.loadFailed) {
+          return Text(
+            'Addon: 回数情報を取得できませんでした',
+            style: style,
+          );
+        }
+        if (!data.isAddonEnabled || data.limit <= 0) {
+          return Text('Addon: 無効', style: style);
+        }
+        return Text(
+          'Addon: 現在 ${data.count} / ${data.limit} 回',
+          style: style,
+        );
+      },
+    );
+  }
+}
+
+class _AddonCounterSnapshot {
+  const _AddonCounterSnapshot({
+    required this.isAddonEnabled,
+    required this.limit,
+    required this.count,
+    required this.loadFailed,
+  });
+
+  final bool isAddonEnabled;
+  final int limit;
+  final int count;
+  final bool loadFailed;
+}
+
+Future<_AddonCounterSnapshot> _loadAddonCounterSnapshot({
+  required String tournamentId,
+  required String userId,
+}) async {
+  try {
+    final tournamentDoc = await FirebaseFirestore.instance
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .get();
+    if (!tournamentDoc.exists) {
+      return const _AddonCounterSnapshot(
+        isAddonEnabled: false,
+        limit: 0,
+        count: 0,
+        loadFailed: true,
+      );
+    }
+
+    final tData = tournamentDoc.data() ?? <String, dynamic>{};
+    final snapshot =
+        Map<String, dynamic>.from((tData['snapshot'] as Map?) ?? {});
+    final isAddon = snapshot['isAddon'] == true;
+    final limit = resolveAddonLimitPerPlayerUi(
+      isAddon: isAddon,
+      addonLimitPerPlayer: snapshot['addonLimitPerPlayer'],
+    );
+
+    if (!isAddon || limit <= 0) {
+      return const _AddonCounterSnapshot(
+        isAddonEnabled: false,
+        limit: 0,
+        count: 0,
+        loadFailed: false,
+      );
+    }
+
+    final templateIdRaw = snapshot['templateId'] ?? tData['templateId'];
+    final templateId = templateIdRaw is String ? templateIdRaw.trim() : '';
+    if (templateId.isEmpty) {
+      return _AddonCounterSnapshot(
+        isAddonEnabled: true,
+        limit: limit,
+        count: 0,
+        loadFailed: true,
+      );
+    }
+
+    var addonCount = 0;
+    final activeStayDoc = await FirebaseFirestore.instance
+        .collection('activeStays')
+        .doc(userId)
+        .get();
+    if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
+      final billIdRaw = activeStayDoc.data()?['billId'];
+      final billId = billIdRaw is String ? billIdRaw : '';
+      if (billId.isNotEmpty) {
+        final billTournamentDoc = await FirebaseFirestore.instance
+            .collection('bills')
+            .doc(billId)
+            .collection('tournaments')
+            .doc(templateId)
+            .get();
+        if (billTournamentDoc.exists) {
+          final bd = billTournamentDoc.data() ?? <String, dynamic>{};
+          final c = bd['addonCount'];
+          if (c is int) {
+            addonCount = c;
+          } else if (c is num) {
+            addonCount = c.toInt();
+          }
+        }
+      }
+    }
+
+    return _AddonCounterSnapshot(
+      isAddonEnabled: true,
+      limit: limit,
+      count: addonCount,
+      loadFailed: false,
+    );
+  } catch (_) {
+    return const _AddonCounterSnapshot(
+      isAddonEnabled: false,
+      limit: 0,
+      count: 0,
+      loadFailed: true,
     );
   }
 }

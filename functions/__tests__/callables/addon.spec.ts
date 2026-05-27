@@ -51,23 +51,33 @@ describe('addon', () => {
   }
 
   // テスト用のヘルパ関数: scheduledTournaments のセットアップ
-  async function setupTournament(tournamentId: string, templateId: string, isAddon: boolean = true) {
+  async function setupTournament(
+    tournamentId: string,
+    templateId: string,
+    isAddon: boolean = true,
+    addonLimitOption?: number
+  ) {
     const addonFee = 300;
     const addonStack = 1000;
     const templateName = 'テストトーナメント';
+
+    const snapshot: Record<string, unknown> = {
+      name: templateName,
+      entryFee: 1000,
+      isAddon,
+      addonFee: isAddon ? addonFee : null,
+      addonStack: isAddon ? addonStack : null,
+    };
+    if (addonLimitOption !== undefined) {
+      snapshot.addonLimitPerPlayer = addonLimitOption;
+    }
 
     // scheduledTournaments/{tournamentId} を作成
     await db.collection('scheduledTournaments').doc(tournamentId).set({
       templateId,
       status: 'scheduled',
       startAt: admin.firestore.Timestamp.fromDate(new Date('2025-11-20T10:00:00Z')),
-      snapshot: {
-        name: templateName,
-        entryFee: 1000,
-        isAddon,
-        addonFee: isAddon ? addonFee : null,
-        addonStack: isAddon ? addonStack : null,
-      },
+      snapshot,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -82,6 +92,16 @@ describe('addon', () => {
         addons: 0,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+  }
+
+  /** bills/{bill}/tournaments/{templateId}.addonCount のみ事前シードする */
+  async function seedAddonCountOnBillTournament(billId: string, templateId: string, addonCount: number) {
+    await db
+      .collection('bills')
+      .doc(billId)
+      .collection('tournaments')
+      .doc(templateId)
+      .set({addonCount}, {merge: true});
   }
 
   describe('happy path', () => {
@@ -238,6 +258,141 @@ describe('addon', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('このトーナメントではAddonができません');
+    });
+  });
+
+  describe('Phase 3B: addonLimitPerPlayer', () => {
+    it('addonLimit が 2・addonCount 0 のとき成功すること', async () => {
+      const tournamentId = 'tournament_addon_p3b_01';
+      const templateId = 'template_addon_p3b';
+      const userId = 'user_addon_p3b_01';
+      const billId = 'bill_addon_p3b_01';
+      const pokerName = 'P3b太郎';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName,
+        idempotencyKey: 'idem_p3b_01',
+      });
+      await setupTournament(tournamentId, templateId, true, 2);
+
+      const adminId = 'admin_addon_p3b_01';
+      await createAdminDevice(adminId);
+
+      const result = await (addon as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId: 'op_p3b_01',
+          tournamentId,
+          userId,
+          pokerName,
+        },
+      } as any);
+
+      expect(result.success).toBe(true);
+      const tdoc = await db.collection('bills').doc(billId).collection('tournaments').doc(templateId).get();
+      expect(tdoc.data()?.addonCount).toBe(1);
+    });
+
+    it('addonLimit が 2・addonCount 1 のとき成功すること', async () => {
+      const tournamentId = 'tournament_addon_p3b_02';
+      const templateId = 'template_addon_p3b';
+      const userId = 'user_addon_p3b_02';
+      const billId = 'bill_addon_p3b_02';
+      const pokerName = 'P3b次郎';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName,
+        idempotencyKey: 'idem_p3b_02',
+      });
+      await setupTournament(tournamentId, templateId, true, 2);
+      await seedAddonCountOnBillTournament(billId, templateId, 1);
+
+      const adminId = 'admin_addon_p3b_02';
+      await createAdminDevice(adminId);
+
+      const result = await (addon as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId: 'op_p3b_02',
+          tournamentId,
+          userId,
+          pokerName,
+        },
+      } as any);
+
+      expect(result.success).toBe(true);
+      const tdoc = await db.collection('bills').doc(billId).collection('tournaments').doc(templateId).get();
+      expect(tdoc.data()?.addonCount).toBe(2);
+    });
+
+    it('addonLimit が 2・addonCount 2 のとき拒否すること', async () => {
+      const tournamentId = 'tournament_addon_p3b_03';
+      const templateId = 'template_addon_p3b';
+      const userId = 'user_addon_p3b_03';
+      const billId = 'bill_addon_p3b_03';
+      const pokerName = 'P3b三郎';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName,
+        idempotencyKey: 'idem_p3b_03',
+      });
+      await setupTournament(tournamentId, templateId, true, 2);
+      await seedAddonCountOnBillTournament(billId, templateId, 2);
+
+      const adminId = 'admin_addon_p3b_03';
+      await createAdminDevice(adminId);
+
+      const result = await (addon as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId: 'op_p3b_03',
+          tournamentId,
+          userId,
+          pokerName,
+        },
+      } as any);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Addon上限に達しています');
+    });
+
+    it('addonLimit が未設定で isAddon true のとき上限1として2回目を拒否すること', async () => {
+      const tournamentId = 'tournament_addon_p3b_04';
+      const templateId = 'template_addon_p3b';
+      const userId = 'user_addon_p3b_04';
+      const billId = 'bill_addon_p3b_04';
+      const pokerName = 'P3b四郎';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName,
+        idempotencyKey: 'idem_p3b_04',
+      });
+      await setupTournament(tournamentId, templateId, true);
+      await seedAddonCountOnBillTournament(billId, templateId, 1);
+
+      const adminId = 'admin_addon_p3b_04';
+      await createAdminDevice(adminId);
+
+      const result = await (addon as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId: 'op_p3b_04',
+          tournamentId,
+          userId,
+          pokerName,
+        },
+      } as any);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Addon上限に達しています');
     });
   });
 });

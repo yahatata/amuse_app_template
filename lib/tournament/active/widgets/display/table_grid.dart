@@ -90,12 +90,17 @@ class TableGrid extends StatelessWidget {
                     final seatNo = index + 1;
                     final userId = tableSeat.getUserIdAtSeat(seatNo);
                     final pokerName = tableSeat.getPokerNameAtSeat(seatNo);
+                    final okibakeEntryId =
+                        tableSeat.getOkibakeEntryIdAtSeat(seatNo);
                     
                     return TableSeatCell(
                       seatNo: seatNo,
                       userId: userId,
                       pokerName: pokerName,
                       isOccupied: tableSeat.isSeatOccupied(seatNo),
+                      isOkibakeSeat: (okibakeEntryId != null &&
+                              okibakeEntryId.toString().isNotEmpty) &&
+                          (userId == null || userId.toString().isEmpty),
                     );
                   },
                 ),

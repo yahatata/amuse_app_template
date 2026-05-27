@@ -7,6 +7,7 @@ import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operatio
 import * as crypto from 'crypto';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
+import { resolveAddonLimitPerPlayer } from '../../../shared/tournament/resolveAddonLimitPerPlayer';
 
 const bulkAddonSchema = z.object({
   tournamentId: z.string(),
@@ -83,21 +84,24 @@ export const bulkAddon = onCall(async (request) => {
     const tournamentData = tournamentDoc.data();
     const templateId = tournamentData?.templateId;
     const snapshot = tournamentData?.snapshot || {};
-    const isAddon = snapshot.isAddon !== null && snapshot.isAddon !== undefined ? snapshot.isAddon : false;
+    const addonLimit = resolveAddonLimitPerPlayer({
+      isAddon: snapshot.isAddon,
+      addonLimitPerPlayer: snapshot.addonLimitPerPlayer,
+    });
     const addonFee = snapshot.addonFee !== null && snapshot.addonFee !== undefined ? snapshot.addonFee : 0;
     const addonStack = snapshot.addonStack !== null && snapshot.addonStack !== undefined ? snapshot.addonStack : 0;
     const templateName = snapshot.name || '';
     const startAt = tournamentData?.startAt;
 
-    console.log('isAddon:', isAddon);
+    console.log('addonLimit:', addonLimit);
     console.log('addonFee:', addonFee);
     console.log('addonStack:', addonStack);
 
-    if (!isAddon) {
+    if (addonLimit <= 0) {
       throw new FunctionCustomError({
         errorKey: 'TOURNAMENT_ADDON_NOT_ALLOWED',
         message: 'このトーナメントではAddonができません',
-        context: { tournamentId },
+        context: { tournamentId, addonLimit },
       });
     }
 
@@ -157,8 +161,10 @@ export const bulkAddon = onCall(async (request) => {
           
           if (existingTournamentDoc.exists) {
             const tournamentInfo = existingTournamentDoc.data()!;
-            const addonCount = tournamentInfo.addonCount || 0;
-            if (addonCount >= 1) {
+            const addonCount = typeof tournamentInfo.addonCount === 'number' ?
+              tournamentInfo.addonCount :
+              0;
+            if (addonCount >= addonLimit) {
               alreadyAddonUsers.push({ ...user, billId });
             } else {
               availableUsers.push({ ...user, billId });
@@ -181,8 +187,12 @@ export const bulkAddon = onCall(async (request) => {
     if (availableUsers.length === 0) {
       throw new FunctionCustomError({
         errorKey: 'TOURNAMENT_ADDON_ALREADY_DONE',
-        message: '処理可能なユーザーがいません（全員既にAddon済みです）',
-        context: { tournamentId },
+        message: '全員が Addon 上限に達しています',
+        context: {
+          tournamentId,
+          addonLimit,
+          skippedAtLimitCount: alreadyAddonUsers.length,
+        },
       });
     }
 
@@ -199,7 +209,7 @@ export const bulkAddon = onCall(async (request) => {
       return {
         success: true,
         processedCount: availableUsers.length,
-        alreadyAddonCount: alreadyAddonUsers.length,
+        skippedAtLimitCount: alreadyAddonUsers.length,
         addonFee,
         addonStack,
         availableUsers: availableUsers.map(u => ({ 
@@ -265,6 +275,10 @@ export const bulkAddon = onCall(async (request) => {
         playerNames,
         ...(tableId != null && tableId !== '' && { tableId }),
         details,
+        templateId,
+        addonLimit,
+        processedCount: result.processedCount,
+        skippedAtLimitCount: result.skippedAtLimitCount,
       },
     });
 
@@ -273,8 +287,10 @@ export const bulkAddon = onCall(async (request) => {
       functionEntry: 'bulkAddon',
       context: {
         tournamentId,
+        templateId,
         processedCount: result.processedCount,
-        alreadyAddonCount: result.alreadyAddonCount,
+        skippedAtLimitCount: result.skippedAtLimitCount,
+        addonLimit,
         callerUid,
         deviceId: device.id,
       },
@@ -284,6 +300,7 @@ export const bulkAddon = onCall(async (request) => {
       success: true,
       message: 'まとめてAddon処理が完了しました',
       processedCount: result.processedCount,
+      skippedAtLimitCount: result.skippedAtLimitCount,
       addonFee: result.addonFee,
       addonStack: result.addonStack,
     };

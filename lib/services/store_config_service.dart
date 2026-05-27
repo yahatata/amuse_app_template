@@ -42,6 +42,8 @@ class StoreConfigData {
   final int sideGameChipRoundingUnit;
   final Map<String, Map<String, dynamic>> businessHoursStyles;
   final String linePlan;
+  /// storeMeta/config.okibake.loginPromptMode（詳細仕様書 §14.15）
+  final String okibakeLoginPromptMode;
   final int shiftSubmissionStartDay;
   final int shiftSubmissionEndDay;
   final int shiftSchedulingStartDay;
@@ -85,6 +87,7 @@ class StoreConfigData {
     this.sideGameChipRoundingUnit = kDefaultSideGameChipRoundingUnit,
     Map<String, Map<String, dynamic>>? businessHoursStyles,
     this.linePlan = kDefaultLinePlan,
+    this.okibakeLoginPromptMode = kDefaultOkibakeLoginPromptMode,
     this.shiftSubmissionStartDay = kDefaultShiftSubmissionStartDay,
     this.shiftSubmissionEndDay = kDefaultShiftSubmissionEndDay,
     this.shiftSchedulingStartDay = kDefaultShiftSchedulingStartDay,
@@ -310,6 +313,21 @@ class StoreConfigData {
               ['communication', 'light', 'standard'].contains(data['linePlan']))
           ? data['linePlan'] as String
           : kDefaultLinePlan,
+      okibakeLoginPromptMode: () {
+        final okibake = data['okibake'];
+        if (okibake is Map) {
+          final modeRaw = okibake['loginPromptMode'];
+          if (modeRaw is String &&
+              (modeRaw == kOkibakeLoginPromptModeNone ||
+                  modeRaw == kOkibakeLoginPromptModeNoticeOnly ||
+                  modeRaw == kOkibakeLoginPromptModeLinkPrompt)) {
+            track('okibake.loginPromptMode', true);
+            return modeRaw;
+          }
+        }
+        track('okibake.loginPromptMode', false);
+        return kDefaultOkibakeLoginPromptMode;
+      }(),
       shiftSubmissionStartDay:
           parseInt(shift?['submissionStartDay']) ??
           kDefaultShiftSubmissionStartDay,

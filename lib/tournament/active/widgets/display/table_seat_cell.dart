@@ -6,12 +6,16 @@ class TableSeatCell extends StatelessWidget {
   final String? pokerName;
   final bool isOccupied;
 
+  /// 置きバケ席など userId が無い占有席でも表示を分けられるようにする。
+  final bool isOkibakeSeat;
+
   const TableSeatCell({
     super.key,
     required this.seatNo,
     this.userId,
     this.pokerName,
     required this.isOccupied,
+    this.isOkibakeSeat = false,
   });
 
   @override
@@ -29,7 +33,6 @@ class TableSeatCell extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // 座席番号
             Text(
               seatNo.toString(),
               style: TextStyle(
@@ -39,15 +42,16 @@ class TableSeatCell extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            // ユーザー情報または空席表示
-            if (isOccupied && userId != null) ...[
+            if (isOccupied) ...[
               Icon(
-                Icons.person,
+                isOkibakeSeat ? Icons.face_retouching_natural : Icons.person,
                 size: 12,
                 color: _getTextColor(),
               ),
               Text(
-                pokerName != null ? _getShortPokerName(pokerName!) : _getShortUserId(userId!),
+                pokerName != null && pokerName!.isNotEmpty
+                    ? _getShortPokerName(pokerName!)
+                    : (userId != null ? _getShortUserId(userId!) : '—'),
                 style: TextStyle(
                   fontSize: 8,
                   color: _getTextColor(),
@@ -79,30 +83,28 @@ class TableSeatCell extends StatelessWidget {
 
   Color _getSeatColor() {
     if (isOccupied) {
-      return Colors.blue.withOpacity(0.8);
-    } else {
-      return Colors.grey.withOpacity(0.1);
+      return isOkibakeSeat
+          ? Colors.teal.withValues(alpha: 0.85)
+          : Colors.blue.withValues(alpha: 0.8);
     }
+    return Colors.grey.withValues(alpha: 0.1);
   }
 
   Color _getBorderColor() {
     if (isOccupied) {
-      return Colors.blue;
-    } else {
-      return Colors.grey.withOpacity(0.3);
+      return isOkibakeSeat ? Colors.teal : Colors.blue;
     }
+    return Colors.grey.withValues(alpha: 0.3);
   }
 
   Color _getTextColor() {
     if (isOccupied) {
       return Colors.white;
-    } else {
-      return Colors.grey[600]!;
     }
+    return Colors.grey[600]!;
   }
 
   String _getShortUserId(String userId) {
-    // userIdから短縮名を生成（例: "user123" -> "123"）
     if (userId.startsWith('user')) {
       return userId.substring(4);
     }

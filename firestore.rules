@@ -40,6 +40,12 @@ service cloud.firestore {
         allow write: if false; // 書き込みはCloud Functions経由のみ
       }
 
+      // 置きバケ一時参加者（Phase2: クライアントは読み取りのみ、作成は Callable）
+      match /okibakeTemporaryEntries/{entryId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
       // tablesSeat サブコレクションの読み取り（開発用：全許可）
       match /tablesSeat/{docId} {
         allow read: if true;

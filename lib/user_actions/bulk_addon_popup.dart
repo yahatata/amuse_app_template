@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 
@@ -81,52 +82,110 @@ Future<void> showBulkAddonDialog({
     return;
   }
 
-  // 既にAddon済みのユーザーを事前にチェック
-  List<Map<String, dynamic>> availableUsers = [];
-  List<Map<String, dynamic>> alreadyAddonUsers = [];
-  
-  for (final user in seatedUsers) {
+  final tournamentScheduleDoc =
+      await FirebaseFirestore.instance.collection('scheduledTournaments').doc(tournamentId).get();
+
+  if (!tournamentScheduleDoc.exists || tournamentScheduleDoc.data() == null) {
+    if (outerCtx.mounted) {
+      ScaffoldMessenger.of(outerCtx).showSnackBar(
+        const SnackBar(content: Text('トーナメントが見つかりません'), backgroundColor: Colors.red),
+      );
+    }
+    return;
+  }
+
+  final stData = tournamentScheduleDoc.data()!;
+  final templateIdStr = (stData['templateId'] as String?) ?? '';
+  final snap = stData['snapshot'] as Map<String, dynamic>? ?? {};
+  final addonLimit = resolveAddonLimitPerPlayerUi(
+    isAddon: snap['isAddon'] as bool? ?? false,
+    addonLimitPerPlayer: snap['addonLimitPerPlayer'],
+  );
+
+  if (addonLimit <= 0) {
+    if (outerCtx.mounted) {
+      ScaffoldMessenger.of(outerCtx).showSnackBar(
+        const SnackBar(
+          content: Text('このトーナメントではAddonができません'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+    return;
+  }
+
+  if (templateIdStr.isEmpty) {
+    if (outerCtx.mounted) {
+      ScaffoldMessenger.of(outerCtx).showSnackBar(
+        const SnackBar(
+          content: Text('トーナメントの templateId が取得できません'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+    return;
+  }
+
+  final seatUsersAddonRead = List<Map<String, dynamic>>.from(
+    seatedUsers.map((u) => Map<String, dynamic>.from(u)),
+  );
+
+  for (final user in seatUsersAddonRead) {
     final userId = user['userId'] as String;
-    
     try {
-      // activeStays から billId を取得
-      final activeStayDoc = await FirebaseFirestore.instance
-          .collection('activeStays')
-          .doc(userId)
-          .get();
-      
+      final activeStayDoc =
+          await FirebaseFirestore.instance.collection('activeStays').doc(userId).get();
+
       int addonCount = 0;
-      
       if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
         final billId = activeStayDoc.data()!['billId'] as String?;
-        
         if (billId != null) {
-          // bills サブコレクションからトーナメント情報を取得
-          final tournamentDoc = await FirebaseFirestore.instance
+          final billTournamentDoc = await FirebaseFirestore.instance
               .collection('bills')
               .doc(billId)
               .collection('tournaments')
-              .doc(tournamentId)
+              .doc(templateIdStr)
               .get();
-          
-          if (tournamentDoc.exists) {
-            final tournamentData = tournamentDoc.data()!;
-            addonCount = tournamentData['addonCount'] as int? ?? 0;
+          if (billTournamentDoc.exists) {
+            final bd = billTournamentDoc.data()!;
+            addonCount =
+                bd['addonCount'] is int
+                    ? bd['addonCount'] as int
+                    : ((bd['addonCount'] as num?)?.toInt() ?? 0);
           }
         }
       }
-
-      if (addonCount >= 1) {
-        alreadyAddonUsers.add(user);
-      } else {
-        availableUsers.add(user);
-      }
-    } catch (e) {
-      availableUsers.add(user);
+      user['_addonCount'] = addonCount;
+    } catch (_) {
+      user['_addonCount'] = 0;
     }
   }
 
-  // ユーザー選択ダイアログを表示
+  // リスト表示は読取結果付きリストを参照
+  seatedUsers = seatUsersAddonRead;
+
+  final selectableExists = seatedUsers.any((u) {
+    final ac = u['_addonCount'];
+    final n = ac is int ? ac : (ac as num?)?.toInt() ?? 0;
+    return n < addonLimit;
+  });
+
+  if (!selectableExists) {
+    if (outerCtx.mounted) {
+      ScaffoldMessenger.of(outerCtx).showSnackBar(
+        const SnackBar(
+          content: Text('全員が Addon 上限に達しています'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
+    return;
+  }
+
+  if (!outerCtx.mounted) return;
+
+  // ユーザー選択ダイアログを表示（直前まで非同期のため mounted を確認済み）
   await showDialog<void>(
     context: outerCtx,
     barrierDismissible: false,
@@ -161,7 +220,10 @@ Future<void> showBulkAddonDialog({
                         final userId = user['userId'] as String;
                         final pokerName = user['pokerName'] as String;
                         final seatNumber = user['seatNumber'] as int;
-                        final isAlreadyAddon = alreadyAddonUsers.any((u) => u['userId'] == userId);
+                        final acRaw = user['_addonCount'];
+                        final addonCount =
+                            acRaw is int ? acRaw : (acRaw as num?)?.toInt() ?? 0;
+                        final isAlreadyAddon = addonCount >= addonLimit;
 
                         return CheckboxListTile(
                           title: Text(
@@ -171,9 +233,9 @@ Future<void> showBulkAddonDialog({
                             ),
                           ),
                           subtitle: Text(
-                            isAlreadyAddon 
-                              ? '席番号: $seatNumber (既にAddon済み)'
-                              : '席番号: $seatNumber',
+                            isAlreadyAddon
+                                ? '席番号: $seatNumber (上限到達 $addonCount / $addonLimit 回)'
+                                : '席番号: $seatNumber ($addonCount / $addonLimit 回)',
                             style: TextStyle(
                               color: isAlreadyAddon ? Colors.grey : null,
                             ),
@@ -314,11 +376,15 @@ Future<void> _processBulkAddon({
     }
     
     final tournamentData = tournamentDoc.data()!;
-    final isAddon = tournamentData['snapshot']?['isAddon'] as bool? ?? false;
-    
+    final snap = tournamentData['snapshot'] as Map<String, dynamic>? ?? {};
+    final addonLimitQuick = resolveAddonLimitPerPlayerUi(
+      isAddon: snap['isAddon'] as bool? ?? false,
+      addonLimitPerPlayer: snap['addonLimitPerPlayer'],
+    );
+
     if (!context.mounted) return;
-    
-    if (!isAddon) {
+
+    if (addonLimitQuick <= 0) {
       if (context.mounted) {
         _showErrorDialog(context, 'このトーナメントではAddonができません');
       }

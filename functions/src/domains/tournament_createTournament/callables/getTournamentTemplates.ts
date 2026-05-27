@@ -1,6 +1,7 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
 
 export const getTournamentTemplates = onCall(async (request) => {
   try {
@@ -43,6 +44,10 @@ export const getTournamentTemplates = onCall(async (request) => {
         isAddon: data.isAddon || false,
         addonFee: data.addonFee || null,
         addonStack: data.addonStack || null,
+        addonLimitPerPlayer: resolveAddonLimitPerPlayer({
+          isAddon: data.isAddon,
+          addonLimitPerPlayer: data.addonLimitPerPlayer,
+        }),
         blindStructure: data.blindStructure || '',
         prizeRatio: data.prizeRatio || 0,
         color: data.color || null,

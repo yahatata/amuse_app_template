@@ -393,49 +393,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
     return DateFormat('yyyy-MM-dd').format(picked);
   }
 
-  Future<void> _callTemporaryUnlockAlreadyRunningDifferentDateTerminal(
-    BuildContext context,
-  ) async {
-    try {
-      if (FirebaseAuth.instance.currentUser == null) {
-        await FirebaseAuth.instance.signInAnonymously();
-      }
-      final callable = FunctionsClient.instance.httpsCallable(
-        'temporaryUnlockAlreadyRunningDifferentDateTerminal',
-      );
-      final result = await callable.call<Map<String, dynamic>>({});
-      if (!context.mounted) return;
-      final data = result.data;
-      final minutes = data['recheckMinutes'];
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            minutes is num
-                ? '緊急一時解除を実行しました。${minutes.toInt()}分後に再評価されます。'
-                : '緊急一時解除を実行しました。',
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } on FirebaseFunctionsException catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.message ?? '緊急一時解除に失敗しました。'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('緊急一時解除に失敗しました。${e.toString()}'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    }
-  }
-
   /// 開閉店管理ダイアログを表示（Phase6 Step3: 開店中は閉店、閉店中は開店）
   /// ダイアログを閉じたあとでもフローを続行するため、ページの context を保持して渡す。
   void _showStoreManagementDialog(BuildContext context) {
@@ -1641,29 +1598,147 @@ class _terminalHomePageState extends State<terminalHomePage> {
               .latestData
               ?.alreadyRunningDifferentDateRecheckMinutes ??
           kDefaultAlreadyRunningDifferentDateRecheckMinutes;
+      var continuing = false;
       showDialog<void>(
         context: pageContext,
+        barrierDismissible: false,
         builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text('緊急一時解除'),
-            content: Text(
-              '${recheckMinutes}分間、開店認定の強警告を一時解除します。期限到達時に再評価され、未解消なら再度ブロックされます。実行しますか？',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('キャンセル'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.of(dialogContext).pop();
-                  await _callTemporaryUnlockAlreadyRunningDifferentDateTerminal(
-                    pageContext,
-                  );
-                },
-                child: const Text('実行'),
-              ),
-            ],
+          final messageBody =
+              '$recheckMinutes分間、開店認定の強警告を一時解除します。期限到達時に再評価され、未解消なら再度ブロックされます。実行しますか？';
+          return StatefulBuilder(
+            builder: (_, setState) {
+              final size = MediaQuery.sizeOf(dialogContext);
+              return PopScope(
+                canPop: !continuing,
+                child: SizedBox(
+                  width: size.width,
+                  height: size.height,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Center(
+                        child: AlertDialog(
+                          title: const Text('緊急一時解除'),
+                          content: SizedBox(
+                            width: double.maxFinite,
+                            height: 200,
+                            child: SingleChildScrollView(
+                              child: Text(
+                                messageBody,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: continuing
+                                  ? null
+                                  : () => Navigator.of(dialogContext).pop(),
+                              child: const Text('キャンセル'),
+                            ),
+                            ElevatedButton(
+                              onPressed: continuing
+                                  ? null
+                                  : () async {
+                                      setState(() => continuing = true);
+                                      var dialogClosed = false;
+                                      try {
+                                        if (FirebaseAuth.instance.currentUser ==
+                                            null) {
+                                          await FirebaseAuth.instance
+                                              .signInAnonymously();
+                                        }
+                                        final callable = FunctionsClient
+                                            .instance
+                                            .httpsCallable(
+                                          'temporaryUnlockAlreadyRunningDifferentDateTerminal',
+                                        );
+                                        final result = await callable
+                                            .call<Map<String, dynamic>>({})
+                                            .timeout(
+                                          const Duration(seconds: 30),
+                                          onTimeout: () =>
+                                              throw TimeoutException(
+                                            'Cloud Functionの呼び出しがタイムアウトしました',
+                                          ),
+                                        );
+                                        if (!dialogContext.mounted ||
+                                            !pageContext.mounted) {
+                                          return;
+                                        }
+                                        dialogClosed = true;
+                                        Navigator.of(dialogContext).pop();
+                                        final minutes =
+                                            result.data['recheckMinutes'];
+                                        ScaffoldMessenger.of(pageContext)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              minutes is num
+                                                  ? '緊急一時解除を実行しました。${minutes.toInt()}分後に再評価されます。'
+                                                  : '緊急一時解除を実行しました。',
+                                            ),
+                                            backgroundColor: Colors.green,
+                                          ),
+                                        );
+                                      } on FirebaseFunctionsException catch (e) {
+                                        if (!pageContext.mounted) return;
+                                        ScaffoldMessenger.of(pageContext)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              e.message ??
+                                                  '緊急一時解除に失敗しました。',
+                                            ),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                      } catch (e) {
+                                        if (!pageContext.mounted) return;
+                                        ScaffoldMessenger.of(pageContext)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              '緊急一時解除に失敗しました。${e.toString()}',
+                                            ),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                      } finally {
+                                        if (!dialogClosed &&
+                                            dialogContext.mounted) {
+                                          setState(() => continuing = false);
+                                        }
+                                      }
+                                    },
+                              child: const Text('実行'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (continuing)
+                        Positioned.fill(
+                          child: AbsorbPointer(
+                            child: ColoredBox(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 36,
+                                  height: 36,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 3,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
           );
         },
       );
@@ -1679,91 +1754,166 @@ class _terminalHomePageState extends State<terminalHomePage> {
     }
 
     int selectedHours = 1;
+    var continuing = false;
     showDialog<void>(
       context: pageContext,
+      barrierDismissible: false,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (_, setState) {
-            return AlertDialog(
-              title: const Text('営業継続'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            final size = MediaQuery.sizeOf(dialogContext);
+            return PopScope(
+              canPop: !continuing,
+              child: SizedBox(
+                width: size.width,
+                height: size.height,
+                child: Stack(
+                  clipBehavior: Clip.none,
                   children: [
-                    const Text(
-                      '閉店時間の目安を選択してください。選択した時間後に閉店確認のリマインドが実行されます。',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<int>(
-                      value: selectedHours,
-                      decoration: const InputDecoration(
-                        labelText: '閉店予定までの時間',
-                        border: OutlineInputBorder(),
+                    Center(
+                      child: AlertDialog(
+                        title: const Text('営業継続'),
+                        content: SizedBox(
+                          width: double.maxFinite,
+                          height: 260,
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '閉店時間の目安を選択してください。選択した時間後に閉店確認のリマインドが実行されます。',
+                                  style: TextStyle(fontSize: 13),
+                                ),
+                                const SizedBox(height: 16),
+                                DropdownButtonFormField<int>(
+                                  value: selectedHours,
+                                  decoration: const InputDecoration(
+                                    labelText: '閉店予定までの時間',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: List.generate(8, (i) => i + 1).map((h) {
+                                    return DropdownMenuItem<int>(
+                                      value: h,
+                                      child: Text('$h 時間'),
+                                    );
+                                  }).toList(),
+                                  onChanged: continuing
+                                      ? null
+                                      : (value) {
+                                          if (value != null) {
+                                            setState(
+                                                () => selectedHours = value);
+                                          }
+                                        },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: continuing
+                                ? null
+                                : () => Navigator.of(dialogContext).pop(),
+                            child: const Text('キャンセル'),
+                          ),
+                          ElevatedButton(
+                            onPressed: continuing
+                                ? null
+                                : () async {
+                                    setState(() => continuing = true);
+                                    var dialogClosed = false;
+                                    try {
+                                      final callable =
+                                          FunctionsClient.instance
+                                              .httpsCallable(
+                                        'continueBusinessTerminal',
+                                      );
+                                      await callable
+                                          .call(<String, dynamic>{
+                                            'intendedBusinessDateKey':
+                                                targetBusinessDateKey,
+                                            'hours': selectedHours,
+                                          })
+                                          .timeout(
+                                            const Duration(seconds: 30),
+                                            onTimeout: () =>
+                                                throw TimeoutException(
+                                              'Cloud Functionの呼び出しがタイムアウトしました',
+                                            ),
+                                          );
+                                      if (!dialogContext.mounted ||
+                                          !pageContext.mounted) {
+                                        return;
+                                      }
+                                      dialogClosed = true;
+                                      Navigator.of(dialogContext).pop();
+                                      ScaffoldMessenger.of(pageContext)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            '$selectedHours 時間後に閉店確認のリマインドを予約しました。',
+                                          ),
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      );
+                                    } on FirebaseFunctionsException catch (e) {
+                                      if (!pageContext.mounted) return;
+                                      ScaffoldMessenger.of(pageContext)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            e.message ??
+                                                '営業継続に失敗しました（リマインド予約を含む）。',
+                                          ),
+                                          backgroundColor: Colors.orange,
+                                        ),
+                                      );
+                                    } catch (e) {
+                                      if (!pageContext.mounted) return;
+                                      ScaffoldMessenger.of(pageContext)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            '営業継続に失敗しました。${e.toString()}',
+                                          ),
+                                          backgroundColor: Colors.orange,
+                                        ),
+                                      );
+                                    } finally {
+                                      if (!dialogClosed &&
+                                          dialogContext.mounted) {
+                                        setState(() => continuing = false);
+                                      }
+                                    }
+                                  },
+                            child: const Text('決定'),
+                          ),
+                        ],
                       ),
-                      items: List.generate(8, (i) => i + 1).map((h) {
-                        return DropdownMenuItem<int>(
-                          value: h,
-                          child: Text('$h 時間'),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        if (value != null)
-                          setState(() => selectedHours = value);
-                      },
                     ),
+                    if (continuing)
+                      Positioned.fill(
+                        child: AbsorbPointer(
+                          child: ColoredBox(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            child: Center(
+                              child: SizedBox(
+                                width: 36,
+                                height: 36,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('キャンセル'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    Navigator.of(dialogContext).pop();
-                    try {
-                      final callable = FunctionsClient.instance.httpsCallable(
-                        'continueBusinessTerminal',
-                      );
-                      await callable.call(<String, dynamic>{
-                        'intendedBusinessDateKey': targetBusinessDateKey,
-                        'hours': selectedHours,
-                      });
-                      if (!pageContext.mounted) return;
-                      ScaffoldMessenger.of(pageContext).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            '$selectedHours 時間後に閉店確認のリマインドを予約しました。',
-                          ),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    } on FirebaseFunctionsException catch (e) {
-                      if (!pageContext.mounted) return;
-                      ScaffoldMessenger.of(pageContext).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            e.message ?? '営業継続に失敗しました（リマインド予約を含む）。',
-                          ),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
-                    } catch (e) {
-                      if (!pageContext.mounted) return;
-                      ScaffoldMessenger.of(pageContext).showSnackBar(
-                        SnackBar(
-                          content: Text('営業継続に失敗しました。${e.toString()}'),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
-                    }
-                  },
-                  child: const Text('決定'),
-                ),
-              ],
             );
           },
         );

@@ -13,6 +13,7 @@ import { logger } from "firebase-functions";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
+import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
 
 // 入力スキーマの定義
 const createScheduledTournamentSchema = z.object({
@@ -241,6 +242,10 @@ export const createScheduledTournament = onCall(async (request) => {
         isAddon: templateData.isAddon || false,
         addonFee: templateData.addonFee || null,
         addonStack: templateData.addonStack || null,
+        addonLimitPerPlayer: resolveAddonLimitPerPlayer({
+          isAddon: templateData.isAddon,
+          addonLimitPerPlayer: templateData.addonLimitPerPlayer,
+        }),
         startStack: templateData.startStack || 0,
         blindStructure: templateData.blindStructure || templateData.blindStructureId || '',
         prizeRatio: templateData.prizeRatio || 0.7,

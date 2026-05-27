@@ -399,11 +399,14 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
   String _getActionDisplayName(String action, [Map<String, dynamic>? log]) {
     switch (action) {
       case 'addon':
+      case 'okibake_addon':
         return 'アドオン';
       case 'bulk_addon':
         return '複数アドオン';
       case 'bust_and_exit':
         return 'バースト＆退場';
+      case 'okibake_bust':
+        return 'バースト（置きバケ）';
       case 'bust_and_reentry':
         return 'バースト＆リエントリー';
       case 'end_tournament':
@@ -419,6 +422,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
       case 'register_for_tournament':
         return 'トーナメント登録';
       case 'assign_seat_to_player':
+      case 'okibake_assign_seat':
         return 'シート割当';
       case 'reseat_all_players':
         return '全員リシート';
@@ -647,7 +651,10 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
               Text('取り消し時刻: ${_formatDateTime(log['rollBackAt'])}'),
           ],
         ),
-        trailing: isRolledBack
+        trailing: isRolledBack ||
+                log['action'] == 'okibake_addon' ||
+                log['action'] == 'okibake_assign_seat' ||
+                log['action'] == 'okibake_bust'
             ? null
             : IconButton(
                 icon: const Icon(Icons.undo, color: Colors.orange),
