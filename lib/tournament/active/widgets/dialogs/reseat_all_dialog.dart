@@ -403,20 +403,19 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
           for (int seat = 1; seat <= table.maxSeats; seat++) {
             // 元々座っていた人をチェック
             final seatData = table.seats[seat];
-            bool isOccupied = seatData != null && seatData.userId != null;
+            var taken = seatData?.isOccupied ?? false;
             
-            // 今回のリシートで既に割り当てた座席もチェック
-            if (!isOccupied) {
+            if (!taken) {
               for (var assignment in playerAssignments) {
-                if (assignment['tableId'] == table.tableId && 
+                if (assignment['tableId'] == table.tableId &&
                     assignment['seatNumber'] == seat) {
-                  isOccupied = true;
+                  taken = true;
                   break;
                 }
               }
             }
-            
-            currentSeats[seat] = isOccupied;
+
+            currentSeats[seat] = taken;
           }
           print('  現在の座席状態: $currentSeats');
           
@@ -490,9 +489,14 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
       final seatedUsersMap = <String, String>{}; // userId -> pokerName
       for (final table in tournamentTables) {
         for (final seatData in table.seats.values) {
-          if (seatData != null && seatData.userId != null && seatData.pokerName != null) {
-            seatedUsersMap[seatData.userId!] = seatData.pokerName!;
+          final uid = seatData.userId;
+          if (!seatData.isOccupied ||
+              uid == null ||
+              uid.isEmpty ||
+              seatData.isOkibakeSeat) {
+            continue;
           }
+          seatedUsersMap[uid] = seatData.pokerName ?? 'ユーザー$uid';
         }
       }
       

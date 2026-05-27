@@ -91,6 +91,13 @@ const Map<String, Map<String, dynamic>> kDefaultBusinessHoursStyles = {
 // linePlan
 const String kDefaultLinePlan = 'communication';
 
+// okibake (storeMeta/config.okibake、詳細仕様書 §14.15)
+const String kOkibakeLoginPromptModeNone = 'none';
+const String kOkibakeLoginPromptModeNoticeOnly = 'notice_only';
+const String kOkibakeLoginPromptModeLinkPrompt = 'link_prompt';
+
+const String kDefaultOkibakeLoginPromptMode = kOkibakeLoginPromptModeNoticeOnly;
+
 // shift
 const int kDefaultShiftSubmissionStartDay = 1;
 const int kDefaultShiftSubmissionEndDay = 15;

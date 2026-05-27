@@ -26,6 +26,7 @@ import {
 } from "../../../shared/runtime/storeTenantIdentity";
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { runEnqueueTournamentTasks } from "./enqueueTournamentTasksCore";
+import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
 
 const ENQUEUE_AFTER_GENERATE_THRESHOLD = 50;
 
@@ -571,6 +572,10 @@ async function createScheduledTournamentFromRecurrence(
         isAddon: templateData.isAddon || false,
         addonFee: templateData.addonFee || null,
         addonStack: templateData.addonStack || null,
+        addonLimitPerPlayer: resolveAddonLimitPerPlayer({
+          isAddon: templateData.isAddon,
+          addonLimitPerPlayer: templateData.addonLimitPerPlayer,
+        }),
         startStack: templateData.startStack || 0,
         blindStructure:
           templateData.blindStructure || templateData.blindStructureId || "",

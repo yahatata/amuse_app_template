@@ -45,11 +45,10 @@ export async function undoAssignSeatToPlayer(params: UndoAssignSeatToPlayerParam
         throw new Error('Main view not found');
       }
       const mainViewData = mainViewDoc.data()!;
-      const currentSeatedCount = mainViewData.seatedCount || 0;
       const currentWaitingCount = mainViewData.waitingCount || 0;
 
+      // seatedCount は forward（assignSeatToPlayer）で増えないため、undo で減算しない
       transaction.update(mainViewRef, {
-        seatedCount: Math.max(0, currentSeatedCount - 1),
         waitingCount: currentWaitingCount + 1,
         updatedAt: now,
       });

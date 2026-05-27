@@ -57,10 +57,13 @@ export async function undoBustAndReentry(params: UndoBustAndReentryParams): Prom
       }
       const mainViewData = mainViewDoc.data()!;
       const currentReentries = mainViewData.reentries || 0;
+      const currentPlayersBusted = mainViewData.playersBusted || 0;
 
-      // リエントリー回数だけ戻す。playersIn は減らさない（巻き戻し後はプレイヤーが席に戻るため）
+      // bustAndReentry で増やした counters を戻す（reentries / playersBusted は各 +1 されていた）
+      // playersIn は減らさない（巻き戻し後はプレイヤーが席に戻るため）
       transaction.update(mainViewRef, {
         reentries: Math.max(0, currentReentries - 1),
+        playersBusted: Math.max(0, currentPlayersBusted - 1),
         updatedAt: now,
       });
 

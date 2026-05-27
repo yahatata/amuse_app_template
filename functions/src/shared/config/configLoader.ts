@@ -67,9 +67,10 @@ import {
   DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_ENABLED,
   DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_FUTURE_MINUTES,
   DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_PAST_MINUTES,
+  DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE,
 } from './defaults';
 
-import type { StoreConfig, StoreConfigRaw } from './types';
+import type { OkibakeLoginPromptMode, StoreConfig, StoreConfigRaw } from './types';
 
 const MAX_RETRIES = 2;
 
@@ -213,10 +214,21 @@ export function buildFromDefaults(): StoreConfig {
         Object.entries(DEFAULT_TOURNAMENT_PRIZE_DISTRIBUTION).map(([k, v]) => [String(k), v])
       ),
     },
+    okibake: {
+      loginPromptMode: DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE as OkibakeLoginPromptMode,
+    },
   };
 }
 
-function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
+/**
+ * Firestore の生ドキュメント断片と defaults をマージする内部処理。
+ *
+ * 【export している理由】Jest 等での config フォールバック単体テストが、Emulator に依存せず
+ * `mergeWithDefaults(raw)` を直接検証できるようにするため。**ドメインの業務ロジックや
+ * Callable から import して使うことを想定していない**（正規経路は getStoreConfig や
+ * mergeConfigForUpsert）。
+ */
+export function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
   const result = buildFromDefaults();
   const fromConfig: string[] = [];
   const fromDefaults: string[] = [];
@@ -512,6 +524,31 @@ function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
     fb('tournament', 'field_missing', result.tournament);
   }
 
+  // okibake (storeMeta/config.okibake.loginPromptMode)。不正値・欠損は notice_only にフォールバック
+  const okibakeRaw = raw.okibake as Record<string, unknown> | undefined;
+  if (okibakeRaw && typeof okibakeRaw === 'object') {
+    const mode = okibakeRaw.loginPromptMode;
+    if (
+      mode === 'none' ||
+      mode === 'notice_only' ||
+      mode === 'link_prompt'
+    ) {
+      result.okibake!.loginPromptMode = mode as OkibakeLoginPromptMode;
+      fromConfig.push('okibake.loginPromptMode');
+    } else {
+      const hasOwnMode = Object.prototype.hasOwnProperty.call(okibakeRaw, 'loginPromptMode');
+      fb(
+        'okibake.loginPromptMode',
+        hasOwnMode ? 'invalid_value' : 'field_missing',
+        DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE
+      );
+      result.okibake!.loginPromptMode = DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE as OkibakeLoginPromptMode;
+    }
+  } else {
+    fb('okibake', 'field_missing', result.okibake);
+    result.okibake!.loginPromptMode = DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE as OkibakeLoginPromptMode;
+  }
+
   logOpsSuccess({
     message: 'getStoreConfig 成功',
     functionEntry: 'getStoreConfig',
@@ -697,6 +734,16 @@ export function mergeConfigForUpsert(
         : tourDef.prizeRoundingUnit,
     prizeDistribution: pdValid ? (pdEx as Record<string, number[]>) : tourDef.prizeDistribution,
   };
+
+  // okibake（詳細仕様書 §14.15）。不正値は defaults / notice_only に寄せる
+  const okDef = defaults.okibake!;
+  const okEx = ex.okibake as Record<string, unknown> | undefined;
+  const modeEx = okEx && typeof okEx === 'object' ? okEx.loginPromptMode : undefined;
+  let loginPromptMode: OkibakeLoginPromptMode = okDef.loginPromptMode;
+  if (modeEx === 'none' || modeEx === 'notice_only' || modeEx === 'link_prompt') {
+    loginPromptMode = modeEx as OkibakeLoginPromptMode;
+  }
+  out.okibake = { loginPromptMode };
 
   return out;
 }

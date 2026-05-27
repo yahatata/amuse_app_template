@@ -9,6 +9,7 @@ import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operatio
 import * as crypto from 'crypto';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
+import { resolveAddonLimitPerPlayer } from '../../../shared/tournament/resolveAddonLimitPerPlayer';
 
 const addonSchema = z.object({
   operationId: z.string().min(1, 'operationId は必須です'),
@@ -98,21 +99,24 @@ export const addon = onCall(async (request) => {
     const tournamentData = tournamentDoc.data();
     const templateId = tournamentData?.templateId;
     const snapshot = tournamentData?.snapshot || {};
-    const isAddon = snapshot.isAddon !== null && snapshot.isAddon !== undefined ? snapshot.isAddon : false;
+    const addonLimit = resolveAddonLimitPerPlayer({
+      isAddon: snapshot.isAddon,
+      addonLimitPerPlayer: snapshot.addonLimitPerPlayer,
+    });
     const addonFee = snapshot.addonFee !== null && snapshot.addonFee !== undefined ? snapshot.addonFee : 0;
     const addonStack = snapshot.addonStack !== null && snapshot.addonStack !== undefined ? snapshot.addonStack : 0;
     const templateName = snapshot.name || '';
     const startAt = tournamentData?.startAt;
 
-    console.log('isAddon:', isAddon);
+    console.log('addonLimit:', addonLimit);
     console.log('addonFee:', addonFee);
     console.log('addonStack:', addonStack);
 
-    if (!isAddon) {
+    if (addonLimit <= 0) {
       throw new FunctionCustomError({
         errorKey: 'TOURNAMENT_ADDON_NOT_ALLOWED',
         message: 'このトーナメントではAddonができません',
-        context: { tournamentId },
+        context: { tournamentId, addonLimit },
       });
     }
 
@@ -147,18 +151,28 @@ export const addon = onCall(async (request) => {
       });
     }
 
-    // 既にAddon済みかチェック（/bills/{billId}/tournaments/{templateId} を確認）
+    // Addon 上限到達チェック（/bills/{billId}/tournaments/{templateId} を確認）
     const billTournamentRef = admin.firestore().collection('bills').doc(billId).collection('tournaments').doc(templateId);
     const existingTournamentDoc = await billTournamentRef.get();
-    
+
+    let addonCountBefore = 0;
     if (existingTournamentDoc.exists) {
       const tournamentInfo = existingTournamentDoc.data()!;
-      const existingAddonCount = tournamentInfo.addonCount || 0;
-      if (existingAddonCount >= 1) {
+      addonCountBefore = typeof tournamentInfo.addonCount === 'number' ?
+        tournamentInfo.addonCount :
+        0;
+      if (addonCountBefore >= addonLimit) {
         throw new FunctionCustomError({
           errorKey: 'TOURNAMENT_ADDON_ALREADY_DONE',
-          message: '既にAddon処理済みです',
-          context: { billId, templateId, userId },
+          message: 'Addon上限に達しています',
+          context: {
+            billId,
+            templateId,
+            userId,
+            tournamentId,
+            addonLimit,
+            addonCountBefore,
+          },
         });
       }
     }
@@ -345,6 +359,8 @@ export const addon = onCall(async (request) => {
         playerName: pokerName,
         billId: result.billId,
         templateId: result.templateId,
+        addonLimit,
+        addonCountBefore,
         ...(seatNumber != null && { seatNumber }),
       },
     });
@@ -357,6 +373,8 @@ export const addon = onCall(async (request) => {
         userId,
         billId: result.billId,
         templateId: result.templateId,
+        addonLimit,
+        addonCountBefore,
         callerUid,
         deviceId: device.id,
       },

@@ -3,6 +3,7 @@ import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
 
 class EditTournamentTemplatePage extends StatefulWidget {
   final String templateId;
@@ -24,6 +25,7 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
 
   // 基本設定
   final _nameController = TextEditingController();
+  late final TextEditingController _addonLimitController;
   int _entryFee = 1000;
   int _startStack = 10000;
   double _prizeRatio = 0.7;
@@ -37,6 +39,7 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
   bool _isAddon = false;
   int _addonFee = 1000;
   int _addonStack = 10000;
+  int _addonLimitPerPlayer = 1;
   
   // ブラインド構造
   String _selectedBlindTemplateId = '';
@@ -62,9 +65,17 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
   @override
   void initState() {
     super.initState();
+    _addonLimitController = TextEditingController();
     _initializeData();
     _loadBlindTemplates();
     _loadScheduledTournaments();
+  }
+
+  @override
+  void dispose() {
+    _addonLimitController.dispose();
+    _nameController.dispose();
+    super.dispose();
   }
 
   void _initializeData() {
@@ -79,6 +90,11 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
     _isAddon = template['isAddon'] ?? false;
     _addonFee = template['addonFee'] ?? 1000;
     _addonStack = template['addonStack'] ?? 10000;
+    _addonLimitPerPlayer = resolveAddonLimitPerPlayerUi(
+      isAddon: _isAddon,
+      addonLimitPerPlayer: template['addonLimitPerPlayer'],
+    );
+    _addonLimitController.text = _addonLimitPerPlayer.toString();
     _selectedBlindTemplateId = template['blindStructure'] ?? '';
     _selectedPointType = template['pointType'] ?? 'pointA';
     
@@ -220,6 +236,13 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
   Future<void> _saveChanges() async {
     if (!_formKey.currentState!.validate()) return;
 
+    if (_isAddon) {
+      final p = int.tryParse(_addonLimitController.text.trim());
+      if (p != null && p >= 1) {
+        _addonLimitPerPlayer = p;
+      }
+    }
+
     setState(() {
       _isSaving = true;
       _errorMessage = null;
@@ -238,6 +261,7 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
         'isAddon': _isAddon,
         'addonFee': _isAddon ? _addonFee : null,
         'addonStack': _isAddon ? _addonStack : null,
+        'addonLimitPerPlayer': _isAddon ? _addonLimitPerPlayer : 0,
         'blindStructure': _selectedBlindTemplateId,
         'prizeRatio': _prizeRatio,
         'color': _selectedColor != _originalColor 
@@ -624,6 +648,32 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
                                 },
                                 onChanged: (value) {
                                   _addonStack = int.tryParse(value) ?? 10000;
+                                },
+                              ),
+                              const SizedBox(height: 16),
+                              TextFormField(
+                                controller: _addonLimitController,
+                                decoration: const InputDecoration(
+                                  labelText: '1人あたり Addon 上限回数 *',
+                                  border: OutlineInputBorder(),
+                                ),
+                                keyboardType: TextInputType.number,
+                                validator: (value) {
+                                  if (!_isAddon) return null;
+                                  if (value == null || value.trim().isEmpty) {
+                                    return '上限回数を入力してください';
+                                  }
+                                  final n = int.tryParse(value.trim());
+                                  if (n == null || n < 1) {
+                                    return '1 以上の整数を入力してください';
+                                  }
+                                  return null;
+                                },
+                                onChanged: (value) {
+                                  final n = int.tryParse(value.trim());
+                                  if (n != null && n >= 1) {
+                                    _addonLimitPerPlayer = n;
+                                  }
                                 },
                               ),
                             ],

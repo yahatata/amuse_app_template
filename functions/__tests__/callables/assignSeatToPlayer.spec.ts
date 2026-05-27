@@ -6,10 +6,12 @@
  * 
  * テスト観点:
  * - happy path: activeStays/{userId} から billId を取得し、updatePlace を呼び出すこと、bills/{billId}.place.table/place.seat が更新されること
+ * - waiting からユーザーを削除したとき views/main.waitingCount が 1 減ること（entries / playersIn / seatedCount は触らない）
  * - activeStays/{userId} が存在しない場合のエラー
  * - activeStays/{userId} に billId が設定されていない場合のエラー
  * - scheduledTournaments の更新が正しく行われること
  * - pokerName が activeStays/{userId}.pokerName から取得されること（未設定時は Player_{userId} をフォールバック）
+ * - waiting にユーザーがいない／waiting ドキュメント欠落時は waitingCount を変更しないこと
  */
 
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
@@ -75,6 +77,23 @@ describe('assignSeatToPlayer', () => {
       count: 0,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    // views/main（assignSeatToPlayer はトランザクション内で参照する）
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('views')
+      .doc('main')
+      .set({
+        entries: 0,
+        playersIn: 0,
+        waitingCount: 0,
+        seatedCount: 0,
+        reentries: 0,
+        addons: 0,
+        playersBusted: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
   }
 
   describe('happy path', () => {
@@ -106,6 +125,13 @@ describe('assignSeatToPlayer', () => {
           waiting: { [userId]: true },
           count: 1,
         });
+
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .update({ waitingCount: 1 });
 
       const adminId = 'admin_test_assign_001';
       await createAdminDevice(adminId);
@@ -156,6 +182,17 @@ describe('assignSeatToPlayer', () => {
       const waitingData = waitingDoc.data()!;
       expect(waitingData.waiting[userId]).toBeUndefined();
       expect(waitingData.count).toBe(0);
+
+      const mainDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .get();
+      expect(mainDoc.data()!.waitingCount).toBe(0);
+      expect(mainDoc.data()!.entries).toBe(0);
+      expect(mainDoc.data()!.playersIn).toBe(0);
+      expect(mainDoc.data()!.seatedCount).toBe(0);
     });
 
     it('pokerName が activeStays/{userId}.pokerName から取得されること（未設定時は Player_{userId} をフォールバック）', async () => {
@@ -185,6 +222,13 @@ describe('assignSeatToPlayer', () => {
           waiting: { [userId]: true },
           count: 1,
         });
+
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .update({ waitingCount: 1 });
 
       const adminId = 'admin_test_assign_002';
       await createAdminDevice(adminId);
@@ -474,6 +518,22 @@ describe('assignSeatToPlayer', () => {
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({
+          entries: 0,
+          playersIn: 0,
+          waitingCount: 5,
+          seatedCount: 0,
+          reentries: 0,
+          addons: 0,
+          playersBusted: 0,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
       const adminId = 'admin_test_assign_waiting_missing_001';
       await createAdminDevice(adminId);
 
@@ -512,6 +572,65 @@ describe('assignSeatToPlayer', () => {
       const billData = billDoc.data()!;
       expect(billData.place.table).toBe(tableId);
       expect(billData.place.seat).toBe(seatNumber);
+
+      const mainDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .get();
+      expect(mainDoc.data()!.waitingCount).toBe(5);
+    });
+
+    it('waiting ドキュメントはあるが対象ユーザーが waiting にいない場合、waitingCount は変わらないこと', async () => {
+      const tournamentId = 'tournament_test_not_in_waiting_001';
+      const userId = 'user_test_not_in_waiting_001';
+      const billId = 'bill_test_not_in_waiting_001';
+      const tableId = 'table_001';
+      const seatNumber = 1;
+      const pokerName = 'テスト太郎';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName,
+        idempotencyKey: 'idem_test_not_in_waiting_001',
+      });
+
+      await setupTournament(tournamentId, tableId);
+
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .update({ waitingCount: 7 });
+
+      const adminId = 'admin_test_assign_not_in_waiting_001';
+      await createAdminDevice(adminId);
+
+      const mockRequest = {
+        auth: { uid: adminId },
+        data: {
+          operationId: `op_assign_${tournamentId}`,
+          tournamentId,
+          userId,
+          tableId,
+          seatNumber,
+        },
+      } as any;
+
+      const result = await (assignSeatToPlayer as any).run(mockRequest);
+
+      expect(result.success).toBe(true);
+
+      const mainDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .get();
+      expect(mainDoc.data()!.waitingCount).toBe(7);
     });
   });
 });

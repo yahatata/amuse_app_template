@@ -60,6 +60,10 @@ void main() {
       expect(config.linePlan, kDefaultLinePlan);
     });
 
+    test('okibake.loginPromptMode', () {
+      expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
+    });
+
     test('shift (R-08)', () {
       expect(config.shiftSubmissionStartDay, kDefaultShiftSubmissionStartDay);
       expect(config.shiftSubmissionEndDay, kDefaultShiftSubmissionEndDay);
@@ -87,6 +91,7 @@ void main() {
       final config = StoreConfigData.fromMap({});
       expect(config.sideGameChipRate, kDefaultSideGameChipRate);
       expect(config.payrollStartDay, kDefaultPayrollStartDay);
+      expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
     });
   });
 
@@ -191,6 +196,33 @@ void main() {
         'businessDay': {'calcBufferMinutes': 120},
       });
       expect(config.calcBufferMinutes, 120);
+    });
+
+    test('okibake.loginPromptMode 欠損 → notice_only', () {
+      final config = StoreConfigData.fromMap({'okibake': <String, dynamic>{}});
+      expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
+      expect(config.entranceFee, kDefaultEntranceFee);
+    });
+
+    test('okibake.loginPromptMode 不正 → notice_only（他項目は既定）', () {
+      final config = StoreConfigData.fromMap({'okibake': {'loginPromptMode': 'bad'}});
+      expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
+      expect(config.linePlan, kDefaultLinePlan);
+    });
+
+    test('okibake.loginPromptMode の有効値', () {
+      expect(
+        StoreConfigData.fromMap({
+          'okibake': {'loginPromptMode': kOkibakeLoginPromptModeNone},
+        }).okibakeLoginPromptMode,
+        kOkibakeLoginPromptModeNone,
+      );
+      expect(
+        StoreConfigData.fromMap({
+          'okibake': {'loginPromptMode': kOkibakeLoginPromptModeLinkPrompt},
+        }).okibakeLoginPromptMode,
+        kOkibakeLoginPromptModeLinkPrompt,
+      );
     });
 
     test('businessHoursStyles 上書き', () {
@@ -311,6 +343,7 @@ void main() {
         },
       },
       'linePlan': 'light',
+      'okibake': {'loginPromptMode': kOkibakeLoginPromptModeLinkPrompt},
       'shift': {
         'submissionStartDay': 3,
         'submissionEndDay': 18,
@@ -334,6 +367,7 @@ void main() {
     expect(config.sideGameChipRoundingUnit, 10);
     expect(config.businessHoursStyles['weekday']!['openMinute'], 480);
     expect(config.linePlan, 'light');
+    expect(config.okibakeLoginPromptMode, kOkibakeLoginPromptModeLinkPrompt);
     expect(config.shiftSubmissionStartDay, 3);
     expect(config.payrollStartDay, 1);
     expect(config.payrollEndDay, 28);

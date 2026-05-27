@@ -1,15 +1,250 @@
 import 'dart:math';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 
-import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/material.dart';
 import '../../services/device_service.dart';
 import '../../utils/business_date_ambiguous_dialog.dart';
+import 'utils/tournament_callable_error_formatter.dart';
+import 'utils/okibake_bill_link_callable_payload.dart';
 
 /// Phase0A D-13: storeId/tenantId は必須。供給元未実装時は開発用仮値で呼び出し。
 /// 本番では Build/Deploy で注入する想定。
 const String kDevPlaceholderStoreId = 'test-store';
 const String kDevPlaceholderTenantId = 'test-tenant';
+
+/// Phase2 `createOkibakeTemporaryEntry` Callable のクライアント向け結果。
+class CreateOkibakeTemporaryEntryResult {
+  const CreateOkibakeTemporaryEntryResult({
+    required this.success,
+    this.okibakeEntryId,
+    this.temporaryDisplayName,
+    this.replay = false,
+    this.errorMessage,
+  });
+
+  final bool success;
+  final String? okibakeEntryId;
+  final String? temporaryDisplayName;
+  final bool replay;
+  final String? errorMessage;
+
+  factory CreateOkibakeTemporaryEntryResult.fromCallableData(dynamic raw) {
+    if (raw is! Map) {
+      return const CreateOkibakeTemporaryEntryResult(success: false, errorMessage: '応答が不正です');
+    }
+    final m = Map<String, dynamic>.from(raw);
+    return CreateOkibakeTemporaryEntryResult(
+      success: m['success'] == true,
+      okibakeEntryId: m['okibakeEntryId'] as String?,
+      temporaryDisplayName: m['temporaryDisplayName'] as String?,
+      replay: m['replay'] == true,
+    );
+  }
+
+  factory CreateOkibakeTemporaryEntryResult.fromException(Object e) {
+    return CreateOkibakeTemporaryEntryResult(
+      success: false,
+      errorMessage: formatTournamentCallableError(e),
+    );
+  }
+}
+
+/// Phase 3C-3-1 `assignOkibakeTemporaryEntryToSeat` Callable のクライアント向け結果。
+class AssignOkibakeTemporaryEntryToSeatResult {
+  const AssignOkibakeTemporaryEntryToSeatResult({
+    required this.success,
+    this.replay = false,
+    this.errorMessage,
+  });
+
+  final bool success;
+  final bool replay;
+  final String? errorMessage;
+
+  factory AssignOkibakeTemporaryEntryToSeatResult.fromCallableData(dynamic raw) {
+    if (raw is! Map) {
+      return const AssignOkibakeTemporaryEntryToSeatResult(
+        success: false,
+        errorMessage: '応答が不正です',
+      );
+    }
+    final m = Map<String, dynamic>.from(raw);
+    return AssignOkibakeTemporaryEntryToSeatResult(
+      success: m['success'] == true,
+      replay: m['replay'] == true,
+      errorMessage: m['error'] as String? ?? m['message'] as String?,
+    );
+  }
+
+  factory AssignOkibakeTemporaryEntryToSeatResult.fromException(Object e) {
+    return AssignOkibakeTemporaryEntryToSeatResult(
+      success: false,
+      errorMessage: formatTournamentCallableError(e),
+    );
+  }
+}
+
+/// 通常参加者の Addon（Callable `addon`）。
+class ApplyUserAddonResult {
+  const ApplyUserAddonResult({
+    required this.success,
+    this.replay = false,
+    this.errorMessage,
+  });
+
+  final bool success;
+  final bool replay;
+  final String? errorMessage;
+
+  factory ApplyUserAddonResult.fromCallableData(dynamic raw) {
+    if (raw is! Map) {
+      return const ApplyUserAddonResult(
+        success: false,
+        errorMessage: '応答が不正です',
+      );
+    }
+    final m = Map<String, dynamic>.from(raw);
+    return ApplyUserAddonResult(
+      success: m['success'] == true,
+      replay: m['replay'] == true,
+      errorMessage: m['error'] as String? ?? m['message'] as String?,
+    );
+  }
+
+  factory ApplyUserAddonResult.fromException(Object e) {
+    if (e is FirebaseFunctionsException) {
+      return ApplyUserAddonResult(
+        success: false,
+        errorMessage: '${e.code}: ${e.message ?? '(no message)'}',
+      );
+    }
+    return ApplyUserAddonResult(
+      success: false,
+      errorMessage: e.toString(),
+    );
+  }
+}
+
+/// Phase 3C-3-2 `applyOkibakeAddon` Callable のクライアント向け結果。
+class ApplyOkibakeAddonResult {
+  const ApplyOkibakeAddonResult({
+    required this.success,
+    this.replay = false,
+    this.addonRecordId,
+    this.errorMessage,
+  });
+
+  final bool success;
+  final bool replay;
+  final String? addonRecordId;
+  final String? errorMessage;
+
+  factory ApplyOkibakeAddonResult.fromCallableData(dynamic raw) {
+    if (raw is! Map) {
+      return const ApplyOkibakeAddonResult(
+        success: false,
+        errorMessage: '応答が不正です',
+      );
+    }
+    final m = Map<String, dynamic>.from(raw);
+    final successFlag = m['success'] == true;
+    final replayFlag = m['replay'] == true;
+    final ar = m['addonRecordId'];
+    final addonRecordId = ar is String && ar.isNotEmpty ? ar : null;
+    return ApplyOkibakeAddonResult(
+      success: successFlag,
+      replay: replayFlag,
+      addonRecordId: addonRecordId,
+      errorMessage: m['error'] as String? ?? m['message'] as String?,
+    );
+  }
+
+  factory ApplyOkibakeAddonResult.fromException(Object e) {
+    return ApplyOkibakeAddonResult(
+      success: false,
+      errorMessage: formatTournamentCallableError(e),
+    );
+  }
+}
+
+/// Phase 3C-3-2 `bustOkibakeTemporaryEntry` Callable のクライアント向け結果。
+class BustOkibakeTemporaryEntryResult {
+  const BustOkibakeTemporaryEntryResult({
+    required this.success,
+    this.replay = false,
+    this.errorMessage,
+  });
+
+  final bool success;
+  final bool replay;
+  final String? errorMessage;
+
+  factory BustOkibakeTemporaryEntryResult.fromCallableData(dynamic raw) {
+    if (raw is! Map) {
+      return const BustOkibakeTemporaryEntryResult(
+        success: false,
+        errorMessage: '応答が不正です',
+      );
+    }
+    final m = Map<String, dynamic>.from(raw);
+    return BustOkibakeTemporaryEntryResult(
+      success: m['success'] == true,
+      replay: m['replay'] == true,
+      errorMessage: m['error'] as String? ?? m['message'] as String?,
+    );
+  }
+
+  factory BustOkibakeTemporaryEntryResult.fromException(Object e) {
+    return BustOkibakeTemporaryEntryResult(
+      success: false,
+      errorMessage: formatTournamentCallableError(e),
+    );
+  }
+}
+
+/// Phase 4-C `linkOkibakeTemporaryEntryToBill` Callable のクライアント向け結果。
+class LinkOkibakeTemporaryEntryToBillResult {
+  const LinkOkibakeTemporaryEntryToBillResult({
+    required this.success,
+    this.replay = false,
+    this.billId,
+    this.okibakeEntryId,
+    this.errorMessage,
+  });
+
+  final bool success;
+  final bool replay;
+  final String? billId;
+  final String? okibakeEntryId;
+  final String? errorMessage;
+
+  factory LinkOkibakeTemporaryEntryToBillResult.fromCallableData(dynamic raw) {
+    if (raw is! Map) {
+      return const LinkOkibakeTemporaryEntryToBillResult(
+        success: false,
+        errorMessage: '応答が不正です',
+      );
+    }
+    final m = Map<String, dynamic>.from(raw);
+    final billRaw = m['billId'];
+    final entryRaw = m['okibakeEntryId'];
+    return LinkOkibakeTemporaryEntryToBillResult(
+      success: m['success'] == true,
+      replay: m['replay'] == true,
+      billId: billRaw is String && billRaw.isNotEmpty ? billRaw : null,
+      okibakeEntryId: entryRaw is String && entryRaw.isNotEmpty ? entryRaw : null,
+      errorMessage: m['error'] as String? ?? m['message'] as String?,
+    );
+  }
+
+  factory LinkOkibakeTemporaryEntryToBillResult.fromException(Object e) {
+    return LinkOkibakeTemporaryEntryToBillResult(
+      success: false,
+      errorMessage: formatTournamentCallableError(e),
+    );
+  }
+}
 
 // 後フェーズで実装予定のインターフェース
 abstract class TournamentService {
@@ -50,8 +285,43 @@ abstract class TournamentService {
     required String tableId,
     required int seatNumber,
   });
-  
-    Future<Map<String, dynamic>> reseatAllPlayers({
+
+  /// Phase 3C-3-1: 置きバケ一時参加者を指定席へ（Callable `assignOkibakeTemporaryEntryToSeat`）。
+  Future<AssignOkibakeTemporaryEntryToSeatResult> assignOkibakeTemporaryEntryToSeat({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required String tableId,
+    required String seatKey,
+  });
+
+  /// Phase 3C-3-2: 着席済み置きバケの Addon（Callable `applyOkibakeAddon`）。
+  Future<ApplyOkibakeAddonResult> applyOkibakeAddon({
+    required String tournamentId,
+    required String okibakeEntryId,
+  });
+
+  /// 通常参加者の Addon（Callable `addon`）。待機中は tableId を送らない。
+  Future<ApplyUserAddonResult> applyUserAddon({
+    required String tournamentId,
+    required String userId,
+    required String pokerName,
+  });
+
+  /// Phase 3C-3-2: 着席済み置きバケの Bust（Callable `bustOkibakeTemporaryEntry`）。
+  Future<BustOkibakeTemporaryEntryResult> bustOkibakeTemporaryEntry({
+    required String tournamentId,
+    required String okibakeEntryId,
+  });
+
+  /// Phase 4-C: 置きバケ一時参加者の伝票紐付け（Callable `linkOkibakeTemporaryEntryToBill`）。
+  Future<LinkOkibakeTemporaryEntryToBillResult> linkOkibakeTemporaryEntryToBill({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required String userId,
+    required String billId,
+  });
+
+  Future<Map<String, dynamic>> reseatAllPlayers({
     required String tournamentId,
     required List<Map<String, dynamic>> playerAssignments,
   });
@@ -74,6 +344,17 @@ abstract class TournamentService {
   Future<Map<String, dynamic>> registerParticipants({
     required String tournamentId,
     required List<String> userIds,
+  });
+
+  /// Phase2: 置きバケ一時参加者を登録する（Firestore への直接書き込みではなく Callable）。
+  Future<CreateOkibakeTemporaryEntryResult> createOkibakeTemporaryEntry({
+    required String operationId,
+    required String tournamentId,
+    required String addonIntent,
+    String? linkedUserId,
+    String? linkedUserPokerName,
+    String? memo,
+    String? deviceName,
   });
 
   // レベル管理
@@ -214,6 +495,35 @@ class TournamentServiceImpl implements TournamentService {
   }
 
   @override
+  Future<CreateOkibakeTemporaryEntryResult> createOkibakeTemporaryEntry({
+    required String operationId,
+    required String tournamentId,
+    required String addonIntent,
+    String? linkedUserId,
+    String? linkedUserPokerName,
+    String? memo,
+    String? deviceName,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable('createOkibakeTemporaryEntry');
+      final payload = <String, dynamic>{
+        'operationId': operationId,
+        'tournamentId': tournamentId,
+        'addonIntent': addonIntent,
+        if (linkedUserId != null && linkedUserId.isNotEmpty) 'linkedUserId': linkedUserId,
+        if (linkedUserPokerName != null && linkedUserPokerName.isNotEmpty)
+          'linkedUserPokerName': linkedUserPokerName,
+        if (memo != null) 'memo': memo,
+        if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
+      };
+      final result = await callable.call(payload);
+      return CreateOkibakeTemporaryEntryResult.fromCallableData(result.data);
+    } catch (e) {
+      return CreateOkibakeTemporaryEntryResult.fromException(e);
+    }
+  }
+
+  @override
   Future<Map<String, dynamic>> addTableToTournament({
     required String tournamentId,
     required String tableId,
@@ -282,6 +592,173 @@ class TournamentServiceImpl implements TournamentService {
       return response;
     } catch (e) {
       throw Exception('待機者着席に失敗しました: $e');
+    }
+  }
+
+  @override
+  Future<AssignOkibakeTemporaryEntryToSeatResult> assignOkibakeTemporaryEntryToSeat({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required String tableId,
+    required String seatKey,
+  }) async {
+    try {
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+
+      final callable = _functions.httpsCallable('assignOkibakeTemporaryEntryToSeat');
+      final result = await callable
+          .call({
+            'operationId': operationId,
+            'tournamentId': tournamentId,
+            'okibakeEntryId': okibakeEntryId,
+            'tableId': tableId,
+            'seatKey': seatKey,
+            if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
+          })
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () =>
+                throw Exception('Cloud Functionの呼び出しがタイムアウトしました'),
+          );
+
+      return AssignOkibakeTemporaryEntryToSeatResult.fromCallableData(result.data);
+    } catch (e) {
+      return AssignOkibakeTemporaryEntryToSeatResult.fromException(e);
+    }
+  }
+
+  @override
+  Future<ApplyOkibakeAddonResult> applyOkibakeAddon({
+    required String tournamentId,
+    required String okibakeEntryId,
+  }) async {
+    try {
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+
+      final callable = _functions.httpsCallable('applyOkibakeAddon');
+      final result = await callable
+          .call({
+            'operationId': operationId,
+            'tournamentId': tournamentId,
+            'okibakeEntryId': okibakeEntryId,
+            if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
+          })
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () =>
+                throw Exception('Cloud Functionの呼び出しがタイムアウトしました'),
+          );
+
+      return ApplyOkibakeAddonResult.fromCallableData(result.data);
+    } catch (e) {
+      return ApplyOkibakeAddonResult.fromException(e);
+    }
+  }
+
+  @override
+  Future<ApplyUserAddonResult> applyUserAddon({
+    required String tournamentId,
+    required String userId,
+    required String pokerName,
+  }) async {
+    try {
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+
+      final callable = _functions.httpsCallable('addon');
+      final result = await callable
+          .call({
+            'operationId': operationId,
+            'tournamentId': tournamentId,
+            'userId': userId,
+            'pokerName': pokerName,
+            if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
+          })
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () =>
+                throw Exception('Cloud Functionの呼び出しがタイムアウトしました'),
+          );
+
+      return ApplyUserAddonResult.fromCallableData(result.data);
+    } catch (e) {
+      return ApplyUserAddonResult.fromException(e);
+    }
+  }
+
+  @override
+  Future<BustOkibakeTemporaryEntryResult> bustOkibakeTemporaryEntry({
+    required String tournamentId,
+    required String okibakeEntryId,
+  }) async {
+    try {
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+
+      final callable = _functions.httpsCallable('bustOkibakeTemporaryEntry');
+      final result = await callable
+          .call({
+            'operationId': operationId,
+            'tournamentId': tournamentId,
+            'okibakeEntryId': okibakeEntryId,
+            if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
+          })
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () =>
+                throw Exception('Cloud Functionの呼び出しがタイムアウトしました'),
+          );
+
+      return BustOkibakeTemporaryEntryResult.fromCallableData(result.data);
+    } catch (e) {
+      return BustOkibakeTemporaryEntryResult.fromException(e);
+    }
+  }
+
+  @override
+  Future<LinkOkibakeTemporaryEntryToBillResult> linkOkibakeTemporaryEntryToBill({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required String userId,
+    required String billId,
+  }) async {
+    try {
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+
+      final callable = _functions.httpsCallable('linkOkibakeTemporaryEntryToBill');
+      final result = await callable
+          .call(
+            buildLinkOkibakeBillCallablePayload(
+              operationId: operationId,
+              tournamentId: tournamentId,
+              okibakeEntryId: okibakeEntryId,
+              userId: userId,
+              billId: billId,
+              deviceName: deviceName,
+            ),
+          )
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () =>
+                throw Exception('Cloud Functionの呼び出しがタイムアウトしました'),
+          );
+
+      return LinkOkibakeTemporaryEntryToBillResult.fromCallableData(result.data);
+    } catch (e) {
+      return LinkOkibakeTemporaryEntryToBillResult.fromException(e);
     }
   }
   
@@ -474,6 +951,25 @@ class MockTournamentService implements TournamentService {
   }
 
   @override
+  Future<CreateOkibakeTemporaryEntryResult> createOkibakeTemporaryEntry({
+    required String operationId,
+    required String tournamentId,
+    required String addonIntent,
+    String? linkedUserId,
+    String? linkedUserPokerName,
+    String? memo,
+    String? deviceName,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    return CreateOkibakeTemporaryEntryResult(
+      success: true,
+      okibakeEntryId: 'mock-${DateTime.now().millisecondsSinceEpoch}',
+      temporaryDisplayName: 'オキバケモック',
+      replay: false,
+    );
+  }
+
+  @override
   Future<Map<String, dynamic>> addTableToTournament({
     required String tournamentId,
     required String tableId,
@@ -522,6 +1018,65 @@ class MockTournamentService implements TournamentService {
       'seatNumber': seatNumber,
       'message': 'モック着席が完了しました',
     };
+  }
+
+  @override
+  Future<AssignOkibakeTemporaryEntryToSeatResult> assignOkibakeTemporaryEntryToSeat({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required String tableId,
+    required String seatKey,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 600));
+    return const AssignOkibakeTemporaryEntryToSeatResult(success: true, replay: false);
+  }
+
+  @override
+  Future<ApplyOkibakeAddonResult> applyOkibakeAddon({
+    required String tournamentId,
+    required String okibakeEntryId,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    return const ApplyOkibakeAddonResult(
+      success: true,
+      replay: false,
+      addonRecordId: 'mock-addon-record',
+    );
+  }
+
+  @override
+  Future<ApplyUserAddonResult> applyUserAddon({
+    required String tournamentId,
+    required String userId,
+    required String pokerName,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    return const ApplyUserAddonResult(success: true, replay: false);
+  }
+
+  @override
+  Future<BustOkibakeTemporaryEntryResult> bustOkibakeTemporaryEntry({
+    required String tournamentId,
+    required String okibakeEntryId,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    return const BustOkibakeTemporaryEntryResult(success: true, replay: false);
+  }
+
+  @override
+  Future<LinkOkibakeTemporaryEntryToBillResult> linkOkibakeTemporaryEntryToBill({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required String userId,
+    required String billId,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    return LinkOkibakeTemporaryEntryToBillResult(
+      success: true,
+      replay: false,
+      billId: billId,
+      okibakeEntryId: okibakeEntryId,
+    );
   }
   
   @override

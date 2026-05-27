@@ -46,6 +46,16 @@ function isCloseOverrideActive(
   return untilMillis != null && untilMillis >= nowMillis;
 }
 
+/** 対象営業日が手動閉店済みか（YYYY-MM-DD ゼロ埋め前提の文字列比較）。 */
+export function isTargetDayAlreadyClosed(
+  lastClosedBusinessDateKey: string | null | undefined,
+  intendedBusinessDateKey: string
+): boolean {
+  const lastClosed = lastClosedBusinessDateKey?.trim();
+  if (!lastClosed) return false;
+  return lastClosed >= intendedBusinessDateKey;
+}
+
 export const closeAssessmentTask = onRequest(
   {
     region: 'asia-northeast1',
@@ -71,6 +81,8 @@ export const closeAssessmentTask = onRequest(
       // idempotencyKeyの生成
       const idempotencyKey = `close_assessment_${payload.intendedBusinessDateKey}_${payload.scheduledAt}`;
 
+      let staleSkipLogContext: Record<string, unknown> | null = null;
+
       logOpsInfo({
         message: 'closeAssessmentTask start',
         functionEntry: 'closeAssessmentTask',
@@ -78,6 +90,7 @@ export const closeAssessmentTask = onRequest(
         context: {
           intendedBusinessDateKey: payload.intendedBusinessDateKey,
           idempotencyKey,
+          scheduledAt: payload.scheduledAt,
         },
       });
 
@@ -181,6 +194,51 @@ export const closeAssessmentTask = onRequest(
           return;
         }
 
+        // 対象営業日は手動閉店済み → 古い close_assessment タスクを無害化
+        if (
+          isTargetDayAlreadyClosed(
+            lastClosedBusinessDateKey,
+            payload.intendedBusinessDateKey
+          )
+        ) {
+          const decidedAt = Timestamp.now();
+          staleSkipLogContext = {
+            intendedBusinessDateKey: payload.intendedBusinessDateKey,
+            currentBusinessDateKey: currentBusinessDateKey ?? null,
+            lastClosedBusinessDateKey: lastClosedBusinessDateKey ?? null,
+            scheduledAt: payload.scheduledAt,
+            reason: 'target_day_already_closed',
+          };
+          transaction.update(stateDocRef, {
+            closeAssessment: {
+              idempotencyKey,
+              intendedBusinessDateKey: payload.intendedBusinessDateKey,
+              decidedAt,
+              result: 'skipped',
+              blockers: ['target_day_already_closed'],
+              source: 'task',
+              scheduledAt: payload.scheduledAt,
+              currentBusinessDateKey: currentBusinessDateKey ?? null,
+              lastClosedBusinessDateKey: lastClosedBusinessDateKey ?? null,
+            },
+          });
+          const logRef = stateDocRef.collection('assessmentLogs').doc(idempotencyKey);
+          transaction.set(logRef, {
+            type: 'close',
+            intendedBusinessDateKey: payload.intendedBusinessDateKey,
+            scheduledAt: payload.scheduledAt,
+            result: 'skipped',
+            blockers: ['target_day_already_closed'],
+            decidedAt,
+            source: 'task',
+            idempotencyKey,
+            createdAt: decidedAt,
+            currentBusinessDateKey: currentBusinessDateKey ?? null,
+            lastClosedBusinessDateKey: lastClosedBusinessDateKey ?? null,
+          });
+          return;
+        }
+
         // 次営業日が開始しているか確認
         if (status === 'running' && currentBusinessDateKey !== payload.intendedBusinessDateKey) {
           const decidedAt = Timestamp.now();
@@ -271,6 +329,15 @@ export const closeAssessmentTask = onRequest(
         }
         transaction.set(logRef, logData);
       });
+
+      if (staleSkipLogContext != null) {
+        logOpsInfo({
+          message: 'closeAssessmentTask stale task skipped',
+          functionEntry: 'closeAssessmentTask',
+          operation: 'staleTaskSkipped',
+          context: staleSkipLogContext,
+        });
+      }
 
       logOpsSuccess({
         message: 'closeAssessmentTask 成功',

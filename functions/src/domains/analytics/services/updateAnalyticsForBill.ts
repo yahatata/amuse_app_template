@@ -140,7 +140,7 @@ export async function processBillAnalyticsAtomically(
     logInvocation: AnalyticsLogInvocation;
   }
 ): Promise<void> {
-  const { month, businessDate, billId, cycleNo, billData } = params;
+  const { month, businessDate, billId, cycleNo, billData, logInvocation } = params;
 
   // Step07 changeSpec §4.2: cycleNo 指定時は `{billId}_cycle{cycleNo}_settle`、未指定時は legacy `{billId}`
   const markerDocId =

@@ -15,6 +15,9 @@ const getActionLogsSchema = z.object({
 /** operationName → 履歴用 action コード（rollbackAction の action と揃える） */
 const OPERATION_NAME_TO_ACTION: Record<string, string> = {
   "アドオン購入": "addon",
+  "置きバケ Addon": "okibake_addon",
+  "置きバケ着席": "okibake_assign_seat",
+  "置きバケ Bust": "okibake_bust",
   "一括アドオン": "bulk_addon",
   "バスト＆退店": "bust_and_exit",
   "バスト＆再入場": "bust_and_reentry",

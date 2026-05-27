@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
@@ -7,11 +6,14 @@ import 'package:amuse_app_template/utils/store_assessment_utils.dart';
 import 'package:amuse_app_template/utils/store_strong_warning_ui.dart';
 import 'package:intl/intl.dart';
 import 'dart:math';
-import 'dart:async'; // For TimeoutException
 import 'package:amuse_app_template/user_actions/user_action_home.dart';
 import 'package:amuse_app_template/user_actions/bulk_addon_popup.dart';
 import 'package:amuse_app_template/ActionHistory/tournamentActionsHistoryPage.dart';
-import 'package:amuse_app_template/services/device_service.dart';
+import 'package:amuse_app_template/tournament/active/models/seat_data.dart';
+import 'package:amuse_app_template/tournament/active/models/scheduled_tournament_seat_map.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/assign_seat_dialog.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_seat_action_dialog.dart';
+import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 
 class TableDetailPage extends StatefulWidget {
   final String tournamentId;
@@ -30,6 +32,7 @@ class TableDetailPage extends StatefulWidget {
 class _TableDetailPageState extends State<TableDetailPage> {
   Map<String, dynamic>? _tableData;
   Map<String, dynamic>? _mainViewData;
+  final TournamentService _tournamentService = TournamentServiceImpl();
 
   @override
   void initState() {
@@ -304,8 +307,13 @@ class _TableDetailPageState extends State<TableDetailPage> {
 
   Widget _buildTableContent() {
     final seats = _tableData?['seats'] as Map<String, dynamic>? ?? {};
-    final maxSeats = _tableData?['maxSeats'] as int? ?? 10;
-    
+    final safeMaxSeats =
+        ScheduledTournamentSeatMap.resolvedTableMaxSeats(
+      _tableData?['maxSeats'],
+      seats,
+      fallbackWhenUnresolved: 10,
+    );
+
     return Row(
       children: [
         // 左側: トーナメント情報
@@ -317,7 +325,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
         // 中央: ポーカーテーブル
         Expanded(
           flex: 4,
-          child: _buildPokerTable(seats, maxSeats),
+          child: _buildPokerTable(seats, safeMaxSeats),
         ),
       ],
     );
@@ -521,22 +529,21 @@ class _TableDetailPageState extends State<TableDetailPage> {
         int occupiedSeats = 0;
 
         for (final doc in docs) {
-          if (doc.id == 'waiting') continue; // waitingドキュメントを除外
-          
+          if (doc.id == 'waiting' || doc.id == 'busted') continue;
+
           final data = doc.data() as Map<String, dynamic>?;
           if (data == null) continue;
 
           final seats = data['seats'] as Map<String, dynamic>? ?? {};
-          
-          // seatXXUserIdフィールドをカウント
-          for (final entry in seats.entries) {
-            if (entry.key.endsWith('UserId')) {
-              totalSeats++;
-              if (entry.value != null && entry.value.toString().isNotEmpty) {
-                occupiedSeats++;
-              }
-            }
-          }
+          final safeMax =
+              ScheduledTournamentSeatMap.resolvedTableMaxSeats(
+            data['maxSeats'],
+            seats,
+            fallbackWhenUnresolved: 6,
+          );
+          totalSeats += safeMax;
+          occupiedSeats +=
+              ScheduledTournamentSeatMap.occupiedCount(seats, safeMax);
         }
 
         final displayText = '$occupiedSeats/$totalSeats';
@@ -749,15 +756,11 @@ class _TableDetailPageState extends State<TableDetailPage> {
     final totalPositions = maxSeats + 1;
     
     for (int i = 1; i <= maxSeats; i++) {
-      final seatNoStr = i.toString().padLeft(2, '0');
-      final userId = seats['seat${seatNoStr}UserId'] as String?;
-      final pokerName = seats['seat${seatNoStr}PokerName'] as String?;
-      final isOccupied = userId != null && userId.isNotEmpty;
-      
+      final seatData = ScheduledTournamentSeatMap.seatDataAt(seats, i);
+
       print('席番号 $i:');
-      print('  seatUserId: $userId');
-      print('  seatPokerName: $pokerName');
-      print('  isOccupied: $isOccupied');
+      print('  seatData: $seatData');
+      print('  isOccupied: ${seatData.isOccupied}');
       
       // 座席の位置を計算（左右反転）
       // 左右反転: -cos(angle) を使用
@@ -776,7 +779,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
         Positioned(
           left: x - 60, // 120pxの座席サイズの半分（横幅が2倍になったため）
           top: y - 30,  // 60pxの座席サイズの半分（縦幅は変わらない）
-          child: _buildSeatWidget(i, isOccupied, pokerName, userId),
+          child: _buildSeatWidget(i, seatData),
         ),
       );
     }
@@ -784,13 +787,23 @@ class _TableDetailPageState extends State<TableDetailPage> {
     return widgets;
   }
 
-  Widget _buildSeatWidget(int seatNo, bool isOccupied, String? pokerName, String? userId) {
+  Widget _buildSeatWidget(int seatNo, SeatData seat) {
+    final isOccupied = seat.isOccupied;
+    VoidCallback? onTap;
+    if (seat.isOkibakeSeat) {
+      onTap = () => _showOkibakeSeatActionDialog(seat);
+    } else if (isOccupied &&
+        seat.userId != null &&
+        seat.userId!.isNotEmpty) {
+      final uid = seat.userId!;
+      final name = seat.pokerName ?? '';
+      onTap = () => _showPlayerInfo(uid, name, seatNo);
+    } else if (!isOccupied) {
+      onTap = () => _showSeatAssignmentDialog(seatNo);
+    }
+
     return GestureDetector(
-      onTap: isOccupied && userId != null && pokerName != null 
-          ? () => _showPlayerInfo(userId!, pokerName!, seatNo)
-          : !isOccupied 
-              ? () => _showSeatAssignmentDialog(seatNo)
-              : null,
+      onTap: onTap,
       child: Container(
         width: 120, // 横幅を2倍に変更（60 * 2）
         height: 60, // 縦幅はそのまま
@@ -798,12 +811,15 @@ class _TableDetailPageState extends State<TableDetailPage> {
           borderRadius: BorderRadius.circular(30), // 楕円形にする（height/2）
           color: isOccupied ? Colors.white : Colors.grey.shade300,
           border: Border.all(
-            color: isOccupied ? Colors.blue : Colors.grey.shade400,
+            color: seat.isOkibakeSeat
+                ? Colors.amber.shade700
+                : (isOccupied ? Colors.blue : Colors.grey.shade400),
             width: 2,
           ),
           boxShadow: isOccupied ? [
             BoxShadow(
-              color: Colors.blue.withValues(alpha: 0.3),
+              color: (seat.isOkibakeSeat ? Colors.amber : Colors.blue)
+                  .withValues(alpha: 0.3),
               blurRadius: 5,
               offset: const Offset(0, 2),
             ),
@@ -815,15 +831,21 @@ class _TableDetailPageState extends State<TableDetailPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                                          Icon(
-                       Icons.person,
+                       seat.isOkibakeSeat
+                           ? Icons.face_retouching_natural
+                           : Icons.person,
                        size: 20,
-                       color: Colors.blue.shade700,
+                       color: seat.isOkibakeSeat
+                           ? Colors.amber.shade800
+                           : Colors.blue.shade700,
                      ),
                                          Text(
-                       pokerName ?? 'Unknown',
+                       seat.pokerName ?? 'Unknown',
                        style: TextStyle(
                          fontSize: 10,
-                         color: Colors.blue.shade700,
+                         color: seat.isOkibakeSeat
+                             ? Colors.amber.shade800
+                             : Colors.blue.shade700,
                          fontWeight: FontWeight.bold,
                        ),
                        textAlign: TextAlign.center,
@@ -842,6 +864,36 @@ class _TableDetailPageState extends State<TableDetailPage> {
                    ),
         ),
       ),
+    );
+  }
+
+  /// 着席済み置きバケ席: Addon / Bust（Phase 3C-3-2）。
+  void _showOkibakeSeatActionDialog(SeatData seat) {
+    final entryId = seat.okibakeEntryId;
+    if (entryId == null || entryId.isEmpty || !mounted) return;
+
+    void showSnack(String message, bool isError) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isError ? Colors.red : null,
+        ),
+      );
+    }
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return OkibakeSeatActionDialog(
+          tournamentId: widget.tournamentId,
+          okibakeEntryId: entryId,
+          displayName: seat.pokerName ?? '置きバケ',
+          service: _tournamentService,
+          showResultSnackBar: showSnack,
+        );
+      },
     );
   }
 
@@ -872,12 +924,12 @@ class _TableDetailPageState extends State<TableDetailPage> {
         .snapshots();
   }
 
-  /// 空席への着席ダイアログを表示
+  /// 空席タップ時の確認。その後に待機者選択（AssignSeatDialog）へ。
   void _showSeatAssignmentDialog(int seatNumber) {
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
+      builder: (BuildContext dialogCtx) {
         return AlertDialog(
           title: Row(
             children: [
@@ -890,7 +942,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('シート $seatNumber に着席するユーザーを選択してください'),
+              Text('シート $seatNumber に着席する参加者を選択します。'),
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -910,13 +962,13 @@ class _TableDetailPageState extends State<TableDetailPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(dialogCtx).pop(),
               child: const Text('キャンセル'),
             ),
             ElevatedButton(
-              onPressed: () async {
-                Navigator.of(context).pop();
-                await _showWaitingUserSelectionDialog(seatNumber);
+              onPressed: () {
+                Navigator.of(dialogCtx).pop();
+                _showAssignSeatDialogForSeat(seatNumber);
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue,
@@ -930,286 +982,27 @@ class _TableDetailPageState extends State<TableDetailPage> {
     );
   }
 
-  /// waitingユーザー選択ダイアログを表示
-  Future<void> _showWaitingUserSelectionDialog(int seatNumber) async {
-    // 選択されたユーザーIDを管理（StatefulBuilderの外で定義）
-    String? selectedUserId;
-    String? selectedPokerName;
-    
-    await showDialog(
+  /// 統合待機リストから参加者を選び、この卓のこの席へ着席（通常 / 置きバケ）。
+  void _showAssignSeatDialogForSeat(int seatNumber) {
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
-        return StreamBuilder<DocumentSnapshot>(
-          stream: _getWaitingDocumentStream(),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return AlertDialog(
-                title: const Text('エラー'),
-                content: Text('データの取得に失敗しました: ${snapshot.error}'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('OK'),
-                  ),
-                ],
-              );
-            }
-
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const AlertDialog(
-                title: Text('読み込み中'),
-                content: Center(child: CircularProgressIndicator()),
-              );
-            }
-
-            final data = snapshot.data?.data() as Map<String, dynamic>?;
-            final waiting = data?['waiting'] as Map<String, dynamic>? ?? {};
-
-            if (waiting.isEmpty) {
-              return AlertDialog(
-                title: const Text('待機者なし'),
-                content: const Text('現在待機中のユーザーはいません'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('OK'),
-                  ),
-                ],
-              );
-            }
-
-            return StatefulBuilder(
-              builder: (context, setState) {
-                return AlertDialog(
-                  title: const Text('待機者から選択'),
-                  content: SizedBox(
-                    width: double.maxFinite,
-                    height: 150, // サイズを半分に調整
-                    child: Column(
-                      children: [
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: waiting.length,
-                            itemBuilder: (context, index) {
-                              final userId = waiting.keys.elementAt(index);
-                              final userData = waiting[userId] as Map<String, dynamic>?;
-                              final pokerName = userData?['pokerName'] as String? ?? 'Unknown';
-
-                              return CheckboxListTile(
-                                title: Text(pokerName), // IDは非表示
-                                value: selectedUserId == userId,
-                                onChanged: (bool? value) {
-                                  setState(() {
-                                    if (value == true) {
-                                      selectedUserId = userId;
-                                      selectedPokerName = pokerName;
-                                    } else {
-                                      selectedUserId = null;
-                                      selectedPokerName = null;
-                                    }
-                                  });
-                                  print('選択状態更新: userId=$selectedUserId, pokerName=$selectedPokerName'); // デバッグ用
-                                },
-                                controlAffinity: ListTileControlAffinity.leading,
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        // 確定ボタンを中央下部に配置
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: selectedUserId != null && selectedPokerName != null
-                                ? () async {
-                                    print('確定ボタン押下: userId=$selectedUserId, pokerName=$selectedPokerName'); // デバッグ用
-                                    Navigator.of(context).pop();
-                                    await _assignSeatToUser(selectedUserId!, selectedPokerName!, seatNumber);
-                                  }
-                                : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: selectedUserId != null ? Colors.blue : Colors.grey,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: Text(selectedUserId != null ? '確定' : 'ユーザーを選択してください'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('キャンセル'),
-                    ),
-                  ],
-                );
-              },
+      builder: (dialogCtx) {
+        return AssignSeatDialog(
+          tournamentId: widget.tournamentId,
+          service: _tournamentService,
+          prelockedTableId: widget.tableId,
+          prelockedSeatNumber: seatNumber,
+          onSeatAssigned: () {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('着席操作が完了しました')),
             );
+            _loadTableData();
           },
         );
       },
     );
-  }
-
-  /// ユーザーを指定席に着席させる
-  Future<void> _assignSeatToUser(String userId, String pokerName, int seatNumber) async {
-    // Overlayを使用したローディング表示
-    OverlayEntry? loadingOverlay;
-    
-    try {
-      // ローディング表示
-      loadingOverlay = OverlayEntry(
-        builder: (context) => Material(
-          color: Colors.black54,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 16),
-                  Text('着席処理中...'),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-      
-      // Overlayに追加
-      Overlay.of(context).insert(loadingOverlay);
-      
-      print('=== 着席処理開始 ===');
-      print('userId: $userId');
-      print('pokerName: $pokerName');
-      print('seatNumber: $seatNumber');
-      
-      final operationId =
-          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
-      final device = await DeviceService().getCurrentDevice();
-      final deviceName = device?.name;
-
-      final functions = FunctionsClient.instance;
-      final callable = functions.httpsCallable('assignSeatToPlayer');
-
-      print('=== Cloud Function呼び出し実行中 ===');
-      final result = await callable.call({
-        'operationId': operationId,
-        'tournamentId': widget.tournamentId,
-        'tableId': widget.tableId,
-        'seatNumber': seatNumber,
-        'userId': userId,
-        'pokerName': pokerName,
-        if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
-      }).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          print('=== タイムアウト発生 ===');
-          throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました');
-        },
-      );
-      print('=== Cloud Function呼び出し完了 ===');
-
-      print('=== Cloud Function応答 ===');
-      print('result.data: ${result.data}');
-
-      // 結果を確認
-      final data = result.data as Map<String, dynamic>;
-      
-      print('=== レスポンス解析 ===');
-      print('response: $data');
-      print('success: ${data['success']}');
-      
-      if (data['success'] == true) {
-        // 成功メッセージを表示
-        if (context.mounted) {
-          showDialog(
-            context: context,
-            builder: (BuildContext context) {
-              return AlertDialog(
-                title: Row(
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.green),
-                    const SizedBox(width: 8),
-                    const Text('完了'),
-                  ],
-                ),
-                content: Text('$pokerName様がシート $seatNumber に着席しました'),
-                actions: [
-                  ElevatedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('OK'),
-                  ),
-                ],
-              );
-            },
-          );
-        }
-      } else {
-        // エラーメッセージを表示
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('着席処理に失敗しました: ${data['error'] ?? '不明なエラー'}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      print('=== 着席処理エラー ===');
-      print('error: $e');
-      
-      // エラーメッセージを表示
-      if (context.mounted) {
-        String errorMessage = '着席処理に失敗しました';
-        
-        if (e is TimeoutException) {
-          errorMessage = '処理がタイムアウトしました。しばらく待ってから再試行してください。';
-        } else if (e.toString().contains('network')) {
-          errorMessage = 'ネットワークエラーが発生しました。接続を確認してください。';
-        } else if (e.toString().contains('permission')) {
-          errorMessage = '権限が不足しています。管理者に連絡してください。';
-        }
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: '詳細',
-              textColor: Colors.white,
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('詳細エラー: $e'),
-                    backgroundColor: Colors.red.shade800,
-                    duration: const Duration(seconds: 3),
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      }
-    } finally {
-      // ローディングを確実に閉じる
-      if (loadingOverlay != null) {
-        loadingOverlay.remove();
-      }
-    }
   }
 
   void _showActionHistoryDialog() {

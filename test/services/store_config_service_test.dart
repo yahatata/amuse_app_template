@@ -17,6 +17,7 @@ void main() {
       expect(config.chargeEntranceFeeOnReentry, kDefaultChargeEntranceFeeOnReentry);
       expect(config.autoOpenCloseEnabled, kDefaultAutoOpenCloseEnabled);
       expect(config.linePlan, kDefaultLinePlan);
+      expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
       expect(config.payrollStartDay, kDefaultPayrollStartDay);
       expect(config.payrollEndDay, kDefaultPayrollEndDay);
     });
@@ -41,6 +42,45 @@ void main() {
       expect(config.entranceFeeDescription, '入場料');
       expect(config.autoOpenCloseEnabled, false);
       expect(config.linePlan, 'light');
+    });
+
+    test('fromMap で okibake がないとき notice_only', () {
+      final config = StoreConfigData.fromMap({'linePlan': 'light'});
+      expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
+      expect(config.linePlan, 'light');
+    });
+
+    test('fromMap で okibake.loginPromptMode 欠損 → notice_only', () {
+      final config = StoreConfigData.fromMap({'okibake': <String, dynamic>{}});
+      expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
+    });
+
+    test('fromMap で okibake.loginPromptMode 不正 → notice_only', () {
+      final config = StoreConfigData.fromMap({
+        'okibake': {'loginPromptMode': 'invalid'},
+      });
+      expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
+    });
+
+    test('fromMap で okibake.loginPromptMode 有効値', () {
+      expect(
+        StoreConfigData.fromMap({
+          'okibake': {'loginPromptMode': kOkibakeLoginPromptModeNone},
+        }).okibakeLoginPromptMode,
+        kOkibakeLoginPromptModeNone,
+      );
+      expect(
+        StoreConfigData.fromMap({
+          'okibake': {'loginPromptMode': kOkibakeLoginPromptModeNoticeOnly},
+        }).okibakeLoginPromptMode,
+        kOkibakeLoginPromptModeNoticeOnly,
+      );
+      expect(
+        StoreConfigData.fromMap({
+          'okibake': {'loginPromptMode': kOkibakeLoginPromptModeLinkPrompt},
+        }).okibakeLoginPromptMode,
+        kOkibakeLoginPromptModeLinkPrompt,
+      );
     });
   });
 }

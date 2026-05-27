@@ -42,6 +42,7 @@ export async function enqueueSettlement(bill: BillDoc): Promise<void> {
     billId: bill.billId,  // 【必須】bill.billId は docId
     cycleNo: bill.cycleNo,  // Step07: 未指定なら legacy `{billId}` marker
     billData: bill,  // BillDoc から必要なフィールドを抽出（categoryBreakdown, paymentTotals, etc.）
+    logInvocation: { functionEntry: 'billsOnSettle' },
   });
 
   logger.info('enqueueSettlement: analytics update completed', {

@@ -1,8 +1,10 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
+import { logger } from "firebase-functions";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
 import { computeRegEndAt } from "../services/enqueueTournamentTasksCore";
 
 const updateTournamentTemplateSchema = z.object({
@@ -16,6 +18,7 @@ const updateTournamentTemplateSchema = z.object({
   isAddon: z.boolean().optional(),
   addonFee: z.number().optional(),
   addonStack: z.number().optional(),
+  addonLimitPerPlayer: z.number().optional(),
   blindStructure: z.string().optional(),
   prizeRatio: z.number().optional(),
   color: z.string().optional(),
@@ -47,16 +50,51 @@ export const updateTournamentTemplate = onCall(async (request) => {
       updateTournamentTemplateSchema.parse(request.data);
 
     const db = getFirestore();
+
+    const templateRef = db.collection('tournamentTemplates').doc(templateId);
+    const existingTemplateSnap = await templateRef.get();
+    if (!existingTemplateSnap.exists) {
+      throw new HttpsError('not-found', `テンプレートID "${templateId}" が見つかりません`);
+    }
+
+    const cur = existingTemplateSnap.data() as Record<string, unknown>;
+    const effectiveIsAddon =
+      typeof updateData.isAddon === 'boolean'
+        ? updateData.isAddon
+        : cur.isAddon === true;
+    const mergedLimitRawTemplate =
+      updateData.addonLimitPerPlayer !== undefined
+        ? updateData.addonLimitPerPlayer
+        : cur.addonLimitPerPlayer;
+    const addonLimitNormalized = resolveAddonLimitPerPlayer({
+      isAddon: effectiveIsAddon,
+      addonLimitPerPlayer: mergedLimitRawTemplate,
+    });
+    if (
+      effectiveIsAddon &&
+      updateData.addonLimitPerPlayer !== undefined &&
+      (!(typeof updateData.addonLimitPerPlayer === 'number') ||
+        !Number.isInteger(updateData.addonLimitPerPlayer) ||
+        updateData.addonLimitPerPlayer < 1)
+    ) {
+      logger.warn(
+        'updateTournamentTemplate: addonLimitPerPlayer は不正または未満のため正規化しました',
+      );
+    }
+
     const batch = db.batch();
 
     // 1. tournamentTemplatesを更新
-    const templateRef = db.collection('tournamentTemplates').doc(templateId);
-    const templateUpdateData = {
+    const templateFields = {
       ...updateData,
+      addonLimitPerPlayer: addonLimitNormalized,
       updatedAt: new Date(),
     };
+    const sanitizedTemplatePayload = Object.fromEntries(
+      Object.entries(templateFields).filter(([, value]) => value !== undefined),
+    );
 
-    batch.update(templateRef, templateUpdateData);
+    batch.update(templateRef, sanitizedTemplatePayload);
 
     // 2. 選択されたscheduledTournamentsのsnapshotを更新
     if (selectedTournamentIds.length > 0) {
@@ -78,6 +116,19 @@ export const updateTournamentTemplate = onCall(async (request) => {
           updateData.blindStructure !== undefined &&
           nextBlindStructure !== existingBlindStructure;
         
+        const mergedIsAddon =
+          typeof updateData.isAddon === 'boolean'
+            ? updateData.isAddon
+            : existingSnapshot.isAddon === true;
+        const mergedLimitRawSnapshot =
+          updateData.addonLimitPerPlayer !== undefined
+            ? updateData.addonLimitPerPlayer
+            : existingSnapshot.addonLimitPerPlayer;
+        const addonLimitSnap = resolveAddonLimitPerPlayer({
+          isAddon: mergedIsAddon,
+          addonLimitPerPlayer: mergedLimitRawSnapshot,
+        });
+
         // 更新されたテンプレートデータでsnapshotを更新
         const snapshotUpdateData = {
           name: updateData.name,
@@ -88,6 +139,7 @@ export const updateTournamentTemplate = onCall(async (request) => {
           isAddon: updateData.isAddon,
           addonFee: updateData.addonFee,
           addonStack: updateData.addonStack,
+          addonLimitPerPlayer: addonLimitSnap,
           startStack: updateData.startStack,
           blindStructure: updateData.blindStructure,
           prizeRatio: updateData.prizeRatio,

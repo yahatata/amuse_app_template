@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/tournament/active/models/table_and_users.dart';
 import 'package:amuse_app_template/tournament/active/models/waiting_user_data.dart';
+import 'package:amuse_app_template/tournament/active/models/okibake_temporary_entry.dart';
 
 class TournamentDataService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -162,6 +163,44 @@ class TournamentDataService {
     }
   }
 
+  /// Phase2: `entryStatus == registered` の一時行から、待機表示用の [WaitingPlayer] に変換する（`billLinkStatus` はクライアントで `unlinked` のみ採用）。
+  Future<List<WaitingPlayer>> getOkibakeTemporaryWaitingPlayers(String tournamentId) async {
+    try {
+      final snapshot = await _firestore
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('okibakeTemporaryEntries')
+          .where('entryStatus', isEqualTo: 'registered')
+          .get();
+
+      final out = <WaitingPlayer>[];
+      for (final doc in snapshot.docs) {
+        final entry = OkibakeTemporaryEntry.fromDoc(doc);
+        if (!entry.isWaitingUnlinked) continue;
+        out.add(
+          WaitingPlayer.okibakeTemporary(
+            okibakeEntryId: entry.okibakeEntryId,
+            displayName: entry.waitingListDisplayName,
+            createdAt: entry.createdAt ?? DateTime.now(),
+          ),
+        );
+      }
+      return out;
+    } catch (e) {
+      print('オキバケ一時参加者リスト取得エラー: $e');
+      return [];
+    }
+  }
+
+  /// 通常の待機リストと置きバケ一時参加者（未リンク）を統合し、[joinedAt] 降順で返す。
+  Future<List<WaitingPlayer>> getMergedWaitingPlayers(String tournamentId) async {
+    final regular = await getWaitingPlayers(tournamentId);
+    final okibake = await getOkibakeTemporaryWaitingPlayers(tournamentId);
+    final merged = <WaitingPlayer>[...regular, ...okibake];
+    merged.sort((a, b) => b.joinedAt.compareTo(a.joinedAt));
+    return merged;
+  }
+
   /// トーナメントのユーザー情報を取得
   Future<List<TournamentUser>> getTournamentUsers(String tournamentId) async {
     try {
@@ -215,7 +254,7 @@ class TournamentDataService {
   Future<Map<String, dynamic>> refreshTournamentData(String tournamentId) async {
     try {
       final tables = await getTournamentTables(tournamentId);
-      final waitingPlayers = await getWaitingPlayers(tournamentId);
+      final waitingPlayers = await getMergedWaitingPlayers(tournamentId);
       final users = await getTournamentUsers(tournamentId);
       
       return {
