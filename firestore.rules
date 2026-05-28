@@ -84,6 +84,13 @@ service cloud.firestore {
       }
     }
 
+    // collectionGroup('okibakeTemporaryEntries') 用の読み取り許可
+    // 例: requireSpecialAttentionPage の pending_review 取得
+    match /{path=**}/okibakeTemporaryEntries/{entryId} {
+      allow read: if true; // 既存開発用方針に合わせる
+      allow write: if false; // client write は許可しない
+    }
+
     // tournamentTemplates の読み取り（開発用：全許可）
     match /tournamentTemplates/{templateId} {
       allow read: if true;

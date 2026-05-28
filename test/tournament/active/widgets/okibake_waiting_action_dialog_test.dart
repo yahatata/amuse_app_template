@@ -72,6 +72,8 @@ void main() {
       expect(find.text('待機時間: 5分'), findsOneWidget);
       expect(find.text('伝票: 未リンク'), findsOneWidget);
       expect(find.text('Addon: 現在 0 / 2 回'), findsOneWidget);
+      expect(find.text('対象ユーザー設定'), findsNothing);
+      expect(find.text('対象ユーザー変更'), findsNothing);
     });
 
     testWidgets('Addon disabled 時も席へは選択できる', (tester) async {
@@ -110,6 +112,48 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(result, OkibakeWaitingAction.assignSeat);
+    });
+
+    testWidgets('canSetLinkedUser true のとき対象ユーザー設定を表示し結果を返す', (tester) async {
+      OkibakeWaitingAction? result;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      result = await showOkibakeWaitingActionDialog(
+                        context: context,
+                        displayName: 'オキバケA',
+                        addonLine: 'Addon: 現在 0 / 2 回',
+                        addonDisabled: false,
+                        waitingMinutes: 3,
+                        billLinkStatus: 'unlinked',
+                        canSetLinkedUser: true,
+                      );
+                    },
+                    child: const Text('open'),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('対象ユーザー設定'), findsOneWidget);
+      expect(find.text('対象ユーザー変更'), findsNothing);
+
+      await tester.tap(find.text('対象ユーザー設定'));
+      await tester.pumpAndSettle();
+
+      expect(result, OkibakeWaitingAction.setLinkedUser);
     });
   });
 }

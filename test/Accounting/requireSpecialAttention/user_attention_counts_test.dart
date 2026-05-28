@@ -34,6 +34,17 @@ BillRequireAttentionViewModel _buildVm(BillCardType cardType, String billId) {
         },
         'party': {'userId': 'u1', 'pokerName': 'TestUser'},
       })!;
+    case BillCardType.okibakePendingReview:
+      return BillRequireAttentionViewModel.fromOkibakePendingReview(
+        tournamentId: 't1',
+        okibakeEntryId: billId,
+        entry: {
+          'linkedUserId': 'u1',
+          'linkedUserPokerName': 'TestUser',
+          'businessDate': '2026-05-01',
+          'estimatedAmountIncl': 1200,
+        },
+      );
   }
 }
 

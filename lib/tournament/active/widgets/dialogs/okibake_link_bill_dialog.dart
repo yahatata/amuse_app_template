@@ -158,7 +158,8 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
   ) =>
       findOkibakeBillLinkStayCandidate(candidates, _selectedUserId);
 
-  bool get _canLinkBill => _billLinkStatus == 'unlinked';
+  bool get _canLinkBill =>
+      _billLinkStatus == 'unlinked' || _billLinkStatus == 'pending_review';
 
   Future<bool> _confirmLink(OkibakeBillLinkStayCandidate selected) async {
     final ok = await showDialog<bool>(

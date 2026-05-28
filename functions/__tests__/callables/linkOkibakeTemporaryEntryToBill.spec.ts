@@ -240,6 +240,114 @@ describe('linkOkibakeTemporaryEntryToBill', () => {
     expect(billTournament.entryCount).toBe(1);
     expect(billTournament.entryFeeIncl).toBe(entryFee);
     expect(billTournament.addonCount).toBe(0);
+
+    const waiting = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tid)
+        .collection('tablesSeat')
+        .doc('waiting')
+        .get()
+    ).data()!;
+    expect(waiting.count).toBe(1);
+    expect(waiting.waiting[guestUid].pokerName).toBe('リンク太郎');
+    expect(waiting.waiting[guestUid].order).toBe(1);
+
+    const usersList = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tid)
+        .collection('views')
+        .doc('usersList')
+        .get()
+    ).data()!;
+    expect(usersList.users[guestUid].pokerName).toBe('リンク太郎');
+
+    const op = (await db.collection('operationLogs').doc('op-link-reg').get()).data()!;
+    expect(op.payload.waitingAfter.userEntry.pokerName).toBe('リンク太郎');
+    expect(op.payload.usersListAfter.userEntry.pokerName).toBe('リンク太郎');
+  });
+
+  it('registered + unlinked entry の linked 時、既存の通常待機者一覧へ末尾追加する', async () => {
+    const uid = 'u-link-reg-waiting';
+    const tid = 't-link-reg-waiting';
+    const eid = 'e-reg-waiting';
+    const guestUid = 'guest-reg-waiting';
+    const billId = 'bill-reg-waiting';
+    await seedDevice(uid);
+    await seedTournament(tid);
+    await seedBillAndStay(guestUid, billId, 'open');
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('tablesSeat')
+      .doc('waiting')
+      .set({
+        count: 1,
+        waiting: {
+          existing: {
+            pokerName: '既存太郎',
+            joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+            order: 4,
+          },
+        },
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('views')
+      .doc('usersList')
+      .set({
+        users: {
+          existing: {
+            pokerName: '既存太郎',
+            registeredAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+        },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(entryBase(eid, tid, 'registered'));
+
+    await runLink({
+      uid,
+      tournamentId: tid,
+      okibakeEntryId: eid,
+      userId: guestUid,
+      billId,
+      operationId: 'op-link-reg-waiting',
+    });
+
+    const waiting = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tid)
+        .collection('tablesSeat')
+        .doc('waiting')
+        .get()
+    ).data()!;
+    expect(waiting.count).toBe(2);
+    expect(waiting.waiting.existing.pokerName).toBe('既存太郎');
+    expect(waiting.waiting[guestUid].pokerName).toBe('リンク太郎');
+    expect(waiting.waiting[guestUid].order).toBe(5);
+
+    const usersList = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tid)
+        .collection('views')
+        .doc('usersList')
+        .get()
+    ).data()!;
+    expect(usersList.users.existing.pokerName).toBe('既存太郎');
+    expect(usersList.users[guestUid].pokerName).toBe('リンク太郎');
   });
 
   it('seated + unlinked entry を linked にし seatXXUserId / seatXXPokerName を差し替える', async () => {
@@ -290,6 +398,19 @@ describe('linkOkibakeTemporaryEntryToBill', () => {
     expect(seats.seat03UserId).toBe(guestUid);
     expect(seats.seat03PokerName).toBe('リンク太郎');
     expect(seats.seat03OkibakeEntryId).toBe(eid);
+
+    const usersList = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tid)
+        .collection('views')
+        .doc('usersList')
+        .get()
+    ).data()!;
+    expect(usersList.users[guestUid].pokerName).toBe('リンク太郎');
+
+    const op = (await db.collection('operationLogs').doc('op-link-seat').get()).data()!;
+    expect(op.payload.usersListAfter.userEntry.pokerName).toBe('リンク太郎');
   });
 
   it('busted + unlinked entry を linked にでき entry / addon は bill 側に反映する', async () => {
@@ -341,10 +462,21 @@ describe('linkOkibakeTemporaryEntryToBill', () => {
     expect(billTournament.entryCount).toBe(1);
     expect(billTournament.addonCount).toBe(1);
 
+    const usersList = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tid)
+        .collection('views')
+        .doc('usersList')
+        .get()
+    ).data()!;
+    expect(usersList.users[guestUid].pokerName).toBe('リンク太郎');
+
     const op = await db.collection('operationLogs').doc('op-link-bust').get();
     const payload = op.data()!.payload as Record<string, unknown>;
     expect(payload.reflectedEntry).toBeDefined();
     expect(payload.reflectedAddonCount).toBe(1);
+    expect((payload.usersListAfter as Record<string, any>).userEntry.pokerName).toBe('リンク太郎');
   });
 
   it('busted entry を link しても bill 側へ bust 専用反映を作成しない', async () => {
@@ -430,7 +562,7 @@ describe('linkOkibakeTemporaryEntryToBill', () => {
     });
   });
 
-  it('pending_review は拒否する', async () => {
+  it('pending_review でも紐付けできる', async () => {
     const uid = 'u-link-pending';
     const tid = 't-link-pending';
     const eid = 'e-pending';
@@ -446,16 +578,21 @@ describe('linkOkibakeTemporaryEntryToBill', () => {
       .doc(eid)
       .set(entryBase(eid, tid, 'registered', { billLinkStatus: 'pending_review' }));
 
-    await expect(
-      runLink({
-        uid,
-        tournamentId: tid,
-        okibakeEntryId: eid,
-        userId: guestUid,
-        billId,
-        operationId: 'op-link-pending',
-      })
-    ).rejects.toMatchObject({ code: 'failed-precondition' });
+    const result = await runLink({
+      uid,
+      tournamentId: tid,
+      okibakeEntryId: eid,
+      userId: guestUid,
+      billId,
+      operationId: 'op-link-pending',
+    });
+
+    expect(result).toMatchObject({
+      success: true,
+      replay: false,
+      okibakeEntryId: eid,
+      billId,
+    });
   });
 
   it('voided は拒否する', async () => {

@@ -48,11 +48,6 @@ Future<void> showBustAndExitDialog({
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'この操作により、ユーザーは卓から退席し、Bustしたプレイヤー数が増加します。',
-              style: TextStyle(color: Colors.red.shade700),
-            ),
           ],
         ),
         actions: [

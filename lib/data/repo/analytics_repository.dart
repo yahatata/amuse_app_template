@@ -182,9 +182,10 @@ class AnalyticsRepository {
         if (!doc.exists) return null;
         
         final data = doc.data();
+        final grossSales = data?['grossSales'];
         return {
           'monthId': month,
-          'grossSales': data?['grossSales'] ?? 0,
+          'grossSales': grossSales is num ? grossSales.toInt() : 0,
           'monthName': _getMonthName(month),
         };
       });

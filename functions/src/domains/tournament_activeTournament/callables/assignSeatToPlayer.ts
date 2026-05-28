@@ -81,7 +81,13 @@ export const assignSeatToPlayer = onCall(async (request) => {
       // 2. 指定されたシートが空いているかチェック（新しい構造）
       const seatNumberStr = seatNumber.toString().padStart(2, '0');
       const seatUserIdKey = `seat${seatNumberStr}UserId`;
-      if (tableSeatData.seats[seatUserIdKey] !== null) {
+      const seatOkibakeEntryIdKey = `seat${seatNumberStr}OkibakeEntryId`;
+      const seatUserId = tableSeatData.seats[seatUserIdKey];
+      const seatOkibakeEntryId = tableSeatData.seats[seatOkibakeEntryIdKey];
+      const hasSeatUser = seatUserId != null && String(seatUserId).trim().length > 0;
+      const hasSeatOkibake =
+        seatOkibakeEntryId != null && String(seatOkibakeEntryId).trim().length > 0;
+      if (hasSeatUser || hasSeatOkibake) {
         throw new FunctionCustomError({
           errorKey: 'TOURNAMENT_INVALID_STATE',
           message: '指定されたシートは既に使用中です',

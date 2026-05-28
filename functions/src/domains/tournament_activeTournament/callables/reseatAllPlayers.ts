@@ -138,7 +138,11 @@ export const reseatAllPlayers = onCall(async (request) => {
           
           // 新しい構造で全シートをnullにリセット
           Object.keys(seats).forEach(seatKey => {
-            if (seatKey.endsWith('UserId') || seatKey.endsWith('PokerName')) {
+            if (
+              seatKey.endsWith('UserId') ||
+              seatKey.endsWith('PokerName') ||
+              seatKey.endsWith('OkibakeEntryId')
+            ) {
               clearedSeats[seatKey] = null;
             }
           });
@@ -165,6 +169,7 @@ export const reseatAllPlayers = onCall(async (request) => {
           // シートにユーザーを割り当て（新しい構造）
           updatedSeats[`seat${seatNumberStr}UserId`] = userId;
           updatedSeats[`seat${seatNumberStr}PokerName`] = pokerName;
+          updatedSeats[`seat${seatNumberStr}OkibakeEntryId`] = null;
           
           tableUpdates.set(tableId, updatedSeats);
         }

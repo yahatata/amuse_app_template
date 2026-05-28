@@ -130,8 +130,10 @@ export async function undoRegisterParticipants(params: UndoRegisterParticipantsP
         for (const [k, v] of Object.entries(seats)) {
           if (k.endsWith('UserId') && typeof v === 'string' && playerUidSet.has(v)) {
             const nameKey = k.replace('UserId', 'PokerName');
+            const okibakeEntryIdKey = k.replace('UserId', 'OkibakeEntryId');
             updatedSeats[k] = null;
             updatedSeats[nameKey] = null;
+            updatedSeats[okibakeEntryIdKey] = null;
             changed = true;
           }
         }

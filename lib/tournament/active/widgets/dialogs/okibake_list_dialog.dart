@@ -3,6 +3,7 @@ import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_busted_action_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_bill_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_seat_action_dialog.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_update_linked_user_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_waiting_action_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/okibake_addon_display_helpers.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
@@ -21,7 +22,7 @@ Future<void> showOkibakeListDialog({
   required String tournamentId,
   required TournamentService service,
   required void Function(String okibakeEntryId, String displayName)
-      onRequestAssignSeat,
+  onRequestAssignSeat,
 }) {
   return showDialog<void>(
     context: context,
@@ -50,7 +51,7 @@ class OkibakeListDialog extends StatefulWidget {
   /// 席配置が要求されたら、このダイアログ自体は閉じて呼び出し元で
   /// `AssignSeatDialog` を開く（§12.8.4 registered の席配置）。
   final void Function(String okibakeEntryId, String displayName)
-      onRequestAssignSeat;
+  onRequestAssignSeat;
 
   @override
   State<OkibakeListDialog> createState() => _OkibakeListDialogState();
@@ -74,10 +75,7 @@ class _OkibakeListDialogState extends State<OkibakeListDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 560,
-          maxHeight: size.height - 64,
-        ),
+        constraints: BoxConstraints(maxWidth: 560, maxHeight: size.height - 64),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
@@ -93,7 +91,9 @@ class _OkibakeListDialogState extends State<OkibakeListDialog> {
                       child: Text(
                         '置きバケ一覧',
                         style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                     IconButton(
@@ -119,7 +119,7 @@ class _OkibakeListDialogState extends State<OkibakeListDialog> {
                       var resolvedAddonLimit = -1;
                       final addonLimitLoading =
                           tourSnap.connectionState == ConnectionState.waiting &&
-                              !tourSnap.hasData;
+                          !tourSnap.hasData;
                       if (tourSnap.hasData && tourSnap.data!.exists) {
                         final tourData = tourSnap.data!.data() ?? {};
                         final snap = Map<String, dynamic>.from(
@@ -131,8 +131,7 @@ class _OkibakeListDialogState extends State<OkibakeListDialog> {
                         );
                       }
 
-                      return StreamBuilder<
-                          QuerySnapshot<Map<String, dynamic>>>(
+                      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                         stream: FirebaseFirestore.instance
                             .collection('scheduledTournaments')
                             .doc(widget.tournamentId)
@@ -144,16 +143,14 @@ class _OkibakeListDialogState extends State<OkibakeListDialog> {
                               padding: const EdgeInsets.symmetric(vertical: 24),
                               child: Text(
                                 '置きバケ一覧の取得に失敗しました: ${snap.error}',
-                                style:
-                                    TextStyle(color: Colors.red.shade700),
+                                style: TextStyle(color: Colors.red.shade700),
                               ),
                             );
                           }
                           if (!snap.hasData) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 24),
-                              child: Center(
-                                  child: CircularProgressIndicator()),
+                              child: Center(child: CircularProgressIndicator()),
                             );
                           }
 
@@ -165,13 +162,11 @@ class _OkibakeListDialogState extends State<OkibakeListDialog> {
 
                           if (entries.isEmpty) {
                             return Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 24),
+                              padding: const EdgeInsets.symmetric(vertical: 24),
                               child: Center(
                                 child: Text(
                                   '対象の置きバケはいません',
-                                  style: TextStyle(
-                                      color: Colors.grey.shade700),
+                                  style: TextStyle(color: Colors.grey.shade700),
                                 ),
                               ),
                             );
@@ -193,7 +188,9 @@ class _OkibakeListDialogState extends State<OkibakeListDialog> {
                                 onRequestAssignSeat: (entryId, displayName) {
                                   Navigator.of(context).pop();
                                   widget.onRequestAssignSeat(
-                                      entryId, displayName);
+                                    entryId,
+                                    displayName,
+                                  );
                                 },
                                 showSnack: _showSnack,
                               );
@@ -244,10 +241,8 @@ List<OkibakeTemporaryEntry> filterOkibakeListEntries(
   filtered.sort((a, b) {
     final o = statusOrder(a.entryStatus) - statusOrder(b.entryStatus);
     if (o != 0) return o;
-    final aTs =
-        a.createdAt?.millisecondsSinceEpoch ?? -1 << 62;
-    final bTs =
-        b.createdAt?.millisecondsSinceEpoch ?? -1 << 62;
+    final aTs = a.createdAt?.millisecondsSinceEpoch ?? -1 << 62;
+    final bTs = b.createdAt?.millisecondsSinceEpoch ?? -1 << 62;
     return bTs.compareTo(aTs);
   });
   return filtered;
@@ -270,7 +265,7 @@ class _OkibakeListTile extends StatefulWidget {
   final int resolvedAddonLimit;
   final bool addonLimitLoading;
   final void Function(String okibakeEntryId, String displayName)
-      onRequestAssignSeat;
+  onRequestAssignSeat;
   final void Function(String message, {bool isError}) showSnack;
 
   @override
@@ -288,17 +283,24 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
   }
 
   String get _addonLine => formatOkibakeAddonStatusLine(
-        okibakeAddonCount: widget.entry.okibakeAddonCount,
-        resolvedAddonLimit: widget.resolvedAddonLimit,
-        loading: widget.addonLimitLoading,
-      );
+    okibakeAddonCount: widget.entry.okibakeAddonCount,
+    resolvedAddonLimit: widget.resolvedAddonLimit,
+    loading: widget.addonLimitLoading,
+  );
 
   bool get _addonDisabled => isOkibakeAddonUiDisabled(
-        okibakeAddonCount: widget.entry.okibakeAddonCount,
-        resolvedAddonLimit: widget.resolvedAddonLimit,
-        loading: widget.addonLimitLoading,
-        busy: _busy,
-      );
+    okibakeAddonCount: widget.entry.okibakeAddonCount,
+    resolvedAddonLimit: widget.resolvedAddonLimit,
+    loading: widget.addonLimitLoading,
+    busy: _busy,
+  );
+
+  bool get _canSetLinkedUser =>
+      widget.entry.billLinkStatus == 'unlinked' &&
+      widget.entry.linkedUserId == null &&
+      (widget.entry.entryStatus == 'registered' ||
+          widget.entry.entryStatus == 'seated' ||
+          widget.entry.entryStatus == 'busted');
 
   String get _statusLabel {
     switch (widget.entry.entryStatus) {
@@ -371,9 +373,9 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
                 const SizedBox(height: 8),
                 Text(
                   _addonLine,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.black54,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.black54),
                 ),
               ],
             ),
@@ -436,6 +438,24 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
     widget.showSnack('$linkedName の伝票に紐付けました');
   }
 
+  Future<void> _executeSetLinkedUser() async {
+    if (_busy || !_canSetLinkedUser) return;
+    final success = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return OkibakeUpdateLinkedUserDialog(
+          tournamentId: widget.tournamentId,
+          okibakeEntryId: widget.entry.okibakeEntryId,
+          displayName: _displayName,
+          service: widget.service,
+        );
+      },
+    );
+    if (!mounted || success != true) return;
+    widget.showSnack('対象ユーザーを設定しました');
+  }
+
   Future<void> _onCardTap() async {
     if (_busy) return;
     switch (widget.entry.entryStatus) {
@@ -461,19 +481,19 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
       addonDisabled: _addonDisabled,
       waitingMinutes: waitingMinutes < 0 ? 0 : waitingMinutes,
       billLinkStatus: widget.entry.billLinkStatus,
+      canSetLinkedUser: _canSetLinkedUser,
     );
     if (!mounted || action == null) return;
 
     switch (action) {
       case OkibakeWaitingAction.assignSeat:
-        widget.onRequestAssignSeat(
-          widget.entry.okibakeEntryId,
-          _displayName,
-        );
+        widget.onRequestAssignSeat(widget.entry.okibakeEntryId, _displayName);
       case OkibakeWaitingAction.addon:
         await _executeAddon();
       case OkibakeWaitingAction.linkBill:
         await _executeLinkBill();
+      case OkibakeWaitingAction.setLinkedUser:
+        await _executeSetLinkedUser();
     }
   }
 
@@ -503,10 +523,13 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
       bustedInfoLine: formatOkibakeBustedInfoLine(
         bustedAt: widget.entry.bustedAt,
       ),
+      canSetLinkedUser: _canSetLinkedUser,
     );
     if (!mounted || action == null) return;
     if (action == OkibakeBustedAction.linkBill) {
       await _executeLinkBill();
+    } else if (action == OkibakeBustedAction.setLinkedUser) {
+      await _executeSetLinkedUser();
     }
   }
 
@@ -521,8 +544,7 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
           InkWell(
             onTap: _busy ? null : _onCardTap,
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -551,7 +573,8 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
                                 color: Colors.amber.shade100,
                                 borderRadius: BorderRadius.circular(999),
                                 border: Border.all(
-                                    color: Colors.amber.shade700),
+                                  color: Colors.amber.shade700,
+                                ),
                               ),
                               child: Text(
                                 '置きバケ',
@@ -587,21 +610,25 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
                           Text(
                             _auxiliaryLine,
                             style: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade700),
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
+                            ),
                           ),
                         Text(
                           formatOkibakeBillLinkStatusLabel(
-                              widget.entry.billLinkStatus),
+                            widget.entry.billLinkStatus,
+                          ),
                           style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade700),
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                          ),
                         ),
                         if (widget.entry.entryStatus != 'busted')
                           Text(
                             _addonLine,
                             style: TextStyle(
                               fontSize: 12,
-                              color: _addonDisabled &&
-                                      !widget.addonLimitLoading
+                              color: _addonDisabled && !widget.addonLimitLoading
                                   ? Colors.grey.shade600
                                   : Colors.amber.shade900,
                             ),
@@ -611,8 +638,10 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
                   ),
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
-                    child: Icon(Icons.chevron_right,
-                        color: Colors.amber.shade700),
+                    child: Icon(
+                      Icons.chevron_right,
+                      color: Colors.amber.shade700,
+                    ),
                   ),
                 ],
               ),
@@ -623,9 +652,7 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
               child: AbsorbPointer(
                 child: ColoredBox(
                   color: Colors.black.withValues(alpha: 0.35),
-                  child: const Center(
-                    child: CircularProgressIndicator(),
-                  ),
+                  child: const Center(child: CircularProgressIndicator()),
                 ),
               ),
             ),

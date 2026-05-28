@@ -181,6 +181,75 @@ describe('bustAndReentry', () => {
       expect(tournamentData.reentryCount).toBe(1);
       expect(tournamentData.lastReentryAt).toBeDefined();
     });
+
+    it('linked 済み元置きバケ席を Reentry した場合、seatXXOkibakeEntryId も null になること', async () => {
+      const tournamentId = 'tournament_test_reentry_okibake_001';
+      const templateId = 'template_okibake_001';
+      const userId = 'user_test_reentry_okibake_001';
+      const billId = 'bill_test_reentry_okibake_001';
+      const tableId = 'table_001';
+      const seatNumber = 1;
+      const pokerName = 'リンク済み太郎';
+      const okibakeEntryId = 'okibake_entry_reentry_001';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName,
+        idempotencyKey: 'idem_test_reentry_okibake_001',
+      });
+
+      const { recordTournamentAction } = await import('../../src/domains/bills/repos/recordTournamentAction');
+      await recordTournamentAction({
+        billId,
+        templateId,
+        action: 'entry',
+        templateName: 'テストトーナメント',
+        entryFeeIncl: 1000,
+        reentryFeeIncl: null,
+        addonFeeIncl: null,
+        startAt: admin.firestore.Timestamp.fromDate(new Date('2025-11-20T10:00:00Z')),
+        idempotencyKey: 'idem_entry_okibake_001',
+      });
+
+      await setupTournament(tournamentId, templateId, tableId, userId, seatNumber, pokerName);
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .update({
+          [`seats.seat${seatNumber.toString().padStart(2, '0')}OkibakeEntryId`]: okibakeEntryId,
+        });
+
+      const adminId = 'admin_test_reentry_okibake_001';
+      await createAdminDevice(adminId);
+
+      const result = await (bustAndReentry as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId: 'op_reentry_okibake_001',
+          tournamentId,
+          userId,
+          tableId,
+          seatNumber,
+        },
+      } as any);
+
+      expect(result.success).toBe(true);
+
+      const tableSeatDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .get();
+      const seats = tableSeatDoc.data()!.seats;
+      const seatNumberStr = seatNumber.toString().padStart(2, '0');
+      expect(seats[`seat${seatNumberStr}UserId`]).toBeNull();
+      expect(seats[`seat${seatNumberStr}PokerName`]).toBeNull();
+      expect(seats[`seat${seatNumberStr}OkibakeEntryId`]).toBeNull();
+    });
   });
 
   describe('error handling', () => {
@@ -314,4 +383,3 @@ describe('bustAndReentry', () => {
     });
   });
 });
-

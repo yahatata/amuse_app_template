@@ -485,6 +485,77 @@ describe('assignSeatToPlayer', () => {
       expect(placeAfter.seat).toEqual(placeBefore.seat);
     });
 
+    it('seatXXUserId が null でも seatXXOkibakeEntryId がある seat は空席扱いしないこと', async () => {
+      const tournamentId = 'tournament_test_error_okibake_001';
+      const userId = 'user_test_error_okibake_001';
+      const billId = 'bill_test_error_okibake_001';
+      const tableId = 'table_001';
+      const seatNumber = 1;
+      const pokerName = 'テスト太郎';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName,
+        idempotencyKey: 'idem_test_error_okibake_001',
+      });
+
+      await setupTournament(tournamentId, tableId);
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .update({
+          'seats.seat01UserId': null,
+          'seats.seat01PokerName': '置きバケ席',
+          'seats.seat01OkibakeEntryId': 'okibake_entry_assign_001',
+        });
+
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc('waiting')
+        .update({
+          waiting: { [userId]: true },
+          count: 1,
+        });
+
+      const billDocBefore = await db.collection('bills').doc(billId).get();
+      const placeBefore = billDocBefore.data()!.place;
+
+      const adminId = 'admin_test_assign_error_okibake_001';
+      await createAdminDevice(adminId);
+
+      await expect((assignSeatToPlayer as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId: `op_assign_${tournamentId}`,
+          tournamentId,
+          userId,
+          tableId,
+          seatNumber,
+        },
+      } as any)).rejects.toThrow();
+
+      const tableSeatDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .get();
+      const seats = tableSeatDoc.data()!.seats;
+      expect(seats.seat01UserId).toBeNull();
+      expect(seats.seat01PokerName).toBe('置きバケ席');
+      expect(seats.seat01OkibakeEntryId).toBe('okibake_entry_assign_001');
+
+      const billDocAfter = await db.collection('bills').doc(billId).get();
+      const placeAfter = billDocAfter.data()!.place;
+      expect(placeAfter.table).toEqual(placeBefore.table);
+      expect(placeAfter.seat).toEqual(placeBefore.seat);
+    });
+
     it('waiting ドキュメントが存在しない場合でも、処理が成功すること', async () => {
       const tournamentId = 'tournament_test_waiting_missing_001';
       const userId = 'user_test_waiting_missing_001';
@@ -634,4 +705,3 @@ describe('assignSeatToPlayer', () => {
     });
   });
 });
-

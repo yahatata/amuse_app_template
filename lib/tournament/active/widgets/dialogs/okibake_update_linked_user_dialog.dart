@@ -1,64 +1,49 @@
-import 'dart:math';
-
 import 'package:amuse_app_template/services/active_stays_service.dart';
-import 'package:amuse_app_template/services/device_service.dart';
-import 'package:flutter/material.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
-import 'package:amuse_app_template/tournament/active/utils/tournament_callable_error_formatter.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_user_picker_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 
-/// Phase2 置きバケ一時参加者を Callable 経由で登録する。
-class OkibakeRegisterDialog extends StatefulWidget {
-  const OkibakeRegisterDialog({
+class OkibakeUpdateLinkedUserDialog extends StatefulWidget {
+  const OkibakeUpdateLinkedUserDialog({
     super.key,
     required this.tournamentId,
+    required this.okibakeEntryId,
+    required this.displayName,
     required this.service,
-    required this.onRegistered,
   });
 
   final String tournamentId;
+  final String okibakeEntryId;
+  final String displayName;
   final TournamentService service;
-  final VoidCallback onRegistered;
 
   @override
-  State<OkibakeRegisterDialog> createState() => _OkibakeRegisterDialogState();
+  State<OkibakeUpdateLinkedUserDialog> createState() =>
+      _OkibakeUpdateLinkedUserDialogState();
 }
 
-class _OkibakeRegisterDialogState extends State<OkibakeRegisterDialog> {
+class _OkibakeUpdateLinkedUserDialogState
+    extends State<OkibakeUpdateLinkedUserDialog> {
   bool _submitting = false;
-  final _memoController = TextEditingController();
-
-  /// Callable 送信値・ドロップダウン表示順は yes が先頭（初期値と揃える）
-  static const List<String> _addonValues = ['yes', 'no', 'unknown'];
-
-  /// UI 文言（DB／Callable は英語値のまま）
-  static String _addonLabelJa(String serverValue) {
-    switch (serverValue) {
-      case 'yes':
-        return '希望する';
-      case 'no':
-        return '希望しない';
-      default:
-        return 'わからない';
-    }
-  }
-
-  String _addonIntent = 'yes';
-
-  /// Firestore `users` から取得済み（入店中フィルタ前）
   List<OkibakeLinkCandidate> _allCandidates = [];
   Set<String> _usedLinkedUserIds = const {};
-
   Future<void>? _usersLoadFuture;
+  OkibakeLinkCandidate? _selected;
 
-  String? _selectedUserId;
-  String? _selectedPokerName;
+  @override
+  void initState() {
+    super.initState();
+    _usersLoadFuture = _loadUsersDocuments();
+  }
 
   Future<void> _loadUsersDocuments() async {
     final results = await Future.wait<dynamic>([
       fetchOkibakeLinkCandidates(),
-      fetchUsedOkibakeLinkedUserIds(tournamentId: widget.tournamentId),
+      fetchUsedOkibakeLinkedUserIds(
+        tournamentId: widget.tournamentId,
+        excludeOkibakeEntryId: widget.okibakeEntryId,
+      ),
     ]);
     final list = results[0] as List<OkibakeLinkCandidate>;
     final used = results[1] as Set<String>;
@@ -69,24 +54,11 @@ class _OkibakeRegisterDialogState extends State<OkibakeRegisterDialog> {
     });
   }
 
-  /// [staySnap]: `ActiveStaysService`（`isActive == true` のドキュメント。docId = userId）
   List<OkibakeLinkCandidate> _filterNotStaying(
     QuerySnapshot<Map<String, dynamic>> staySnap,
   ) {
     final notStaying = filterOkibakeLinkCandidatesNotStaying(_allCandidates, staySnap);
     return filterOkibakeLinkCandidatesUnusedByOkibake(notStaying, _usedLinkedUserIds);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _usersLoadFuture = _loadUsersDocuments();
-  }
-
-  @override
-  void dispose() {
-    _memoController.dispose();
-    super.dispose();
   }
 
   Future<void> _pickUser(
@@ -97,19 +69,13 @@ class _OkibakeRegisterDialogState extends State<OkibakeRegisterDialog> {
       context: outerContext,
       builder: (_) => OkibakeLinkUserPickerDialog(
         available: available,
-        initialSelectedUserId: _selectedUserId,
+        initialSelectedUserId: _selected?.userId,
+        allowClear: false,
+        title: '対象ユーザー設定',
       ),
     );
 
-    if (!mounted) return;
-    if (pickedId == '*clear*') {
-      setState(() {
-        _selectedUserId = null;
-        _selectedPokerName = null;
-      });
-      return;
-    }
-    if (pickedId == null) return;
+    if (!mounted || pickedId == null) return;
 
     OkibakeLinkCandidate? cand;
     for (final c in available) {
@@ -118,86 +84,18 @@ class _OkibakeRegisterDialogState extends State<OkibakeRegisterDialog> {
         break;
       }
     }
-
-    final name = cand?.linkedPokerName;
-    setState(() {
-      _selectedUserId = pickedId;
-      _selectedPokerName = name;
-    });
+    if (cand == null) return;
+    setState(() => _selected = cand);
   }
 
-  Future<void> _submit() async {
-    if (_submitting) return;
-
-    final confirmed = await _confirmSubmit();
-    if (!mounted || !confirmed) return;
-
-    setState(() => _submitting = true);
-    late CreateOkibakeTemporaryEntryResult result;
-    try {
-      final operationId =
-          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
-      final device = await DeviceService().getCurrentDevice();
-      final deviceName = device?.name;
-
-      final memoRaw = _memoController.text.trim();
-      final memo = memoRaw.isEmpty ? null : memoRaw;
-
-      final bool hasLinked =
-          _selectedUserId != null && _selectedPokerName != null;
-      final lid = hasLinked ? _selectedUserId : null;
-      final lpn = hasLinked ? _selectedPokerName : null;
-
-      result = await widget.service.createOkibakeTemporaryEntry(
-        operationId: operationId,
-        tournamentId: widget.tournamentId,
-        addonIntent: _addonIntent,
-        linkedUserId: lid,
-        linkedUserPokerName: lpn,
-        memo: memo,
-        deviceName: deviceName,
-      );
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-
-    if (!mounted) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-
-    if (result.success) {
-      final label =
-          result.temporaryDisplayName ?? result.okibakeEntryId ?? '登録';
-      if (_selectedUserId != null) {
-        _usedLinkedUserIds = {..._usedLinkedUserIds, _selectedUserId!};
-      }
-      Navigator.of(context).pop();
-      messenger.showSnackBar(
-        SnackBar(content: Text(formatOkibakeRegisterSuccessMessage(label))),
-      );
-      widget.onRegistered();
-    } else {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(result.errorMessage ?? '置きバケの登録に失敗しました'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<bool> _confirmSubmit() async {
-    final selectedName = _selectedPokerName;
-    final body = selectedName != null && selectedName.trim().isNotEmpty
-        ? '対象ユーザーは「${selectedName.trim()}」です。\nこの内容で置きバケを登録しますか？'
-        : '対象ユーザーは未設定です。\nこの内容で置きバケを登録しますか？';
+  Future<bool> _confirmSave(OkibakeLinkCandidate candidate) async {
     final ok = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (confirmCtx) {
         return AlertDialog(
-          title: const Text('置きバケ登録の確認'),
-          content: Text(body),
+          title: const Text('対象ユーザー設定の確認'),
+          content: Text('この置きバケの対象ユーザーを「${candidate.displayLabel}」に設定しますか？'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(confirmCtx).pop(false),
@@ -205,13 +103,47 @@ class _OkibakeRegisterDialogState extends State<OkibakeRegisterDialog> {
             ),
             FilledButton(
               onPressed: () => Navigator.of(confirmCtx).pop(true),
-              child: const Text('登録'),
+              child: const Text('設定'),
             ),
           ],
         );
       },
     );
     return ok == true;
+  }
+
+  Future<void> _save() async {
+    if (_submitting) return;
+    final selected = _selected;
+    if (selected == null) return;
+
+    final proceed = await _confirmSave(selected);
+    if (!mounted || !proceed) return;
+
+    setState(() => _submitting = true);
+    late UpdateOkibakeTemporaryEntryLinkedUserResult result;
+    try {
+      result = await widget.service.updateOkibakeTemporaryEntryLinkedUser(
+        tournamentId: widget.tournamentId,
+        okibakeEntryId: widget.okibakeEntryId,
+        linkedUserId: selected.userId,
+      );
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+
+    if (!mounted) return;
+
+    if (result.success) {
+      Navigator.of(context).pop(true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.errorMessage ?? '対象ユーザーの設定に失敗しました'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
   }
 
   @override
@@ -227,7 +159,7 @@ class _OkibakeRegisterDialogState extends State<OkibakeRegisterDialog> {
           children: [
             Center(
               child: AlertDialog(
-                title: const Text('置きバケ登録'),
+                title: const Text('対象ユーザー設定'),
                 content: SizedBox(
                   width: 460,
                   child: FutureBuilder<void>(
@@ -290,25 +222,21 @@ class _OkibakeRegisterDialogState extends State<OkibakeRegisterDialog> {
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 OutlinedButton.icon(
-                                  icon: Icon(
-                                    _selectedUserId != null
-                                        ? Icons.edit
-                                        : Icons.person_search,
-                                  ),
+                                  icon: const Icon(Icons.person_search),
                                   onPressed: _submitting
                                       ? null
                                       : () => _pickUser(context, notStaying),
                                   label: Text(
-                                    _selectedUserId != null
-                                        ? '対象: ${_selectedPokerName ?? ''}'
-                                        : '対象ユーザーを選択（任意）',
+                                    _selected != null
+                                        ? '対象: ${_selected!.displayLabel}'
+                                        : '対象ユーザーを選択',
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  '分かる場合は対象ユーザーを選択してください。',
+                                  '対象ユーザー未設定の置きバケに、後から対象ユーザーを設定します。',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey[700],
@@ -323,42 +251,24 @@ class _OkibakeRegisterDialogState extends State<OkibakeRegisterDialog> {
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                DropdownButtonFormField<String>(
-                                  decoration: const InputDecoration(
-                                    labelText: 'アドオン意向',
-                                    border: OutlineInputBorder(),
+                                Text(
+                                  widget.displayName.isNotEmpty
+                                      ? widget.displayName
+                                      : '置きバケ',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
                                   ),
-                                  // ignore: deprecated_member_use
-                                  value: _addonIntent,
-                                  items: _addonValues
-                                      .map(
-                                        (v) => DropdownMenuItem(
-                                          value: v,
-                                          child: Text(_addonLabelJa(v)),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: _submitting
-                                      ? null
-                                      : (v) {
-                                          if (v != null) {
-                                            setState(() => _addonIntent = v);
-                                          }
-                                        },
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  '現在の対象ユーザー: 未設定',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.black54,
+                                  ),
                                 ),
                                 const SizedBox(height: 16),
                                 userArea,
-                                const SizedBox(height: 12),
-                                TextField(
-                                  controller: _memoController,
-                                  enabled: !_submitting,
-                                  maxLines: 2,
-                                  maxLength: 200,
-                                  decoration: const InputDecoration(
-                                    labelText: 'メモ（任意・最大200文字）',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                ),
                               ],
                             ),
                           );
@@ -371,12 +281,12 @@ class _OkibakeRegisterDialogState extends State<OkibakeRegisterDialog> {
                   TextButton(
                     onPressed: _submitting
                         ? null
-                        : () => Navigator.of(context).pop(),
-                    child: const Text('キャンセル'),
+                        : () => Navigator.of(context).pop(false),
+                    child: const Text('閉じる'),
                   ),
                   FilledButton(
-                    onPressed: _submitting ? null : _submit,
-                    child: const Text('登録'),
+                    onPressed: _submitting || _selected == null ? null : _save,
+                    child: const Text('保存'),
                   ),
                 ],
               ),

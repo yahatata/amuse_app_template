@@ -104,6 +104,8 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
     const entryRef = tournamentRef.collection('okibakeTemporaryEntries').doc(okibakeEntryId);
     const activeStayRef = db.collection('activeStays').doc(userId);
     const billRef = db.collection('bills').doc(billId);
+    const waitingRef = tournamentRef.collection('tablesSeat').doc('waiting');
+    const usersListRef = tournamentRef.collection('views').doc('usersList');
 
     const preSnap = await opLogRef.get();
     if (preSnap.exists) {
@@ -209,10 +211,7 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
       if (billLinkStatus === 'linked') {
         return failCommit('置きバケはすでに伝票に紐付け済みです', 'TOURNAMENT_OKIBAKE_LINK_ALREADY_LINKED');
       }
-      if (billLinkStatus === 'pending_review') {
-        return failCommit('置きバケの状態では伝票紐付けできません', 'TOURNAMENT_OKIBAKE_LINK_INVALID_STATUS');
-      }
-      if (billLinkStatus !== 'unlinked') {
+      if (billLinkStatus !== 'unlinked' && billLinkStatus !== 'pending_review') {
         return failCommit('置きバケの状態では伝票紐付けできません', 'TOURNAMENT_OKIBAKE_LINK_INVALID_STATUS');
       }
 
@@ -279,6 +278,13 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
       let tableIdForLog: string | undefined;
       let tableSeatRef: DocumentReference | null = null;
       let seatedSeatsUpdate: Record<string, unknown> | null = null;
+      let waitingBefore: Record<string, unknown> | null = null;
+      let waitingAfter: Record<string, unknown> | null = null;
+      let usersListBefore: Record<string, unknown> | null = null;
+      let usersListAfter: Record<string, unknown> | null = null;
+      let registeredWaitingSet: Record<string, unknown> | null = null;
+      let registeredWaitingUpdate: Record<string, unknown> | null = null;
+      let linkedUsersListUpdate: Record<string, unknown> | null = null;
 
       if (entryStatus === 'seated') {
         const assignedTableId = entryData.assignedTableId;
@@ -317,6 +323,103 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
         seatedSeatsUpdate = seats;
       }
 
+      if (entryStatus === 'registered') {
+        const waitingSnap = await tx.get(waitingRef);
+
+        const waitingData = waitingSnap.exists ? waitingSnap.data() ?? {} : {};
+        const currentWaiting = (
+          typeof waitingData.waiting === 'object' && waitingData.waiting != null
+            ? waitingData.waiting
+            : {}
+        ) as Record<string, unknown>;
+        if (currentWaiting[userId] != null) {
+          return failCommit(
+            '対象ユーザーはすでに待機者一覧に存在します',
+            'TOURNAMENT_OKIBAKE_LINK_BILL_TOURNAMENT_CONFLICT'
+          );
+        }
+
+        const maxOrder = Object.values(currentWaiting)
+          .filter((val) => typeof val === 'object' && val !== null)
+          .map((val) => {
+            const order = (val as Record<string, unknown>).order;
+            return typeof order === 'number' && Number.isFinite(order) ? order : 0;
+          })
+          .reduce((max, order) => Math.max(max, order), 0);
+        const waitingEntry = {
+          pokerName: resolvedPokerName,
+          joinedAt: nowTs,
+          order: maxOrder + 1,
+        };
+        const nextWaiting = {
+          ...currentWaiting,
+          [userId]: waitingEntry,
+        };
+
+        waitingBefore = {
+          exists: waitingSnap.exists,
+          count: waitingData.count ?? null,
+          userEntry: null,
+        };
+        waitingAfter = {
+          count: Object.keys(nextWaiting).length,
+          userEntry: waitingEntry,
+        };
+
+        if (waitingSnap.exists) {
+          registeredWaitingUpdate = {
+            count: Object.keys(nextWaiting).length,
+            waiting: nextWaiting,
+            updatedAt: nowTs,
+          };
+        } else {
+          registeredWaitingSet = {
+            count: 1,
+            waiting: nextWaiting,
+            createdAt: nowTs,
+            updatedAt: nowTs,
+          };
+        }
+      }
+
+      if (entryStatus === 'registered' || entryStatus === 'seated' || entryStatus === 'busted') {
+        const usersListSnap = await tx.get(usersListRef);
+        const usersListData = usersListSnap.exists ? usersListSnap.data() ?? {} : {};
+        const currentUsers = (
+          typeof usersListData.users === 'object' && usersListData.users != null
+            ? usersListData.users
+            : {}
+        ) as Record<string, unknown>;
+        if (currentUsers[userId] != null) {
+          return failCommit(
+            '対象ユーザーはすでにこのトーナメントに参加済みです',
+            'TOURNAMENT_OKIBAKE_LINK_BILL_TOURNAMENT_CONFLICT'
+          );
+        }
+
+        const usersListEntry = {
+          pokerName: resolvedPokerName,
+          registeredAt: nowTs,
+          lastUpdatedAt: nowTs,
+        };
+        const nextUsers = {
+          ...currentUsers,
+          [userId]: usersListEntry,
+        };
+        usersListBefore = {
+          exists: usersListSnap.exists,
+          userEntry: null,
+        };
+        usersListAfter = {
+          userEntry: usersListEntry,
+        };
+        linkedUsersListUpdate = {
+          users: nextUsers,
+          updatedAt: nowTs,
+          ...(usersListSnap.exists ? {} : { createdAt: nowTs }),
+        };
+      }
+
       const reflection = buildOkibakeLinkBillTournamentReflection({
         fees: { templateId, templateName, entryFeeIncl, addonFeeIncl, startAt },
         existingTournamentData: null,
@@ -344,6 +447,16 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
           seats: seatedSeatsUpdate,
           updatedAt: nowTs,
         });
+      }
+      if (entryStatus === 'registered') {
+        if (registeredWaitingSet != null) {
+          tx.set(waitingRef, registeredWaitingSet);
+        } else if (registeredWaitingUpdate != null) {
+          tx.update(waitingRef, registeredWaitingUpdate as UpdateData<DocumentData>);
+        }
+      }
+      if (linkedUsersListUpdate != null) {
+        tx.set(usersListRef, linkedUsersListUpdate, { merge: true });
       }
 
       tx.update(entryRef, entryPatch as UpdateData<DocumentData>);
@@ -385,6 +498,10 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
         billTournamentAfter: reflection.billTournamentAfter,
         ...(seatBefore != null && { seatBefore }),
         ...(seatAfter != null && { seatAfter }),
+        ...(waitingBefore != null && { waitingBefore }),
+        ...(waitingAfter != null && { waitingAfter }),
+        ...(usersListBefore != null && { usersListBefore }),
+        ...(usersListAfter != null && { usersListAfter }),
         ...(tableIdForLog != null && { tableId: tableIdForLog }),
       };
 

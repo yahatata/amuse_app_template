@@ -1,3 +1,5 @@
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_action_menu_dialog.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_action_menu_tile.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_waiting_action_dialog.dart';
 import 'package:flutter/material.dart';
 
@@ -5,9 +7,7 @@ import 'package:flutter/material.dart';
 ///
 /// 「置きバケ一覧」からタップしたときに出す中間ダイアログ。
 /// 操作は伝票紐付けのみ（席配置・Addon・Bust は出さない）。
-enum OkibakeBustedAction {
-  linkBill,
-}
+enum OkibakeBustedAction { linkBill, setLinkedUser }
 
 /// 退席済み置きバケカードタップ後の中間ダイアログ。
 Future<OkibakeBustedAction?> showOkibakeBustedActionDialog({
@@ -15,194 +15,62 @@ Future<OkibakeBustedAction?> showOkibakeBustedActionDialog({
   required String displayName,
   required String billLinkStatus,
   required String bustedInfoLine,
+  bool canSetLinkedUser = false,
 }) {
   return showDialog<OkibakeBustedAction>(
     context: context,
     barrierDismissible: false,
     builder: (dialogCtx) {
       final linkBillEnabled = billLinkStatus == 'unlinked';
-      return Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        insetPadding:
-            const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.face_retouching_natural,
-                        color: Colors.amber.shade800),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        '置きバケ操作（退席済み）',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      tooltip: '閉じる',
-                      onPressed: () => Navigator.of(dialogCtx).pop(),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    Text(
-                      displayName,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.shade100,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.amber.shade700),
-                      ),
-                      child: Text(
-                        '置きバケ',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.amber.shade900,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        '退席済み',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.grey.shade800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  bustedInfoLine,
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                ),
-                Text(
-                  formatOkibakeBillLinkStatusLabel(billLinkStatus),
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                ),
-                const SizedBox(height: 16),
-                Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 220),
-                    child: _OkibakeBustedMenuTile(
-                      label: '伝票紐付け',
-                      iconData: Icons.receipt_long_outlined,
-                      color: Colors.blue.shade700,
-                      onTap: linkBillEnabled
-                          ? () => Navigator.of(dialogCtx)
-                              .pop(OkibakeBustedAction.linkBill)
-                          : null,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => Navigator.of(dialogCtx).pop(),
-                    child: const Text('閉じる'),
-                  ),
-                ),
-              ],
-            ),
+      return OkibakeActionMenuDialog(
+        title: '置きバケ操作（退席済み）',
+        displayName: displayName,
+        onClose: () => Navigator.of(dialogCtx).pop(),
+        statusChips: [
+          OkibakeActionStatusChip(
+            label: '退席済み',
+            backgroundColor: Colors.grey.shade200,
+            foregroundColor: Colors.grey.shade800,
           ),
-        ),
+        ],
+        detailLines: [
+          Text(
+            bustedInfoLine,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+          ),
+          Text(
+            formatOkibakeBillLinkStatusLabel(billLinkStatus),
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+          ),
+        ],
+        actions: [
+          OkibakeActionMenuTile(
+            label: '伝票紐付け',
+            iconData: Icons.receipt_long_outlined,
+            color: Colors.blue.shade700,
+            onTap: linkBillEnabled
+                ? () =>
+                      Navigator.of(dialogCtx).pop(OkibakeBustedAction.linkBill)
+                : null,
+          ),
+          if (canSetLinkedUser)
+            OkibakeActionMenuTile(
+              label: '対象ユーザー設定',
+              iconData: Icons.person_add_alt_1_outlined,
+              color: Colors.indigo.shade600,
+              onTap: () => Navigator.of(
+                dialogCtx,
+              ).pop(OkibakeBustedAction.setLinkedUser),
+            ),
+        ],
       );
     },
   );
 }
 
-class _OkibakeBustedMenuTile extends StatelessWidget {
-  const _OkibakeBustedMenuTile({
-    required this.label,
-    required this.iconData,
-    required this.color,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData iconData;
-  final Color color;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onTap != null;
-    Widget tile = InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircleAvatar(
-              backgroundColor: color.withValues(alpha: 0.15),
-              foregroundColor: color,
-              radius: 22,
-              child: Icon(iconData),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: enabled ? null : Colors.grey.shade500,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-    if (!enabled) {
-      tile = Opacity(opacity: 0.45, child: IgnorePointer(child: tile));
-    }
-    return tile;
-  }
-}
-
 /// busted カード/ダイアログで表示する補助情報行（例: 退席時刻 / 経過時間）。
 /// `bustedAt` がない場合は「退席済み」のみ表示。
-String formatOkibakeBustedInfoLine({
-  DateTime? bustedAt,
-  DateTime? now,
-}) {
+String formatOkibakeBustedInfoLine({DateTime? bustedAt, DateTime? now}) {
   if (bustedAt == null) {
     return '退席済み';
   }
@@ -221,9 +89,7 @@ String formatOkibakeBustedInfoLine({
   final hours = diff.inHours;
   final remainMin = minutes - hours * 60;
   if (hours < 24) {
-    return remainMin == 0
-        ? '退席: $hours 時間前'
-        : '退席: $hours 時間 $remainMin 分前';
+    return remainMin == 0 ? '退席: $hours 時間前' : '退席: $hours 時間 $remainMin 分前';
   }
   return '退席済み';
 }

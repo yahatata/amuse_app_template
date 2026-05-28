@@ -250,6 +250,63 @@ describe('reseatAllPlayers', () => {
       const tableSeatData2 = tableSeatDoc2.data()!;
       expect(tableSeatData2.seats.seat02PokerName).toBe(`Player_${userId2}`);
     });
+
+    it('全席クリア時に seatXXOkibakeEntryId も null になること', async () => {
+      const tournamentId = 'tournament_test_reseat_okibake_001';
+      const userId = 'user_test_reseat_okibake_001';
+      const billId = 'bill_test_reseat_okibake_001';
+      const tableId = 'table_001';
+      const pokerName = 'リンク済み太郎';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName,
+        idempotencyKey: 'idem_test_reseat_okibake_001',
+      });
+
+      await setupTournament(tournamentId, [tableId]);
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .update({
+          'seats.seat01UserId': 'old_user',
+          'seats.seat01PokerName': '移動前',
+          'seats.seat01OkibakeEntryId': 'okibake_entry_reseat_001',
+        });
+
+      const adminId = 'admin_test_reseat_okibake_001';
+      await createAdminDevice(adminId);
+
+      const result = await (reseatAllPlayers as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId: `op_reseat_${tournamentId}`,
+          tournamentId,
+          playerAssignments: [
+            { userId, tableId, seatNumber: 2 },
+          ],
+        },
+      } as any);
+
+      expect(result.success).toBe(true);
+
+      const tableSeatDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .get();
+      const seats = tableSeatDoc.data()!.seats;
+      expect(seats.seat01UserId).toBeNull();
+      expect(seats.seat01PokerName).toBeNull();
+      expect(seats.seat01OkibakeEntryId).toBeNull();
+      expect(seats.seat02UserId).toBe(userId);
+      expect(seats.seat02PokerName).toBe(pokerName);
+      expect(seats.seat02OkibakeEntryId).toBeNull();
+    });
   });
 
   describe('エラーハンドリング', () => {
@@ -321,4 +378,3 @@ describe('reseatAllPlayers', () => {
     });
   });
 });
-

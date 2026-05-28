@@ -77,6 +77,7 @@ export async function undoRegisterForTournament(params: UndoRegisterForTournamen
       let seatData: Record<string, unknown> | null = null;
       let seatKeyUserId: string | null = null;
       let seatKeyPokerName: string | null = null;
+      let seatKeyOkibakeEntryId: string | null = null;
       for (const doc of tablesSeatSnap.docs) {
         if (doc.id === 'waiting') continue;
         const data = doc.data();
@@ -87,6 +88,7 @@ export async function undoRegisterForTournament(params: UndoRegisterForTournamen
             seatData = data;
             seatKeyUserId = k;
             seatKeyPokerName = k.replace('UserId', 'PokerName');
+            seatKeyOkibakeEntryId = k.replace('UserId', 'OkibakeEntryId');
             break;
           }
         }
@@ -119,6 +121,9 @@ export async function undoRegisterForTournament(params: UndoRegisterForTournamen
         const seats = { ...(seatData.seats as Record<string, unknown>) };
         seats[seatKeyUserId] = null;
         seats[seatKeyPokerName] = null;
+        if (seatKeyOkibakeEntryId) {
+          seats[seatKeyOkibakeEntryId] = null;
+        }
         transaction.update(seatDocRef, {
           seats,
           updatedAt: now,
