@@ -6,6 +6,7 @@ import * as crypto from "crypto";
 import { writeSingleOperationLog, toErrorSummary } from "../../logs/lib/operationLog";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
+import { findOkibakeLinkedUserConflictInTx } from "../lib/okibakeLinkedUserConflict";
 
 // 入力スキーマ
 const registerForTournamentSchema = z.object({
@@ -151,6 +152,33 @@ export const registerForTournament = onCall(async (request) => {
       const usersListExists = usersListDoc.exists;
       const usersListData = usersListExists ? usersListDoc.data()! : null;
       const currentUsers = usersListData?.users || {};
+
+      if (Object.prototype.hasOwnProperty.call(currentUsers as Record<string, unknown>, userId)) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_ALREADY_REGISTERED',
+          message: '既にこのトーナメントに登録済みです',
+          context: { tournamentId, userId, reason: 'users_list_duplicate' },
+        });
+      }
+
+      const okibakeConflict = await findOkibakeLinkedUserConflictInTx({
+        tx: transaction,
+        tournamentRef,
+        userId,
+      });
+      if (okibakeConflict.conflict) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_PARTICIPANT_CONFLICT_WITH_OKIBAKE',
+          message: 'このユーザーは置きバケ対象ユーザーとして登録済みのため、通常参加できません',
+          context: {
+            tournamentId,
+            userId,
+            okibakeEntryId: okibakeConflict.okibakeEntryId,
+            okibakeBillLinkStatus: okibakeConflict.billLinkStatus,
+            okibakeEntryStatus: okibakeConflict.entryStatus,
+          },
+        });
+      }
       
       // 全ての読み取りが完了したので、ここから書き込み操作を開始
       

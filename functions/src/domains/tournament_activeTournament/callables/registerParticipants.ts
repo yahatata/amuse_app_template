@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
+import { findOkibakeLinkedUserConflictInTx } from '../lib/okibakeLinkedUserConflict';
 
 // 入力スキーマ
 const registerParticipantsSchema = z.object({
@@ -183,6 +184,26 @@ export const registerParticipants = onCall(async (request) => {
           const usersListExists = usersListDoc.exists;
           const usersListData = usersListExists ? usersListDoc.data()! : null;
           const currentUsers = usersListData?.users || {};
+
+          const okibakeConflict = await findOkibakeLinkedUserConflictInTx({
+            tx: transaction,
+            tournamentRef,
+            userId,
+          });
+          if (okibakeConflict.conflict) {
+            throw new FunctionCustomError({
+              errorKey: 'TOURNAMENT_PARTICIPANT_CONFLICT_WITH_OKIBAKE',
+              message: `ユーザー ${userId} は置きバケ対象ユーザーとして登録済みのため参加できません`,
+              context: {
+                tournamentId,
+                userId,
+                okibakeEntryId: okibakeConflict.okibakeEntryId,
+                okibakeBillLinkStatus: okibakeConflict.billLinkStatus,
+                okibakeEntryStatus: okibakeConflict.entryStatus,
+              },
+            });
+          }
+
           const isUserAlreadyRegistered = currentUsers[userId] ? true : false;
           
           // 5. リエントリー時にbustedを更新するため、先に読み取り（トランザクションは「全読取→全書込」の順が必須）

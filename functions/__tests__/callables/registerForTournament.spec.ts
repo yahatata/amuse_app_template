@@ -345,5 +345,88 @@ describe('registerForTournament', () => {
       }
     });
   });
-});
 
+  describe('phase6 okibake linked user conflict guard', () => {
+    it('okibake linkedUserId と衝突する場合は通常参加を拒否し、ビューを更新しない', async () => {
+      const tournamentId = 'tournament_test_phase6_conflict_001';
+      const templateId = 'template_phase6_001';
+      const userId = 'user_phase6_conflict_001';
+      const billId = 'bill_phase6_conflict_001';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: '衝突ユーザー',
+        idempotencyKey: 'idem_phase6_conflict_001',
+      });
+      await setupTournament(tournamentId, templateId);
+
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc('okibake-conflict-1')
+        .set({
+          linkedUserId: userId,
+          linkedUserPokerName: '衝突ユーザー',
+          entryStatus: 'registered',
+          billLinkStatus: 'unlinked',
+        });
+
+      const mockRequest = {
+        data: { tournamentId },
+        auth: { uid: userId },
+      } as any;
+
+      const result = await (registerForTournament as any).run(mockRequest);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('置きバケ対象ユーザー');
+
+      const viewsMainDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .get();
+      const viewsMainData = viewsMainDoc.data()!;
+      expect(viewsMainData.playersIn).toBe(0);
+      expect(viewsMainData.entries).toBe(0);
+      expect(viewsMainData.waitingCount).toBe(0);
+    });
+
+    it('entryStatus == voided の置きバケは衝突判定から除外される', async () => {
+      const tournamentId = 'tournament_test_phase6_voided_001';
+      const templateId = 'template_phase6_002';
+      const userId = 'user_phase6_voided_001';
+      const billId = 'bill_phase6_voided_001';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: 'Voided対象',
+        idempotencyKey: 'idem_phase6_voided_001',
+      });
+      await setupTournament(tournamentId, templateId);
+
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc('okibake-voided-1')
+        .set({
+          linkedUserId: userId,
+          linkedUserPokerName: 'Voided対象',
+          entryStatus: 'voided',
+          billLinkStatus: 'linked',
+        });
+
+      const mockRequest = {
+        data: { tournamentId },
+        auth: { uid: userId },
+      } as any;
+
+      const result = await (registerForTournament as any).run(mockRequest);
+      expect(result.success).toBe(true);
+    });
+  });
+});
