@@ -149,6 +149,8 @@ export function slimOkibakeEntryForLinkLog(data: Record<string, unknown> | undef
     linkedUserId: data.linkedUserId ?? null,
     linkedUserPokerName: data.linkedUserPokerName ?? null,
     linkedBillId: data.linkedBillId ?? null,
+    pendingReviewAt: data.pendingReviewAt ?? null,
+    pendingReviewReason: data.pendingReviewReason ?? null,
     okibakeAddonCount: data.okibakeAddonCount ?? 0,
     assignedTableId: data.assignedTableId ?? null,
     assignedSeatKey: data.assignedSeatKey ?? null,

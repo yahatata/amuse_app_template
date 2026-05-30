@@ -595,6 +595,50 @@ describe('linkOkibakeTemporaryEntryToBill', () => {
     });
   });
 
+  it('同一トーナメントの別置きバケに linkedUserId 設定済みの userId には紐付けできない', async () => {
+    const uid = 'u-link-used-user';
+    const tid = 't-link-used-user';
+    const eid = 'e-target';
+    const otherEid = 'e-other';
+    const guestUid = 'guest-used-user';
+    const billId = 'bill-used-user';
+    await seedDevice(uid);
+    await seedTournament(tid);
+    await seedBillAndStay(guestUid, billId, 'open');
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(entryBase(eid, tid, 'registered'));
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(otherEid)
+      .set(
+        entryBase(otherEid, tid, 'registered', {
+          linkedUserId: guestUid,
+          linkedUserPokerName: '既存リンク',
+          billLinkStatus: 'pending_review',
+        })
+      );
+
+    await expect(
+      runLink({
+        uid,
+        tournamentId: tid,
+        okibakeEntryId: eid,
+        userId: guestUid,
+        billId,
+        operationId: 'op-link-used-user',
+      })
+    ).rejects.toMatchObject({
+      code: 'failed-precondition',
+      message: expect.stringContaining('他の置きバケに設定済み'),
+    });
+  });
+
   it('voided は拒否する', async () => {
     const uid = 'u-link-void';
     const tid = 't-link-void';

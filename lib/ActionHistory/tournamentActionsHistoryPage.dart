@@ -20,6 +20,22 @@ class TournamentActionsHistoryPage extends StatefulWidget {
 
 class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryPage>
     with SingleTickerProviderStateMixin {
+  static const Set<String> _rollbackEnabledActions = {
+    'addon',
+    'bulk_addon',
+    'bust_and_exit',
+    'bust_and_reentry',
+    'end_tournament',
+    'register_participants',
+    'register_for_tournament',
+    'assign_seat_to_player',
+    'reseat_all_players',
+    'set_ranking_data',
+    'okibake_create_entry',
+    'okibake_update_linked_user',
+    'okibake_link_bill',
+    'okibake_assign_seat',
+  };
   TabController? _tabController;
   List<Map<String, dynamic>> _actionLogs = [];
   bool _isLoading = false;
@@ -401,12 +417,18 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
       case 'addon':
       case 'okibake_addon':
         return 'アドオン';
+      case 'okibake_create_entry':
+        return '置きバケ登録';
       case 'bulk_addon':
         return '複数アドオン';
       case 'bust_and_exit':
         return 'バースト＆退場';
       case 'okibake_bust':
         return 'バースト（置きバケ）';
+      case 'okibake_update_linked_user':
+        return '対象ユーザー設定（置きバケ）';
+      case 'okibake_link_bill':
+        return '伝票紐付け（置きバケ）';
       case 'bust_and_reentry':
         return 'バースト＆リエントリー';
       case 'end_tournament':
@@ -428,9 +450,23 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
         return '全員リシート';
       case 'create_tournament':
         return 'トーナメント作成';
+      case 'other':
+        if (log != null && log['operationName'] != null) {
+          return log['operationName'].toString();
+        }
+        return 'その他';
       default:
+        if (log != null && log['operationName'] != null) {
+          return log['operationName'].toString();
+        }
         return action;
     }
+  }
+
+  bool _canRollback(Map<String, dynamic> log) {
+    if (log['isRollBack'] == true) return false;
+    final action = log['action']?.toString() ?? '';
+    return _rollbackEnabledActions.contains(action);
   }
 
   String _formatDateTime(dynamic dateTime) {
@@ -601,6 +637,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
 
   Widget _buildActionLogItem(Map<String, dynamic> log) {
     final isRolledBack = log['isRollBack'] == true;
+    final canRollback = _canRollback(log);
     
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -651,10 +688,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
               Text('取り消し時刻: ${_formatDateTime(log['rollBackAt'])}'),
           ],
         ),
-        trailing: isRolledBack ||
-                log['action'] == 'okibake_addon' ||
-                log['action'] == 'okibake_assign_seat' ||
-                log['action'] == 'okibake_bust'
+        trailing: !canRollback
             ? null
             : IconButton(
                 icon: const Icon(Icons.undo, color: Colors.orange),

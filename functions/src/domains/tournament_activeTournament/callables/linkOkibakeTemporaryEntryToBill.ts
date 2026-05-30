@@ -16,6 +16,7 @@ import {
   slimOkibakeEntryForLinkLog,
   slimSeatForLinkLog,
 } from '../lib/reflectOkibakeToBill';
+import { findOkibakeLinkedUserConflictInTx } from '../lib/okibakeLinkedUserConflict';
 
 const linkOkibakeSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId は必須です'),
@@ -221,6 +222,19 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
       }
       if (typeof entryStatus !== 'string' || !ALLOWED_ENTRY_STATUSES.has(entryStatus)) {
         return failCommit('置きバケの状態では伝票紐付けできません', 'TOURNAMENT_OKIBAKE_LINK_INVALID_STATUS');
+      }
+
+      const okibakeLinkedUserConflict = await findOkibakeLinkedUserConflictInTx({
+        tx,
+        tournamentRef,
+        userId,
+        excludeOkibakeEntryId: okibakeEntryId,
+      });
+      if (okibakeLinkedUserConflict.conflict) {
+        return failCommit(
+          '同一トーナメント内で他の置きバケに設定済みの対象ユーザーには紐付けできません',
+          'TOURNAMENT_OKIBAKE_LINK_BILL_TOURNAMENT_CONFLICT'
+        );
       }
 
       const activeStaySnap = await tx.get(activeStayRef);
@@ -459,6 +473,25 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
         tx.set(usersListRef, linkedUsersListUpdate, { merge: true });
       }
 
+      if ((entryStatus === 'registered' || entryStatus === 'seated' || entryStatus === 'busted') && usersListBefore == null) {
+        return failCommit(
+          '操作履歴の保存に必要な usersListBefore を取得できませんでした',
+          'TOURNAMENT_OKIBAKE_LINK_LOG_INCOMPLETE'
+        );
+      }
+      if (entryStatus === 'registered' && waitingBefore == null) {
+        return failCommit(
+          '操作履歴の保存に必要な waitingBefore を取得できませんでした',
+          'TOURNAMENT_OKIBAKE_LINK_LOG_INCOMPLETE'
+        );
+      }
+      if (entryStatus === 'seated' && seatBefore == null) {
+        return failCommit(
+          '操作履歴の保存に必要な seatBefore を取得できませんでした',
+          'TOURNAMENT_OKIBAKE_LINK_LOG_INCOMPLETE'
+        );
+      }
+
       tx.update(entryRef, entryPatch as UpdateData<DocumentData>);
 
       const okibakeEntryAfter = {
@@ -475,6 +508,7 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
         userId,
         tournamentId,
         templateId,
+        sourceEntryStatus: entryStatus,
         playerName: resolvedPokerName,
         before: {
           billLinkStatus: okibakeEntryBefore?.billLinkStatus ?? 'unlinked',

@@ -781,37 +781,54 @@ LIFF と店舗 Callable の両方から、置きバケ済みユーザーが**通
 
 ---
 
-## 12. Phase 7: 誤紐付け解除 rollback
+## 12. Phase 7: rollback / undo（初期実装）
 
-### 目的
+### 目的（初期実装対象）
 
-会計前（`bill.status` が `open` / `in_progress`）における**スタッフ手動**の伝票誤紐付け解除。
+初期実装の対象は以下の 2 つ。
 
-### 参照仕様
+1. 置きバケ対象ユーザー設定 undo
+   （`updateOkibakeTemporaryEntryLinkedUser` を `billLinkStatus == unlinked` の範囲で取り消す）
 
-- §14.14 `rollbackAction` 拡張、専用 undo service（詳細書候補名: `undoOkibakeTemporaryEntryBillLink` / `undoOkibakeBillLink`）
+2. 置きバケ来店中 bill 紐付け undo
+   （`linkOkibakeTemporaryEntryToBill` を会計前 bill の範囲で取り消す）
+
+### 参照仕様（正本）
+
+- §14.14 置きバケ伝票紐付け undo
+- §15.4.1 / §15.4.2（対象ユーザー設定の制約）
+- §18（rollbackAction 体系）
 
 ### 対象ファイル候補（リポジトリ確認済み）
 
 | 種別 | パス |
 |------|------|
 | rollback 入口 | `functions/src/domains/logs/callables/rollbackAction.ts`（**`action` z.enum に新値追加** のパターン） |
-| Undo 実装（新規） | `functions/src/domains/logs/services/undoOkibakeTemporaryEntryBillLink.ts`（**ファイル名は候補**） |
+| Undo 実装（新規） | `functions/src/domains/logs/services/undoOkibakeUpdateLinkedUser.ts` |
+| Undo 実装（新規） | `functions/src/domains/logs/services/undoOkibakeLinkToBill.ts` |
 | Undo export | `functions/src/domains/logs/services/index.ts` |
 | Payload 参照元 | Phase 4 の operationLog |
 
 ### 実装内容（要約）
 
 - **`rollbackAction` 体系に載せる**。既存 **`undoRegisterParticipants` 等は流用しない**
-- 専用 undo: bill **`open` / `in_progress` のみ**。`settling` / `settled` は不可 → **post-settlement**
-- `okibakeTemporaryEntry`: **`billLinkStatus` を `unlinked` に**。`entryStatus` **維持**
-- `linkedUserId` / `linkedUserPokerName` は **payload の before に戻す**
-- bill 側から置きバケ由来の **entry / addon 反映を戻し、seated の場合は seat を紐付け前に戻す**。bust は bill 側へ専用反映しない。**通常 bill / activeStay / 通常注文は削除しない**
-- **自動検知ではない**ことをドキュメントと UI 文言で明示
+- `getActionLogs` / ActionHistory の既存履歴 UI に接続する
+- **対象ユーザー設定 undo**:
+  - `billLinkStatus == unlinked` のみ許可
+  - `pending_review` / `linked` は拒否
+  - `linkedUserId` / `linkedUserPokerName` を payload.before に戻す
+  - seated の場合は `seatXXPokerName` も `seatBefore` に戻す
+- **来店中 bill 紐付け undo**:
+  - 紐付け先 bill.status が **`open` / `in_progress` のみ**許可
+  - `settling` / `settled` / `post_settlement_pending` / `refunded` / `partially_refunded` / `voided` は拒否
+  - `okibakeEntryBefore` / `billTournamentBefore` / `usersListBefore` / `waitingBefore` / `seatBefore` を正として復元
+  - `pending_review` からの紐付け取り消しは、`before` を正として `pending_review` 状態へ戻す
 
 ### 実装しないこと
 
+- 来店なし入金 (`resolveOkibakePendingReviewWithRemotePayment`) の undo
 - settled 後の「直接 unlinked 戻し」による簡略 rollback
+- settled bill の削除、analytics 直接巻き戻し、bill 削除型 rollback
 
 ### データ整合・冪等性・transaction 方針
 
