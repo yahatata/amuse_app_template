@@ -70,7 +70,7 @@ export const removeTableFromTournament = onCall(async (request) => {
 
       const hasOccupiedSeats = Object.entries(seats).some(
         ([key, value]) => {
-          if (!key.endsWith('UserId')) return false;
+          if (!key.endsWith('UserId') && !key.endsWith('OkibakeEntryId')) return false;
           return value != null && typeof value === 'string' && value.trim().length > 0;
         }
       );
@@ -142,4 +142,3 @@ export const removeTableFromTournament = onCall(async (request) => {
     throw new HttpsError('internal', '卓削除に失敗しました');
   }
 });
-

@@ -18,6 +18,10 @@ import { getUnclosedTournamentsForCloseCore } from '../services/getUnclosedTourn
 import { endActiveBreaksForClockOut } from '../../attendance/helpers/recalculateAttendanceFromBreaks';
 import { writeAttendanceLog } from '../../attendance/helpers/attendanceLogs';
 import {
+  applyPendingReviewTransitionInTx,
+  collectPendingReviewTargetsInTx,
+} from '../../tournament_activeTournament/lib/pendingReview';
+import {
   OPENCLOSE_TASKS_QUEUE,
   OPENCLOSE_TASKS_REGION,
   OPENCLOSE_INVOKER_SA_PREFIX,
@@ -342,10 +346,29 @@ export const closeStoreTerminal = onCall(
                 if (doc.id !== 'waiting' && doc.id !== 'busted') tableNames.push(doc.id);
               });
 
-              await tournamentRef.update({
-                status: 'force_ended',
-                endedAt: new Date(),
-                updatedAt: FieldValue.serverTimestamp(),
+              await db.runTransaction(async (tx) => {
+                const pendingReview = await collectPendingReviewTargetsInTx(
+                  tx,
+                  db,
+                  t.tournamentId
+                );
+                if (pendingReview.blockedCount > 0) {
+                  throw new HttpsError(
+                    'failed-precondition',
+                    `トーナメント ${t.tournamentId} に対象ユーザー未設定の未接続置きバケがあるため強制終了できません。`,
+                    {
+                      errorKey: 'TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED',
+                      tournamentId: t.tournamentId,
+                      blockingOkibakeEntries: pendingReview.blockingEntries,
+                    }
+                  );
+                }
+                tx.update(tournamentRef, {
+                  status: 'force_ended',
+                  endedAt: new Date(),
+                  updatedAt: FieldValue.serverTimestamp(),
+                });
+                applyPendingReviewTransitionInTx(tx, pendingReview.entriesToPendingReview);
               });
 
               for (const tableName of tableNames) {

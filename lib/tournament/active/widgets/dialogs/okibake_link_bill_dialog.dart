@@ -2,6 +2,7 @@ import 'package:amuse_app_template/services/active_stays_service.dart';
 import 'package:amuse_app_template/tournament/active/models/okibake_temporary_entry.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/utils/okibake_bill_link_stay_candidates.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_user_picker_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -71,16 +72,20 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
 
   Future<List<OkibakeBillLinkStayCandidate>> _loadCandidates(
     QuerySnapshot<Map<String, dynamic>> staySnap,
-  ) {
+  ) async {
     final templateId = _templateId;
     if (templateId == null || templateId.isEmpty) {
-      return Future.value(const []);
+      return const [];
     }
     if (identical(_cachedStaySnapshot, staySnap) &&
         _cachedLinkedUserId == _linkedUserId &&
         _cachedCandidatesFuture != null) {
       return _cachedCandidatesFuture!;
     }
+    final usedLinkedUserIds = await fetchUsedOkibakeLinkedUserIds(
+      tournamentId: widget.tournamentId,
+      excludeOkibakeEntryId: widget.okibakeEntryId,
+    );
     _cachedStaySnapshot = staySnap;
     _cachedLinkedUserId = _linkedUserId;
     _cachedCandidatesFuture =
@@ -88,6 +93,7 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
       staySnapshot: staySnap,
       templateId: templateId,
       linkedUserId: _linkedUserId,
+      excludedUserIds: usedLinkedUserIds,
     );
     return _cachedCandidatesFuture!;
   }
@@ -158,7 +164,8 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
   ) =>
       findOkibakeBillLinkStayCandidate(candidates, _selectedUserId);
 
-  bool get _canLinkBill => _billLinkStatus == 'unlinked';
+  bool get _canLinkBill =>
+      _billLinkStatus == 'unlinked' || _billLinkStatus == 'pending_review';
 
   Future<bool> _confirmLink(OkibakeBillLinkStayCandidate selected) async {
     final ok = await showDialog<bool>(

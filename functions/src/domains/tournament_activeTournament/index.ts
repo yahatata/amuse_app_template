@@ -13,6 +13,8 @@ export { assignOkibakeTemporaryEntryToSeat } from "./callables/assignOkibakeTemp
 export { applyOkibakeAddon } from "./callables/applyOkibakeAddon";
 export { bustOkibakeTemporaryEntry } from "./callables/bustOkibakeTemporaryEntry";
 export { linkOkibakeTemporaryEntryToBill } from "./callables/linkOkibakeTemporaryEntryToBill";
+export { updateOkibakeTemporaryEntryLinkedUser } from "./callables/updateOkibakeTemporaryEntryLinkedUser";
+export { resolveOkibakePendingReviewWithRemotePayment } from "./callables/resolveOkibakePendingReviewWithRemotePayment";
 export { createTemporaryTable } from "./callables/createTemporaryTable";
 export { bustAndReentry } from "./callables/bustAndReentry";
 export { bustAndExit } from "./callables/bustAndExit";

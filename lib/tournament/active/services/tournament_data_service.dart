@@ -182,6 +182,9 @@ class TournamentDataService {
             okibakeEntryId: entry.okibakeEntryId,
             displayName: entry.waitingListDisplayName,
             createdAt: entry.createdAt ?? DateTime.now(),
+            okibakeAddonCount: entry.okibakeAddonCount,
+            billLinkStatus: entry.billLinkStatus,
+            linkedUserId: entry.linkedUserId,
           ),
         );
       }

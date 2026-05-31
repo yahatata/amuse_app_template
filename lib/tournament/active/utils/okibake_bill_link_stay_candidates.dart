@@ -78,6 +78,7 @@ Future<List<OkibakeBillLinkStayCandidate>>
   required QuerySnapshot<Map<String, dynamic>> staySnapshot,
   required String templateId,
   String? linkedUserId,
+  Set<String> excludedUserIds = const {},
   FirebaseFirestore? firestore,
 }) {
   final base = parseOkibakeBillLinkStayCandidates(staySnapshot);
@@ -85,6 +86,7 @@ Future<List<OkibakeBillLinkStayCandidate>>
     baseCandidates: base,
     templateId: templateId,
     linkedUserId: linkedUserId,
+    excludedUserIds: excludedUserIds,
     firestore: firestore,
   );
 }
@@ -105,16 +107,16 @@ Future<List<OkibakeBillLinkStayCandidate>>
   required List<OkibakeBillLinkStayCandidate> baseCandidates,
   required String templateId,
   String? linkedUserId,
+  Set<String> excludedUserIds = const {},
   FirebaseFirestore? firestore,
   Future<bool> Function(String billId, String templateId)? billTournamentExists,
 }) async {
   final tid = templateId.trim();
   if (tid.isEmpty) return const [];
 
-  final linkedFiltered = filterOkibakeBillLinkStayCandidatesByLinkedUserId(
-    baseCandidates,
-    linkedUserId,
-  );
+  final linkedFiltered = filterOkibakeBillLinkStayCandidatesByLinkedUserId(baseCandidates, linkedUserId)
+      .where((c) => !excludedUserIds.contains(c.userId))
+      .toList();
 
   final existsChecker = billTournamentExists ??
       (billId, tplId) async {

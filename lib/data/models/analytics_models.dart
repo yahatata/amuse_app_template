@@ -6,6 +6,17 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+int _toInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return 0;
+}
+
+Map<String, int> _toIntMap(dynamic value) {
+  if (value is! Map) return <String, int>{};
+  return value.map((key, v) => MapEntry(key.toString(), _toInt(v)));
+}
+
 /// 月次ドキュメント
 /// 参照パス: analyticsMonthly/{YYYY-MM}
 /// 使用フィールド: grossSales, orderCount, avgOrderValue, itemsSales, sideGameChipSales, tournamentsSales, extraCostSales, dailySales, paymentTotals
@@ -42,15 +53,15 @@ class MonthlyDoc {
     final data = doc.data() as Map<String, dynamic>;
     return MonthlyDoc(
       monthId: doc.id, // ドキュメントID（YYYY-MM形式）
-      grossSales: data['grossSales'] ?? 0,
-      orderCount: data['orderCount'] ?? 0,
+      grossSales: _toInt(data['grossSales']),
+      orderCount: _toInt(data['orderCount']),
       avgOrderValue: (data['avgOrderValue'] ?? 0).toDouble(),
-      itemsSales: data['itemsSales'] ?? 0,
-      sideGameChipSales: data['sideGameChipSales'] ?? 0,
-      tournamentsSales: data['tournamentsSales'] ?? 0,
-      extraCostSales: data['extraCostSales'] ?? 0,
-      dailySales: Map<String, int>.from(data['dailySales'] ?? {}),
-      paymentTotals: Map<String, int>.from(data['paymentTotals'] ?? {}),
+      itemsSales: _toInt(data['itemsSales']),
+      sideGameChipSales: _toInt(data['sideGameChipSales']),
+      tournamentsSales: _toInt(data['tournamentsSales']),
+      extraCostSales: _toInt(data['extraCostSales']),
+      dailySales: _toIntMap(data['dailySales']),
+      paymentTotals: _toIntMap(data['paymentTotals']),
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       updatedAt: (data['updatedAt'] as Timestamp).toDate(),
     );
@@ -132,13 +143,13 @@ class DailyDoc {
     final data = doc.data() as Map<String, dynamic>;
     return DailyDoc(
       date: doc.id,
-      byPaymentMethod: Map<String, int>.from(data['byPaymentMethod'] ?? {}),
-      itemsSales: data['itemsSales'] ?? 0,
-      sideGameChipSales: data['sideGameChipSales'] ?? 0,
-      extraCostSales: data['extraCostSales'] ?? 0,
-      tournamentsSales: data['tournamentsSales'] ?? 0,
-      grossSales: data['grossSales'] ?? 0,
-      orderCount: data['orderCount'] ?? 0,
+      byPaymentMethod: _toIntMap(data['byPaymentMethod']),
+      itemsSales: _toInt(data['itemsSales']),
+      sideGameChipSales: _toInt(data['sideGameChipSales']),
+      extraCostSales: _toInt(data['extraCostSales']),
+      tournamentsSales: _toInt(data['tournamentsSales']),
+      grossSales: _toInt(data['grossSales']),
+      orderCount: _toInt(data['orderCount']),
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       updatedAt: (data['updatedAt'] as Timestamp).toDate(),
     );
@@ -172,8 +183,8 @@ class CategorySummaryDoc {
       for (final entry in itemSales.entries) {
         final itemData = entry.value as Map<String, dynamic>;
         itemSalesData[entry.key] = ItemSalesData(
-          qty: itemData['qty'] ?? 0,
-          sales: itemData['sales'] ?? 0,
+          qty: _toInt(itemData['qty']),
+          sales: _toInt(itemData['sales']),
           name: itemData['name'] ?? '',
           category: itemData['category'] ?? '',
         );
@@ -181,8 +192,8 @@ class CategorySummaryDoc {
     }
 
     return CategorySummaryDoc(
-      totals: Map<String, int>.from(data['totals'] ?? {}),
-      orderCounts: Map<String, int>.from(data['orderCounts'] ?? {}),
+      totals: _toIntMap(data['totals']),
+      orderCounts: _toIntMap(data['orderCounts']),
       itemSales: itemSalesData,
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       updatedAt: (data['updatedAt'] as Timestamp).toDate(),
@@ -224,14 +235,14 @@ class TemplateTournamentDoc {
     if (data['daily'] != null) {
       final daily = data['daily'] as Map<String, dynamic>;
       for (final entry in daily.entries) {
-        dailyData[entry.key] = Map<String, int>.from(entry.value as Map<String, dynamic>);
+        dailyData[entry.key] = _toIntMap(entry.value);
       }
     }
 
     return TemplateTournamentDoc(
       templateId: doc.id,
       templateName: data['templateName'] ?? '',
-      totals: Map<String, int>.from(data['totals'] ?? {}),
+      totals: _toIntMap(data['totals']),
       daily: dailyData,
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       updatedAt: (data['updatedAt'] as Timestamp).toDate(),

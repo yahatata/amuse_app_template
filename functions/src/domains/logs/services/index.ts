@@ -8,3 +8,7 @@ export { undoRegisterForTournament } from "./undoRegisterForTournament";
 export { undoAssignSeatToPlayer } from "./undoAssignSeatToPlayer";
 export { undoReseatAllPlayers } from "./undoReseatAllPlayers";
 export { undoSetRankingData } from "./undoSetRankingData";
+export { undoOkibakeUpdateLinkedUser } from "./undoOkibakeUpdateLinkedUser";
+export { undoOkibakeLinkToBill } from "./undoOkibakeLinkToBill";
+export { undoOkibakeCreateEntry } from "./undoOkibakeCreateEntry";
+export { undoOkibakeAssignSeat } from "./undoOkibakeAssignSeat";

@@ -161,6 +161,7 @@ export const bustAndReentry = onCall(async (request) => {
       const seatNumberStr = seatNumber.toString().padStart(2, '0');
       const seatUserIdKey = `seat${seatNumberStr}UserId`;
       const seatPokerNameKey = `seat${seatNumberStr}PokerName`;
+      const seatOkibakeEntryIdKey = `seat${seatNumberStr}OkibakeEntryId`;
       
       // 7. シートにユーザーが座っているかチェック
       if (seats[seatUserIdKey] !== userId) {
@@ -274,6 +275,7 @@ export const bustAndReentry = onCall(async (request) => {
       const updatedSeats = { ...seats };
       updatedSeats[seatUserIdKey] = null;
       updatedSeats[seatPokerNameKey] = null;
+      updatedSeats[seatOkibakeEntryIdKey] = null;
       
       transaction.update(tableSeatRef, {
         seats: updatedSeats,

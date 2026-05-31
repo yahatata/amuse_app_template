@@ -24,14 +24,6 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
   bool _isLoading = false;
   final FirebaseFunctions _functions = FunctionsClient.instance;
 
-  void _showSnackbar(BuildContext context, String message) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    });
-  }
-
   // When: 手動チェックイン処理時
   // Where: UserManualCheckInPage
   // What: Cloud Functionsを呼び出してログイン処理を実行
@@ -58,7 +50,12 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
           final data = response['data'];
           final uid = data['uid'];
           final pokerName = data['pokerName'];
-          final message = data['message'] ?? '${pokerName}様のログイン処理が完了しました';
+          final billId = data['billId']?.toString();
+          final message = data['message'] ?? '$pokerName様のログイン処理が完了しました';
+          final okibakeLoginPromptRaw = response['okibakeLoginPrompt'];
+          final okibakeLoginPrompt = okibakeLoginPromptRaw is Map
+              ? OkibakeLoginPromptData.fromMap(okibakeLoginPromptRaw)
+              : null;
 
           // ユーザーUIDを保存
           await _saveUserUID(uid);
@@ -74,6 +71,9 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
                   showDialogOnLoad: true,
                   dialogMessage: message,
                   isSuccess: true,
+                  userId: uid?.toString(),
+                  billId: billId,
+                  okibakeLoginPrompt: okibakeLoginPrompt,
                 ),
               ),
             );

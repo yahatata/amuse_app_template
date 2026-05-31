@@ -6,6 +6,13 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shar
 import { createBillWithActiveStay } from "../../bills/repos/createBillWithActiveStay";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import {
+  buildOkibakeLoginPromptFallback,
+  buildOkibakeLoginPromptPayload,
+  collectOkibakeLoginPromptTargets,
+  resolveOkibakeLoginPromptMode,
+} from "../services/okibakeLoginPrompt";
 
 /**
  * 手動チェックイン（店舗端末でのログインID + PIN 認証）
@@ -160,6 +167,29 @@ export const manualCheckIn = onCall(async (request) => {
       lastCheckInAt: FieldValue.serverTimestamp(),
     });
 
+    let okibakeLoginPrompt = buildOkibakeLoginPromptFallback();
+    try {
+      const storeConfig = await getStoreConfig(db);
+      const promptMode = resolveOkibakeLoginPromptMode(storeConfig);
+      const promptEntries = await collectOkibakeLoginPromptTargets({
+        db,
+        linkedUserId: uid,
+        currentBusinessDate: billResult.businessDate,
+      });
+      okibakeLoginPrompt = buildOkibakeLoginPromptPayload({
+        mode: promptMode,
+        entries: promptEntries,
+      });
+    } catch (promptError) {
+      logOpsError({
+        message: 'manualCheckIn: okibakeLoginPrompt 取得失敗（非致命）',
+        functionEntry: 'manualCheckIn',
+        cause: promptError,
+        errorKey: 'USER_VISIT_OKIBAKE_PROMPT_FETCH_FAILED',
+        context: { uid, phase: 'okibakeLoginPrompt' },
+      });
+    }
+
     logOpsSuccess({
       message: "manualCheckIn 成功",
       functionEntry: "manualCheckIn",
@@ -172,8 +202,9 @@ export const manualCheckIn = onCall(async (request) => {
         uid: uid,
         pokerName: pokerName,
         billId: billResult.billId,
-        message: `${pokerName}様のログイン処理が完了しました`
-      }
+        message: `${pokerName}様のログイン処理が完了しました`,
+      },
+      okibakeLoginPrompt,
     };
 
   } catch (error) {
@@ -196,5 +227,3 @@ export const manualCheckIn = onCall(async (request) => {
     };
   }
 });
-
- 

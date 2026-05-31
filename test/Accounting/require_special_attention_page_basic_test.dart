@@ -206,15 +206,30 @@ void main() {
           },
           'party': {'userId': 'u2', 'pokerName': 'B'},
         })!,
+        BillRequireAttentionViewModel.fromOkibakePendingReview(
+          tournamentId: 't1',
+          okibakeEntryId: 'o1',
+          entry: {
+            'linkedUserId': 'u3',
+            'linkedUserPokerName': 'OkibakeUser',
+            'temporaryDisplayName': 'オキバケ',
+            'businessDate': '2026-05-01',
+            'estimatedAmountIncl': 1200,
+          },
+        ),
       ];
     });
 
-    test('フィルタ未会計 → carryover のみ', () {
+    test('フィルタ未会計 → carryover + okibake pending_review', () {
       final filtered = source
-          .where((b) => b.cardType == BillCardType.carryoverUnsettled)
+          .where(
+            (b) =>
+                b.cardType == BillCardType.carryoverUnsettled ||
+                b.cardType == BillCardType.okibakePendingReview,
+          )
           .toList();
-      expect(filtered, hasLength(1));
-      expect(filtered.first.billId, 'B1');
+      expect(filtered, hasLength(2));
+      expect(filtered.map((e) => e.billId), containsAll(['B1', 'okibake:t1:o1']));
     });
 
     test('フィルタ追加徴収 → collection のみ', () {
@@ -279,7 +294,7 @@ void main() {
 
   testWidgets('AttentionFilter enum 値の網羅', (tester) async {
     // smoke check: enum 値が 4 つ存在することの保証
-    expect(BillCardType.values, hasLength(3));
-    expect(PrimaryActionType.values, hasLength(3));
+    expect(BillCardType.values, hasLength(4));
+    expect(PrimaryActionType.values, hasLength(4));
   });
 }

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_register_dialog.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_user_picker_dialog.dart';
 
 void main() {
   group('compareOkibakeLinkCandidates', () {
@@ -10,12 +10,11 @@ void main() {
       required String uid,
       DateTime? last,
       String? poker,
-    }) =>
-        OkibakeLinkCandidate(
-          userId: uid,
-          lastCheckInAt: last,
-          pokerName: poker,
-        );
+    }) => OkibakeLinkCandidate(
+      userId: uid,
+      lastCheckInAt: last,
+      pokerName: poker,
+    );
 
     test('lastCheckInAt が新しいユーザーを優先すること', () {
       final a = cp(uid: 'a', last: t(200), poker: 'A');
@@ -24,14 +23,14 @@ void main() {
       expect(list.map((e) => e.userId), ['a', 'b']);
     });
 
-    test('lastCheckInAt が null のユーザーはフィールドがあるユーザーの後ろで、pokerName 昇順となること',
-        () {
+    test('lastCheckInAt が null のユーザーはフィールドがあるユーザーの後ろで、pokerName 昇順となること', () {
       final newer = cp(uid: 'u1', last: t(1000), poker: 'Charlie');
       final older = cp(uid: 'u2', last: t(500), poker: 'Alpha');
       final noTsB = cp(uid: 'no-b', last: null, poker: 'Beta');
       final noTsA = cp(uid: 'no-a', last: null, poker: 'Apple');
 
-      final list = [noTsB, newer, noTsA, older]..sort(compareOkibakeLinkCandidates);
+      final list = [noTsB, newer, noTsA, older]
+        ..sort(compareOkibakeLinkCandidates);
       expect(list.map((e) => e.userId), ['u1', 'u2', 'no-a', 'no-b']);
     });
 
@@ -57,6 +56,16 @@ void main() {
       final row = cp(uid: 'k', last: t(50), poker: 'kenta');
       expect(row.lastCheckInAt, isNotNull);
       expect(row.pokerName, 'kenta');
+    });
+
+    test('置きバケで使用中 linkedUserId は候補から除外されること', () {
+      final list = [
+        cp(uid: 'u1', poker: 'A'),
+        cp(uid: 'u2', poker: 'B'),
+        cp(uid: 'u3', poker: 'C'),
+      ];
+      final filtered = filterOkibakeLinkCandidatesUnusedByOkibake(list, {'u2'});
+      expect(filtered.map((e) => e.userId), ['u1', 'u3']);
     });
   });
 }

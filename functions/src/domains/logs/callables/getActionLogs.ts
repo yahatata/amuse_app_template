@@ -16,8 +16,11 @@ const getActionLogsSchema = z.object({
 const OPERATION_NAME_TO_ACTION: Record<string, string> = {
   "アドオン購入": "addon",
   "置きバケ Addon": "okibake_addon",
+  "置きバケ登録": "okibake_create_entry",
   "置きバケ着席": "okibake_assign_seat",
   "置きバケ Bust": "okibake_bust",
+  "置きバケ対象ユーザー設定": "okibake_update_linked_user",
+  "置きバケ伝票紐付け": "okibake_link_bill",
   "一括アドオン": "bulk_addon",
   "バスト＆退店": "bust_and_exit",
   "バスト＆再入場": "bust_and_reentry",
@@ -102,11 +105,12 @@ export const getActionLogs = onCall(async (request) => {
       let rollBackAt: Date | null = null;
       if (d.rollBackAt) rollBackAt = toDate(d.rollBackAt);
       const operationName = String(d.operationName ?? "");
-      const action = OPERATION_NAME_TO_ACTION[operationName] ?? (operationName || "other");
+      const action = OPERATION_NAME_TO_ACTION[operationName] ?? "other";
       return {
         id: docId,
         operationId: opts.operationId ?? docId,
         action,
+        operationName,
         deviceId: String(d.deviceId ?? ""),
         deviceName: d.deviceName != null ? String(d.deviceName) : null,
         targetUid: (payload.playerUid as string) ?? (payload.targetUid as string) ?? null,

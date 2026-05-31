@@ -65,6 +65,63 @@ describe('getActionLogs okibake_addon tableId filter', () => {
       },
       createdAt: now,
     });
+
+    await db.collection('operationLogs').doc('op-okibake-linked-user').set({
+      operationId: 'op-okibake-linked-user',
+      operationName: '置きバケ対象ユーザー設定',
+      deviceId: 'dev1',
+      status: 'succeeded',
+      tournamentId,
+      payload: {
+        tournamentId,
+        okibakeEntryId: 'e-linked-user',
+      },
+      createdAt: now,
+    });
+
+    await db.collection('operationLogs').doc('op-okibake-link-bill').set({
+      operationId: 'op-okibake-link-bill',
+      operationName: '置きバケ伝票紐付け',
+      deviceId: 'dev1',
+      status: 'succeeded',
+      tournamentId,
+      payload: {
+        tournamentId,
+        okibakeEntryId: 'e-link-bill',
+      },
+      createdAt: now,
+    });
+
+    await db.collection('operationLogs').doc('op-okibake-create').set({
+      operationId: 'op-okibake-create',
+      operationName: '置きバケ登録',
+      deviceId: 'dev1',
+      status: 'succeeded',
+      tournamentId,
+      payload: {
+        tournamentId,
+        okibakeEntryId: 'e-create',
+        temporaryDisplayName: 'オキバケC',
+      },
+      createdAt: now,
+    });
+
+    await db.collection('operationLogs').doc('op-okibake-assign').set({
+      operationId: 'op-okibake-assign',
+      operationName: '置きバケ着席',
+      deviceId: 'dev1',
+      status: 'succeeded',
+      tournamentId,
+      tableId: 'table-1',
+      payload: {
+        tournamentId,
+        okibakeEntryId: 'e-assign',
+        playerName: 'オキバケC',
+        seatNumber: 3,
+        tableId: 'table-1',
+      },
+      createdAt: now,
+    });
   });
 
   it('tableId フィルタなしでは待機中 okibake_addon も返す', async () => {
@@ -76,6 +133,10 @@ describe('getActionLogs okibake_addon tableId filter', () => {
     const logs = res.actionLogs as Array<Record<string, unknown>>;
     const actions = logs.map((l) => l.action);
     expect(actions).toContain('okibake_addon');
+    expect(actions).toContain('okibake_create_entry');
+    expect(actions).toContain('okibake_assign_seat');
+    expect(actions).toContain('okibake_update_linked_user');
+    expect(actions).toContain('okibake_link_bill');
     expect(logs.length).toBeGreaterThanOrEqual(2);
 
     const waitLog = logs.find((l) => l.operationId === 'op-wait-addon');

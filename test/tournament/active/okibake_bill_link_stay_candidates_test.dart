@@ -178,6 +178,32 @@ void main() {
 
       expect(filtered, isEmpty);
     });
+
+    test('他の置きバケで使用中の userId は候補から除外される', () async {
+      final filtered =
+          await filterOkibakeBillLinkStayCandidatesFromBaseExcludingRegistered(
+        baseCandidates: base,
+        templateId: templateId,
+        excludedUserIds: const {'u1'},
+        billTournamentExists: (_, __) async => false,
+      );
+
+      expect(filtered.length, 1);
+      expect(filtered.first.userId, 'u2');
+    });
+
+    test('linkedUserId 指定時でも他置きバケ使用中なら候補0件になる', () async {
+      final filtered =
+          await filterOkibakeBillLinkStayCandidatesFromBaseExcludingRegistered(
+        baseCandidates: base,
+        templateId: templateId,
+        linkedUserId: 'u1',
+        excludedUserIds: const {'u1'},
+        billTournamentExists: (_, __) async => false,
+      );
+
+      expect(filtered, isEmpty);
+    });
   });
 
   group('resolveInitialOkibakeBillLinkUserId', () {

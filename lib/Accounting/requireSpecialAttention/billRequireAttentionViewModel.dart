@@ -12,6 +12,7 @@ enum BillCardType {
   carryoverUnsettled,
   postSettlementCollectionPending,
   postSettlementRefundPending,
+  okibakePendingReview,
 }
 
 /// primary action 種別（仕様書 §12.2）。
@@ -19,6 +20,7 @@ enum PrimaryActionType {
   resumeAccounting,
   collect,
   refund,
+  resolveOkibakePendingReview,
 }
 
 /// 要対応の会計画面で 1 枚のカードに相当する共通 view model。
@@ -37,6 +39,7 @@ class BillRequireAttentionViewModel {
 
   /// 元 bill の生データ。primary action からの遷移時に必要に応じて参照する。
   final Map<String, dynamic> rawBill;
+  final String sourceType;
 
   const BillRequireAttentionViewModel({
     required this.billId,
@@ -50,6 +53,7 @@ class BillRequireAttentionViewModel {
     required this.userId,
     required this.userDisplayName,
     required this.rawBill,
+    required this.sourceType,
     this.badgeText,
   });
 
@@ -80,6 +84,43 @@ class BillRequireAttentionViewModel {
       userId: userId,
       userDisplayName: pokerName.isNotEmpty ? pokerName : '—',
       rawBill: bill,
+      sourceType: 'bill',
+    );
+  }
+
+  factory BillRequireAttentionViewModel.fromOkibakePendingReview({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required Map<String, dynamic> entry,
+  }) {
+    final linkedUserId = (entry['linkedUserId'] as String?) ?? '';
+    final linkedUserPokerName = (entry['linkedUserPokerName'] as String?) ?? '';
+    final temporaryDisplayName = (entry['temporaryDisplayName'] as String?) ?? '';
+    final tournamentName = (entry['tournamentName'] as String?) ?? '';
+    final title = linkedUserPokerName.isNotEmpty
+        ? linkedUserPokerName
+        : (temporaryDisplayName.isNotEmpty ? temporaryDisplayName : '—');
+    final amount = (entry['estimatedAmountIncl'] as num?)?.toInt() ?? 0;
+    final sortDate = (entry['businessDate'] as String?) ?? '';
+
+    return BillRequireAttentionViewModel(
+      billId: 'okibake:$tournamentId:$okibakeEntryId',
+      cardType: BillCardType.okibakePendingReview,
+      displayLabel: '未会計',
+      businessDate: sortDate,
+      displayTitle: title,
+      displayAmountIncl: amount,
+      primaryActionType: PrimaryActionType.resolveOkibakePendingReview,
+      sortDate: sortDate,
+      userId: linkedUserId,
+      userDisplayName: title,
+      rawBill: {
+        'tournamentId': tournamentId,
+        'okibakeEntryId': okibakeEntryId,
+        'tournamentName': tournamentName,
+        ...entry,
+      },
+      sourceType: 'okibake',
     );
   }
 }
@@ -127,6 +168,8 @@ String computeDisplayLabel(BillCardType cardType) {
       return '追加徴収';
     case BillCardType.postSettlementRefundPending:
       return '要返金';
+    case BillCardType.okibakePendingReview:
+      return '未会計';
   }
 }
 
@@ -143,6 +186,8 @@ String computeSortDate(BillCardType cardType, Map<String, dynamic> bill) {
     case BillCardType.postSettlementCollectionPending:
     case BillCardType.postSettlementRefundPending:
       return (bill['businessDate'] as String?) ?? '';
+    case BillCardType.okibakePendingReview:
+      return (bill['businessDate'] as String?) ?? '';
   }
 }
 
@@ -156,6 +201,8 @@ int computeDisplayAmountIncl(BillCardType cardType, Map<String, dynamic> bill) {
     case BillCardType.postSettlementRefundPending:
       final pss = bill['postSettlementState'] as Map<String, dynamic>?;
       return (pss?['requiredActionIncl'] as num?)?.toInt() ?? 0;
+    case BillCardType.okibakePendingReview:
+      return (bill['estimatedAmountIncl'] as num?)?.toInt() ?? 0;
   }
 }
 
@@ -168,6 +215,8 @@ PrimaryActionType computePrimaryAction(BillCardType cardType) {
       return PrimaryActionType.collect;
     case BillCardType.postSettlementRefundPending:
       return PrimaryActionType.refund;
+    case BillCardType.okibakePendingReview:
+      return PrimaryActionType.resolveOkibakePendingReview;
   }
 }
 
@@ -180,5 +229,7 @@ String primaryActionLabel(PrimaryActionType type) {
       return '徴収する';
     case PrimaryActionType.refund:
       return '返金する';
+    case PrimaryActionType.resolveOkibakePendingReview:
+      return '対応する';
   }
 }
