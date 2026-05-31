@@ -677,7 +677,7 @@ Phase 5 初期実装は **案A（pending_review 維持）**で進める。
 ### 実装内容（要約）
 
 - **`endTournament` / `force_ended`** 処理内で、`billLinkStatus == unlinked` かつ **`linkedUserId` 必須**の残存がある場合 **`pending_review` に遷移可能な対象のみ処理**。**`linkedUserId` 未設定のまま残るものがあると終了を完了しない**
-- **`pending_review` はログイン時案内対象外**（§14.15・§15）
+- `pending_review` は要対応会計ページでの解決を主導線としつつ、Phase 8 の店舗端末入店時案内候補には含める（§14.15・§15）
 - 要対応会計ページは既存 UI を再利用する（表示文言・カードレイアウト・行構造を既存仕様に合わせる）。置きバケ専用カードは作成しない。内部データソース・操作処理は okibake 用に分岐する。
 - **来店なし入金**: `billType: okibake_remote_payment`、**`activeStay` なし**、`businessDate` は対象トーナメントと整合（§15）
 - **open 作成 → settled update**。**支払い方法（payment methods）は詳細仕様書 §15.11 の定義を正とする**。本 ChangeSpecでは **cash / electronic_money / other 相当**の簡易分類を想定メモとして置くが、**実装時は §15.11 の許容値のみ**に合わせる。
@@ -793,6 +793,16 @@ LIFF と店舗 Callable の両方から、置きバケ済みユーザーが**通
 2. 置きバケ来店中 bill 紐付け undo
    （`linkOkibakeTemporaryEntryToBill` を会計前 bill の範囲で取り消す）
 
+### Phase 7 追加実装（確定）
+
+Phase 7 追加対象として、以下 2 操作を rollbackAction に接続する。
+
+1. 置きバケ登録 rollback
+   （`createOkibakeTemporaryEntry` の取り消し。削除ではなく voided 化）
+
+2. 置きバケ席配置 undo
+   （`assignOkibakeTemporaryEntryToSeat` の取り消し。seated から registered へ復元）
+
 ### 参照仕様（正本）
 
 - §14.14 置きバケ伝票紐付け undo
@@ -824,11 +834,36 @@ LIFF と店舗 Callable の両方から、置きバケ済みユーザーが**通
   - `okibakeEntryBefore` / `billTournamentBefore` / `usersListBefore` / `waitingBefore` / `seatBefore` を正として復元
   - `pending_review` からの紐付け取り消しは、`before` を正として `pending_review` 状態へ戻す
 
+- **置きバケ登録 rollback**:
+  - operationName `置きバケ登録` を `okibake_create_entry` に mapping し rollbackAction から undo service を実行
+  - `registered + unlinked + linkedBillId なし + okibakeAddonCount == 0` のみ許可
+  - 対象 entry は削除せず `entryStatus: voided` に更新
+  - `voidedAt / voidedByDeviceId / updatedAt / updatedByDeviceId` を更新
+  - `views/main.entries / playersIn / waitingCount` を `-1` 補正（`max(0, current - 1)`）
+  - `okibakeNextDisplayNumber` は戻さない
+
+- **置きバケ席配置 undo**:
+  - operationName `置きバケ着席` を `okibake_assign_seat` に mapping し rollbackAction から undo service を実行
+  - `seated + unlinked + linkedBillId なし + okibakeAddonCount == 0` のみ許可
+  - `okibakeEntryBefore` / `seatBefore` を正として復元
+  - `entryStatus` は registered に戻す
+  - `views/main.waitingCount` を `+1` 補正
+  - `views/main.entries / playersIn` は変更しない
+
+- **ActionHistory 接続**:
+  - rollbackAction に渡す値は表示名ではなく action key を使用
+  - `okibake_create_entry` / `okibake_assign_seat` に rollback ボタンを表示
+  - 表示名（operationName）と action key は分離する
+
 ### 実装しないこと
 
 - 来店なし入金 (`resolveOkibakePendingReviewWithRemotePayment`) の undo
 - settled 後の「直接 unlinked 戻し」による簡略 rollback
 - settled bill の削除、analytics 直接巻き戻し、bill 削除型 rollback
+- Addon rollback
+- Bust rollback
+- busted + linked のランキング / bustedUser 反映
+- Phase 8 link_prompt / LIFF
 
 ### データ整合・冪等性・transaction 方針
 
@@ -852,30 +887,31 @@ addon 後追い済み、bust が bill 側へ反映されないこと、`open` �
 
 ---
 
-## 13. Phase 8: ログイン時置きバケ案内
+## 13. Phase 8: 店舗端末入店時の置きバケ案内
 
 ### 目的
 
-`loginPromptMode` に応じ、LINE ログイン後に **候補提示のみまたは手動接続導線** を出す。**自動接続は一切しない**。
+`loginPromptMode` に応じ、店舗端末での手動入店 / QR入店の完了後に **候補提示のみまたは手動接続導線** を出す。**自動接続は一切しない**。
 
 ### 参照仕様
 
-- §14.15（対象条件: `linkedUserId == ログインユーザー ID`、`billLinkStatus == unlinked`、`entryStatus != voided`、`pending_review` 除外、`linkedUserId` 未設定除外）
+- §14.15（対象条件: `linkedUserId == 入店ユーザー ID`、`billLinkStatus != linked`、`entryStatus != voided`、`linkedUserId` 未設定除外）
 
 ### 対象ファイル候補
 
 | 種別 | パス |
 |------|------|
-| LIFF | `public/user/index.html`（ログイン後フロー付近。**ウィジェット分割は実装時**） |
-| Flutter（店舗卓でログイン導線がある場合のみ） | 要確認。**現状優先は LIFF**。 |
-| 設定参照 | Flutter: `lib/services/store_config_service.dart`。Functions: **`storeMeta/config` 読取 Callable が既にあるか要確認**。無ければ **読取専用 Callable または Firestore 直読み方針**を §25.3 に沿って追加 |
+| Flutter（店舗端末） | `lib/UserLogin/UserManualCheckInPage.dart` / `lib/UserLogin/userCheckInPage.dart`（入店完了後の通知導線） |
+| 入店 Callable | `functions/src/domains/user/callables/manualCheckIn.ts` / `processVisitByQR.ts` |
+| 設定参照 | Flutter: `lib/services/store_config_service.dart`。Functions: `storeMeta/config` ローダー（`configLoader`） |
 | Callable（候補検索・任意） | 詳細書 §14.15.6。§25.3「候補検索 Callable の名前」未定 → **クエリのみで足りるか実装時判断** |
 
 ### 実装内容（要約）
 
 - `loginPromptMode` を読む: **`none`** / **`notice_only`** / **`link_prompt`**。既定・不正・欠損 → **`notice_only`**
-- 各 mode で **自動接続禁止**。**`notice_only`** は通知のみ。**`link_prompt`** はスタッフ操作前提の伝票接続へ誘導（**詳細処理は Phase 4 の Callable** に集約）。
+- 各 mode で **自動接続禁止**。**`notice_only`** は通知のみ。**`link_prompt`** はスタッフ操作前提の手動接続導線へ誘導（**詳細処理は Phase 4 の Callable** に集約）。
 - **temporaryDisplayName / memo で自動照合しない**
+- `pending_review` も案内候補に含める（`billLinkStatus != linked`）
 
 ### 実装しないこと
 
@@ -883,7 +919,7 @@ addon 後追い済み、bust が bill 側へ反映されないこと、`open` �
 
 ### データ整合・冪等性・transaction 方針
 
-表示のみ。**書き込みは手動リンク時**。
+表示・誘導のみ。**書き込みは手動リンク時**。
 
 ### ログ / operationLog / logOps 方針
 
@@ -895,11 +931,11 @@ addon 後追い済み、bust が bill 側へ反映されないこと、`open` �
 
 ### テスト観点
 
-mode ごとの表示、`pending_review` 非表示
+mode ごとの表示、`pending_review` を含む候補検出
 
 ### 完了条件
 
-ログイン後の運用ガイダンスが仕様どおり動作
+店舗端末入店後の運用ガイダンスが仕様どおり動作
 
 ---
 

@@ -62,10 +62,17 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
       final data = result.data as Map<dynamic, dynamic>;
 
       final success = data['success'] == true;
-      final action = data['action']?.toString();
       final message = data['message']?.toString() ?? '';
-      final pokerName = (data['user'] as Map<dynamic, dynamic>?)?['pokerName']?.toString() ?? 
-                        (data['data'] as Map<dynamic, dynamic>?)?['pokerName']?.toString();
+      final userMap = data['user'] as Map<dynamic, dynamic>?;
+      final pokerName =
+          userMap?['pokerName']?.toString() ??
+          (data['data'] as Map<dynamic, dynamic>?)?['pokerName']?.toString();
+      final userId = userMap?['uid']?.toString();
+      final billId = data['billId']?.toString();
+      final okibakeLoginPromptRaw = data['okibakeLoginPrompt'];
+      final okibakeLoginPrompt = okibakeLoginPromptRaw is Map
+          ? OkibakeLoginPromptData.fromMap(okibakeLoginPromptRaw)
+          : null;
 
       // スキャンを停止
       await _scannerController.stop();
@@ -83,6 +90,9 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
               showDialogOnLoad: true,
               dialogMessage: displayMessage,
               isSuccess: success,
+              userId: userId,
+              billId: billId,
+              okibakeLoginPrompt: okibakeLoginPrompt,
             ),
           ),
         );

@@ -8,6 +8,13 @@ jest.mock('../../src/domains/bills/repos/createBillWithActiveStay', () => ({
   createBillWithActiveStay: jest.fn(),
 }));
 
+jest.mock('../../src/domains/user/services/okibakeLoginPrompt', () => ({
+  collectOkibakeLoginPromptTargets: jest.fn(),
+  resolveOkibakeLoginPromptMode: jest.fn(),
+  buildOkibakeLoginPromptPayload: jest.fn(),
+  buildOkibakeLoginPromptFallback: jest.fn(),
+}));
+
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as bcrypt from 'bcryptjs';
 import * as admin from 'firebase-admin';
@@ -19,6 +26,10 @@ describe('manualCheckIn lastCheckInAt', () => {
   let manualCheckIn: typeof import('../../src/domains/user/callables/manualCheckIn').manualCheckIn;
 
   let createBillMock: jest.Mock;
+  let collectPromptMock: jest.Mock;
+  let resolvePromptModeMock: jest.Mock;
+  let buildPromptPayloadMock: jest.Mock;
+  let buildPromptFallbackMock: jest.Mock;
 
   /** firebase.json の emulators と揃える（rules-unit-testing の clearFirestore と競合しないようにする） */
   const projectId = 'amuse-app-template';
@@ -42,6 +53,14 @@ describe('manualCheckIn lastCheckInAt', () => {
         '../../src/domains/bills/repos/createBillWithActiveStay'
       );
     createBillMock = billsMod.createBillWithActiveStay as jest.Mock;
+    const promptMod =
+      jest.requireMock<typeof import('../../src/domains/user/services/okibakeLoginPrompt')>(
+        '../../src/domains/user/services/okibakeLoginPrompt'
+      );
+    collectPromptMock = promptMod.collectOkibakeLoginPromptTargets as jest.Mock;
+    resolvePromptModeMock = promptMod.resolveOkibakeLoginPromptMode as jest.Mock;
+    buildPromptPayloadMock = promptMod.buildOkibakeLoginPromptPayload as jest.Mock;
+    buildPromptFallbackMock = promptMod.buildOkibakeLoginPromptFallback as jest.Mock;
   });
 
   afterAll(async () => {
@@ -61,6 +80,25 @@ describe('manualCheckIn lastCheckInAt', () => {
       businessDate: '2026-01-01',
       activeStayCreated: true,
     });
+    buildPromptFallbackMock.mockReturnValue({
+      mode: 'notice_only',
+      count: 0,
+      entries: [],
+    });
+    resolvePromptModeMock.mockReturnValue('link_prompt');
+    collectPromptMock.mockResolvedValue([
+      {
+        tournamentId: 'tour-1',
+        okibakeEntryId: 'entry-1',
+        entryStatus: 'registered',
+        billLinkStatus: 'unlinked',
+      },
+    ]);
+    buildPromptPayloadMock.mockImplementation(({ mode, entries }) => ({
+      mode,
+      count: entries.length,
+      entries,
+    }));
   });
 
   async function seedDevice(callerUid: string) {
@@ -115,6 +153,11 @@ describe('manualCheckIn lastCheckInAt', () => {
     const result = await (manualCheckIn as any).run(mockRequest);
     expect(result.success).toBe(true);
     expect(createBillMock).toHaveBeenCalledTimes(1);
+    expect(collectPromptMock).toHaveBeenCalledWith({
+      db: expect.anything(),
+      linkedUserId: guestUid,
+      currentBusinessDate: '2026-01-01',
+    });
 
     const userSnap = await db.collection('users').doc(guestUid).get();
     const last = userSnap.data()?.lastCheckInAt as admin.firestore.Timestamp | undefined;
@@ -157,8 +200,108 @@ describe('manualCheckIn lastCheckInAt', () => {
 
     const result = await (manualCheckIn as any).run(mockRequest);
     expect(result.success).toBe(false);
+    expect(collectPromptMock).not.toHaveBeenCalled();
 
     const userSnap = await db.collection('users').doc(guestUid).get();
     expect(userSnap.data()?.lastCheckInAt?.toMillis()).toBe(priorTs.toMillis());
+  });
+
+  it('okibakeLoginPrompt を返し、linkedUserId 一致かつ未接続のみ対象になること', async () => {
+    const callerUid = 'device-manual-prompt-1';
+    const guestUid = 'guest-manual-prompt-1';
+    const loginId = 'promptguestMMDD';
+    await seedDevice(callerUid);
+    await seedUser({
+      uid: guestUid,
+      loginId,
+      pin: '4321',
+    });
+
+    await db.collection('storeMeta').doc('config').set({
+      okibake: { loginPromptMode: 'link_prompt' },
+    });
+    await db
+      .collection('scheduledTournaments')
+      .doc('tour-1')
+      .collection('okibakeTemporaryEntries')
+      .doc('entry-1')
+      .set({
+        linkedUserId: guestUid,
+        linkedUserPokerName: 'PromptTarget',
+        temporaryDisplayName: '置きバケA',
+        entryStatus: 'registered',
+        billLinkStatus: 'unlinked',
+      });
+    await db
+      .collection('scheduledTournaments')
+      .doc('tour-2')
+      .collection('okibakeTemporaryEntries')
+      .doc('entry-2')
+      .set({
+        linkedUserId: guestUid,
+        linkedUserPokerName: 'ShouldSkip',
+        entryStatus: 'voided',
+        billLinkStatus: 'unlinked',
+      });
+    await db
+      .collection('scheduledTournaments')
+      .doc('tour-3')
+      .collection('okibakeTemporaryEntries')
+      .doc('entry-3')
+      .set({
+        linkedUserId: guestUid,
+        linkedUserPokerName: 'AlreadyLinked',
+        entryStatus: 'registered',
+        billLinkStatus: 'linked',
+      });
+
+    const mockRequest = {
+      data: {
+        loginId,
+        pin: '4321',
+        entranceFee: 0,
+      },
+      auth: { uid: callerUid },
+    };
+
+    const result = await (manualCheckIn as any).run(mockRequest);
+    expect(result.success).toBe(true);
+    expect(['link_prompt', 'notice_only']).toContain(result.okibakeLoginPrompt?.mode);
+    expect(result.okibakeLoginPrompt?.count).toBe(1);
+    if (result.okibakeLoginPrompt?.mode === 'link_prompt') {
+      expect(result.okibakeLoginPrompt?.entries?.[0]?.okibakeEntryId).toBe('entry-1');
+    } else {
+      expect(result.okibakeLoginPrompt?.entries ?? []).toHaveLength(0);
+    }
+  });
+
+  it('okibakeLoginPrompt 取得失敗でも success=true を返すこと', async () => {
+    const callerUid = 'device-manual-prompt-fail';
+    const guestUid = 'guest-manual-prompt-fail';
+    const loginId = 'promptFailMMDD';
+    await seedDevice(callerUid);
+    await seedUser({
+      uid: guestUid,
+      loginId,
+      pin: '1111',
+    });
+    collectPromptMock.mockRejectedValueOnce(new Error('prompt fetch failed'));
+
+    const mockRequest = {
+      data: {
+        loginId,
+        pin: '1111',
+        entranceFee: 0,
+      },
+      auth: { uid: callerUid },
+    };
+
+    const result = await (manualCheckIn as any).run(mockRequest);
+    expect(result.success).toBe(true);
+    expect(result.okibakeLoginPrompt).toEqual({
+      mode: 'notice_only',
+      count: 0,
+      entries: [],
+    });
   });
 });
