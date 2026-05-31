@@ -11,7 +11,7 @@
  * 旧 `bills/{billId}/events` 経路（postEventAdjustment / billsEventsOnCreate）には触れない。
  */
 
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import * as crypto from 'crypto';
@@ -48,10 +48,15 @@ import {
 } from '../services/cashActions';
 import { calcBusinessDate } from './calcBusinessDate';
 import { getStoreConfig } from '../../../shared/config/configLoader';
+import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
 import { buildAdjustmentAnalyticsDelta } from '../../analytics/services/aggregator/adjustmentDelta';
 import { buildCashActionAnalyticsDelta } from '../../analytics/services/aggregator/cashActionDelta';
 import { processAdjustmentAnalyticsAtomically } from '../../analytics/services/applyAdjustmentToAnalytics';
 import { processCashActionAnalyticsAtomically } from '../../analytics/services/applyCashActionToAnalytics';
+import { loadTaxReportingBehavior } from '../../reporting/config/taxReportingBehaviorLoader';
+import { buildCashActionEntry } from '../../reporting/services/entryBuilder';
+import { writeReportingEntry } from '../../reporting/services/entryWriter';
+import { applyEntryToReportingMonthly } from '../../reporting/services/monthlyUpdater';
 
 const IDEMPOTENCY_KEY_PREFIX = 'createPostSettlementAdjustment';
 const IDEMPOTENCY_TTL_HOURS = 48;
@@ -230,6 +235,28 @@ export async function createPostSettlementAdjustment(
   // Step07 changeSpec §5.6: feature flag を transaction 外で読み取る
   const storeConfig = await getStoreConfig();
   const analyticsEnabled = storeConfig.features?.settlementAggregatorEnabled === true;
+  const reportingEnabled = storeConfig.features?.reportingAggregatorEnabled === true;
+  const chipRate = storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
+
+  const SPECIAL_METHODS = new Set(['sideGameChip', 'pointA', 'pointB']);
+
+  /** ユーザー残高フィールド名（Firestore 上の key）を返す */
+  function balanceField(method: string): string {
+    switch (method) {
+      case 'sideGameChip': return 'sideGameChip';
+      case 'pointA': return 'pointA';
+      case 'pointB': return 'pointB';
+      default: throw new Error(`Unknown special method: ${method}`);
+    }
+  }
+
+  /** special method の amount を「残高単位（枚 or ポイント）」に変換 */
+  function toBalanceUnit(method: string, amountIncl: number): number {
+    if (method === 'sideGameChip') {
+      return Math.round(amountIncl / chipRate);
+    }
+    return amountIncl; // pointA / pointB は 1pt = 1円
+  }
 
   // Step07 changeSpec §5.3.1: transaction 内で組み立てた analytics delta を transaction 外で再利用するための capture
   interface AnalyticsCaptureFromTx {
@@ -434,6 +461,8 @@ export async function createPostSettlementAdjustment(
           }
         }
 
+        const usedMethod = immediateCashAction?.method ?? IMMEDIATE_CASH_DEFAULT_METHOD;
+
         cashActionDoc = buildImmediateCashActionDoc({
           sequenceNo: startSequenceNo + 1,
           cashActionType,
@@ -441,13 +470,73 @@ export async function createPostSettlementAdjustment(
           executedAt: adjustmentCreatedAt,
           executedBy: adjustmentDoc.createdBy,
           cashflowBusinessDate: resolvedCashflowBusinessDate,
-          method: immediateCashAction?.method ?? IMMEDIATE_CASH_DEFAULT_METHOD,
+          method: usedMethod,
           allocationAdjustmentId: adjustmentDocRef.id,
           note: immediateCashAction?.note,
         });
         nextSequenceNoAfter = startSequenceNo + 2;
         finalNewRemaining = 0;
         finalNewState = 'completed_by_cash_action';
+
+        // C-2.5: special method のユーザー残高バリデーション
+        if (SPECIAL_METHODS.has(usedMethod)) {
+          const userId = (billData.party?.userId as string | undefined) ?? null;
+          if (!userId) {
+            throw new FunctionCustomError({
+              errorKey: 'ACCOUNTING_USER_NOT_FOUND',
+              message: `special method ${usedMethod} requires userId on bill.party, but not found`,
+              context: { billId, method: usedMethod },
+            });
+          }
+          const userRef = db.collection('users').doc(userId);
+          const userSnap = await tx.get(userRef);
+          const userData = userSnap.exists ? userSnap.data()! : {};
+          const currentBalance: number = (userData[balanceField(usedMethod)] as number | undefined) ?? 0;
+          const requiredBalance = toBalanceUnit(usedMethod, cashActionDoc.amountIncl);
+
+          if (cashActionType === 'collection') {
+            if (currentBalance < requiredBalance) {
+              throw new FunctionCustomError({
+                errorKey: 'ACCOUNTING_INSUFFICIENT_BALANCE',
+                message: `${usedMethod} の残高が不足しています。残高: ${currentBalance}、必要: ${requiredBalance}`,
+                context: { billId, method: usedMethod, currentBalance, requiredBalance },
+              });
+            }
+          }
+
+          if (cashActionType === 'refund') {
+            const paymentTotals = (billData.paymentTotals as Record<string, number> | undefined) ?? {};
+            const originalPaid = paymentTotals[usedMethod] ?? 0;
+            if (originalPaid > 0) {
+              // 既存 cashActions から累計返金額・追加徴収額を計算
+              // 返金可能上限 = 最初の会計で支払った額 + 追加徴収で受け取った額 - すでに返金した額
+              const existingCashActionsSnap = await tx.get(cashActionsCollectionRef);
+              let alreadyRefunded = 0;
+              let alreadyCollected = 0;
+              for (const caDoc of existingCashActionsSnap.docs) {
+                const ca = caDoc.data();
+                const mb = (ca.methodBreakdown as Array<{ method: string; amountIncl: number }> | undefined) ?? [];
+                for (const entry of mb) {
+                  if (entry.method === usedMethod) {
+                    if (ca.cashActionType === 'refund') {
+                      alreadyRefunded += entry.amountIncl;
+                    } else if (ca.cashActionType === 'collection') {
+                      alreadyCollected += entry.amountIncl;
+                    }
+                  }
+                }
+              }
+              const maxRefundable = originalPaid + alreadyCollected - alreadyRefunded;
+              if (cashActionDoc.amountIncl > maxRefundable) {
+                throw new FunctionCustomError({
+                  errorKey: 'ACCOUNTING_REFUND_EXCEEDS_LIMIT',
+                  message: `${usedMethod} の返金可能額を超えています。返金可能残額: ¥${maxRefundable}、要求額: ¥${cashActionDoc.amountIncl}`,
+                  context: { billId, method: usedMethod, originalPaid, alreadyCollected, alreadyRefunded, maxRefundable, requested: cashActionDoc.amountIncl },
+                });
+              }
+            }
+          }
+        }
       }
 
       const finalAdjustmentDoc: AdjustmentDoc = {
@@ -591,6 +680,20 @@ export async function createPostSettlementAdjustment(
 
       if (cashActionDocRef && cashActionDoc) {
         tx.set(cashActionDocRef, cashActionDoc, { merge: false });
+
+        // C-2.5: special method ユーザー残高更新
+        const usedMethod = cashActionDoc.methodBreakdown[0]?.method ?? null;
+        if (usedMethod && SPECIAL_METHODS.has(usedMethod)) {
+          const userId = (billData.party?.userId as string | undefined) ?? null;
+          if (userId) {
+            const userRef = db.collection('users').doc(userId);
+            const delta = toBalanceUnit(usedMethod, cashActionDoc.amountIncl);
+            const increment = cashActionDoc.cashActionType === 'collection'
+              ? FieldValue.increment(-delta)
+              : FieldValue.increment(delta);
+            tx.update(userRef, { [balanceField(usedMethod)]: increment });
+          }
+        }
       }
 
       tx.update(cycleRef, {
@@ -717,6 +820,56 @@ export async function createPostSettlementAdjustment(
       }
     }
 
+    // Reporting: write cashAction entry only when immediate cashAction was created
+    let reportingApplied = false;
+    if (!reused && reportingEnabled && analyticsCapture) {
+      const capture = analyticsCapture as AnalyticsCaptureFromTx;
+      if (capture.cashActionDoc && capture.cashActionId && capture.billBusinessDate.length > 0) {
+        try {
+          const taxBehavior = await loadTaxReportingBehavior();
+
+          const reportingAdjLines = capture.adjustmentLines.map(line => ({
+            targetCategory: line.targetCategory,
+            amountInclDelta: line.amountInclDelta,
+          }));
+
+          const methodBreakdownMap: Record<string, number> = {};
+          for (const mbEntry of capture.cashActionDoc.methodBreakdown) {
+            methodBreakdownMap[mbEntry.method] = (methodBreakdownMap[mbEntry.method] ?? 0) + mbEntry.amountIncl;
+          }
+
+          const reportingEntry = buildCashActionEntry({
+            billId,
+            cycleNo: stored.cycleNo,
+            cashActionId: capture.cashActionId,
+            cashActionType: capture.cashActionDoc.cashActionType,
+            amountIncl: capture.cashActionDoc.amountIncl,
+            methodBreakdown: methodBreakdownMap,
+            adjustmentLines: reportingAdjLines,
+            businessDate: capture.billBusinessDate,
+            cashActionExecutedAt: capture.cashActionDoc.executedAt as Timestamp,
+            dateRule: taxBehavior.dateRule,
+            linkedAdjustmentId: stored.adjustmentId,
+            isImmediate: true,
+          });
+
+          const { written } = await writeReportingEntry(db, reportingEntry);
+          if (written) {
+            await applyEntryToReportingMonthly(db, reportingEntry);
+          }
+          reportingApplied = true;
+        } catch (reportingError) {
+          logOpsError({
+            message: 'createPostSettlementAdjustment reporting write failed',
+            functionEntry: 'createPostSettlementAdjustment',
+            operation: 'writeReportingEntry',
+            cause: reportingError,
+            context: { billId, adjustmentId: stored.adjustmentId, cashActionId: stored.cashActionId },
+          });
+        }
+      }
+    }
+
     logOpsSuccess({
       message: 'createPostSettlementAdjustment 成功',
       functionEntry: 'createPostSettlementAdjustment',
@@ -733,6 +886,8 @@ export async function createPostSettlementAdjustment(
         analyticsApplied: analyticsAdjustmentApplied,
         analyticsCashActionApplied,
         analyticsEnabled,
+        reportingApplied,
+        reportingEnabled,
       },
     });
 

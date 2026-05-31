@@ -40,8 +40,6 @@ const FORBIDDEN_FIELDS = [
   'categoryBreakdown',
   'paymentTotals',
   'itemsSnapshot',
-  'postEvents',
-  'paymentsSummary',
   'settlementSnapshot',
   'currentSummary',
   'postSettlementState',

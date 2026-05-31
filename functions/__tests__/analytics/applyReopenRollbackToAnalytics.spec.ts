@@ -77,13 +77,7 @@ describe('processReopenRollbackAnalyticsAtomically (Emulator)', () => {
         },
       },
       paymentTotals: { cash: 5000 },
-      paymentsSummary: {
-        paidTotalIncl: 5000,
-        balanceDueIncl: 0,
-        byMethod: { cash: 5000 },
-      },
       party: { userId: 'user-X', pokerName: 'taro' },
-      postEvents: { totalAdjustmentsIncl: 0 },
       ...overrides,
     };
   }

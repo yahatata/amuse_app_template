@@ -4,7 +4,11 @@ import { z } from 'zod';
 import { getFirestore } from 'firebase-admin/firestore';
 import { calculatePaymentSplit } from '../services/paymentSplitCalculator';
 import { getStoreConfig } from '../../../shared/config/configLoader';
-import { DEFAULT_POINT_PRIORITY } from '../../../shared/config/defaults';
+import {
+  DEFAULT_POINT_PRIORITY,
+  DEFAULT_POINT_AB_ROUNDING_UNIT,
+  DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
+} from '../../../shared/config/defaults';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
@@ -125,6 +129,14 @@ export const verifyPaymentSplit = onCall(async (request) => {
       pointPriority,
       categoryPaymentMethods: config.billing?.paymentPolicy?.categoryPaymentMethods,
       sideGameChipExchangeRate: config.billing?.sideGameChipRate,
+      roundingUnits: {
+        pointAB:
+          config.billing?.paymentPolicy?.roundingUnits?.pointAB ??
+          DEFAULT_POINT_AB_ROUNDING_UNIT,
+        sideGameChip:
+          config.billing?.paymentPolicy?.roundingUnits?.sideGameChip ??
+          DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
+      },
     });
 
     // クライアント側とサーバー側の結果を比較

@@ -93,10 +93,10 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
         final customerName = pokerName ?? userId ?? '不明';
         
         // 会計記録データを構築
-        final postEvents = data['postEvents'] as Map<String, dynamic>? ?? {};
+        final currentSummary = data['currentSummary'] as Map<String, dynamic>? ?? {};
         final amounts = data['amounts'] as Map<String, dynamic>? ?? {};
         final ops = data['ops'] as Map<String, dynamic>? ?? {};
-        final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>? ?? {};
+        final paymentTotals = data['paymentTotals'] as Map<String, dynamic>? ?? {};
         final status = data['status'] as String? ?? 'settled';
         
         final accountingRecord = <String, dynamic>{
@@ -106,8 +106,8 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
           'accountingStartedAt': ops['accountingStartedAt'],
           'totalPrice': amounts['grandTotalRounded'] ?? 0,
           'status': status,
-          'paymentMethod': 'cash', // TODO: paymentsSummary.byMethod から主要な支払い方法を取得
-          'paymentMethodsByAmount': paymentsSummary['byMethod'] ?? {},
+          'paymentMethod': 'cash', // TODO: paymentTotals から主要な支払い方法を取得
+          'paymentMethodsByAmount': paymentTotals,
           // 修正履歴、キャンセル記録、返金記録は events サブコレクションから取得する必要があるが、
           // 今回は親ドキュメントの情報のみで判定
           'corrections': [], // TODO: /bills/{billId}/events から adjustment イベントを取得
@@ -115,9 +115,9 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
             'cancelledAt': ops['accountingCompletedAt'],
             'reason': 'キャンセル',
           } : null,
-          'refundRecord': (postEvents['totalRefundedIncl'] as num? ?? 0) > 0 ? {
+          'refundRecord': (currentSummary['refundedTotalIncl'] as num? ?? 0) > 0 ? {
             'refundedAt': ops['accountingCompletedAt'], // TODO: 実際の返金日時を events から取得
-            'amount': postEvents['totalRefundedIncl'],
+            'amount': currentSummary['refundedTotalIncl'],
             'reason': '返金',
           } : null,
         };

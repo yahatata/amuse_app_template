@@ -33,13 +33,13 @@
 
 | ファイル | 対応 ID | 説明 |
 |----------|---------|------|
-| `features.md` | D-05, D-07, D-08, D-09, B-06 | 機能フラグ |
+| `features.md` | D-05, D-07, D-08, D-09, B-06, 新規 | 機能フラグ（`reportingAggregatorEnabled` を追加） |
 | `autoOpenClose.md` | D-10 | 自動開閉店 |
 | `businessDay_calcBufferMinutes.md` | CALC_BUFFER | 営業日境界バッファ |
 | `businessHoursStyles.md` | R-10 | 営業時間スタイル |
 | `billing_entranceFee.md` | R-06 | 入店料関連 |
 | `billing_sideGameChipRate.md` | R-11/R-12 | チップ換算レート |
-| `billing_paymentPolicy.md` | R-11/R-12 | 支払いポリシー |
+| `billing_paymentPolicy.md` | R-11/R-12, 新規 | 支払いポリシー（`roundingUnits` を追加） |
 | `linePlan.md` | D-04 | LINE プラン種別 |
 | `shift.md` | R-08, R-09 | シフト運用 |
 | `payroll.md` | R-07 | 給与締め |

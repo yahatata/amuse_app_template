@@ -25,10 +25,13 @@ import {
   buildSideGameChipsSummary,
   buildTournamentsSnapshot,
   calculatePaymentTotals,
-  calculatePaymentsSummary,
   calculateContentHash,
 } from '../services/snapshots';
 import { enqueueSettlement } from '../../analytics/services/aggregator';
+import { loadTaxReportingBehavior } from '../../reporting/config/taxReportingBehaviorLoader';
+import { buildSettleEntry } from '../../reporting/services/entryBuilder';
+import { writeReportingEntry } from '../../reporting/services/entryWriter';
+import { applyEntryToReportingMonthly } from '../../reporting/services/monthlyUpdater';
 import {
   buildCurrentSummaryFromSettlement,
   buildDraftAccountingInput,
@@ -42,7 +45,93 @@ import {
   buildInitialCycleDoc,
   buildSettledCycleDocPatch,
 } from '../services/settlementCycles';
+import {
+  calculatePaymentSplit,
+  DEFAULT_POINT_PRIORITY,
+} from '../services/paymentSplitCalculator';
+import {
+  DEFAULT_CATEGORY_PAYMENT_METHODS,
+  DEFAULT_CATEGORY_ORDER,
+  DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE,
+} from '../../../shared/config/defaults';
+import {
+  resolveBaseMethod,
+  buildPaymentMethodsByCategory,
+  type PaymentMethodValue,
+} from '../services/paymentMethodsInference';
 
+
+/**
+ * paymentMethodsByCategory を自動推論する。
+ * 既に値が設定されている場合は null を返す（スキップ）。
+ */
+function inferPaymentMethodsByCategory(params: {
+  existingPaymentMethodsByCategory: Record<string, unknown> | null | undefined;
+  paymentTotals: Record<string, number>;
+  categoryBreakdown: Record<string, number>;
+  storeConfig: Awaited<ReturnType<typeof import('../../../shared/config/configLoader').getStoreConfig>>;
+}): Record<string, PaymentMethodValue> | null {
+  const { existingPaymentMethodsByCategory, paymentTotals, categoryBreakdown, storeConfig } = params;
+
+  // 既存値がある場合はスキップ
+  if (
+    existingPaymentMethodsByCategory &&
+    Object.keys(existingPaymentMethodsByCategory).length > 0
+  ) {
+    return null;
+  }
+
+  const selectedBaseMethod = resolveBaseMethod(paymentTotals);
+  if (!selectedBaseMethod) {
+    logger.info('inferPaymentMethodsByCategory: non-special method not found, skipping');
+    return null;
+  }
+
+  const chipRate =
+    storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
+  const categoryOrder =
+    storeConfig.billing?.paymentPolicy?.categoryOrder ?? DEFAULT_CATEGORY_ORDER;
+  const pointPriority =
+    storeConfig.billing?.paymentPolicy?.pointPriority ?? DEFAULT_POINT_PRIORITY;
+  const categoryPaymentMethods =
+    storeConfig.billing?.paymentPolicy?.categoryPaymentMethods ??
+    DEFAULT_CATEGORY_PAYMENT_METHODS;
+
+  // CategoryBreakdown の sideGameChips（複数形）→ sideGameChip（単数形）に変換
+  const billForSplit: Record<string, number> = {};
+  for (const [key, val] of Object.entries(categoryBreakdown)) {
+    const splitKey = key === 'sideGameChips' ? 'sideGameChip' : key;
+    billForSplit[splitKey] = typeof val === 'number' ? val : 0;
+  }
+
+  // balances: paymentTotals から使用量を取得（sideGameChip は円→枚数に変換）
+  const balances: Record<string, number> = {
+    pointA: paymentTotals['pointA'] ?? 0,
+    pointB: paymentTotals['pointB'] ?? 0,
+    sideGameChip: (paymentTotals['sideGameChip'] ?? 0) / chipRate,
+  };
+
+  const splitResult = calculatePaymentSplit({
+    selectedBaseMethod,
+    bill: billForSplit,
+    balances,
+    pointPriority,
+    categoryPaymentMethods,
+    categoryOrder,
+    sideGameChipExchangeRate: chipRate,
+  });
+
+  return buildPaymentMethodsByCategory({
+    categoryOrder,
+    billForSplit,
+    splitCategoryBreakdown: splitResult.categoryBreakdown,
+    usedPoints: splitResult.usedPoints,
+    pointPriority,
+    selectedBaseMethod,
+  });
+}
+
+// ---------------------------------------------------------------------------
 
 /**
  * Settlement トリガ
@@ -161,11 +250,6 @@ export const billsOnSettle = onDocumentUpdated(
         sideGameChipExchangeRate: chipRate,
       });
 
-      const paymentsSummary = calculatePaymentsSummary({
-        paymentTotals,
-        grandTotalRounded: amounts.grandTotalRounded,
-      });
-
       // contentHash を計算
       const contentHash = calculateContentHash({
         amounts,
@@ -202,7 +286,6 @@ export const billsOnSettle = onDocumentUpdated(
         amounts,
         categoryBreakdown,
         paymentTotals,
-        paymentsSummary,
         closedAt: now,
         contentHash,
       });
@@ -210,7 +293,6 @@ export const billsOnSettle = onDocumentUpdated(
         amounts,
         categoryBreakdown,
         paymentTotals,
-        paymentsSummary,
         contentHash,
       });
       const baselineSnapshot = buildBaselineSnapshot({
@@ -221,21 +303,51 @@ export const billsOnSettle = onDocumentUpdated(
         amounts,
         categoryBreakdown,
         paymentTotals,
-        paymentsSummary,
         contentHash,
       });
+      const receivedTotalIncl = Object.values(paymentTotals).reduce((s, v) => s + v, 0);
       const currentSummary = buildCurrentSummaryFromSettlement({
         claimTotalIncl: amounts.grandTotalRounded,
-        receivedTotalIncl: paymentsSummary.paidTotalIncl,
+        receivedTotalIncl,
         refundedTotalIncl: 0,
         netSalesIncl: amounts.grandTotalRounded,
       });
       const postSettlementState = buildInitialPostSettlementState();
+
+      // paymentMethodsByCategory 自動推論（draftAccountingInput 構築より前に実行）
+      const existingPmByCategory =
+        afterData.draftAccountingInput?.paymentMethodsByCategory ??
+        afterData.meta?.paymentMethodsByCategory;
+      let inferredPmByCategory: Record<string, PaymentMethodValue> | null = null;
+      try {
+        inferredPmByCategory = inferPaymentMethodsByCategory({
+          existingPaymentMethodsByCategory: existingPmByCategory,
+          paymentTotals: paymentTotals as unknown as Record<string, number>,
+          categoryBreakdown: categoryBreakdown as unknown as Record<string, number>,
+          storeConfig,
+        });
+        if (inferredPmByCategory) {
+          logger.info('billsOnSettle: paymentMethodsByCategory inferred', {
+            billId,
+            categories: Object.keys(inferredPmByCategory),
+          });
+        }
+      } catch (inferErr) {
+        logger.warn('billsOnSettle: paymentMethodsByCategory inference failed, skipping', {
+          billId,
+          error: String(inferErr),
+        });
+      }
+
+      // 推論結果を優先して draftAccountingInput を構築
+      const resolvedPmByCategory =
+        inferredPmByCategory ??
+        afterData.draftAccountingInput?.paymentMethodsByCategory ??
+        afterData.meta?.paymentMethodsByCategory ??
+        null;
+
       const draftAccountingInput = buildDraftAccountingInput({
-        paymentMethodsByCategory:
-          afterData.draftAccountingInput?.paymentMethodsByCategory ??
-          afterData.meta?.paymentMethodsByCategory ??
-          null,
+        paymentMethodsByCategory: resolvedPmByCategory,
         paymentMethodsByAmount:
           afterData.draftAccountingInput?.paymentMethodsByAmount ??
           afterData.meta?.paymentMethodsByAmount ??
@@ -253,21 +365,21 @@ export const billsOnSettle = onDocumentUpdated(
         sideGameChipsSummary,
         tournamentsSnapshot: tournamentsSnapshotData,
         paymentTotals,
-        'paymentsSummary.paidTotalIncl': paymentsSummary.paidTotalIncl,
-        'paymentsSummary.balanceDueIncl': paymentsSummary.balanceDueIncl,
-        'paymentsSummary.byMethod': paymentsSummary.byMethod,
-        'postEvents.totalRefundedIncl': 0,
-        'postEvents.totalAdjustmentsIncl': 0,
-        'postEvents.netSalesIncl': amounts.grandTotalRounded,
         closedAt: now,
         settlementSnapshot,
         currentSummary,
         postSettlementState,
         'reopenSummary.latestSettledCycle': currentSettlementCycle,
-        'reopenSummary.lastResettledAt': now,
+        // 初回会計（cycle=1）では null のまま。reopen 後の再会計時のみ更新。
+        ...(currentSettlementCycle > 1 && {
+          'reopenSummary.lastResettledAt': now,
+        }),
         draftAccountingInput,
         'meta.contentHash': contentHash,
-        updatedAt: now, // 初回生成時は updatedAt を更新（既存ポリシーに従う）
+        ...(inferredPmByCategory && {
+          'meta.paymentMethodsByCategory': inferredPmByCategory,
+        }),
+        updatedAt: now,
       };
 
       const cycleRef = billRef.collection('settlementCycles').doc(String(currentSettlementCycle));
@@ -316,31 +428,85 @@ export const billsOnSettle = onDocumentUpdated(
       // cleanupIdempotencyOnSettle を呼ぶ
       await cleanupIdempotencyOnSettle(billId);
 
+      // Re-read bill for analytics and reporting
+      const updatedBillDoc = await billRef.get();
+      const updatedBillData = updatedBillDoc.exists ? updatedBillDoc.data()! : null;
+
       let settlementEnqueued = false;
-      if (storeConfig.features?.settlementAggregatorEnabled) {
-        const updatedBillDoc = await billRef.get();
-        if (updatedBillDoc.exists) {
-          const updatedBillData = updatedBillDoc.data()!;
-          const billDoc: any = {
+      if (storeConfig.features?.settlementAggregatorEnabled && updatedBillData) {
+        const billDoc: any = {
+          billId,
+          businessDate: updatedBillData.businessDate,
+          status: updatedBillData.status,
+          cycleNo:
+            typeof updatedBillData.reopenSummary?.currentSettlementCycle === 'number'
+              ? updatedBillData.reopenSummary.currentSettlementCycle
+              : 1,
+          amounts: updatedBillData.amounts,
+          categoryBreakdown: updatedBillData.categoryBreakdown,
+          itemsSnapshot: updatedBillData.itemsSnapshot,
+          tournamentsSnapshot: updatedBillData.tournamentsSnapshot,
+          paymentTotals: updatedBillData.paymentTotals,
+          party: updatedBillData.party,
+          // paymentsSummary / postEvents は廃止済み（B-4）
+        };
+        await enqueueSettlement(billDoc);
+        settlementEnqueued = true;
+      }
+
+      let reportingApplied = false;
+      logger.info('billsOnSettle: reporting check', {
+        billId,
+        reportingAggregatorEnabled: storeConfig.features?.reportingAggregatorEnabled,
+        hasUpdatedBillData: updatedBillData !== null,
+      });
+      if (storeConfig.features?.reportingAggregatorEnabled === true && updatedBillData) {
+        logger.info('billsOnSettle: reporting block entered', { billId });
+        try {
+          const taxBehavior = await loadTaxReportingBehavior();
+
+          const billCategoryBreakdown = updatedBillData.categoryBreakdown as Record<string, number> | undefined;
+          const reportingCategoryBreakdown: Record<string, { amountIncl: number }> = {};
+          if (billCategoryBreakdown) {
+            for (const [key, val] of Object.entries(billCategoryBreakdown)) {
+              const reportKey = key === 'sideGameChips' ? 'sideGameChip' : key;
+              reportingCategoryBreakdown[reportKey] = { amountIncl: typeof val === 'number' ? val : 0 };
+            }
+          }
+
+          const billPaymentTotals = (updatedBillData.paymentTotals ?? {}) as Record<string, number>;
+          const pmByCategory =
+            updatedBillData.draftAccountingInput?.paymentMethodsByCategory ??
+            updatedBillData.meta?.paymentMethodsByCategory ??
+            {};
+
+          const isResettle = currentSettlementCycle > 1;
+
+          const entry = buildSettleEntry({
             billId,
-            businessDate: updatedBillData.businessDate,
-            status: updatedBillData.status,
-            // Step07 changeSpec §4.2 / §5.3.5: settle marker docId 構成に使う cycle 番号
-            cycleNo:
-              typeof updatedBillData.reopenSummary?.currentSettlementCycle === 'number'
-                ? updatedBillData.reopenSummary.currentSettlementCycle
-                : 1,
-            amounts: updatedBillData.amounts,
-            categoryBreakdown: updatedBillData.categoryBreakdown,
-            itemsSnapshot: updatedBillData.itemsSnapshot,
-            tournamentsSnapshot: updatedBillData.tournamentsSnapshot,
-            paymentTotals: updatedBillData.paymentTotals,
-            paymentsSummary: updatedBillData.paymentsSummary,
-            postEvents: updatedBillData.postEvents,
-            party: updatedBillData.party,
-          };
-          await enqueueSettlement(billDoc);
-          settlementEnqueued = true;
+            cycleNo: currentSettlementCycle,
+            settledAt: now,
+            businessDate: updatedBillData.businessDate ?? '',
+            categoryBreakdown: reportingCategoryBreakdown,
+            paymentTotals: billPaymentTotals,
+            paymentMethodsByCategory: pmByCategory,
+            dateRule: taxBehavior.dateRule,
+            entryType: isResettle ? 'resettle' : 'settle',
+          });
+
+          const { written } = await writeReportingEntry(db, entry);
+          if (written) {
+            await applyEntryToReportingMonthly(db, entry);
+          }
+          reportingApplied = true;
+        } catch (reportingError) {
+          logOpsError({
+            message: 'billsOnSettle reporting write failed',
+            functionEntry: 'billsOnSettle',
+            operation: 'writeReportingEntry',
+            cause: reportingError,
+            context: { billId },
+          });
         }
       }
 
@@ -352,6 +518,7 @@ export const billsOnSettle = onDocumentUpdated(
           contentHashPrefix: contentHash.substring(0, 8),
           outcome: 'snapshot_updated',
           settlementEnqueued,
+          reportingApplied,
         },
       });
     } catch (error) {

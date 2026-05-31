@@ -177,7 +177,6 @@ export async function createBillWithActiveStay(
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(), // 初回のみ
         billId,
-        receiptNumber: null,
         party: {
           userId, // Immutable
           pokerName: pokerName || null,

@@ -2,7 +2,6 @@ import type {
   Amounts,
   CategoryBreakdown,
   PaymentTotals,
-  PaymentsSummary,
 } from './snapshots';
 
 export const INITIAL_SETTLEMENT_CYCLE = 1;
@@ -12,7 +11,6 @@ export interface BaselineSummary {
   amounts: Amounts;
   categoryBreakdown: CategoryBreakdown;
   paymentTotals: PaymentTotals;
-  paymentsSummary: PaymentsSummary;
   contentHash: string;
 }
 
@@ -53,7 +51,6 @@ export interface BaselineSnapshot {
   amounts: Amounts;
   categoryBreakdown: CategoryBreakdown;
   paymentTotals: PaymentTotals;
-  paymentsSummary: PaymentsSummary;
   contentHash: string;
 }
 
@@ -85,7 +82,6 @@ export function buildBaselineSummary(params: BaselineSummary): BaselineSummary {
     amounts: params.amounts,
     categoryBreakdown: params.categoryBreakdown,
     paymentTotals: params.paymentTotals,
-    paymentsSummary: params.paymentsSummary,
     contentHash: params.contentHash,
   };
 }
@@ -137,7 +133,6 @@ export function buildBaselineSnapshot(params: BaselineSnapshot): BaselineSnapsho
     amounts: params.amounts,
     categoryBreakdown: params.categoryBreakdown,
     paymentTotals: params.paymentTotals,
-    paymentsSummary: params.paymentsSummary,
     contentHash: params.contentHash,
   };
 }

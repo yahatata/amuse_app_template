@@ -42,6 +42,10 @@ import {
   processReopenRollbackAnalyticsAtomically,
   ReopenRollbackInput,
 } from "../../analytics/services/applyReopenRollbackToAnalytics";
+import { buildReopenRollbackEntry } from "../../reporting/services/entryBuilder";
+import { writeReportingEntry } from "../../reporting/services/entryWriter";
+import { applyEntryToReportingMonthly } from "../../reporting/services/monthlyUpdater";
+import type { ReportingEntry } from "../../reporting/types";
 
 const IDEMPOTENCY_KEY_PREFIX = "reopenAccountedBill";
 const IDEMPOTENCY_TTL_HOURS = 48;
@@ -148,6 +152,8 @@ export async function reopenAccountedBill(
   const storeConfig = await getStoreConfig();
   const analyticsEnabled =
     storeConfig.features?.settlementAggregatorEnabled === true;
+  const reportingEnabled =
+    storeConfig.features?.reportingAggregatorEnabled === true;
 
   // Step07 changeSpec §5.3.5 / §5.5.3: transaction 内で組み立てた rollback 入力を
   // transaction 外で再利用するための capture
@@ -507,6 +513,49 @@ export async function reopenAccountedBill(
       }
     }
 
+    let reportingRollbackApplied = false;
+    if (!reused && reportingEnabled && analyticsRollbackCapture) {
+      const capture = analyticsRollbackCapture as AnalyticsRollbackCapture;
+      try {
+        const settleEntryId = `${billId}_settle_${capture.oldCycleNo}`;
+        const resettleEntryId = `${billId}_resettle_${capture.oldCycleNo}`;
+
+        let originalEntry: ReportingEntry | null = null;
+        const settleDoc = await db.collection("reportingEntries").doc(settleEntryId).get();
+        if (settleDoc.exists) {
+          originalEntry = settleDoc.data() as ReportingEntry;
+        } else {
+          const resettleDoc = await db.collection("reportingEntries").doc(resettleEntryId).get();
+          if (resettleDoc.exists) {
+            originalEntry = resettleDoc.data() as ReportingEntry;
+          }
+        }
+
+        if (originalEntry) {
+          const rollbackEntry = buildReopenRollbackEntry({
+            billId,
+            cycleNo: capture.oldCycleNo,
+            reopenExecutedAt: Timestamp.now(),
+            originalSettleEntry: originalEntry,
+          });
+
+          const { written } = await writeReportingEntry(db, rollbackEntry);
+          if (written) {
+            await applyEntryToReportingMonthly(db, rollbackEntry);
+          }
+          reportingRollbackApplied = true;
+        }
+      } catch (reportingError) {
+        logOpsError({
+          message: "reopenAccountedBill reporting rollback failed",
+          functionEntry: "reopenAccountedBill",
+          operation: "writeReportingRollback",
+          cause: reportingError,
+          context: { billId, oldCycleNo: capture.oldCycleNo },
+        });
+      }
+    }
+
     logOpsSuccess({
       message: "reopenAccountedBill 成功",
       functionEntry: "reopenAccountedBill",
@@ -521,6 +570,8 @@ export async function reopenAccountedBill(
         requestHash8: shortHash(requestHash),
         analyticsRollbackApplied,
         analyticsEnabled,
+        reportingRollbackApplied,
+        reportingEnabled,
       },
     });
 

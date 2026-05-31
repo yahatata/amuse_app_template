@@ -1,31 +1,48 @@
+// このファイルは削除予定です。動作確認後に削除してください。
+// 旧会計後調整導線の退避ファイルです。現行実装は lib/Accounting の postSettlement 系を参照してください。
+
+/*
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import '../utils/business_date_ambiguous_dialog.dart';
 
-class PostAccountingReopenDialog extends StatefulWidget {
+class PostAccountingRefundDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
   final VoidCallback onUpdated;
 
-  const PostAccountingReopenDialog({
+  const PostAccountingRefundDialog({
     super.key,
     required this.bill,
     required this.onUpdated,
   });
 
   @override
-  State<PostAccountingReopenDialog> createState() => _PostAccountingReopenDialogState();
+  State<PostAccountingRefundDialog> createState() => _PostAccountingRefundDialogState();
 }
 
-class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog> {
+class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _reopenReasonController = TextEditingController();
+  final _refundAmountController = TextEditingController();
+  final _refundReasonController = TextEditingController();
   final _functions = FunctionsClient.instance;
   
+  String _refundMethod = 'cash';
   bool _isProcessing = false;
 
   @override
+  void initState() {
+    super.initState();
+    // 最大返金額を初期値に設定
+    final grandTotalRounded = widget.bill['amounts']?['grandTotalRounded'] ?? 0;
+    final totalRefundedIncl = widget.bill['postEvents']?['totalRefundedIncl'] ?? 0;
+    final maxRefund = grandTotalRounded - totalRefundedIncl;
+    _refundAmountController.text = maxRefund > 0 ? maxRefund.toString() : '0';
+  }
+
+  @override
   void dispose() {
-    _reopenReasonController.dispose();
+    _refundAmountController.dispose();
+    _refundReasonController.dispose();
     super.dispose();
   }
 
@@ -39,20 +56,24 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
 
     try {
       final billId = widget.bill['id'] ?? '';
-      final idempotencyKey = '$billId:reopen:${DateTime.now().millisecondsSinceEpoch}';
+      final idempotencyKey = '$billId:refund:${DateTime.now().millisecondsSinceEpoch}';
+      final refundAmount = int.tryParse(_refundAmountController.text) ?? 0;
 
-      final result = await _functions.httpsCallable('updateAccounting').call({
+      final result = await _functions.httpsCallable('processRefund').call({
         'billId': billId,
         'idempotencyKey': idempotencyKey,
-        'eventType': 'reopen',
-        'reason': _reopenReasonController.text.trim(),
+        'eventPayload': {
+          'amountIncl': refundAmount,
+          'reason': _refundReasonController.text.trim(),
+          'method': _refundMethod,
+        },
         'selectedBusinessDateKey': selectedBusinessDateKey, // 選択された営業日キーを追加
       });
 
       if (result.data['success'] == true) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('伝票再開処理を完了しました')),
+            SnackBar(content: Text('返金処理を完了しました\n返金額: ${refundAmount}円')),
           );
           widget.onUpdated();
           Navigator.of(context).pop();
@@ -60,19 +81,19 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('再開処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
+            SnackBar(content: Text('返金処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        String errorMessage = '再開処理に失敗しました';
+        String errorMessage = '返金処理に失敗しました';
         if (e.toString().contains('failed-precondition')) {
-          errorMessage = '再開処理に失敗しました: この伝票は再開できません（ステータスが「settled」である必要があります）';
+          errorMessage = '返金処理に失敗しました: この伝票は返金できません';
         } else if (e.toString().contains('invalid-argument')) {
-          errorMessage = '再開処理に失敗しました: 入力値が無効です';
+          errorMessage = '返金処理に失敗しました: 入力値が無効です';
         } else if (e.toString().contains('not-found')) {
-          errorMessage = '再開処理に失敗しました: 伝票が見つかりません';
+          errorMessage = '返金処理に失敗しました: 伝票が見つかりません';
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$errorMessage: $e')),
@@ -87,11 +108,30 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
     }
   }
 
-  Future<void> _processReopen() async {
+  Future<void> _processRefund() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_reopenReasonController.text.trim().isEmpty) {
+    if (_refundReasonController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('再開理由を入力してください')),
+        const SnackBar(content: Text('返金理由を入力してください')),
+      );
+      return;
+    }
+
+    final refundAmount = int.tryParse(_refundAmountController.text) ?? 0;
+    final grandTotalRounded = widget.bill['amounts']?['grandTotalRounded'] ?? 0;
+    final totalRefundedIncl = widget.bill['postEvents']?['totalRefundedIncl'] ?? 0;
+    final maxRefund = grandTotalRounded - totalRefundedIncl;
+
+    if (refundAmount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('返金額は0より大きい値である必要があります')),
+      );
+      return;
+    }
+
+    if (refundAmount > maxRefund) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('返金額が最大返金額（$maxRefund円）を超えています')),
       );
       return;
     }
@@ -101,9 +141,9 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('伝票再開'),
+        title: const Text('返金処理'),
         content: Text(
-          '$pokerNameの伝票を再開（in_progress）にしますか？\n\n再度会計フローに戻ります。',
+          '$pokerNameに${refundAmount}円を返金しますか？\n\n返金方法: ${_getRefundMethodText(_refundMethod)}',
         ),
         actions: [
           TextButton(
@@ -126,19 +166,22 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
 
     try {
       final billId = widget.bill['id'] ?? '';
-      final idempotencyKey = '$billId:reopen:${DateTime.now().millisecondsSinceEpoch}';
+      final idempotencyKey = '$billId:refund:${DateTime.now().millisecondsSinceEpoch}';
 
-      final result = await _functions.httpsCallable('updateAccounting').call({
+      final result = await _functions.httpsCallable('processRefund').call({
         'billId': billId,
         'idempotencyKey': idempotencyKey,
-        'eventType': 'reopen',
-        'reason': _reopenReasonController.text.trim(),
+        'eventPayload': {
+          'amountIncl': refundAmount,
+          'reason': _refundReasonController.text.trim(),
+          'method': _refundMethod,
+        },
       });
 
       if (result.data['success'] == true) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('伝票再開処理を完了しました')),
+            SnackBar(content: Text('返金処理を完了しました\n返金額: ${refundAmount}円')),
           );
           widget.onUpdated();
           Navigator.of(context).pop();
@@ -146,19 +189,41 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('再開処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
+            SnackBar(content: Text('返金処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        String errorMessage = '再開処理に失敗しました';
+        // AMBIGUOUSエラーの場合、ダイアログを表示
+        final candidates = extractAmbiguousCandidates(e);
+        if (candidates != null && candidates.isNotEmpty) {
+          final selectedBusinessDateKey = await showBusinessDateAmbiguousDialog(
+            context: context,
+            candidates: candidates,
+            onSelected: (selectedKey) {
+              // 選択された営業日キーで再試行
+              _retryWithSelectedBusinessDate(selectedKey);
+            },
+          );
+          
+          if (selectedBusinessDateKey != null) {
+            // 選択された営業日キーで再試行
+            await _retryWithSelectedBusinessDate(selectedBusinessDateKey);
+            return;
+          } else {
+            // キャンセルされた場合は処理を終了
+            return;
+          }
+        }
+        
+        String errorMessage = '返金処理に失敗しました';
         if (e.toString().contains('failed-precondition')) {
-          errorMessage = '再開処理に失敗しました: この伝票は再開できません（ステータスが「settled」である必要があります）';
+          errorMessage = '返金処理に失敗しました: この伝票は返金できません';
         } else if (e.toString().contains('invalid-argument')) {
-          errorMessage = '再開処理に失敗しました: 入力値が無効です';
+          errorMessage = '返金処理に失敗しました: 入力値が無効です';
         } else if (e.toString().contains('not-found')) {
-          errorMessage = '再開処理に失敗しました: 伝票が見つかりません';
+          errorMessage = '返金処理に失敗しました: 伝票が見つかりません';
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$errorMessage: $e')),
@@ -173,10 +238,24 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
     }
   }
 
+  String _getRefundMethodText(String method) {
+    switch (method) {
+      case 'cash':
+        return '現金';
+      case 'bank_transfer':
+        return '銀行振込';
+      case 'other':
+        return 'その他';
+      default:
+        return '現金';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final grandTotalRounded = widget.bill['amounts']?['grandTotalRounded'] ?? 0;
-    final status = widget.bill['status'] ?? '';
+    final totalRefundedIncl = widget.bill['postEvents']?['totalRefundedIncl'] ?? 0;
+    final maxRefund = grandTotalRounded - totalRefundedIncl;
     final pokerName = widget.bill['party']?['pokerName'] ?? '不明';
 
     final size = MediaQuery.sizeOf(context);
@@ -207,7 +286,7 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      '伝票再開',
+                      '返金処理',
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                     IconButton(
@@ -231,18 +310,14 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
                         ),
                         const SizedBox(height: 4),
                         Text('合計金額: ${grandTotalRounded}円'),
-                        Text('現在のステータス: $status'),
-                        if (status != 'settled')
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              '⚠️ ステータスが「settled」の伝票のみ再開できます',
-                              style: TextStyle(
-                                color: Colors.orange.shade700,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                        Text('既返金額: ${totalRefundedIncl}円'),
+                        Text(
+                          '最大返金額: ${maxRefund}円',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange.shade700,
                           ),
+                        ),
                       ],
                     ),
                   ),
@@ -250,19 +325,67 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
                 
                 const SizedBox(height: 16),
                 
-                // 再開理由
+                // 返金額
                 TextFormField(
-                  controller: _reopenReasonController,
+                  controller: _refundAmountController,
                   decoration: const InputDecoration(
-                    labelText: '再開理由',
+                    labelText: '返金額',
                     border: OutlineInputBorder(),
-                    hintText: '例: 会計をやり直す必要がある、追加注文があるなど',
+                    suffixText: '円',
+                  ),
+                  keyboardType: TextInputType.number,
+                  enabled: !_isProcessing,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return '返金額を入力してください';
+                    }
+                    final amount = int.tryParse(value);
+                    if (amount == null || amount <= 0) {
+                      return '有効な金額を入力してください';
+                    }
+                    if (amount > maxRefund) {
+                      return '返金額が最大返金額（$maxRefund円）を超えています';
+                    }
+                    return null;
+                  },
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // 返金方法
+                DropdownButtonFormField<String>(
+                  value: _refundMethod,
+                  decoration: const InputDecoration(
+                    labelText: '返金方法',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'cash', child: Text('現金')),
+                    DropdownMenuItem(value: 'bank_transfer', child: Text('銀行振込')),
+                    DropdownMenuItem(value: 'other', child: Text('その他')),
+                  ],
+                  onChanged: _isProcessing ? null : (value) {
+                    setState(() {
+                      _refundMethod = value ?? 'cash';
+                    });
+                  },
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // 返金理由
+                TextFormField(
+                  controller: _refundReasonController,
+                  decoration: const InputDecoration(
+                    labelText: '返金理由',
+                    border: OutlineInputBorder(),
+                    hintText: '例: 商品不良、サービス不備など',
                   ),
                   maxLines: 3,
                   enabled: !_isProcessing,
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return '再開理由を入力してください';
+                      return '返金理由を入力してください';
                     }
                     return null;
                   },
@@ -296,9 +419,9 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
                       ),
                       SizedBox(height: 8),
                       Text(
-                        '• 伝票のステータスが「in_progress」に変更されます\n'
-                        '• 再度会計フローに戻ります\n'
-                        '• ステータスが「settled」の伝票のみ再開できます',
+                        '• 返金処理は取り消せません\n'
+                        '• 返金履歴は記録されます\n'
+                        '• 現金返金の場合は、実際の現金の受け渡しを確認してください',
                         style: TextStyle(color: Colors.blue),
                       ),
                     ],
@@ -317,12 +440,12 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
                     ),
                     const SizedBox(width: 8),
                     ElevatedButton(
-                      onPressed: _isProcessing ? null : _processReopen,
+                      onPressed: _isProcessing ? null : _processRefund,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
+                        backgroundColor: Colors.orange,
                         foregroundColor: Colors.white,
                       ),
-                      child: const Text('再開処理'),
+                      child: const Text('返金処理'),
                     ),
                   ],
                 ),
@@ -351,3 +474,5 @@ class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog>
   }
 }
 
+
+*/

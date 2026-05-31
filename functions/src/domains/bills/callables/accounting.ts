@@ -6,7 +6,13 @@ import { buildDraftAccountingInputUpdate, startAccounting as startAccountingHelp
 import * as crypto from 'crypto';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStoreConfig } from '../../../shared/config/configLoader';
-import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
+import {
+  DEFAULT_CATEGORY_PAYMENT_METHODS,
+  DEFAULT_POINT_AB_ROUNDING_UNIT,
+  DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE,
+  DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
+} from '../../../shared/config/defaults';
+import { validateAndNormalizeCustomPayment } from '../services/customPaymentValidator';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 
@@ -256,12 +262,57 @@ export const startAccounting = onCall(async (request) => {
       };
     }
 
-    const normalizedPaymentMethods = normalizePaymentMethods({
-      paymentMethodsByAmount: inputPaymentMethodsByAmount,
-      paymentMethodsByCategory,
-      categoryAmounts,
-      sideGameChipExchangeRate: chipRate,
-    });
+    let normalizedPaymentMethods: Record<string, number>;
+    let resolvedPaymentMethodsByAmount = inputPaymentMethodsByAmount;
+
+    if (paymentMethodsByCategory && Object.keys(paymentMethodsByCategory).length > 0) {
+      const categoryPaymentMethods =
+        storeConfig.billing?.paymentPolicy?.categoryPaymentMethods ??
+        DEFAULT_CATEGORY_PAYMENT_METHODS;
+      const roundingUnits = {
+        pointAB:
+          storeConfig.billing?.paymentPolicy?.roundingUnits?.pointAB ??
+          DEFAULT_POINT_AB_ROUNDING_UNIT,
+        sideGameChip:
+          storeConfig.billing?.paymentPolicy?.roundingUnits?.sideGameChip ??
+          DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
+      };
+
+      if (!userId) {
+        throw new HttpsError('invalid-argument', 'ユーザーIDが見つかりません');
+      }
+
+      const userRef = db.collection('users').doc(userId);
+      const userDocForValidation = await userRef.get();
+      if (!userDocForValidation.exists) {
+        throw new HttpsError('not-found', 'ユーザー情報が見つかりません');
+      }
+      const userDataForValidation = userDocForValidation.data()!;
+      const balances: Record<string, number> = {
+        pointA: userDataForValidation.pointA || 0,
+        pointB: userDataForValidation.pointB || 0,
+        sideGameChip: userDataForValidation.sideGameChip || 0,
+      };
+
+      const validated = validateAndNormalizeCustomPayment({
+        categoryAmounts,
+        paymentMethodsByCategory,
+        categoryPaymentMethods,
+        balances,
+        chipRate,
+        roundingUnits,
+        clientPaymentMethodsByAmount: inputPaymentMethodsByAmount,
+      });
+      normalizedPaymentMethods = validated.paymentMethodsByAmount;
+      resolvedPaymentMethodsByAmount = validated.paymentMethodsByAmount;
+    } else {
+      normalizedPaymentMethods = normalizePaymentMethods({
+        paymentMethodsByAmount: inputPaymentMethodsByAmount,
+        paymentMethodsByCategory,
+        categoryAmounts,
+        sideGameChipExchangeRate: chipRate,
+      });
+    }
 
     if (Object.keys(normalizedPaymentMethods).length === 0) {
       throw new HttpsError('invalid-argument', '支払い方法が指定されていません');
@@ -339,15 +390,15 @@ export const startAccounting = onCall(async (request) => {
     
     // paymentMethodsByAmount が存在する場合は、meta.paymentMethodsByAmount として保存
     // Settlement Trigger で優先的に使用される
-    if (inputPaymentMethodsByAmount && Object.keys(inputPaymentMethodsByAmount).length > 0) {
-      metaUpdate['meta.paymentMethodsByAmount'] = inputPaymentMethodsByAmount;
+    if (resolvedPaymentMethodsByAmount && Object.keys(resolvedPaymentMethodsByAmount).length > 0) {
+      metaUpdate['meta.paymentMethodsByAmount'] = resolvedPaymentMethodsByAmount;
     }
     
     if (Object.keys(metaUpdate).length > 0) {
       await billRef.update({
         ...metaUpdate,
         ...buildDraftAccountingInputUpdate({
-          paymentMethodsByAmount: inputPaymentMethodsByAmount ?? null,
+          paymentMethodsByAmount: resolvedPaymentMethodsByAmount ?? null,
           paymentMethodsByCategory: paymentMethodsByCategory ?? null,
         }),
         // updatedAt は既存ポリシーに従い、冪等リプレイ時は更新しない（startAccountingHelper 側で制御）

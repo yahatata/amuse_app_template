@@ -35,6 +35,9 @@ export const DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED = true;
 /** 手動打刻（勤怠記録タブの退勤処理 / シフト一覧タブの出勤登録）の有効化 */
 export const DEFAULT_CREATE_ATTENDANCE_BY_MANUAL = false;
 
+/** reporting ドメインの集計処理（reportingEntries / reportingMonthly 書き込み）の有効化 */
+export const DEFAULT_REPORTING_AGGREGATOR_ENABLED = false;
+
 // =============================================================================
 // 手動打刻時刻調整
 // =============================================================================
@@ -107,6 +110,9 @@ export const DEFAULT_CATEGORY_PAYMENT_METHODS: Record<string, string[]> = {
 
 /** ポイント使用の優先順位。支払い分割計算でどの順で充当するか */
 export const DEFAULT_POINT_PRIORITY = ['pointA', 'pointB', 'sideGameChip'];
+
+/** 支払い分割計算でカテゴリを処理する順序。前のカテゴリからポイントを優先的に消費する */
+export const DEFAULT_CATEGORY_ORDER = ['extraCost', 'sideGameChip', 'tournaments', 'items'];
 
 /** サイドゲームチップ 1 枚あたりの円換算レート */
 export const DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE = 10.0;

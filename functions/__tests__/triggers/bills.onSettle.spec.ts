@@ -5,7 +5,7 @@
  * 
  * テスト観点:
  * - settling -> settled 遷移で発火
- * - snapshot生成（amounts/categoryBreakdown/itemsSnapshot/tournamentsSnapshot/paymentTotals/paymentsSummary/postEvents/closedAt/meta.contentHash）
+ * - snapshot生成（amounts/categoryBreakdown/itemsSnapshot/tournamentsSnapshot/paymentTotals/closedAt/meta.contentHash）
  * - contentHash一致で完全no-op（updatedAt/closedAt不変）
  * - /payments 有り/無し両ケース
  * - storeMeta/config の features.settlementAggregatorEnabled で enqueue 呼び分け（spy）
@@ -15,6 +15,7 @@ import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { billsOnSettle } from '../../src/domains/bills/triggers/billsOnSettle';
+import { buildFromDefaults } from '../../src/shared/config/configLoader';
 describe('bills.onSettle', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
@@ -145,6 +146,15 @@ describe('bills.onSettle', () => {
 
   // トリガを手動で発火させるヘルパ
   async function triggerSettle(billId: string, beforeStatus: string, afterStatus: string) {
+    await triggerSettleWithHandler(billsOnSettle as any, billId, beforeStatus, afterStatus);
+  }
+
+  async function triggerSettleWithHandler(
+    handler: { run: (event: any) => Promise<void> },
+    billId: string,
+    beforeStatus: string,
+    afterStatus: string
+  ) {
     const billRef = db.collection('bills').doc(billId);
     const beforeDoc = await billRef.get();
     const beforeData = beforeDoc.data()!;
@@ -175,7 +185,7 @@ describe('bills.onSettle', () => {
     };
 
     // v2のonDocumentUpdatedのハンドラを直接呼び出す
-    await (billsOnSettle as any).run(mockEvent);
+    await handler.run(mockEvent);
   }
 
   describe('発火条件の厳密性（誤発火防止）', () => {
@@ -213,7 +223,8 @@ describe('bills.onSettle', () => {
         lastRecordId: null,
       });
       expect(billData.reopenSummary?.latestSettledCycle).toBe(1);
-      expect(billData.reopenSummary?.lastResettledAt).toBeDefined();
+      // 初回会計（cycle=1）では lastResettledAt は設定しない（B-2 修正）
+      expect(billData.reopenSummary?.lastResettledAt).toBeUndefined();
 
       const cycleDoc = await db.collection('bills').doc(billId)
         .collection('settlementCycles').doc('1').get();
@@ -418,14 +429,11 @@ describe('bills.onSettle', () => {
       expect(billData.tournamentsSnapshot?.template1.entryCount).toBe(1);
       expect(billData.tournamentsSnapshot?.template1.totalTournamentSalesIncl).toBe(700);
 
-      // paymentsSummary の検証（paymentTotals が空の場合）
-      expect(billData.paymentsSummary?.paidTotalIncl).toBe(0);
-      expect(billData.paymentsSummary?.balanceDueIncl).toBe(3200);
+      // paymentsSummary は廃止済み（B-4）: フィールドが存在しないこと
+      expect(billData['paymentsSummary']).toBeUndefined();
 
-      // postEvents の初期化
-      expect(billData.postEvents?.totalRefundedIncl).toBe(0);
-      expect(billData.postEvents?.totalAdjustmentsIncl).toBe(0);
-      expect(billData.postEvents?.netSalesIncl).toBe(3200);
+      // postEvents は廃止済み（B-4）: フィールドが存在しないこと
+      expect(billData['postEvents']).toBeUndefined();
 
       // 新 parent summary の検証
       expect(billData.settlementSnapshot?.amounts?.grandTotalRounded).toBe(3200);
@@ -452,7 +460,6 @@ describe('bills.onSettle', () => {
         amounts: billData.amounts,
         categoryBreakdown: billData.categoryBreakdown,
         paymentTotals: billData.paymentTotals,
-        paymentsSummary: billData.paymentsSummary,
         contentHash: billData.meta?.contentHash,
       });
 
@@ -632,9 +639,6 @@ describe('bills.onSettle', () => {
       expect(billData.paymentTotals?.credit_card).toBe(500);
       expect(billData.paymentTotals?.electronic_money).toBeUndefined();
 
-      // paymentsSummary
-      expect(billData.paymentsSummary?.paidTotalIncl).toBe(1000);
-      expect(billData.paymentsSummary?.balanceDueIncl).toBe(0); // 1000 - 1000
     });
 
     it('payments 無し: meta.paymentMethodsByCategory + categoryBreakdown 由来', async () => {
@@ -657,9 +661,6 @@ describe('bills.onSettle', () => {
       expect(billData.paymentTotals?.cash).toBe(1000);
       expect(billData.paymentTotals?.credit_card).toBe(500);
 
-      // paymentsSummary
-      expect(billData.paymentsSummary?.paidTotalIncl).toBe(1500);
-      expect(billData.paymentsSummary?.balanceDueIncl).toBe(0); // 1500 - 1500
     });
 
     it('meta に invalid method があれば cash へ寄ることも統合側で検証', async () => {
@@ -708,10 +709,6 @@ describe('bills.onSettle', () => {
       expect(billData.paymentTotals?.cash).toBe(500);
       // meta 側の weird_method は無視される（/payments があるため）
       expect(billData.paymentTotals?.weird_method).toBeUndefined();
-
-      // paymentsSummary
-      expect(billData.paymentsSummary?.paidTotalIncl).toBe(1500); // 1000 + 500
-      expect(billData.paymentsSummary?.balanceDueIncl).toBe(0); // 1500 - 1500
     });
 
     it('/payments と meta が同時存在し、/payments 内に method 未指定がある場合は cash 扱い', async () => {
@@ -742,17 +739,27 @@ describe('bills.onSettle', () => {
   });
 
   describe('settlementAggregatorEnabled（store config）の enqueue 分岐', () => {
-    it('true の場合、enqueueSettlement が呼ばれる', async () => {
-      await db
-        .collection('storeMeta')
-        .doc('config')
-        .set({ features: { settlementAggregatorEnabled: true } }, { merge: true });
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
 
-      // 動的 import を spy するため、モジュールを事前に読み込む
-      const aggregatorModule = await import('../../src/domains/analytics/services/aggregator');
-      const enqueueSettlementSpy = jest.spyOn(aggregatorModule, 'enqueueSettlement').mockImplementation(async () => {
-        // 実際の処理は実行しない（spy のみ）
+    it('true の場合、enqueueSettlement が呼ばれる', async () => {
+      const defaults = buildFromDefaults();
+      const configLoaderModule = await import('../../src/shared/config/configLoader');
+      jest.spyOn(configLoaderModule, 'getStoreConfig').mockResolvedValue({
+        ...defaults,
+        features: {
+          ...defaults.features,
+          settlementAggregatorEnabled: true,
+        },
       });
+
+      const aggregatorModule = await import('../../src/domains/analytics/services/aggregator');
+      const enqueueSettlementSpy = jest
+        .spyOn(aggregatorModule, 'enqueueSettlement')
+        .mockImplementation(async () => {
+          // 実際の処理は実行しない（spy のみ）
+        });
 
       const billId = 'bill_enqueue_001';
       await createBillWithSubcollections(billId, 'settling', {
@@ -763,7 +770,7 @@ describe('bills.onSettle', () => {
 
       // enqueueSettlement が呼ばれたことを確認
       expect(enqueueSettlementSpy).toHaveBeenCalledTimes(1);
-      const callArgs = enqueueSettlementSpy.mock.calls[0][0];
+      const callArgs = enqueueSettlementSpy.mock.calls[0][0] as { billId: string; businessDate: string };
       expect(callArgs.billId).toBe(billId);
       expect(callArgs.businessDate).toBe('2025-01-15');
 
@@ -772,20 +779,17 @@ describe('bills.onSettle', () => {
 
       // スナップショットが正しく生成されることを確認
       expect(billData.meta?.contentHash).toBeDefined();
-
-      enqueueSettlementSpy.mockRestore();
     });
 
     it('false の場合、enqueueSettlement が呼ばれない', async () => {
-      await db
-        .collection('storeMeta')
-        .doc('config')
-        .set({ features: { settlementAggregatorEnabled: false } }, { merge: true });
-
-      // 動的 import を spy するため、モジュールを事前に読み込む
-      const aggregatorModule = await import('../../src/domains/analytics/services/aggregator');
-      const enqueueSettlementSpy = jest.spyOn(aggregatorModule, 'enqueueSettlement').mockImplementation(async () => {
-        // 実際の処理は実行しない（spy のみ）
+      const defaults = buildFromDefaults();
+      const configLoaderModule = await import('../../src/shared/config/configLoader');
+      jest.spyOn(configLoaderModule, 'getStoreConfig').mockResolvedValue({
+        ...defaults,
+        features: {
+          ...defaults.features,
+          settlementAggregatorEnabled: false,
+        },
       });
 
       const billId = 'bill_no_enqueue_001';
@@ -795,16 +799,106 @@ describe('bills.onSettle', () => {
 
       await triggerSettle(billId, 'settling', 'settled');
 
-      // enqueueSettlement が呼ばれていないことを確認
-      expect(enqueueSettlementSpy).not.toHaveBeenCalled();
-
       const billDoc = await db.collection('bills').doc(billId).get();
       const billData = billDoc.data()!;
 
       // スナップショットは生成される
       expect(billData.meta?.contentHash).toBeDefined();
+      // analytics enqueue の外部可観測な副作用は発生しない
+      const analyticsMonthDoc = await db.collection('analyticsMonthly').doc('2025-01').get();
+      expect(analyticsMonthDoc.exists).toBe(false);
+      const settleMarkerDoc = await db.collection('analyticsMonthly')
+        .doc('2025-01')
+        .collection('aggregationMarkers')
+        .doc(`${billId}_cycle1_settle`)
+        .get();
+      expect(settleMarkerDoc.exists).toBe(false);
+    });
+  });
 
-      enqueueSettlementSpy.mockRestore();
+  describe('paymentMethodsByCategory 自動推論（C-2）', () => {
+    it('paymentMethodsByCategory 未設定 + 現金のみ → 全カテゴリに "cash" が推論される', async () => {
+      const billId = 'bill_infer_cash_001';
+      await createBillWithSubcollections(billId, 'settling', {
+        items: [{ totalPriceIncl: 2000 }],
+        extras: [{ amountIncl: 1000 }],
+        payments: [{ method: 'cash', amountIncl: 3000 }],
+        // metaPaymentMethodsByCategory を設定しない（未設定）
+      });
+
+      await triggerSettle(billId, 'settling', 'settled');
+
+      const billDoc = await db.collection('bills').doc(billId).get();
+      const billData = billDoc.data()!;
+
+      // 自動推論により meta.paymentMethodsByCategory が設定される
+      expect(billData.meta?.paymentMethodsByCategory).toBeDefined();
+      expect(billData.meta?.paymentMethodsByCategory?.items).toBe('cash');
+      expect(billData.meta?.paymentMethodsByCategory?.extraCost).toBe('cash');
+
+      // draftAccountingInput にも同じ値が入る
+      expect(billData.draftAccountingInput?.paymentMethodsByCategory?.items).toBe('cash');
+      expect(billData.draftAccountingInput?.paymentMethodsByCategory?.extraCost).toBe('cash');
+    });
+
+    it('paymentMethodsByCategory が既存設定済みの場合は上書きしない', async () => {
+      const billId = 'bill_infer_skip_001';
+      await createBillWithSubcollections(billId, 'settling', {
+        items: [{ totalPriceIncl: 2000 }],
+        payments: [{ method: 'cash', amountIncl: 2000 }],
+        metaPaymentMethodsByCategory: {
+          items: 'credit_card', // 既存設定
+        },
+      });
+
+      await triggerSettle(billId, 'settling', 'settled');
+
+      const billDoc = await db.collection('bills').doc(billId).get();
+      const billData = billDoc.data()!;
+
+      // 既存値が保持され、上書きされない
+      expect(billData.meta?.paymentMethodsByCategory?.items).toBe('credit_card');
+    });
+
+    it('全額ポイント払い（non-special なし）→ 推論スキップ（空のまま）', async () => {
+      const billId = 'bill_infer_allpoint_001';
+      await createBillWithSubcollections(billId, 'settling', {
+        items: [{ totalPriceIncl: 2000 }],
+        payments: [{ method: 'pointA', amountIncl: 2000 }],
+        // metaPaymentMethodsByCategory なし
+      });
+
+      await triggerSettle(billId, 'settling', 'settled');
+
+      const billDoc = await db.collection('bills').doc(billId).get();
+      const billData = billDoc.data()!;
+
+      // non-special method なし → 推論スキップ
+      // meta.paymentMethodsByCategory は設定されないか空のまま
+      const pmByCategory = billData.meta?.paymentMethodsByCategory;
+      const isEmpty = !pmByCategory || Object.keys(pmByCategory).length === 0;
+      expect(isEmpty).toBe(true);
+    });
+
+    it('cash + credit_card の場合、大きい方（cash）が selectedBaseMethod になる', async () => {
+      const billId = 'bill_infer_multimethod_001';
+      await createBillWithSubcollections(billId, 'settling', {
+        items: [{ totalPriceIncl: 3000 }],
+        extras: [{ amountIncl: 2000 }],
+        payments: [
+          { method: 'cash', amountIncl: 3000 },
+          { method: 'credit_card', amountIncl: 2000 },
+        ],
+      });
+
+      await triggerSettle(billId, 'settling', 'settled');
+
+      const billDoc = await db.collection('bills').doc(billId).get();
+      const billData = billDoc.data()!;
+
+      // cash(3000) > credit_card(2000) なので selectedBaseMethod = 'cash'
+      expect(billData.meta?.paymentMethodsByCategory?.items).toBe('cash');
+      expect(billData.meta?.paymentMethodsByCategory?.extraCost).toBe('cash');
     });
   });
 

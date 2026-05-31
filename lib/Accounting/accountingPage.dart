@@ -5,7 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/Accounting/accountingHistoryPage.dart';
 import 'package:amuse_app_template/Accounting/accountingEditDialog.dart';
 import 'package:amuse_app_template/Accounting/accountingCancelDialog.dart';
-import 'package:amuse_app_template/Accounting/refundProcessingDialog.dart';
+// refundProcessingDialog: 旧経路（to_be_deleted に移動済み 2026-05-29）
 import 'package:amuse_app_template/Accounting/paymentMethodDialog.dart';
 import 'package:amuse_app_template/Accounting/categoryDetailDialog.dart';
 import 'package:amuse_app_template/Accounting/categoryPaymentMethodDialog.dart';
@@ -118,7 +118,6 @@ class _AccountingPageState extends State<AccountingPage> {
       }
       final data = doc.data()!;
       final ops = data['ops'] as Map<String, dynamic>?;
-      final paymentsSummary = data['paymentsSummary'] as Map<String, dynamic>?;
       final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(
         doc.id,
       );
@@ -133,7 +132,7 @@ class _AccountingPageState extends State<AccountingPage> {
         'createdAt': data['createdAt'],
         'updatedAt': data['updatedAt'],
         'accountingStartedAt': ops?['accountingStartedAt'],
-        'paymentMethodsByAmount': paymentsSummary?['byMethod'],
+        'paymentMethodsByAmount': data['paymentTotals'] as Map<String, dynamic>?,
         'totalPrice': null,
         'sideGameChipPurchaseChipQty': sideGameChipSummary.chipQtyTotal,
         'sideGameChipPurchaseAmountIncl': sideGameChipSummary.amountInclTotal,
@@ -178,8 +177,6 @@ class _AccountingPageState extends State<AccountingPage> {
         filteredDocs.map((doc) async {
           final data = doc.data();
           final ops = data['ops'] as Map<String, dynamic>?;
-          final paymentsSummary =
-              data['paymentsSummary'] as Map<String, dynamic>?;
           final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(
             doc.id,
           );
@@ -194,7 +191,7 @@ class _AccountingPageState extends State<AccountingPage> {
             'createdAt': data['createdAt'],
             'updatedAt': data['updatedAt'],
             'accountingStartedAt': ops?['accountingStartedAt'],
-            'paymentMethodsByAmount': paymentsSummary?['byMethod'],
+            'paymentMethodsByAmount': data['paymentTotals'] as Map<String, dynamic>?,
             'totalPrice': null,
             'sideGameChipPurchaseChipQty': sideGameChipSummary.chipQtyTotal,
             'sideGameChipPurchaseAmountIncl':
@@ -261,8 +258,6 @@ class _AccountingPageState extends State<AccountingPage> {
             })
             .map((doc) async {
               final data = doc.data();
-              final paymentsSummary =
-                  data['paymentsSummary'] as Map<String, dynamic>?;
               final sideGameChipSummary =
                   await _fetchSideGameChipPurchaseSummary(doc.id);
               return <String, dynamic>{
@@ -284,7 +279,7 @@ class _AccountingPageState extends State<AccountingPage> {
                     (data['ops']
                         as Map<String, dynamic>?)?['accountingCompletedAt'],
                 'postSettlementState': data['postSettlementState'],
-                'paymentMethodsByAmount': paymentsSummary?['byMethod'],
+                'paymentMethodsByAmount': data['paymentTotals'] as Map<String, dynamic>?,
                 'sideGameChipPurchaseChipQty': sideGameChipSummary.chipQtyTotal,
                 'sideGameChipPurchaseAmountIncl':
                     sideGameChipSummary.amountInclTotal,
@@ -793,13 +788,55 @@ class _AccountingPageState extends State<AccountingPage> {
     }
   }
 
+  String _formatCategoryPaymentSelection(dynamic paymentValue, int categoryAmount) {
+    final chipRate =
+        StoreConfigService.instance.latestData?.sideGameChipRate ??
+        kDefaultSideGameChipRate;
+
+    if (paymentValue is String) {
+      if (paymentValue == 'sideGameChip') {
+        final chips = (categoryAmount / chipRate).round();
+        return '$chips枚 (¥${_formatYen(categoryAmount)})';
+      }
+      return '${_getPaymentMethodName(paymentValue)} ¥${_formatYen(categoryAmount)}';
+    }
+
+    if (paymentValue is List) {
+      final parts = <String>[];
+      for (final split in paymentValue) {
+        if (split is! Map) continue;
+        final method = split['method']?.toString() ?? 'cash';
+        final amount = (split['amount'] as num?)?.toInt() ?? 0;
+        if (amount <= 0) continue;
+        if (method == 'sideGameChip') {
+          parts.add('${_getPaymentMethodName(method)} ${amount}枚');
+        } else if (method == 'pointA' || method == 'pointB') {
+          parts.add('${_getPaymentMethodName(method)} ¥${_formatYen(amount)}');
+        } else {
+          parts.add('${_getPaymentMethodName(method)} ¥${_formatYen(amount)}');
+        }
+      }
+      return parts.join(' + ');
+    }
+
+    return paymentValue?.toString() ?? '';
+  }
+
+  String _formatYen(int amount) {
+    return amount.toString().replaceAllMapped(
+      RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]},',
+    );
+  }
+
   // 会計明細確認ダイアログを表示
   Future<bool> _showPaymentConfirmationDialog(
     Map<String, dynamic> bill,
     _CategoryAmounts categoryAmounts,
     Map<String, int> paymentMethodsByAmount,
-    _SideGameChipPurchaseSummary sideGameChipSummary,
-  ) async {
+    _SideGameChipPurchaseSummary sideGameChipSummary, {
+    Map<String, dynamic>? paymentMethodsByCategory,
+  }) async {
     final pokerName = bill['pokerName'] ?? '不明';
     final totalPrice = categoryAmounts.total;
 
@@ -874,10 +911,23 @@ class _AccountingPageState extends State<AccountingPage> {
 
                                 // サイドゲームチップの場合はチップ枚数と円換算額を表示
                                 if (categoryKey == 'sideGameChip') {
-                                  final yenAmount =
-                                      sideGameChipSummary.amountInclTotal;
+                                  // sideGameChipSummary は購入サマリー（subcollection由来）
+                                  // categoryValue は円換算済み金額
+                                  final chipRate = StoreConfigService
+                                              .instance
+                                              .latestData
+                                              ?.sideGameChipRate ??
+                                          kDefaultSideGameChipRate;
                                   final chipCount =
-                                      sideGameChipSummary.chipQtyTotal;
+                                      sideGameChipSummary.chipQtyTotal > 0
+                                          ? sideGameChipSummary.chipQtyTotal
+                                          : (sideGameChipSummary.amountInclTotal /
+                                                  chipRate)
+                                              .round();
+                                  final yenAmount =
+                                      sideGameChipSummary.amountInclTotal > 0
+                                          ? sideGameChipSummary.amountInclTotal
+                                          : categoryValue;
                                   displayAmount =
                                       'チップ${chipCount.toString()}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
                                 } else {
@@ -906,6 +956,56 @@ class _AccountingPageState extends State<AccountingPage> {
                                   ),
                                 );
                               }),
+                          if (paymentMethodsByCategory != null &&
+                              paymentMethodsByCategory.isNotEmpty) ...[
+                            const Divider(height: 16),
+                            const Text(
+                              'カテゴリ別の支払い',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            ...paymentMethodsByCategory.entries.map((entry) {
+                              final categoryKey = entry.key;
+                              final categoryAmount =
+                                  categoryAmounts.monetaryValues[categoryKey] ??
+                                  0;
+                              if (categoryAmount <= 0) {
+                                return const SizedBox.shrink();
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text(
+                                        _getCategoryName(categoryKey),
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 3,
+                                      child: Text(
+                                        _formatCategoryPaymentSelection(
+                                          entry.value,
+                                          categoryAmount,
+                                        ),
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        textAlign: TextAlign.right,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
                           const Divider(height: 24),
 
                           // 合計金額
@@ -945,12 +1045,15 @@ class _AccountingPageState extends State<AccountingPage> {
                             String displayText;
 
                             if (method == 'sideGameChip') {
-                              final yenAmount =
-                                  sideGameChipSummary.amountInclTotal;
-                              final chipCount =
-                                  sideGameChipSummary.chipQtyTotal;
+                              // 支払い金額（円）から枚数を逆算して表示
+                              final chipRate = StoreConfigService
+                                          .instance
+                                          .latestData
+                                          ?.sideGameChipRate ??
+                                      kDefaultSideGameChipRate;
+                              final chipCount = (amount / chipRate).round();
                               displayText =
-                                  'チップ${chipCount.toString()}枚 (¥${yenAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
+                                  '$chipCount枚 (${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}円相当)';
                             } else {
                               displayText =
                                   '¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
@@ -1036,28 +1139,12 @@ class _AccountingPageState extends State<AccountingPage> {
       if (categoryAmount > 0) {
         // 文字列の場合（単一支払い方法）
         if (paymentValue is String) {
-          if (paymentValue == 'sideGameChip') {
-            // 円換算値を格納（チップ枚数 × 換算率）
-            // CategoryPaymentMethodDialog では残高チェック時に円換算しているため、
-            // チップ枚数を計算してから円換算値を格納
-            final chips =
-                (categoryAmount /
-                        (StoreConfigService
-                                .instance
-                                .latestData
-                                ?.sideGameChipRate ??
-                            kDefaultSideGameChipRate))
-                    .round();
-            final yenAmount =
-                (chips *
-                        (StoreConfigService
-                                .instance
-                                .latestData
-                                ?.sideGameChipRate ??
-                            kDefaultSideGameChipRate))
-                    .toInt();
+          if (paymentValue == 'sideGameChip' ||
+              paymentValue == 'pointA' ||
+              paymentValue == 'pointB') {
+            // カスタムダイアログで丸め・残高検証済み。カテゴリ金額をそのまま円換算で加算
             paymentMethodsByAmount[paymentValue] =
-                (paymentMethodsByAmount[paymentValue] ?? 0) + yenAmount;
+                (paymentMethodsByAmount[paymentValue] ?? 0) + categoryAmount;
           } else {
             paymentMethodsByAmount[paymentValue] =
                 (paymentMethodsByAmount[paymentValue] ?? 0) + categoryAmount;
@@ -1656,8 +1743,10 @@ class _AccountingPageState extends State<AccountingPage> {
     Map<String, int> paymentMethodsByAmount,
     String baseMethod,
     Map<String, int> categoryAmounts,
-    Map<String, int> userBalances,
-  ) async {
+    Map<String, int> userBalances, {
+    bool isCustom = false,
+    Map<String, dynamic>? paymentMethodsByCategory,
+  }) async {
     // ローディングダイアログを表示（処理完了まで閉じない）
     if (!mounted) return;
     showDialog(
@@ -1681,103 +1770,138 @@ class _AccountingPageState extends State<AccountingPage> {
     );
 
     try {
-      // サーバー側検証を実行（ボタン3で実行）
-      final balancesForCalculator = {
-        'pointA': userBalances['pointA'] ?? 0,
-        'pointB': userBalances['pointB'] ?? 0,
-        'sideGameChip': userBalances['sideGameChip'] ?? 0,
-      };
+      late final HttpsCallableResult result;
 
-      final splitResult = calculatePaymentSplit(
-        selectedBaseMethod: baseMethod,
-        categoryPaymentMethods:
-            StoreConfigService.instance.latestData?.categoryPaymentMethods ??
-            kDefaultCategoryPaymentMethods,
-        bill: categoryAmounts,
-        balances: balancesForCalculator,
-        pointPriority:
-            StoreConfigService.instance.latestData?.pointPriority ??
-            kDefaultPointPriority,
-      );
-
-      final verifyResponse = await _functions
-          .httpsCallable('verifyPaymentSplit')
-          .call({
-            'billId': billId,
-            'clientResult': splitResult.toMap(),
-            'selectedBaseMethod': baseMethod,
-            'pointPriority':
-                StoreConfigService.instance.latestData?.pointPriority ??
-                kDefaultPointPriority,
-          });
-
-      final responseData = Map<String, dynamic>.from(
-        verifyResponse.data as Map,
-      );
-      final serverResult = Map<String, dynamic>.from(
-        responseData['result'] as Map,
-      );
-
-      final usedPointsRaw = Map<String, dynamic>.from(
-        serverResult['usedPoints'] as Map,
-      );
-      final cashLikeAmount =
-          (serverResult['cashLikeAmount'] as num?)?.toInt() ?? 0;
-
-      if (cashLikeAmount <= 0) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('ポイントのみでの支払いはできません。')));
+      if (isCustom) {
+        if (paymentMethodsByCategory == null ||
+            paymentMethodsByCategory.isEmpty) {
+          throw Exception('カスタム支払いのカテゴリ指定がありません');
         }
-        return;
-      }
 
-      // サーバー側検証結果を paymentMethodsByAmount に変換
-      final verifiedPaymentMethodsByAmount = <String, int>{};
-      verifiedPaymentMethodsByAmount[baseMethod] = cashLikeAmount;
+        final verifyResponse = await _functions
+            .httpsCallable('verifyCustomPayment')
+            .call({
+              'billId': billId,
+              'paymentMethodsByCategory': paymentMethodsByCategory,
+              'paymentMethodsByAmount': paymentMethodsByAmount,
+            });
 
-      usedPointsRaw.forEach((method, value) {
-        final amount = (value as num?)?.toInt() ?? 0;
-        if (amount <= 0) return;
-        if (method == 'sideGameChip') {
-          final chips =
-              (amount /
-                      (StoreConfigService
-                              .instance
-                              .latestData
-                              ?.sideGameChipRate ??
-                          kDefaultSideGameChipRate))
-                  .round();
-          if (chips > 0) {
-            // 円換算値を格納（チップ枚数 × 換算率）
-            verifiedPaymentMethodsByAmount['sideGameChip'] =
-                (chips *
+        final verifyData = Map<String, dynamic>.from(
+          verifyResponse.data as Map,
+        );
+        final serverAmounts = Map<String, dynamic>.from(
+          verifyData['paymentMethodsByAmount'] as Map,
+        );
+        final resolvedAmounts = <String, int>{};
+        serverAmounts.forEach((method, value) {
+          final amount = (value as num?)?.toInt() ?? 0;
+          if (amount > 0) {
+            resolvedAmounts[method.toString()] = amount;
+          }
+        });
+
+        result = await _functions.httpsCallable('startAccounting').call({
+          'billId': billId,
+          'paymentMethodsByAmount': resolvedAmounts,
+          'paymentMethodsByCategory': paymentMethodsByCategory,
+        });
+      } else {
+        // 自動計算パス: サーバー側検証を実行して確認
+        final balancesForCalculator = {
+          'pointA': userBalances['pointA'] ?? 0,
+          'pointB': userBalances['pointB'] ?? 0,
+          'sideGameChip': userBalances['sideGameChip'] ?? 0,
+        };
+
+        final splitResult = calculatePaymentSplit(
+          selectedBaseMethod: baseMethod,
+          categoryPaymentMethods:
+              StoreConfigService.instance.latestData?.categoryPaymentMethods ??
+              kDefaultCategoryPaymentMethods,
+          bill: categoryAmounts,
+          balances: balancesForCalculator,
+          pointPriority:
+              StoreConfigService.instance.latestData?.pointPriority ??
+              kDefaultPointPriority,
+        );
+
+        final verifyResponse = await _functions
+            .httpsCallable('verifyPaymentSplit')
+            .call({
+              'billId': billId,
+              'clientResult': splitResult.toMap(),
+              'selectedBaseMethod': baseMethod,
+              'pointPriority':
+                  StoreConfigService.instance.latestData?.pointPriority ??
+                  kDefaultPointPriority,
+            });
+
+        final responseData = Map<String, dynamic>.from(
+          verifyResponse.data as Map,
+        );
+        final serverResult = Map<String, dynamic>.from(
+          responseData['result'] as Map,
+        );
+
+        final usedPointsRaw = Map<String, dynamic>.from(
+          serverResult['usedPoints'] as Map,
+        );
+        final cashLikeAmount =
+            (serverResult['cashLikeAmount'] as num?)?.toInt() ?? 0;
+
+        if (cashLikeAmount <= 0) {
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('ポイントのみでの支払いはできません。')));
+          }
+          return;
+        }
+
+        // サーバー側検証結果を paymentMethodsByAmount に変換
+        final verifiedPaymentMethodsByAmount = <String, int>{};
+        verifiedPaymentMethodsByAmount[baseMethod] = cashLikeAmount;
+
+        usedPointsRaw.forEach((method, value) {
+          final amount = (value as num?)?.toInt() ?? 0;
+          if (amount <= 0) return;
+          if (method == 'sideGameChip') {
+            final chips =
+                (amount /
                         (StoreConfigService
                                 .instance
                                 .latestData
                                 ?.sideGameChipRate ??
                             kDefaultSideGameChipRate))
-                    .toInt();
+                    .round();
+            if (chips > 0) {
+              verifiedPaymentMethodsByAmount['sideGameChip'] =
+                  (chips *
+                          (StoreConfigService
+                                  .instance
+                                  .latestData
+                                  ?.sideGameChipRate ??
+                              kDefaultSideGameChipRate))
+                      .toInt();
+            }
+          } else {
+            verifiedPaymentMethodsByAmount[method] = amount;
           }
-        } else {
-          verifiedPaymentMethodsByAmount[method] = amount;
+        });
+
+        final verified = responseData['verified'] == true;
+
+        if (!verified && mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('サーバー側で計算結果を調整しました。')));
         }
-      });
 
-      final verified = responseData['verified'] == true;
-
-      if (!verified && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('サーバー側で計算結果を調整しました。')));
+        result = await _functions.httpsCallable('startAccounting').call({
+          'billId': billId,
+          'paymentMethodsByAmount': verifiedPaymentMethodsByAmount,
+        });
       }
-
-      // サーバー側検証結果を使用して startAccounting を呼び出す
-      final result = await _functions.httpsCallable('startAccounting').call({
-        'billId': billId,
-        'paymentMethodsByAmount': verifiedPaymentMethodsByAmount,
-      });
 
       // ローディングダイアログを閉じる
       if (mounted) {
@@ -2001,6 +2125,7 @@ class _AccountingPageState extends State<AccountingPage> {
       if (action == null) return;
 
       Map<String, int> paymentMethodsByAmount = {};
+      Map<String, dynamic>? paymentMethodsByCategory;
 
       if (action == 'custom') {
         final customSelection = await showDialog<Map<String, dynamic>>(
@@ -2011,9 +2136,10 @@ class _AccountingPageState extends State<AccountingPage> {
 
         if (customSelection == null) return;
 
+        paymentMethodsByCategory = customSelection;
+
         // カスタム選択結果から paymentMethodsByAmount を計算
-        // CategoryPaymentMethodDialog は既に残高チェックと分割処理を行っているため、
-        // その結果をそのまま使用
+        // CategoryPaymentMethodDialog は丸め・残高・分割を処理済み
         paymentMethodsByAmount =
             _calculatePaymentMethodsByAmountFromCategorySelection(
               customSelection,
@@ -2103,6 +2229,7 @@ class _AccountingPageState extends State<AccountingPage> {
         categoryAmounts,
         paymentMethodsByAmount,
         sideGameChipSummary,
+        paymentMethodsByCategory: paymentMethodsByCategory,
       );
 
       if (!shouldStart) return;
@@ -2114,6 +2241,8 @@ class _AccountingPageState extends State<AccountingPage> {
         startOptions['baseMethod']?.toString() ?? 'cash',
         categoryAmounts.monetaryValues,
         userBalances,
+        isCustom: action == 'custom',
+        paymentMethodsByCategory: paymentMethodsByCategory,
       );
     } catch (e) {
       // エラー時もローディングダイアログを閉じる
@@ -3614,18 +3743,5 @@ class _AccountingPageState extends State<AccountingPage> {
     );
   }
 
-  void _showRefundDialog(Map<String, dynamic> bill) {
-    showDialog(
-      context: context,
-      builder: (context) => RefundProcessingDialog(
-        bill: bill,
-        onUpdated: () {
-          if (_currentBusinessDateKey != null) {
-            _loadActiveBills(_currentBusinessDateKey!);
-            _loadSettledBills(_currentBusinessDateKey!);
-          }
-        },
-      ),
-    );
-  }
+  // _showRefundDialog: 旧経路（refundProcessingDialog は to_be_deleted に移動済み 2026-05-29）
 }

@@ -49,3 +49,49 @@ categoryPaymentMethods / pointPriority / roundingUnits
 | dart | lib/Accounting/categoryPaymentMethodDialog.dart | 支払い方法選択 |
 | dart | lib/Accounting/payment_split_test_page.dart | 支払い分割テスト |
 | dart | lib/Accounting/payment_split_calculator.dart | 支払い分割計算 |
+
+## roundingUnits
+
+### 設定の説明
+
+ポイント・チップで支払うときの丸め単位を定義する設定。実際の設定パスは `storeMeta/config.billing.paymentPolicy.roundingUnits`。
+
+### 何を設定するのか
+
+- `pointAB`: pointA / pointB を何円単位で使えるようにするか
+- `sideGameChip`: sideGameChip を何枚単位で使えるようにするか
+
+### 現状持ちうる値
+
+- `pointAB`: `number`。既定値は `1000`。
+- `sideGameChip`: `number`。既定値は `100`。
+- 0 は許容されず、丸めなしの既定値は実装されていない。
+- 未設定時は `defaults.ts` の既定値が使われる。
+
+### デフォルト値
+
+- `pointAB = 1000`
+- `sideGameChip = 100`
+
+### その設定により何が変わるのか
+
+- クライアントでは `lib/Accounting/payment_rounding.dart` が最大使用可能額の計算と案内文に使う
+- サーバーでは `paymentRounding.ts` が丸め処理に使う
+- `verifyPaymentSplit.ts` が支払い分割の検証で参照する
+- `paymentSplitCalculator.ts` が分割計算で参照する
+- `verifyCustomPayment.ts` と `customPaymentValidator.ts` も、実際の使用額が丸め単位を満たすかの整合に影響する
+
+### 影響を受けるファイル一覧
+
+| 種別 | ファイル | 役割 |
+|------|----------|------|
+| ts | `functions/src/shared/config/defaults.ts` | `pointAB` / `sideGameChip` の既定値定義 |
+| ts | `functions/src/shared/config/configLoader.ts` | `billing.paymentPolicy.roundingUnits` の読み取り |
+| ts | `functions/src/domains/bills/services/paymentRounding.ts` | 丸め処理本体 |
+| ts | `functions/src/domains/bills/callables/verifyPaymentSplit.ts` | 支払い分割検証 callable |
+| ts | `functions/src/domains/bills/services/paymentSplitCalculator.ts` | 支払い分割計算 |
+| ts | `functions/src/domains/bills/callables/verifyCustomPayment.ts` | カスタム支払い検証 callable |
+| ts | `functions/src/domains/bills/services/customPaymentValidator.ts` | カスタム支払い検証ロジック |
+| dart | `lib/Accounting/payment_rounding.dart` | 最大使用可能額計算、丸め単位ヒント表示 |
+| dart | `lib/services/store_config_service.dart` | 設定の保持 |
+| dart | `lib/services/store_config_defaults.dart` | クライアント既定値 |
