@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_user_picker_dialog.dart';
 
 class RegisterParticipantsDialog extends StatefulWidget {
   final String tournamentId;
@@ -56,6 +57,18 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
     return excludedUserIds;
   }
 
+  /// 既存参加者除外 + 置きバケ linkedUserId 使用済み除外をまとめて返す
+  Future<Set<String>> _getUnavailableUserIds() async {
+    final results = await Future.wait<dynamic>([
+      _getExcludedUserIds(),
+      fetchUsedOkibakeLinkedUserIds(tournamentId: widget.tournamentId),
+    ]);
+    final blocked = <String>{};
+    blocked.addAll(results[0] as Set<String>);
+    blocked.addAll(results[1] as Set<String>);
+    return blocked;
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
@@ -102,7 +115,7 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
 
                   // FutureBuilderを使用して非同期処理を行う
                   return FutureBuilder<Set<String>>(
-                    future: _getExcludedUserIds(),
+                    future: _getUnavailableUserIds(),
                     builder: (context, excludedSnapshot) {
                       if (excludedSnapshot.connectionState == ConnectionState.waiting) {
                         return const Center(child: CircularProgressIndicator());
@@ -269,10 +282,8 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
         userIds: selectedUserIds,
       );
 
-      // 型安全な結果処理
-      if (result is Map) {
-        final resultMap = Map<String, dynamic>.from(result);
-        if (resultMap['success'] == true) {
+      final resultMap = Map<String, dynamic>.from(result);
+      if (resultMap['success'] == true) {
           final summaryRaw = resultMap['summary'];
           Map<String, dynamic>? summary;
           if (summaryRaw is Map) {
@@ -326,13 +337,10 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
               widget.onRegistrationCompleted();
             }
           }
-        } else {
-          // エラーレスポンスの場合
-          final errorMessage = resultMap['error'] as String? ?? '参加登録に失敗しました';
-          throw Exception(errorMessage);
-        }
       } else {
-        throw Exception('予期しないレスポンス形式です');
+        // エラーレスポンスの場合
+        final errorMessage = resultMap['error'] as String? ?? '参加登録に失敗しました';
+        throw Exception(errorMessage);
       }
     } catch (e) {
       debugPrint('参加登録エラー: $e');

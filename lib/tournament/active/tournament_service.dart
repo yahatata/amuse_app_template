@@ -7,6 +7,7 @@ import '../../services/device_service.dart';
 import '../../utils/business_date_ambiguous_dialog.dart';
 import 'utils/tournament_callable_error_formatter.dart';
 import 'utils/okibake_bill_link_callable_payload.dart';
+import 'utils/okibake_update_linked_user_callable_payload.dart';
 
 /// Phase0A D-13: storeId/tenantId は必須。供給元未実装時は開発用仮値で呼び出し。
 /// 本番では Build/Deploy で注入する想定。
@@ -246,6 +247,93 @@ class LinkOkibakeTemporaryEntryToBillResult {
   }
 }
 
+/// Phase 5-A' `updateOkibakeTemporaryEntryLinkedUser` Callable のクライアント向け結果。
+class UpdateOkibakeTemporaryEntryLinkedUserResult {
+  const UpdateOkibakeTemporaryEntryLinkedUserResult({
+    required this.success,
+    this.replay = false,
+    this.okibakeEntryId,
+    this.linkedUserId,
+    this.linkedUserPokerName,
+    this.errorMessage,
+  });
+
+  final bool success;
+  final bool replay;
+  final String? okibakeEntryId;
+  final String? linkedUserId;
+  final String? linkedUserPokerName;
+  final String? errorMessage;
+
+  factory UpdateOkibakeTemporaryEntryLinkedUserResult.fromCallableData(dynamic raw) {
+    if (raw is! Map) {
+      return const UpdateOkibakeTemporaryEntryLinkedUserResult(
+        success: false,
+        errorMessage: '応答が不正です',
+      );
+    }
+    final m = Map<String, dynamic>.from(raw);
+    final entryRaw = m['okibakeEntryId'];
+    final userRaw = m['linkedUserId'];
+    final nameRaw = m['linkedUserPokerName'];
+    return UpdateOkibakeTemporaryEntryLinkedUserResult(
+      success: m['success'] == true,
+      replay: m['replay'] == true,
+      okibakeEntryId: entryRaw is String && entryRaw.isNotEmpty ? entryRaw : null,
+      linkedUserId: userRaw is String && userRaw.isNotEmpty ? userRaw : null,
+      linkedUserPokerName: nameRaw is String && nameRaw.isNotEmpty ? nameRaw : null,
+      errorMessage: m['error'] as String? ?? m['message'] as String?,
+    );
+  }
+
+  factory UpdateOkibakeTemporaryEntryLinkedUserResult.fromException(Object e) {
+    return UpdateOkibakeTemporaryEntryLinkedUserResult(
+      success: false,
+      errorMessage: formatTournamentCallableError(e),
+    );
+  }
+}
+
+class ResolveOkibakePendingReviewWithRemotePaymentResult {
+  const ResolveOkibakePendingReviewWithRemotePaymentResult({
+    required this.success,
+    this.replay = false,
+    this.billId,
+    this.okibakeEntryId,
+    this.errorMessage,
+  });
+
+  final bool success;
+  final bool replay;
+  final String? billId;
+  final String? okibakeEntryId;
+  final String? errorMessage;
+
+  factory ResolveOkibakePendingReviewWithRemotePaymentResult.fromCallableData(dynamic raw) {
+    if (raw is! Map) {
+      return const ResolveOkibakePendingReviewWithRemotePaymentResult(
+        success: false,
+        errorMessage: '応答が不正です',
+      );
+    }
+    final m = Map<String, dynamic>.from(raw);
+    return ResolveOkibakePendingReviewWithRemotePaymentResult(
+      success: m['success'] == true,
+      replay: m['replay'] == true,
+      billId: m['billId'] is String ? m['billId'] as String : null,
+      okibakeEntryId: m['okibakeEntryId'] is String ? m['okibakeEntryId'] as String : null,
+      errorMessage: m['error'] as String? ?? m['message'] as String?,
+    );
+  }
+
+  factory ResolveOkibakePendingReviewWithRemotePaymentResult.fromException(Object e) {
+    return ResolveOkibakePendingReviewWithRemotePaymentResult(
+      success: false,
+      errorMessage: formatTournamentCallableError(e),
+    );
+  }
+}
+
 // 後フェーズで実装予定のインターフェース
 abstract class TournamentService {
   // トーナメント作成
@@ -319,6 +407,23 @@ abstract class TournamentService {
     required String okibakeEntryId,
     required String userId,
     required String billId,
+  });
+
+  /// Phase 5-A': 対象ユーザー未設定の置きバケへ対象ユーザーを設定する。
+  Future<UpdateOkibakeTemporaryEntryLinkedUserResult>
+      updateOkibakeTemporaryEntryLinkedUser({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required String linkedUserId,
+  });
+
+  Future<ResolveOkibakePendingReviewWithRemotePaymentResult>
+      resolveOkibakePendingReviewWithRemotePayment({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required int amountIncl,
+    required String paymentMethod,
+    String? memo,
   });
 
   Future<Map<String, dynamic>> reseatAllPlayers({
@@ -761,6 +866,76 @@ class TournamentServiceImpl implements TournamentService {
       return LinkOkibakeTemporaryEntryToBillResult.fromException(e);
     }
   }
+
+  @override
+  Future<UpdateOkibakeTemporaryEntryLinkedUserResult>
+      updateOkibakeTemporaryEntryLinkedUser({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required String linkedUserId,
+  }) async {
+    try {
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+
+      final callable = _functions.httpsCallable('updateOkibakeTemporaryEntryLinkedUser');
+      final result = await callable
+          .call(
+            buildUpdateOkibakeLinkedUserCallablePayload(
+              operationId: operationId,
+              tournamentId: tournamentId,
+              okibakeEntryId: okibakeEntryId,
+              linkedUserId: linkedUserId,
+              deviceName: deviceName,
+            ),
+          )
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () =>
+                throw Exception('Cloud Functionの呼び出しがタイムアウトしました'),
+          );
+
+      return UpdateOkibakeTemporaryEntryLinkedUserResult.fromCallableData(result.data);
+    } catch (e) {
+      return UpdateOkibakeTemporaryEntryLinkedUserResult.fromException(e);
+    }
+  }
+
+  @override
+  Future<ResolveOkibakePendingReviewWithRemotePaymentResult>
+      resolveOkibakePendingReviewWithRemotePayment({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required int amountIncl,
+    required String paymentMethod,
+    String? memo,
+  }) async {
+    try {
+      final operationId =
+          '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
+      final device = await DeviceService().getCurrentDevice();
+      final deviceName = device?.name;
+      final callable =
+          _functions.httpsCallable('resolveOkibakePendingReviewWithRemotePayment');
+      final result = await callable.call({
+        'operationId': operationId,
+        'tournamentId': tournamentId,
+        'okibakeEntryId': okibakeEntryId,
+        'amountIncl': amountIncl,
+        'paymentMethod': paymentMethod,
+        if (memo != null && memo.trim().isNotEmpty) 'memo': memo.trim(),
+        if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
+      }).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw Exception('Cloud Functionの呼び出しがタイムアウトしました'),
+      );
+      return ResolveOkibakePendingReviewWithRemotePaymentResult.fromCallableData(result.data);
+    } catch (e) {
+      return ResolveOkibakePendingReviewWithRemotePaymentResult.fromException(e);
+    }
+  }
   
   @override
   Future<Map<String, dynamic>> reseatAllPlayers({
@@ -1075,6 +1250,41 @@ class MockTournamentService implements TournamentService {
       success: true,
       replay: false,
       billId: billId,
+      okibakeEntryId: okibakeEntryId,
+    );
+  }
+
+  @override
+  Future<UpdateOkibakeTemporaryEntryLinkedUserResult>
+      updateOkibakeTemporaryEntryLinkedUser({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required String linkedUserId,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    return UpdateOkibakeTemporaryEntryLinkedUserResult(
+      success: true,
+      replay: false,
+      okibakeEntryId: okibakeEntryId,
+      linkedUserId: linkedUserId,
+      linkedUserPokerName: linkedUserId,
+    );
+  }
+
+  @override
+  Future<ResolveOkibakePendingReviewWithRemotePaymentResult>
+      resolveOkibakePendingReviewWithRemotePayment({
+    required String tournamentId,
+    required String okibakeEntryId,
+    required int amountIncl,
+    required String paymentMethod,
+    String? memo,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    return ResolveOkibakePendingReviewWithRemotePaymentResult(
+      success: true,
+      replay: false,
+      billId: 'mock-bill',
       okibakeEntryId: okibakeEntryId,
     );
   }

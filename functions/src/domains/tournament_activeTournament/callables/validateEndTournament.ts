@@ -2,6 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { collectPendingReviewTargetsInTx } from '../lib/pendingReview';
 
 export const validateEndTournament = onCall(async (request) => {
   // 認証チェック
@@ -188,6 +189,29 @@ export const validateEndTournament = onCall(async (request) => {
     }
     
     // 4. 全ての確認が完了
+    const pendingReviewCheck = await db.runTransaction(async (tx) => {
+      return collectPendingReviewTargetsInTx(tx, db, tournamentId);
+    });
+    if (pendingReviewCheck.blockedCount > 0) {
+      return {
+        success: false,
+        ...validationResult,
+        isValid: false,
+        errorType: 'no_ranking',
+        message:
+          '未接続の置きバケに対象ユーザー未設定が残っています。対象ユーザー設定後に終了してください。',
+        requiresRanking: false,
+        requiresPrize: false,
+        errorKey: 'TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED',
+        blockingOkibakeEntries: pendingReviewCheck.blockingEntries,
+        okibakePendingReview: {
+          blockedUnlinkedWithoutLinkedUser: pendingReviewCheck.blockedCount,
+          canMoveToPendingReview: pendingReviewCheck.entriesToPendingReview.length,
+          blockingOkibakeEntries: pendingReviewCheck.blockingEntries,
+        },
+      };
+    }
+
     validationResult.isValid = true;
     validationResult.errorType = 'complete';
     validationResult.rankingData = {
@@ -221,4 +245,3 @@ export const validateEndTournament = onCall(async (request) => {
     throw new HttpsError('internal', 'Internal server error');
   }
 });
-

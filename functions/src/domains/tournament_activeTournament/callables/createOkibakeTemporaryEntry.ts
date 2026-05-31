@@ -144,6 +144,27 @@ export const createOkibakeTemporaryEntry = onCall(async (request) => {
       }
 
       const tourData = tourSnap.data() ?? {};
+      if (linkedUserId != null) {
+        const okibakeSnap = await tx.get(tournamentRef.collection('okibakeTemporaryEntries'));
+        for (const doc of okibakeSnap.docs) {
+          const d = (doc.data() ?? {}) as Record<string, unknown>;
+          const st = typeof d.entryStatus === 'string' ? d.entryStatus : '';
+          if (st === 'voided') continue;
+          const uid =
+            typeof d.linkedUserId === 'string' && d.linkedUserId.trim().length > 0
+              ? d.linkedUserId.trim()
+              : null;
+          if (uid == null) continue;
+          if (uid === linkedUserId) {
+            return {
+              kind: 'error',
+              code: 'already-exists',
+              message: '同一トーナメント内でこの対象ユーザーはすでに置きバケに設定されています',
+            };
+          }
+        }
+      }
+
       const rawNum = tourData.okibakeNextDisplayNumber;
       const seq = typeof rawNum === 'number' && Number.isInteger(rawNum) && rawNum >= 1 ? rawNum : 1;
       const temporaryDisplayName = buildOkibakeTemporaryDisplayName(seq);

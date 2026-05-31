@@ -6,6 +6,13 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shar
 import { createBillWithActiveStay } from "../../bills/repos/createBillWithActiveStay";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import {
+  buildOkibakeLoginPromptFallback,
+  buildOkibakeLoginPromptPayload,
+  collectOkibakeLoginPromptTargets,
+  resolveOkibakeLoginPromptMode,
+} from "../services/okibakeLoginPrompt";
 
 /**
  * 入店処理（QRスキャン起点）
@@ -199,6 +206,33 @@ export const processVisitByQR = onCall(async (request) => {
         };
       }
 
+      let okibakeLoginPrompt = buildOkibakeLoginPromptFallback();
+      try {
+        const storeConfig = await getStoreConfig(db);
+        const promptMode = resolveOkibakeLoginPromptMode(storeConfig);
+        const promptEntries = await collectOkibakeLoginPromptTargets({
+          db,
+          linkedUserId: parsed.uid,
+          currentBusinessDate: billResult.businessDate,
+        });
+        okibakeLoginPrompt = buildOkibakeLoginPromptPayload({
+          mode: promptMode,
+          entries: promptEntries,
+        });
+      } catch (promptError) {
+        logOpsError({
+          message: "processVisitByQR: okibakeLoginPrompt 取得失敗（非致命）",
+          functionEntry: "processVisitByQR",
+          cause: promptError,
+          errorKey: "USER_VISIT_OKIBAKE_PROMPT_FETCH_FAILED",
+          context: {
+            guestUserId: parsed.uid,
+            phase: "okibakeLoginPrompt",
+            deviceId: device.id,
+          },
+        });
+      }
+
       logOpsSuccess({
         message: "processVisitByQR 成功",
         functionEntry: "processVisitByQR",
@@ -213,8 +247,9 @@ export const processVisitByQR = onCall(async (request) => {
         success: true,
         action: "checkin" as const,
         message: "来店記録を保存しました",
-        user: { uid: parsed.uid, loginId: parsed.loginId },
+        user: { uid: parsed.uid, loginId: parsed.loginId, pokerName },
         billId: billResult.billId,
+        okibakeLoginPrompt,
       };
     }
 

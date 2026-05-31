@@ -16,6 +16,18 @@ import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
+jest.mock('@google-cloud/tasks', () => {
+  class CloudTasksClient {
+    queuePath(project: string, location: string, queue: string) {
+      return `projects/${project}/locations/${location}/queues/${queue}`;
+    }
+    async createTask() {
+      return [{ name: 'mock-task' }];
+    }
+  }
+  return { CloudTasksClient };
+});
+
 const PROJECT_ID = 'test-project-phase4-03-integrity';
 
 /** mockStoreConfig の getCurrentBusinessDateKeyOrThrow と同様の日付計算（テストデータ用） */
@@ -326,6 +338,144 @@ describe('Phase4 03: nightlyIntegrityCheck 改修', () => {
         .where('actionType', '==', 'close_store_unclocked')
         .get();
       expect(logsSnap.size).toBeGreaterThanOrEqual(1);
+    });
+
+    it('forceClose: linkedUserId 未設定の unlinked 置きバケがあると force_ended を拒否する', async () => {
+      if (!emulatorAvailable) return;
+      const tournamentId = 't-force-block-okibake';
+      await db.collection('scheduledTournaments').doc(tournamentId).set({
+        businessDate,
+        status: 'running',
+        startAt: Timestamp.now(),
+        snapshot: { name: 'Force End Block Target' },
+      });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({
+          reentries: 0,
+          entries: 1,
+          playersBusted: 0,
+        });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc('e-block')
+        .set({
+          tournamentId,
+          entryStatus: 'registered',
+          billLinkStatus: 'unlinked',
+          linkedUserId: null,
+          linkedUserPokerName: null,
+          temporaryDisplayName: 'オキバケA',
+          createdAt: Timestamp.now(),
+          updatedAt: Timestamp.now(),
+        });
+
+      await expect(
+        closeStoreTerminal.run({
+          auth: { uid: 'admin-uid-1' },
+          data: { forceClose: true },
+        } as any)
+      ).rejects.toMatchObject({ code: 'failed-precondition' });
+
+      const tournamentSnap = await db.collection('scheduledTournaments').doc(tournamentId).get();
+      expect(tournamentSnap.data()?.status).toBe('running');
+    });
+
+    it('forceClose: linkedUserId あり unlinked 置きバケを pending_review 化し、既存状態を壊さない', async () => {
+      if (!emulatorAvailable) return;
+      const tournamentId = 't-force-pending-okibake';
+      await db.collection('scheduledTournaments').doc(tournamentId).set({
+        businessDate,
+        status: 'running',
+        startAt: Timestamp.now(),
+        snapshot: { name: 'Force End Pending Target' },
+      });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({
+          reentries: 0,
+          entries: 4,
+          playersBusted: 1,
+        });
+
+      const entries = db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries');
+      await entries.doc('e-unlinked').set({
+        tournamentId,
+        entryStatus: 'seated',
+        billLinkStatus: 'unlinked',
+        linkedUserId: 'user-okibake-1',
+        linkedUserPokerName: 'ユーザー1',
+        temporaryDisplayName: 'オキバケA',
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      await entries.doc('e-linked').set({
+        tournamentId,
+        entryStatus: 'registered',
+        billLinkStatus: 'linked',
+        linkedUserId: 'user-okibake-2',
+        linkedUserPokerName: 'ユーザー2',
+        temporaryDisplayName: 'オキバケB',
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      await entries.doc('e-pending').set({
+        tournamentId,
+        entryStatus: 'busted',
+        billLinkStatus: 'pending_review',
+        linkedUserId: 'user-okibake-3',
+        linkedUserPokerName: 'ユーザー3',
+        temporaryDisplayName: 'オキバケC',
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      await entries.doc('e-voided').set({
+        tournamentId,
+        entryStatus: 'voided',
+        billLinkStatus: 'unlinked',
+        linkedUserId: null,
+        linkedUserPokerName: null,
+        temporaryDisplayName: 'オキバケD',
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+
+      const result = await closeStoreTerminal.run({
+        auth: { uid: 'admin-uid-1' },
+        data: { forceClose: true },
+      } as any);
+      expect(result.success).toBe(true);
+
+      const tournamentSnap = await db.collection('scheduledTournaments').doc(tournamentId).get();
+      expect(tournamentSnap.data()?.status).toBe('force_ended');
+
+      const unlinked = (await entries.doc('e-unlinked').get()).data()!;
+      expect(unlinked.billLinkStatus).toBe('pending_review');
+      expect(unlinked.entryStatus).toBe('seated');
+      expect(unlinked.pendingReviewReason).toBe('tournament_finished_unlinked');
+
+      const linked = (await entries.doc('e-linked').get()).data()!;
+      expect(linked.billLinkStatus).toBe('linked');
+      expect(linked.entryStatus).toBe('registered');
+
+      const pending = (await entries.doc('e-pending').get()).data()!;
+      expect(pending.billLinkStatus).toBe('pending_review');
+      expect(pending.entryStatus).toBe('busted');
+
+      const voided = (await entries.doc('e-voided').get()).data()!;
+      expect(voided.billLinkStatus).toBe('unlinked');
+      expect(voided.entryStatus).toBe('voided');
     });
   });
 });

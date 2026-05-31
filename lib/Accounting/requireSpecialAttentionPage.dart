@@ -8,6 +8,8 @@ import 'package:amuse_app_template/Accounting/postSettlementCollectionDialog.dar
 import 'package:amuse_app_template/Accounting/postSettlementRefundDialog.dart';
 import 'package:amuse_app_template/Accounting/requireSpecialAttention/billRequireAttentionViewModel.dart';
 import 'package:amuse_app_template/Accounting/requireSpecialAttention/userAttentionCounts.dart';
+import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_bill_dialog.dart';
 import 'package:amuse_app_template/utils/sectioned_user_list_page.dart';
 
 /// 要対応の会計画面（仕様書 [04_仕様書/06_要対応の会計画面と一覧取得.md] の本実装）。
@@ -42,12 +44,14 @@ class _RequireSpecialAttentionPageState
   final Map<String, BillRequireAttentionViewModel> _carryoverBills = {};
   final Map<String, BillRequireAttentionViewModel> _collectionBills = {};
   final Map<String, BillRequireAttentionViewModel> _refundBills = {};
+  final Map<String, BillRequireAttentionViewModel> _okibakePendingBills = {};
 
   bool _initializedAtLeastOnce = false;
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subCarryover;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subCollection;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subRefund;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subOkibakePending;
 
   /// ユーザー別タブで選択中のユーザー（null のときはユーザー一覧を表示）
   Map<String, dynamic>? _selectedUserCard;
@@ -64,6 +68,7 @@ class _RequireSpecialAttentionPageState
     _subCarryover?.cancel();
     _subCollection?.cancel();
     _subRefund?.cancel();
+    _subOkibakePending?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -92,6 +97,12 @@ class _RequireSpecialAttentionPageState
         .where('postSettlementState.requiredActionType', isEqualTo: 'refund')
         .snapshots()
         .listen((snap) => _onPostSettlementSnap(snap, _refundBills));
+
+    _subOkibakePending = _firestore
+        .collectionGroup('okibakeTemporaryEntries')
+        .where('billLinkStatus', isEqualTo: 'pending_review')
+        .snapshots()
+        .listen((snap) => _onOkibakePendingSnap(snap));
   }
 
   void _onCarryoverSnap(QuerySnapshot<Map<String, dynamic>> snap) {
@@ -109,6 +120,73 @@ class _RequireSpecialAttentionPageState
         ..addAll(newMap);
       _initializedAtLeastOnce = true;
     });
+  }
+
+  void _onOkibakePendingSnap(QuerySnapshot<Map<String, dynamic>> snap) {
+    () async {
+      final newMap = <String, BillRequireAttentionViewModel>{};
+      final tournamentCache = <String, Map<String, dynamic>>{};
+
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final entryStatus = data['entryStatus'] as String? ?? '';
+        if (!(entryStatus == 'registered' || entryStatus == 'seated' || entryStatus == 'busted')) {
+          continue;
+        }
+        final linkedUserId = (data['linkedUserId'] as String?)?.trim() ?? '';
+        if (linkedUserId.isEmpty) continue;
+
+        final parent = doc.reference.parent.parent;
+        if (parent == null) continue;
+        final tournamentId = parent.id;
+
+        Map<String, dynamic>? tournamentData = tournamentCache[tournamentId];
+        if (tournamentData == null) {
+          final tournamentSnap = await _firestore
+              .collection('scheduledTournaments')
+              .doc(tournamentId)
+              .get();
+          tournamentData = tournamentSnap.data() ?? <String, dynamic>{};
+          tournamentCache[tournamentId] = tournamentData;
+        }
+
+        final snapshot = tournamentData['snapshot'];
+        final snapshotMap = snapshot is Map
+            ? Map<String, dynamic>.from(snapshot)
+            : <String, dynamic>{};
+        final entryFeeIncl = (snapshotMap['entryFee'] as num?)?.toInt() ?? 0;
+        final addonFeeIncl = (snapshotMap['addonFee'] as num?)?.toInt() ?? 0;
+        final addonCount = (data['okibakeAddonCount'] as num?)?.toInt() ?? 0;
+        final estimatedAmountIncl = entryFeeIncl + (addonFeeIncl * addonCount);
+        final businessDate = (tournamentData['businessDate'] as String?) ?? '';
+
+        final merged = Map<String, dynamic>.from(data);
+        if ((merged['estimatedAmountIncl'] as num?) == null || (merged['estimatedAmountIncl'] as num?)?.toInt() == 0) {
+          merged['estimatedAmountIncl'] = estimatedAmountIncl;
+        }
+        if (((merged['businessDate'] as String?) ?? '').isEmpty) {
+          merged['businessDate'] = businessDate;
+        }
+        if (((merged['tournamentName'] as String?) ?? '').isEmpty) {
+          merged['tournamentName'] = (snapshotMap['name'] as String?) ?? '';
+        }
+
+        final vm = BillRequireAttentionViewModel.fromOkibakePendingReview(
+          tournamentId: tournamentId,
+          okibakeEntryId: doc.id,
+          entry: merged,
+        );
+        newMap['$tournamentId:${doc.id}'] = vm;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _okibakePendingBills
+          ..clear()
+          ..addAll(newMap);
+        _initializedAtLeastOnce = true;
+      });
+    }();
   }
 
   void _onPostSettlementSnap(
@@ -137,6 +215,7 @@ class _RequireSpecialAttentionPageState
       ..._carryoverBills.values,
       ..._collectionBills.values,
       ..._refundBills.values,
+      ..._okibakePendingBills.values,
     ];
   }
 
@@ -149,7 +228,11 @@ class _RequireSpecialAttentionPageState
         return source;
       case AttentionFilter.carryover:
         return source
-            .where((b) => b.cardType == BillCardType.carryoverUnsettled)
+            .where(
+              (b) =>
+                  b.cardType == BillCardType.carryoverUnsettled ||
+                  b.cardType == BillCardType.okibakePendingReview,
+            )
             .toList();
       case AttentionFilter.collection:
         return source
@@ -443,6 +526,8 @@ class _RequireSpecialAttentionPageState
     switch (cardType) {
       case BillCardType.carryoverUnsettled:
         return Colors.brown[700]!;
+      case BillCardType.okibakePendingReview:
+        return Colors.brown[700]!;
       case BillCardType.postSettlementCollectionPending:
         return Colors.deepOrange[700]!;
       case BillCardType.postSettlementRefundPending:
@@ -558,6 +643,110 @@ class _RequireSpecialAttentionPageState
           ),
         );
         break;
+      case PrimaryActionType.resolveOkibakePendingReview:
+        await _showOkibakeResolveActions(context, vm);
+        break;
     }
+  }
+
+  Future<void> _showOkibakeResolveActions(
+    BuildContext context,
+    BillRequireAttentionViewModel vm,
+  ) async {
+    final data = vm.rawBill;
+    final tournamentId = data['tournamentId'] as String? ?? '';
+    final okibakeEntryId = data['okibakeEntryId'] as String? ?? '';
+    if (tournamentId.isEmpty || okibakeEntryId.isEmpty) return;
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('要対応の会計'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('link'),
+            child: const Text('来店中伝票に紐付け'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('remote'),
+            child: const Text('来店なし入金'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || action == null) return;
+    final service = TournamentServiceImpl();
+    if (action == 'link') {
+      await showOkibakeLinkBillDialog(
+        context: context,
+        tournamentId: tournamentId,
+        okibakeEntryId: okibakeEntryId,
+        displayName: vm.displayTitle,
+        service: service,
+      );
+      return;
+    }
+    final amount = await showDialog<int>(
+      context: context,
+      builder: (ctx) => _RemotePaymentDialog(initialAmount: vm.displayAmountIncl),
+    );
+    if (amount == null || amount < 0) return;
+    final res = await service.resolveOkibakePendingReviewWithRemotePayment(
+      tournamentId: tournamentId,
+      okibakeEntryId: okibakeEntryId,
+      amountIncl: amount,
+      paymentMethod: 'cash',
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          res.success ? '来店なし入金を登録しました' : '来店なし入金に失敗しました: ${res.errorMessage ?? ''}',
+        ),
+      ),
+    );
+  }
+}
+
+class _RemotePaymentDialog extends StatefulWidget {
+  const _RemotePaymentDialog({required this.initialAmount});
+  final int initialAmount;
+
+  @override
+  State<_RemotePaymentDialog> createState() => _RemotePaymentDialogState();
+}
+
+class _RemotePaymentDialogState extends State<_RemotePaymentDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialAmount.toString());
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('来店なし入金'),
+      content: TextField(
+        controller: _controller,
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(labelText: '金額'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('キャンセル'),
+        ),
+        TextButton(
+          onPressed: () {
+            final v = int.tryParse(_controller.text.trim());
+            if (v == null || v < 0) return;
+            Navigator.of(context).pop(v);
+          },
+          child: const Text('実行'),
+        ),
+      ],
+    );
   }
 }

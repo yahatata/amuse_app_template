@@ -5,6 +5,7 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
+import { HttpsError } from 'firebase-functions/v2/https';
 
 describe('createOkibakeTemporaryEntry', () => {
   let testEnv: RulesTestEnvironment;
@@ -135,5 +136,64 @@ describe('createOkibakeTemporaryEntry', () => {
       .collection('okibakeTemporaryEntries');
     const snaps = await coll.get();
     expect(snaps.size).toBe(1);
+  });
+
+  it('同一 tournament 内で他の置きバケに linkedUserId がある場合は拒否する（voided は除外）', async () => {
+    const uid = 'device-user-003';
+    const tournamentId = 't-okibake-3';
+    await seedDevice(uid);
+    await seedTournament(tournamentId);
+
+    const coll = db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('okibakeTemporaryEntries');
+    await coll.doc('alive').set({
+      okibakeEntryId: 'alive',
+      tournamentId,
+      temporaryDisplayName: 'オキバケA',
+      linkedUserId: 'user-dup',
+      linkedUserPokerName: '重複',
+      billLinkStatus: 'linked',
+      entryStatus: 'registered',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    await coll.doc('voided').set({
+      okibakeEntryId: 'voided',
+      tournamentId,
+      temporaryDisplayName: 'オキバケB',
+      linkedUserId: 'user-voided',
+      linkedUserPokerName: '除外',
+      billLinkStatus: 'unlinked',
+      entryStatus: 'voided',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await expect(
+      createOkibakeTemporaryEntry.run({
+        data: {
+          operationId: 'op-dup-reject',
+          tournamentId,
+          addonIntent: 'unknown',
+          linkedUserId: 'user-dup',
+          linkedUserPokerName: '重複',
+        },
+        auth: { uid },
+      } as any)
+    ).rejects.toThrow(HttpsError);
+
+    const res = await createOkibakeTemporaryEntry.run({
+      data: {
+        operationId: 'op-voided-ok',
+        tournamentId,
+        addonIntent: 'unknown',
+        linkedUserId: 'user-voided',
+        linkedUserPokerName: '除外',
+      },
+      auth: { uid },
+    } as any);
+    expect(res.success).toBe(true);
   });
 });

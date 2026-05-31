@@ -176,6 +176,66 @@ describe('bustAndExit', () => {
       expect(bustedData.bustedUser[userId]).toBeDefined();
       expect(bustedData.bustedUser[userId].pokerName).toBe(pokerName);
     });
+
+    it('linked 済み元置きバケ席を Bust した場合、seatXXOkibakeEntryId も null になること', async () => {
+      const tournamentId = 'tournament_test_bust_okibake_001';
+      const userId = 'user_test_bust_okibake_001';
+      const billId = 'bill_test_bust_okibake_001';
+      const tableId = 'table_001';
+      const seatNumber = 1;
+      const pokerName = 'リンク済み太郎';
+      const okibakeEntryId = 'okibake_entry_bust_001';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName,
+        idempotencyKey: 'idem_test_bust_okibake_001',
+      });
+
+      await db.collection('bills').doc(billId).update({
+        'place.table': tableId,
+        'place.seat': seatNumber,
+      });
+
+      await setupTournament(tournamentId, tableId, userId, seatNumber, pokerName);
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .update({
+          [`seats.seat${seatNumber.toString().padStart(2, '0')}OkibakeEntryId`]: okibakeEntryId,
+        });
+
+      const adminId = 'admin_test_bust_okibake_001';
+      await createAdminDevice(adminId);
+
+      const result = await (bustAndExit as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId: `op_bust_${tournamentId}`,
+          tournamentId,
+          tableId,
+          seatNumber,
+          userId,
+        },
+      } as any);
+
+      expect(result.success).toBe(true);
+
+      const tableSeatDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .get();
+      const seats = tableSeatDoc.data()!.seats;
+      const seatNumberStr = seatNumber.toString().padStart(2, '0');
+      expect(seats[`seat${seatNumberStr}UserId`]).toBeNull();
+      expect(seats[`seat${seatNumberStr}PokerName`]).toBeNull();
+      expect(seats[`seat${seatNumberStr}OkibakeEntryId`]).toBeNull();
+    });
   });
 
   describe('エラーハンドリング', () => {
@@ -458,4 +518,3 @@ describe('bustAndExit', () => {
     });
   });
 });
-

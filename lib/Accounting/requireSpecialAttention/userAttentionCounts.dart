@@ -31,6 +31,9 @@ class UserAttentionCounts {
         case BillCardType.carryoverUnsettled:
           carryover += 1;
           break;
+        case BillCardType.okibakePendingReview:
+          carryover += 1;
+          break;
         case BillCardType.postSettlementCollectionPending:
           collection += 1;
           break;

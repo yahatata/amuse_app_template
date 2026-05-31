@@ -26,14 +26,16 @@ class TournamentTable {
     this.updatedAt,
   });
 
-  factory TournamentTable.fromFirestore(Map<String, dynamic> data, String tableId) {
+  factory TournamentTable.fromFirestore(
+    Map<String, dynamic> data,
+    String tableId,
+  ) {
     final seatsDataRaw = data['seats'];
     final seatsData = seatsDataRaw is Map<String, dynamic>
         ? Map<String, dynamic>.from(seatsDataRaw)
         : <String, dynamic>{};
 
-    final safeMaxSeats =
-        ScheduledTournamentSeatMap.resolvedTableMaxSeats(
+    final safeMaxSeats = ScheduledTournamentSeatMap.resolvedTableMaxSeats(
       data['maxSeats'],
       seatsData,
       fallbackWhenUnresolved: 6,
@@ -56,8 +58,7 @@ class TournamentTable {
     );
   }
 
-  SeatData seatAt(int seatNumber) =>
-      seats[seatNumber] ?? SeatData();
+  SeatData seatAt(int seatNumber) => seats[seatNumber] ?? SeatData();
 
   bool getSeatOccupied(int seatNumber) =>
       seats[seatNumber]?.isOccupied ?? false;
@@ -113,7 +114,10 @@ class TournamentUser {
     this.updatedAt,
   });
 
-  factory TournamentUser.fromFirestore(Map<String, dynamic> data, String userId) {
+  factory TournamentUser.fromFirestore(
+    Map<String, dynamic> data,
+    String userId,
+  ) {
     return TournamentUser(
       userId: userId,
       displayName: data['displayName'] ?? 'ユーザー$userId',
@@ -138,14 +142,21 @@ class WaitingPlayer {
   final String displayName;
   final DateTime joinedAt;
   final int waitingMinutes;
+
   /// Phase2 置きバケ一時参加者行。着席・アサイン Callable は別フェーズ。
   final bool isOkibakeTemporary;
+
   /// `isOkibakeTemporary` のときのみ。`assignOkibakeTemporaryEntryToSeat` に渡す ID。
   final String? okibakeEntryId;
+
   /// `isOkibakeTemporary` のときのみ。`okibakeTemporaryEntries.okibakeAddonCount`。
   final int okibakeAddonCount;
+
   /// `isOkibakeTemporary` のときのみ。`okibakeTemporaryEntries.billLinkStatus`。
   final String? okibakeBillLinkStatus;
+
+  /// `isOkibakeTemporary` のときのみ。未設定なら対象ユーザー設定が可能。
+  final String? okibakeLinkedUserId;
 
   WaitingPlayer({
     required this.userId,
@@ -155,6 +166,7 @@ class WaitingPlayer {
     this.okibakeEntryId,
     this.okibakeAddonCount = 0,
     this.okibakeBillLinkStatus,
+    this.okibakeLinkedUserId,
   }) : waitingMinutes = DateTime.now().difference(joinedAt).inMinutes;
 
   /// Firestore `okibakeTemporaryEntries/{okibakeEntryId}` の待機表示用。
@@ -164,6 +176,7 @@ class WaitingPlayer {
     required DateTime createdAt,
     int okibakeAddonCount = 0,
     String billLinkStatus = 'unlinked',
+    String? linkedUserId,
   }) {
     return WaitingPlayer(
       userId: 'okibakeTemporary:$okibakeEntryId',
@@ -173,10 +186,14 @@ class WaitingPlayer {
       okibakeEntryId: okibakeEntryId,
       okibakeAddonCount: okibakeAddonCount,
       okibakeBillLinkStatus: billLinkStatus,
+      okibakeLinkedUserId: linkedUserId,
     );
   }
 
-  factory WaitingPlayer.fromFirestore(String userId, Map<String, dynamic> userData) {
+  factory WaitingPlayer.fromFirestore(
+    String userId,
+    Map<String, dynamic> userData,
+  ) {
     return WaitingPlayer(
       userId: userId,
       displayName: userData['displayName'] ?? 'ユーザー$userId',

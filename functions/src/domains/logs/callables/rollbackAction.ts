@@ -14,6 +14,10 @@ import {
   undoRegisterForTournament,
   undoRegisterParticipants,
   undoSetRankingData,
+  undoOkibakeUpdateLinkedUser,
+  undoOkibakeLinkToBill,
+  undoOkibakeCreateEntry,
+  undoOkibakeAssignSeat,
 } from "../services";
 
 // 入力スキーマの定義（操作履歴は operationLogs のみ。取り消しは operationId で指定）
@@ -32,6 +36,10 @@ const rollbackActionSchema = z.object({
     'assign_seat_to_player',
     'reseat_all_players',
     'set_ranking_data',
+    'okibake_update_linked_user',
+    'okibake_link_bill',
+    'okibake_create_entry',
+    'okibake_assign_seat',
   ], { errorMap: () => ({ message: "有効な操作タイプを指定してください" }) }),
   rollBackBy: z.string().min(1, "ロールバック実行者のデバイスIDは必須です"),
   rollBackByDeviceName: z.string().optional(),
@@ -294,6 +302,108 @@ export const rollbackAction = onCall(async (request) => {
         context: { tournamentId, operationId, action, operationName },
       });
 
+      return { success: true, message: '操作のロールバックが完了しました', operationId, action };
+    } else if (operationName === '置きバケ対象ユーザー設定') {
+      const okibakeEntryId = (payload.okibakeEntryId as string) ?? '';
+      if (!okibakeEntryId) {
+        throw new HttpsError('invalid-argument', '操作記録に okibakeEntryId がありません');
+      }
+      const before = (payload.before ?? {}) as Record<string, unknown>;
+      const after = (payload.after ?? {}) as Record<string, unknown>;
+      const seatBefore =
+        payload.seatBefore && typeof payload.seatBefore === 'object'
+          ? (payload.seatBefore as Record<string, unknown>)
+          : null;
+      await undoOkibakeUpdateLinkedUser({
+        tournamentId: tId,
+        okibakeEntryId,
+        beforeLinkedUserId:
+          typeof before.linkedUserId === 'string' && before.linkedUserId.length > 0
+            ? before.linkedUserId
+            : null,
+        beforeLinkedUserPokerName:
+          typeof before.linkedUserPokerName === 'string' && before.linkedUserPokerName.length > 0
+            ? before.linkedUserPokerName
+            : null,
+        afterLinkedUserId:
+          typeof after.linkedUserId === 'string' && after.linkedUserId.length > 0
+            ? after.linkedUserId
+            : null,
+        afterLinkedUserPokerName:
+          typeof after.linkedUserPokerName === 'string' && after.linkedUserPokerName.length > 0
+            ? after.linkedUserPokerName
+            : null,
+        seatBefore:
+          seatBefore == null
+            ? null
+            : {
+                tableId: typeof seatBefore.tableId === 'string' ? seatBefore.tableId : undefined,
+                seatKey: typeof seatBefore.seatKey === 'string' ? seatBefore.seatKey : undefined,
+                pokerName:
+                  typeof seatBefore.pokerName === 'string'
+                    ? seatBefore.pokerName
+                    : seatBefore.pokerName == null
+                      ? null
+                      : null,
+              },
+      });
+      await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+      logOpsSuccess({
+        message: "rollbackAction 成功",
+        functionEntry: "rollbackAction",
+        context: { tournamentId: tId, operationId, action, operationName },
+      });
+      return { success: true, message: '操作のロールバックが完了しました', operationId, action };
+    } else if (operationName === '置きバケ伝票紐付け') {
+      const okibakeEntryId = (payload.okibakeEntryId as string) ?? '';
+      if (!okibakeEntryId) {
+        throw new HttpsError('invalid-argument', '操作記録に okibakeEntryId がありません');
+      }
+      await undoOkibakeLinkToBill({
+        tournamentId: tId,
+        okibakeEntryId,
+        payload,
+      });
+      await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+      logOpsSuccess({
+        message: "rollbackAction 成功",
+        functionEntry: "rollbackAction",
+        context: { tournamentId: tId, operationId, action, operationName },
+      });
+      return { success: true, message: '操作のロールバックが完了しました', operationId, action };
+    } else if (operationName === '置きバケ登録') {
+      const okibakeEntryId = (payload.okibakeEntryId as string) ?? '';
+      if (!okibakeEntryId) {
+        throw new HttpsError('invalid-argument', '操作記録に okibakeEntryId がありません');
+      }
+      await undoOkibakeCreateEntry({
+        tournamentId: tId,
+        okibakeEntryId,
+        rollBackByDeviceId: rollBackByDeviceId,
+      });
+      await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+      logOpsSuccess({
+        message: "rollbackAction 成功",
+        functionEntry: "rollbackAction",
+        context: { tournamentId: tId, operationId, action, operationName },
+      });
+      return { success: true, message: '操作のロールバックが完了しました', operationId, action };
+    } else if (operationName === '置きバケ着席') {
+      const okibakeEntryId = (payload.okibakeEntryId as string) ?? '';
+      if (!okibakeEntryId) {
+        throw new HttpsError('invalid-argument', '操作記録に okibakeEntryId がありません');
+      }
+      await undoOkibakeAssignSeat({
+        tournamentId: tId,
+        okibakeEntryId,
+        payload,
+      });
+      await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+      logOpsSuccess({
+        message: "rollbackAction 成功",
+        functionEntry: "rollbackAction",
+        context: { tournamentId: tId, operationId, action, operationName },
+      });
       return { success: true, message: '操作のロールバックが完了しました', operationId, action };
     } else {
       throw new HttpsError(

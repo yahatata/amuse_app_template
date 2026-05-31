@@ -39,6 +39,8 @@ void main() {
       expect(find.text('伝票: 未リンク'), findsOneWidget);
 
       expect(find.text('伝票紐付け'), findsOneWidget);
+      expect(find.text('対象ユーザー設定'), findsNothing);
+      expect(find.text('対象ユーザー変更'), findsNothing);
       expect(find.text('Addon'), findsNothing);
       expect(find.text('席へ'), findsNothing);
       expect(find.text('Bust'), findsNothing);
@@ -111,6 +113,45 @@ void main() {
       expect(find.text('伝票紐付け'), findsOneWidget);
       expect(find.text('伝票: リンク済み'), findsOneWidget);
     });
+
+    testWidgets('canSetLinkedUser true のとき対象ユーザー設定を表示し結果を返す', (tester) async {
+      OkibakeBustedAction? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      result = await showOkibakeBustedActionDialog(
+                        context: context,
+                        displayName: 'オキバケX',
+                        billLinkStatus: 'unlinked',
+                        bustedInfoLine: '退席済み',
+                        canSetLinkedUser: true,
+                      );
+                    },
+                    child: const Text('open'),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('対象ユーザー設定'), findsOneWidget);
+      expect(find.text('対象ユーザー変更'), findsNothing);
+
+      await tester.tap(find.text('対象ユーザー設定'));
+      await tester.pumpAndSettle();
+
+      expect(result, OkibakeBustedAction.setLinkedUser);
+    });
   });
 
   group('formatOkibakeBustedInfoLine', () {
@@ -157,10 +198,7 @@ void main() {
     test('24 時間以上なら「退席済み」のみ', () {
       final now = DateTime(2026, 5, 28, 12, 0);
       final busted = DateTime(2026, 5, 27, 10, 0);
-      expect(
-        formatOkibakeBustedInfoLine(bustedAt: busted, now: now),
-        '退席済み',
-      );
+      expect(formatOkibakeBustedInfoLine(bustedAt: busted, now: now), '退席済み');
     });
   });
 }

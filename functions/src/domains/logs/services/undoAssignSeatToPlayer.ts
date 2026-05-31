@@ -59,10 +59,16 @@ export async function undoAssignSeatToPlayer(params: UndoAssignSeatToPlayerParam
         const seatNumStr = String(params.seatNumber).padStart(2, '0');
         const seatKey = `seat${seatNumStr}UserId`;
         const nameKey = `seat${seatNumStr}PokerName`;
-        if (seats[seatKey] !== undefined || seats[nameKey] !== undefined) {
+        const okibakeEntryIdKey = `seat${seatNumStr}OkibakeEntryId`;
+        if (
+          seats[seatKey] !== undefined ||
+          seats[nameKey] !== undefined ||
+          seats[okibakeEntryIdKey] !== undefined
+        ) {
           const updatedSeats = { ...seats };
           updatedSeats[seatKey] = null;
           updatedSeats[nameKey] = null;
+          updatedSeats[okibakeEntryIdKey] = null;
           transaction.update(seatRef, {
             seats: updatedSeats,
             updatedAt: now,

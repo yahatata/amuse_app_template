@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
@@ -13,6 +14,7 @@ import 'package:amuse_app_template/tournament/active/widgets/dialogs/reseat_all_
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/register_participants_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_list_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_register_dialog.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_update_linked_user_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/okibake_waiting_list_tile.dart';
 import 'package:amuse_app_template/tournament/active/widgets/regular_waiting_list_tile.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
@@ -413,6 +415,115 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
 
   bool _isEndingTournament = false;
 
+  Future<bool> _showLinkedUserRequiredDialog(
+    List<_BlockingOkibakeEntry> blockingEntries,
+  ) async {
+    final pending = List<_BlockingOkibakeEntry>.from(blockingEntries);
+    if (pending.isEmpty || !mounted) return true;
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setInnerState) {
+            return AlertDialog(
+              title: const Text('対象ユーザー設定が必要です'),
+              content: SizedBox(
+                width: 480,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '終了前に、以下の置きバケへ対象ユーザーを設定してください。',
+                    ),
+                    const SizedBox(height: 12),
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: pending.length,
+                        separatorBuilder: (_, __) => const Divider(height: 12),
+                        itemBuilder: (itemCtx, index) {
+                          final entry = pending[index];
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              entry.displayName.isNotEmpty
+                                  ? entry.displayName
+                                  : '置きバケ',
+                            ),
+                            subtitle: Text('状態: ${entry.entryStatusLabel}'),
+                            trailing: FilledButton(
+                              onPressed: () async {
+                                final updated = await showDialog<bool>(
+                                  context: itemCtx,
+                                  barrierDismissible: false,
+                                  builder: (_) => OkibakeUpdateLinkedUserDialog(
+                                    tournamentId: widget.tournamentId,
+                                    okibakeEntryId: entry.okibakeEntryId,
+                                    displayName: entry.displayName,
+                                    service: _service,
+                                  ),
+                                );
+                                if (updated == true && mounted) {
+                                  setInnerState(() {
+                                    pending.removeAt(index);
+                                  });
+                                  if (pending.isEmpty && mounted) {
+                                    Navigator.of(dialogCtx).pop(true);
+                                  }
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('対象ユーザーを設定しました'),
+                                    ),
+                                  );
+                                  _loadTournamentData();
+                                }
+                              },
+                              child: const Text('対象ユーザー設定'),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(false),
+                  child: const Text('閉じる'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    return result == true;
+  }
+
+  List<_BlockingOkibakeEntry> _parseBlockingOkibakeEntries(dynamic raw) {
+    if (raw is! List) return const [];
+    final parsed = <_BlockingOkibakeEntry>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final m = Map<String, dynamic>.from(item);
+      final entryId = (m['okibakeEntryId'] as String?)?.trim() ?? '';
+      if (entryId.isEmpty) continue;
+      parsed.add(
+        _BlockingOkibakeEntry(
+          okibakeEntryId: entryId,
+          displayName: ((m['displayName'] as String?) ?? '').trim(),
+          entryStatus: ((m['entryStatus'] as String?) ?? '').trim(),
+        ),
+      );
+    }
+    return parsed;
+  }
+
   void _endTournament() async {
     // 二重押下防止
     if (_isEndingTournament) return;
@@ -425,30 +536,46 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
     setState(() {
       _isEndingTournament = true;
     });
+    bool progressDialogOpen = false;
 
     try {
       bool isForceEnd = false;
       String? forceReason;
 
-      // 検証ダイアログを表示（画面中央）
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-
-      // 1. 終了前検証
       final functions = FunctionsClient.instance;
       final validateCallable = functions.httpsCallable('validateEndTournament');
-      final validateResult = await validateCallable.call({
-        'tournamentId': widget.tournamentId,
-      });
-      
-      Navigator.of(context).pop(); // 検証ダイアログを閉じる
-      
-      if (validateResult.data['success'] != true) {
+      while (true) {
+        // 検証ダイアログを表示（画面中央）
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+        progressDialogOpen = true;
+
+        // 1. 終了前検証
+        final validateResult = await validateCallable.call({
+          'tournamentId': widget.tournamentId,
+        });
+        if (progressDialogOpen && mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+          progressDialogOpen = false;
+        }
+
+        if (validateResult.data['success'] != true) {
+        final errorKey = validateResult.data['errorKey'] as String?;
+        if (errorKey == 'TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED') {
+          final blockingEntries = _parseBlockingOkibakeEntries(
+            validateResult.data['blockingOkibakeEntries'],
+          );
+          final resolvedAll = await _showLinkedUserRequiredDialog(blockingEntries);
+          if (resolvedAll) {
+            continue;
+          }
+          return;
+        }
         final errorType = validateResult.data['errorType'];
         final message = validateResult.data['message'] ?? '検証に失敗しました';
         
@@ -482,6 +609,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           }
           isForceEnd = true;
           forceReason = 'not_registered';
+          break;
         } else if (errorType == 'no_prize') {
           final action = await _showNoPrizeDialog();
           if (action == 'cancel') {
@@ -504,6 +632,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           }
           isForceEnd = true;
           forceReason = 'no_prize';
+          break;
         } else if (errorType == 'no_ranking') {
           final rankingData = validateResult.data['rankingData'];
           final action = await _showNoRankingDialog(rankingData);
@@ -527,6 +656,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           }
           isForceEnd = true;
           forceReason = 'no_ranking';
+          break;
         } else {
           await showDialog(
             context: context,
@@ -543,12 +673,14 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           );
           return;
         }
-      } else {
+        } else {
         // 検証成功 - 順位情報を表示して最終確認（通常終了）
         final rankingData = validateResult.data['rankingData'];
         final confirmed = await _showFinalConfirmationDialog(rankingData);
         if (!confirmed) {
           return;
+        }
+          break;
         }
       }
       
@@ -560,6 +692,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           child: CircularProgressIndicator(),
         ),
       );
+      progressDialogOpen = true;
       
       final endCallable = functions.httpsCallable('endTournament');
       final endParams = <String, dynamic>{
@@ -570,8 +703,10 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
         endParams['forceReason'] = forceReason;
       }
       final endResult = await endCallable.call(endParams);
-      
-      Navigator.of(context).pop(); // 処理中ダイアログを閉じる
+      if (progressDialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        progressDialogOpen = false;
+      }
       
       if (endResult.data['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -583,8 +718,32 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           SnackBar(content: Text(endResult.data['error'] ?? '終了処理に失敗しました')),
         );
       }
+    } on FirebaseFunctionsException catch (e) {
+      if (progressDialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        progressDialogOpen = false;
+      }
+      final details = e.details;
+      final detailsMap = details is Map ? Map<String, dynamic>.from(details) : null;
+      final errorKey = detailsMap?['errorKey'] as String?;
+      if (errorKey == 'TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED') {
+        final blockingEntries = _parseBlockingOkibakeEntries(
+          detailsMap?['blockingOkibakeEntries'],
+        );
+        final resolvedAll = await _showLinkedUserRequiredDialog(blockingEntries);
+        if (resolvedAll && mounted) {
+          await _validateAndEndTournament();
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('エラーが発生しました: ${e.message ?? e.code}')),
+        );
+      }
     } catch (e) {
-      Navigator.of(context).pop(); // ダイアログを閉じる
+      if (progressDialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        progressDialogOpen = false;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('エラーが発生しました: $e')),
       );
@@ -1505,6 +1664,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                               createdAt: entry.createdAt ?? DateTime.now(),
                                               okibakeAddonCount: entry.okibakeAddonCount,
                                               billLinkStatus: entry.billLinkStatus,
+                                              linkedUserId: entry.linkedUserId,
                                             ),
                                           );
                                         }
@@ -1904,5 +2064,30 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
       ),
       ),
     );
+  }
+}
+
+class _BlockingOkibakeEntry {
+  const _BlockingOkibakeEntry({
+    required this.okibakeEntryId,
+    required this.displayName,
+    required this.entryStatus,
+  });
+
+  final String okibakeEntryId;
+  final String displayName;
+  final String entryStatus;
+
+  String get entryStatusLabel {
+    switch (entryStatus) {
+      case 'registered':
+        return '待機中';
+      case 'seated':
+        return '着席中';
+      case 'busted':
+        return '退席済み';
+      default:
+        return entryStatus;
+    }
   }
 }

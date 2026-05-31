@@ -4,6 +4,10 @@ import * as crypto from 'crypto';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { writeSingleOperationLog } from '../../logs/lib/operationLog';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import {
+  applyPendingReviewTransitionInTx,
+  collectPendingReviewTargetsInTx,
+} from '../lib/pendingReview';
 
 type ForceReason = 'not_registered' | 'no_prize' | 'no_ranking';
 
@@ -82,6 +86,17 @@ export const endTournament = onCall(async (request) => {
       }
 
       // ここまでが読み取り。以降は書き込みのみ。
+      const pendingReview = await collectPendingReviewTargetsInTx(transaction, db, tournamentId);
+      if (pendingReview.blockedCount > 0) {
+        throw new HttpsError(
+          'failed-precondition',
+          '未接続の置きバケに対象ユーザー未設定が残っています。対象ユーザー設定後に終了してください。',
+          {
+            errorKey: 'TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED',
+            blockingOkibakeEntries: pendingReview.blockingEntries,
+          }
+        );
+      }
 
       transaction.update(tournamentRef, {
         status: 'ended',
@@ -95,12 +110,18 @@ export const endTournament = onCall(async (request) => {
         }
       }
 
+      const pendingReviewStats = applyPendingReviewTransitionInTx(
+        transaction,
+        pendingReview.entriesToPendingReview
+      );
+
       return {
         tournamentId,
         beforeStatus,
         beforeEndedAt,
         tableNames,
         beforeTableStatuses,
+        pendingReviewStats,
       };
     });
 

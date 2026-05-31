@@ -212,6 +212,8 @@ export const SERVICE_BY_FUNCTION_ENTRY: Record<string, string> = {
   "updateDeviceRole": "device",
   "updateManualClockOutRecord": "attendance",
   "updateMenuItem": "orders",
+  "updateOkibakeTemporaryEntryLinkedUser": "tournament",
+  "resolveOkibakePendingReviewWithRemotePayment": "tournament",
   "updatePlace": "accounting",
   "updateScheduledTournamentStartAt": "tournament_schedule",
   "updateScheduledTournamentStatus": "tournament_schedule",

@@ -1,6 +1,7 @@
 import 'package:amuse_app_template/tournament/active/models/table_and_users.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_bill_dialog.dart';
+import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_update_linked_user_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_waiting_action_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/okibake_addon_display_helpers.dart';
 import 'package:flutter/material.dart';
@@ -34,16 +35,21 @@ class _OkibakeWaitingListTileState extends State<OkibakeWaitingListTile> {
   bool _busy = false;
 
   String get _addonLine => formatOkibakeAddonStatusLine(
-        okibakeAddonCount: widget.player.okibakeAddonCount,
-        resolvedAddonLimit: widget.resolvedAddonLimit,
-        loading: widget.addonLimitLoading,
-      );
+    okibakeAddonCount: widget.player.okibakeAddonCount,
+    resolvedAddonLimit: widget.resolvedAddonLimit,
+    loading: widget.addonLimitLoading,
+  );
 
   bool get _addonDisabled => isOkibakeWaitingActionAddonDisabled(
-        okibakeAddonCount: widget.player.okibakeAddonCount,
-        resolvedAddonLimit: widget.resolvedAddonLimit,
-        addonLimitLoading: widget.addonLimitLoading,
-      );
+    okibakeAddonCount: widget.player.okibakeAddonCount,
+    resolvedAddonLimit: widget.resolvedAddonLimit,
+    addonLimitLoading: widget.addonLimitLoading,
+  );
+
+  bool get _canSetLinkedUser =>
+      (widget.player.okibakeBillLinkStatus ?? 'unlinked') == 'unlinked' &&
+      (widget.player.okibakeLinkedUserId == null ||
+          widget.player.okibakeLinkedUserId!.trim().isEmpty);
 
   Future<bool> _confirmAddon() async {
     final ok = await showDialog<bool>(
@@ -61,9 +67,9 @@ class _OkibakeWaitingListTileState extends State<OkibakeWaitingListTile> {
                 const SizedBox(height: 8),
                 Text(
                   _addonLine,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.black54,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.black54),
                 ),
               ],
             ),
@@ -102,9 +108,9 @@ class _OkibakeWaitingListTileState extends State<OkibakeWaitingListTile> {
       if (!mounted) return;
 
       if (result.success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Addon を実行しました')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Addon を実行しました')));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -134,6 +140,7 @@ class _OkibakeWaitingListTileState extends State<OkibakeWaitingListTile> {
       addonDisabled: _addonDisabled,
       waitingMinutes: widget.player.waitingMinutes,
       billLinkStatus: widget.player.okibakeBillLinkStatus ?? 'unlinked',
+      canSetLinkedUser: _canSetLinkedUser,
     );
     if (!mounted || action == null) return;
 
@@ -144,7 +151,34 @@ class _OkibakeWaitingListTileState extends State<OkibakeWaitingListTile> {
         await _executeAddon();
       case OkibakeWaitingAction.linkBill:
         await _executeLinkBill();
+      case OkibakeWaitingAction.setLinkedUser:
+        await _executeSetLinkedUser();
     }
+  }
+
+  Future<void> _executeSetLinkedUser() async {
+    if (_busy || !_canSetLinkedUser) return;
+
+    final entryId = widget.player.okibakeEntryId;
+    if (entryId == null || entryId.isEmpty) return;
+
+    final success = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return OkibakeUpdateLinkedUserDialog(
+          tournamentId: widget.tournamentId,
+          okibakeEntryId: entryId,
+          displayName: widget.player.displayName,
+          service: widget.service,
+        );
+      },
+    );
+    if (!mounted || success != true) return;
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('対象ユーザーを設定しました')));
   }
 
   Future<void> _executeLinkBill() async {
@@ -162,9 +196,9 @@ class _OkibakeWaitingListTileState extends State<OkibakeWaitingListTile> {
     );
     if (!mounted || linkedName == null) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$linkedName の伝票に紐付けました')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$linkedName の伝票に紐付けました')));
   }
 
   @override
@@ -218,7 +252,9 @@ class _OkibakeWaitingListTileState extends State<OkibakeWaitingListTile> {
                               decoration: BoxDecoration(
                                 color: Colors.amber.shade100,
                                 borderRadius: BorderRadius.circular(999),
-                                border: Border.all(color: Colors.amber.shade700),
+                                border: Border.all(
+                                  color: Colors.amber.shade700,
+                                ),
                               ),
                               child: Text(
                                 '置きバケ',
@@ -234,7 +270,10 @@ class _OkibakeWaitingListTileState extends State<OkibakeWaitingListTile> {
                         const SizedBox(height: 4),
                         Text(
                           '待機時間: ${widget.player.waitingMinutes}分',
-                          style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
+                          ),
                         ),
                         Text(
                           _addonLine,
@@ -264,9 +303,7 @@ class _OkibakeWaitingListTileState extends State<OkibakeWaitingListTile> {
               child: AbsorbPointer(
                 child: ColoredBox(
                   color: Colors.black.withValues(alpha: 0.35),
-                  child: const Center(
-                    child: CircularProgressIndicator(),
-                  ),
+                  child: const Center(child: CircularProgressIndicator()),
                 ),
               ),
             ),
