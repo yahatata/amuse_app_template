@@ -18,6 +18,8 @@ import { resolveMenuItem } from '../repos/resolveMenuItem';
 import { logger } from 'firebase-functions';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { getStoreConfig } from '../../../shared/config/configLoader';
+import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
 
 // 入店料のスキーマ
 const ExtraCostSchema = z.object({
@@ -112,6 +114,10 @@ export const updateActiveBill = onCall(async (request) => {
         context: { billId, reason: 'accounting_already_started_for_updateActiveBill' },
       });
     }
+
+    // sideGameChipRate を storeConfig から取得（トランザクション外）
+    const storeConfig = await getStoreConfig();
+    const chipRate = storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
 
     // items の resolveMenuItem を事前に実行（トランザクション外）
     const resolvedItems: Array<{
@@ -241,7 +247,7 @@ export const updateActiveBill = onCall(async (request) => {
           const chipRef = billRef.collection('sideGameChips').doc();
           tx.set(chipRef, {
             action: 'purchase', // updateActiveBill では purchase のみ
-            chipQty: Math.floor(chip.price / 10), // 仮の換算（1枚=10円相当）
+            chipQty: Math.floor(chip.price / chipRate),
             amountIncl: chip.price,
             menuItemId: null,
             name: chip.name,

@@ -1,4 +1,4 @@
-import type { Amounts, CategoryBreakdown, PaymentTotals, PaymentsSummary } from './snapshots';
+import type { Amounts, CategoryBreakdown, PaymentTotals } from './snapshots';
 
 export type RequiredActionType = 'none' | 'collection' | 'refund';
 export type LastRecordType = 'none' | 'adjustment' | 'cash_action' | 'reopen';
@@ -29,7 +29,6 @@ export function buildInitialSettlementSnapshot() {
     amounts: null,
     categoryBreakdown: null,
     paymentTotals: null,
-    paymentsSummary: null,
     closedAt: null,
     contentHash: null,
   };
@@ -39,16 +38,14 @@ export function buildSettlementSnapshot(params: {
   amounts: Amounts;
   categoryBreakdown: CategoryBreakdown;
   paymentTotals: PaymentTotals;
-  paymentsSummary: PaymentsSummary;
   closedAt: unknown;
   contentHash: string;
 }) {
-  const { amounts, categoryBreakdown, paymentTotals, paymentsSummary, closedAt, contentHash } = params;
+  const { amounts, categoryBreakdown, paymentTotals, closedAt, contentHash } = params;
   return {
     amounts,
     categoryBreakdown,
     paymentTotals,
-    paymentsSummary,
     closedAt,
     contentHash,
   };

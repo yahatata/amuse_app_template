@@ -11,6 +11,7 @@ const bool kDefaultTemplateBusinessDateCheck = true;
 const bool kDefaultSettlementAggregatorEnabled = true;
 const bool kDefaultTableDeviceRegistrationEnabled = true;
 const bool kDefaultCreateAttendanceByManual = false;
+const bool kDefaultReportingAggregatorEnabled = false;
 
 // attendance time adjustment
 const bool kDefaultAttendanceTimeAdjustmentEnabled = false;

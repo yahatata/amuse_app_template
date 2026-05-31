@@ -69,7 +69,7 @@ export interface ApplyAllocationsResult {
 
 const ALL_CASH_ACTION_TYPES: ReadonlySet<CashActionType> = new Set(['refund', 'collection']);
 
-/** Step04 §8.3: current-scope で許容する method 文字列 */
+/** Step04 §8.3 / C-2.5: current-scope で許容する method 文字列 */
 const ALLOWED_METHODS: ReadonlySet<string> = new Set([
   'cash',
   'credit_card',
@@ -77,6 +77,9 @@ const ALLOWED_METHODS: ReadonlySet<string> = new Set([
   'qr',
   'bank_transfer',
   'other',
+  'pointA',
+  'pointB',
+  'sideGameChip',
 ]);
 
 /**

@@ -13,7 +13,7 @@ import 'package:amuse_app_template/tournament/scheduling/pages/tournament_creati
 import 'package:amuse_app_template/Accounting/accountingPage.dart';
 import 'package:amuse_app_template/Accounting/requireSpecialAttentionPage.dart';
 import 'package:amuse_app_template/Accounting/payment_split_test_page.dart';
-import 'package:amuse_app_template/Accounting/postAccountingAdjustmentsPage.dart';
+// postAccountingAdjustmentsPage: 旧経路（to_be_deleted に移動済み 2026-05-29）
 import 'package:amuse_app_template/Accounting/postSettlementIdempotencyReplayPage.dart';
 import 'package:amuse_app_template/Accounting/postSettlementOperationsPage.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_list.dart';
@@ -1475,12 +1475,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
         destination: const FirestoreSizePage(),
         optionKeys: null,
       ),
-      // テスト用: 会計後調整画面への遷移ボタン
-      (
-        label: '会計後調整（旧テスト）',
-        destination: const PostAccountingAdjustmentsPage(),
-        optionKeys: null,
-      ),
+      // 旧経路ボタン（postAccountingAdjustmentsPage）は to_be_deleted に移動済み 2026-05-29
     ];
 
     final visibleButtons = buttons.where((btn) {

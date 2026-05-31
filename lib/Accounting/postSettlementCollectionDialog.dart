@@ -1,6 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import 'package:amuse_app_template/services/store_config_defaults.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 /// 会計後追加徴収ダイアログ。
 ///
@@ -8,6 +12,7 @@ import 'package:flutter/material.dart';
 /// `recordPostSettlementCollection` callable を呼ぶ。
 ///
 /// Step04 で追加された新 callable を Step06 でこの画面から呼び出す。
+/// C-2.5 でポイント/sideGameChip 選択肢と残高表示を追加。
 class PostSettlementCollectionDialog extends StatefulWidget {
   final String billId;
   final int initialAmountIncl;
@@ -37,13 +42,17 @@ class _PostSettlementCollectionDialogState
   /// 対象 cycle の effective adjustment 一覧
   List<({String id, int remaining})> _effectiveAdjustments = [];
 
+  /// ユーザー残高（sideGameChip=枚数、pointA/pointB=円）
+  String? _userId;
+  Map<String, int> _userBalance = {};
+
   @override
   void initState() {
     super.initState();
     _amountCtrl = TextEditingController(
       text: widget.initialAmountIncl.toString(),
     );
-    _loadEffectiveAdjustments();
+    _loadData();
   }
 
   @override
@@ -52,7 +61,7 @@ class _PostSettlementCollectionDialogState
     super.dispose();
   }
 
-  Future<void> _loadEffectiveAdjustments() async {
+  Future<void> _loadData() async {
     try {
       final billSnap =
           await _firestore.collection('bills').doc(widget.billId).get();
@@ -64,6 +73,11 @@ class _PostSettlementCollectionDialogState
               ?.toInt() ??
           1;
 
+      // userId 取得
+      _userId = ((billData?['party'] as Map<String, dynamic>?)?['userId'])
+          as String?;
+
+      // effective adjustment 一覧
       final adjSnap = await _firestore
           .collection('bills')
           .doc(widget.billId)
@@ -73,17 +87,27 @@ class _PostSettlementCollectionDialogState
           .where('adjustmentState', isEqualTo: 'effective')
           .get();
 
-      final list =
-          adjSnap.docs
-              .map((d) {
-                final data = d.data();
-                final remaining =
-                    (data['requiredActionRemainingIncl'] as num?)?.toInt() ??
-                    0;
-                return (id: d.id, remaining: remaining);
-              })
-              .where((e) => e.remaining > 0)
-              .toList();
+      final list = adjSnap.docs
+          .map((d) {
+            final data = d.data();
+            final remaining =
+                (data['requiredActionRemainingIncl'] as num?)?.toInt() ?? 0;
+            return (id: d.id, remaining: remaining);
+          })
+          .where((e) => e.remaining > 0)
+          .toList();
+
+      // ユーザー残高取得
+      if (_userId != null) {
+        final userSnap =
+            await _firestore.collection('users').doc(_userId).get();
+        final userData = userSnap.data() ?? {};
+        _userBalance = {
+          'sideGameChip': (userData['sideGameChip'] as num?)?.toInt() ?? 0,
+          'pointA': (userData['pointA'] as num?)?.toInt() ?? 0,
+          'pointB': (userData['pointB'] as num?)?.toInt() ?? 0,
+        };
+      }
 
       if (!mounted) return;
       setState(() {
@@ -116,22 +140,21 @@ class _PostSettlementCollectionDialogState
     });
 
     try {
-      // current-scope: 単一 adjustment への全額 allocation
       final target = _effectiveAdjustments.first;
       final allocAmount = amount > target.remaining ? target.remaining : amount;
 
       final result = await _functions
           .httpsCallable('recordPostSettlementCollection')
           .call({
-            'billId': widget.billId,
-            'amountIncl': allocAmount,
-            'methodBreakdown': [
-              {'method': _method, 'amountIncl': allocAmount},
-            ],
-            'allocations': [
-              {'adjustmentId': target.id, 'amountIncl': allocAmount},
-            ],
-          });
+        'billId': widget.billId,
+        'amountIncl': allocAmount,
+        'methodBreakdown': [
+          {'method': _method, 'amountIncl': allocAmount},
+        ],
+        'allocations': [
+          {'adjustmentId': target.id, 'amountIncl': allocAmount},
+        ],
+      });
 
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -157,6 +180,63 @@ class _PostSettlementCollectionDialogState
     }
   }
 
+  List<DropdownMenuItem<String>> _buildMethodItems() {
+    final chipRate = StoreConfigService.instance.latestData?.sideGameChipRate ??
+        kDefaultSideGameChipRate;
+    final fmt = NumberFormat('#,###');
+
+    final items = <DropdownMenuItem<String>>[
+      const DropdownMenuItem(value: 'cash', child: Text('現金')),
+      const DropdownMenuItem(
+          value: 'credit_card', child: Text('クレジットカード')),
+      const DropdownMenuItem(
+          value: 'electronic_money', child: Text('電子マネー')),
+      const DropdownMenuItem(value: 'qr', child: Text('QR')),
+      const DropdownMenuItem(value: 'bank_transfer', child: Text('銀行振込')),
+    ];
+
+    if (_userId != null) {
+      final chipBalance = _userBalance['sideGameChip'] ?? 0;
+      final chipYen = (chipBalance * chipRate).toInt();
+      items.add(DropdownMenuItem(
+        value: 'sideGameChip',
+        child: Text(
+            'ゲームチップ（残高: ${fmt.format(chipBalance)}枚 / ${fmt.format(chipYen)}円相当）'),
+      ));
+
+      final pointABalance = _userBalance['pointA'] ?? 0;
+      items.add(DropdownMenuItem(
+        value: 'pointA',
+        child: Text('ポイントA（残高: ¥${fmt.format(pointABalance)}）'),
+      ));
+
+      final pointBBalance = _userBalance['pointB'] ?? 0;
+      items.add(DropdownMenuItem(
+        value: 'pointB',
+        child: Text('ポイントB（残高: ¥${fmt.format(pointBBalance)}）'),
+      ));
+    }
+
+    return items;
+  }
+
+  /// 選択中メソッドの残高上限を「円」で返す（ガイド表示用）
+  int? _selectedMethodMaxYen() {
+    if (_userId == null) return null;
+    final chipRate = StoreConfigService.instance.latestData?.sideGameChipRate ??
+        kDefaultSideGameChipRate;
+    switch (_method) {
+      case 'sideGameChip':
+        return ((_userBalance['sideGameChip'] ?? 0) * chipRate).toInt();
+      case 'pointA':
+        return _userBalance['pointA'] ?? 0;
+      case 'pointB':
+        return _userBalance['pointB'] ?? 0;
+      default:
+        return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -171,8 +251,6 @@ class _PostSettlementCollectionDialogState
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('billId: ${widget.billId}'),
-                  const SizedBox(height: 8),
                   if (_effectiveAdjustments.isNotEmpty)
                     Text(
                       '対象 adjustment: ${_effectiveAdjustments.first.id}（残額 ¥${_effectiveAdjustments.first.remaining}）',
@@ -187,31 +265,20 @@ class _PostSettlementCollectionDialogState
                   TextField(
                     controller: _amountCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: '徴収額（円・税込）',
+                      helperText: () {
+                        final max = _selectedMethodMaxYen();
+                        if (max == null) return null;
+                        return '残高上限: ¥${NumberFormat('#,###').format(max)}';
+                      }(),
                     ),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     value: _method,
                     decoration: const InputDecoration(labelText: '支払方法'),
-                    items: const [
-                      DropdownMenuItem(value: 'cash', child: Text('現金')),
-                      DropdownMenuItem(
-                        value: 'credit_card',
-                        child: Text('クレジットカード'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'electronic_money',
-                        child: Text('電子マネー'),
-                      ),
-                      DropdownMenuItem(value: 'qr', child: Text('QR')),
-                      DropdownMenuItem(
-                        value: 'bank_transfer',
-                        child: Text('銀行振込'),
-                      ),
-                      DropdownMenuItem(value: 'other', child: Text('その他')),
-                    ],
+                    items: _buildMethodItems(),
                     onChanged: _submitting
                         ? null
                         : (v) {
@@ -219,6 +286,13 @@ class _PostSettlementCollectionDialogState
                             setState(() => _method = v);
                           },
                   ),
+                  if (_userId == null) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'この伝票はユーザー未紐付けのため、ポイント/チップ払いは利用できません。',
+                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
+                  ],
                   if (_error != null) ...[
                     const SizedBox(height: 8),
                     Text(

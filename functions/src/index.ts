@@ -46,6 +46,8 @@ export * from "./domains/logs/index";
 export * from "./domains/sideGame/index";
 // アナリティクス関連関数（Phase4: analytics）
 export * from "./domains/analytics";
+// レポーティング（reportingEntries / reportingMonthly）
+export * from "./domains/reporting";
 // クロージング処理関連関数（Phase2B: domains/storeMeta に統合）
 // export は domains/storeMeta 経由で行う
 // Webhook関連関数（Phase4: webhook）

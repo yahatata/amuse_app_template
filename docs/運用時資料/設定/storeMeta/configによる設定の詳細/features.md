@@ -249,3 +249,55 @@ features オブジェクトは複数の機能フラグを保持する。以下�
 | ts | `functions/src/shared/config/configLoader.ts` | config 取得・フォールバック（スキーマ） |
 | ts | `functions/src/shared/config/defaults.ts` | デフォルト値定義 |
 | dart | `lib/services/store_config_service.dart` | App（config パース・設定画面での表示等） |
+
+---
+
+## reportingAggregatorEnabled（新規）
+
+### 設定の説明
+
+reporting（税務集計）機能を有効にするかどうかを制御するフラグ。`reportingEntries` と `reportingMonthly` への書き込みを ON / OFF する。
+
+### 何を設定するのか
+
+`storeMeta/config` の `features.reportingAggregatorEnabled`（boolean）。未指定時は `defaults.ts` の `false` が使われる。
+
+### 取得失敗時
+
+- **読めるがフィールドが存在しない**: 必ずデフォルト（`false`）を適用。
+- **読めない（Firestore 障害等）**: デフォルトを正としてデフォルト処理を行う。
+
+詳細は `docs/運用時資料/設定/取得失敗時の挙動設計.md` を参照。
+
+### 不具合時の対応
+
+1. リトライを必ず行う。
+2. A,B（設定値の誤り・運用ミス）: デフォルトで実行＋エラーコード。
+3. C,D（コードのバグ・不整合）: デフォルトで実行可能な場合は実行＋エラーコード。それ以外は処理スキップ＋エラーコード＋画面警告。
+4. 本設定は boolean のため常にデフォルトで実行可能。スキップは発生しない想定。
+5. エラーコード: `CONFIG_FALLBACK` / `CONFIG_READ_ERROR` をログに出力。詳細は `docs/運用時資料/設定/設定の不具合時の対応.md` を参照。
+
+### 現状持ちうる値
+
+| 値 | 意味 |
+|----|------|
+| `true` | `billsOnSettle`、`createPostSettlementAdjustment`、`recordPostSettlementCashAction`、`reopenAccountedBill` が reporting 系の書き込みを実行する |
+| `false` | reporting 系の書き込みをスキップする。会計本体は継続する |
+
+### その設定により何が変わるのか
+
+- `true` の場合: settle / resettle / 即時精算 / 後続 cashAction / reopen rollback 時に `reportingEntries` と `reportingMonthly` が更新される。
+- `false` の場合: reporting への書き込みは行われない。会計処理、analytics、UI 自体は継続する。
+
+### 影響を受けるファイル一覧
+
+| 種別 | ファイル | 作用先 |
+|------|----------|--------|
+| ts | `functions/src/domains/bills/triggers/billsOnSettle.ts` | settle / resettle 時の reporting 書き込み分岐 |
+| ts | `functions/src/domains/bills/repos/createPostSettlementAdjustment.ts` | 即時精算付き adjustment 時の reporting 書き込み分岐 |
+| ts | `functions/src/domains/bills/repos/recordPostSettlementCashAction.ts` | 後続徴収 / 後続返金時の reporting 書き込み分岐 |
+| ts | `functions/src/domains/bills/repos/reopenAccountedBill.ts` | reopen rollback 時の reporting 書き込み分岐 |
+| ts | `functions/src/shared/config/configLoader.ts` | config 取得・フォールバック |
+| ts | `functions/src/shared/config/defaults.ts` | デフォルト値定義 |
+| dart | `lib/services/store_config_service.dart` | App 側での設定読み取り |
+| dart | `lib/pages/admin_detail_settings_page.dart` | 管理画面での ON / OFF 切替 |

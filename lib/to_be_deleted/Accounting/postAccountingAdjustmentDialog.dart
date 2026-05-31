@@ -1,3 +1,7 @@
+// このファイルは削除予定です。動作確認後に削除してください。
+// 旧会計後調整導線の退避ファイルです。現行実装は lib/Accounting の postSettlement 系を参照してください。
+
+/*
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import '../utils/business_date_ambiguous_dialog.dart';
@@ -432,3 +436,5 @@ class _PostAccountingAdjustmentDialogState extends State<PostAccountingAdjustmen
   }
 }
 
+
+*/

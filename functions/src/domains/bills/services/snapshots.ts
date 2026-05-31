@@ -569,31 +569,6 @@ export function calculatePaymentTotals(params: CalculatePaymentTotalsParams): Pa
 }
 
 /**
- * paymentsSummary を計算
- */
-export interface PaymentsSummary {
-  paidTotalIncl: number;
-  balanceDueIncl: number;
-  byMethod: Record<string, number>;
-}
-
-export function calculatePaymentsSummary(params: {
-  paymentTotals: PaymentTotals;
-  grandTotalRounded: number;
-}): PaymentsSummary {
-  const { paymentTotals, grandTotalRounded } = params;
-
-  const paidTotalIncl = Object.values(paymentTotals).reduce((sum, amount) => sum + amount, 0);
-  const balanceDueIncl = grandTotalRounded - paidTotalIncl;
-
-  return {
-    paidTotalIncl,
-    balanceDueIncl,
-    byMethod: { ...paymentTotals },
-  };
-}
-
-/**
  * contentHash を計算
  * 対象フィールド: amounts, categoryBreakdown, itemsSnapshot, tournamentsSnapshot, paymentTotals
  * 時刻系フィールドはハッシュ対象外

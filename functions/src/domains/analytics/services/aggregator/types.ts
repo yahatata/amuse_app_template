@@ -20,16 +20,6 @@ export interface BillDoc {
     tournaments: number;
   };
   paymentTotals?: Record<string, number>;
-  paymentsSummary?: {
-    paidTotalIncl: number;
-    balanceDueIncl: number;
-    byMethod?: Record<string, number>;
-  };
-  postEvents?: {
-    totalRefundedIncl: number;
-    totalAdjustmentsIncl: number;
-    netSalesIncl: number;
-  };
 }
 
 export interface EventDoc {

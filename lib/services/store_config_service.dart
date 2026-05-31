@@ -22,6 +22,7 @@ class StoreConfigData {
   final bool enqueueSchedulerEnabled;
   final bool templateBusinessDateCheck;
   final bool settlementAggregatorEnabled;
+  final bool reportingAggregatorEnabled;
   final bool tableDeviceRegistrationEnabled;
   final bool createAttendanceByManual;
   final bool attendanceTimeAdjustmentEnabled;
@@ -62,6 +63,7 @@ class StoreConfigData {
     this.enqueueSchedulerEnabled = kDefaultEnqueueSchedulerEnabled,
     this.templateBusinessDateCheck = kDefaultTemplateBusinessDateCheck,
     this.settlementAggregatorEnabled = kDefaultSettlementAggregatorEnabled,
+    this.reportingAggregatorEnabled = kDefaultReportingAggregatorEnabled,
     this.tableDeviceRegistrationEnabled =
         kDefaultTableDeviceRegistrationEnabled,
     this.createAttendanceByManual = kDefaultCreateAttendanceByManual,
@@ -241,6 +243,9 @@ class StoreConfigData {
       settlementAggregatorEnabled:
           parseBool(features?['settlementAggregatorEnabled']) ??
           kDefaultSettlementAggregatorEnabled,
+      reportingAggregatorEnabled:
+          parseBool(features?['reportingAggregatorEnabled']) ??
+          kDefaultReportingAggregatorEnabled,
       tableDeviceRegistrationEnabled:
           parseBool(features?['tableDeviceRegistrationEnabled']) ??
           kDefaultTableDeviceRegistrationEnabled,

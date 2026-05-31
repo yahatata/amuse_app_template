@@ -32,6 +32,7 @@ export interface StoreConfig {
     settlementAggregatorEnabled?: boolean;
     tableDeviceRegistrationEnabled?: boolean;
     createAttendanceByManual?: boolean;
+    reportingAggregatorEnabled?: boolean;
   };
   attendanceTimeAdjustment?: {
     enabled?: boolean;
@@ -56,6 +57,7 @@ export interface StoreConfig {
     paymentPolicy?: {
       categoryPaymentMethods?: Record<string, string[]>;
       pointPriority?: string[];
+      categoryOrder?: string[];
       roundingUnits?: {
         pointAB?: number;
         sideGameChip?: number;

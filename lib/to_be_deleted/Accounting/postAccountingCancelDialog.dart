@@ -1,44 +1,35 @@
+// このファイルは削除予定です。動作確認後に削除してください。
+// 旧会計後調整導線の退避ファイルです。現行実装は lib/Accounting の postSettlement 系を参照してください。
+
+/*
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import '../utils/business_date_ambiguous_dialog.dart';
 
-class PostAccountingRefundDialog extends StatefulWidget {
+class PostAccountingCancelDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
   final VoidCallback onUpdated;
 
-  const PostAccountingRefundDialog({
+  const PostAccountingCancelDialog({
     super.key,
     required this.bill,
     required this.onUpdated,
   });
 
   @override
-  State<PostAccountingRefundDialog> createState() => _PostAccountingRefundDialogState();
+  State<PostAccountingCancelDialog> createState() => _PostAccountingCancelDialogState();
 }
 
-class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog> {
+class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _refundAmountController = TextEditingController();
-  final _refundReasonController = TextEditingController();
+  final _cancelReasonController = TextEditingController();
   final _functions = FunctionsClient.instance;
   
-  String _refundMethod = 'cash';
   bool _isProcessing = false;
 
   @override
-  void initState() {
-    super.initState();
-    // 最大返金額を初期値に設定
-    final grandTotalRounded = widget.bill['amounts']?['grandTotalRounded'] ?? 0;
-    final totalRefundedIncl = widget.bill['postEvents']?['totalRefundedIncl'] ?? 0;
-    final maxRefund = grandTotalRounded - totalRefundedIncl;
-    _refundAmountController.text = maxRefund > 0 ? maxRefund.toString() : '0';
-  }
-
-  @override
   void dispose() {
-    _refundAmountController.dispose();
-    _refundReasonController.dispose();
+    _cancelReasonController.dispose();
     super.dispose();
   }
 
@@ -52,24 +43,20 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
 
     try {
       final billId = widget.bill['id'] ?? '';
-      final idempotencyKey = '$billId:refund:${DateTime.now().millisecondsSinceEpoch}';
-      final refundAmount = int.tryParse(_refundAmountController.text) ?? 0;
+      final idempotencyKey = '$billId:cancel:${DateTime.now().millisecondsSinceEpoch}';
 
-      final result = await _functions.httpsCallable('processRefund').call({
+      final result = await _functions.httpsCallable('updateAccounting').call({
         'billId': billId,
         'idempotencyKey': idempotencyKey,
-        'eventPayload': {
-          'amountIncl': refundAmount,
-          'reason': _refundReasonController.text.trim(),
-          'method': _refundMethod,
-        },
+        'eventType': 'cancel',
+        'reason': _cancelReasonController.text.trim(),
         'selectedBusinessDateKey': selectedBusinessDateKey, // 選択された営業日キーを追加
       });
 
       if (result.data['success'] == true) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('返金処理を完了しました\n返金額: ${refundAmount}円')),
+            const SnackBar(content: Text('会計後キャンセル処理を完了しました')),
           );
           widget.onUpdated();
           Navigator.of(context).pop();
@@ -77,19 +64,19 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('返金処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
+            SnackBar(content: Text('キャンセル処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        String errorMessage = '返金処理に失敗しました';
+        String errorMessage = 'キャンセル処理に失敗しました';
         if (e.toString().contains('failed-precondition')) {
-          errorMessage = '返金処理に失敗しました: この伝票は返金できません';
+          errorMessage = 'キャンセル処理に失敗しました: この伝票はキャンセルできません（支払い済みまたは返金済みの可能性があります）';
         } else if (e.toString().contains('invalid-argument')) {
-          errorMessage = '返金処理に失敗しました: 入力値が無効です';
+          errorMessage = 'キャンセル処理に失敗しました: 入力値が無効です';
         } else if (e.toString().contains('not-found')) {
-          errorMessage = '返金処理に失敗しました: 伝票が見つかりません';
+          errorMessage = 'キャンセル処理に失敗しました: 伝票が見つかりません';
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$errorMessage: $e')),
@@ -104,30 +91,11 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
     }
   }
 
-  Future<void> _processRefund() async {
+  Future<void> _processCancel() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_refundReasonController.text.trim().isEmpty) {
+    if (_cancelReasonController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('返金理由を入力してください')),
-      );
-      return;
-    }
-
-    final refundAmount = int.tryParse(_refundAmountController.text) ?? 0;
-    final grandTotalRounded = widget.bill['amounts']?['grandTotalRounded'] ?? 0;
-    final totalRefundedIncl = widget.bill['postEvents']?['totalRefundedIncl'] ?? 0;
-    final maxRefund = grandTotalRounded - totalRefundedIncl;
-
-    if (refundAmount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('返金額は0より大きい値である必要があります')),
-      );
-      return;
-    }
-
-    if (refundAmount > maxRefund) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('返金額が最大返金額（$maxRefund円）を超えています')),
+        const SnackBar(content: Text('キャンセル理由を入力してください')),
       );
       return;
     }
@@ -137,9 +105,9 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('返金処理'),
+        title: const Text('会計後キャンセル'),
         content: Text(
-          '$pokerNameに${refundAmount}円を返金しますか？\n\n返金方法: ${_getRefundMethodText(_refundMethod)}',
+          '$pokerNameの伝票をキャンセル（voided）にしますか？\n\nこの操作は取り消せません。',
         ),
         actions: [
           TextButton(
@@ -162,22 +130,19 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
 
     try {
       final billId = widget.bill['id'] ?? '';
-      final idempotencyKey = '$billId:refund:${DateTime.now().millisecondsSinceEpoch}';
+      final idempotencyKey = '$billId:cancel:${DateTime.now().millisecondsSinceEpoch}';
 
-      final result = await _functions.httpsCallable('processRefund').call({
+      final result = await _functions.httpsCallable('updateAccounting').call({
         'billId': billId,
         'idempotencyKey': idempotencyKey,
-        'eventPayload': {
-          'amountIncl': refundAmount,
-          'reason': _refundReasonController.text.trim(),
-          'method': _refundMethod,
-        },
+        'eventType': 'cancel',
+        'reason': _cancelReasonController.text.trim(),
       });
 
       if (result.data['success'] == true) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('返金処理を完了しました\n返金額: ${refundAmount}円')),
+            const SnackBar(content: Text('会計後キャンセル処理を完了しました')),
           );
           widget.onUpdated();
           Navigator.of(context).pop();
@@ -185,41 +150,19 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('返金処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
+            SnackBar(content: Text('キャンセル処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        // AMBIGUOUSエラーの場合、ダイアログを表示
-        final candidates = extractAmbiguousCandidates(e);
-        if (candidates != null && candidates.isNotEmpty) {
-          final selectedBusinessDateKey = await showBusinessDateAmbiguousDialog(
-            context: context,
-            candidates: candidates,
-            onSelected: (selectedKey) {
-              // 選択された営業日キーで再試行
-              _retryWithSelectedBusinessDate(selectedKey);
-            },
-          );
-          
-          if (selectedBusinessDateKey != null) {
-            // 選択された営業日キーで再試行
-            await _retryWithSelectedBusinessDate(selectedBusinessDateKey);
-            return;
-          } else {
-            // キャンセルされた場合は処理を終了
-            return;
-          }
-        }
-        
-        String errorMessage = '返金処理に失敗しました';
+        String errorMessage = 'キャンセル処理に失敗しました';
         if (e.toString().contains('failed-precondition')) {
-          errorMessage = '返金処理に失敗しました: この伝票は返金できません';
+          errorMessage = 'キャンセル処理に失敗しました: この伝票はキャンセルできません（支払い済みまたは返金済みの可能性があります）';
         } else if (e.toString().contains('invalid-argument')) {
-          errorMessage = '返金処理に失敗しました: 入力値が無効です';
+          errorMessage = 'キャンセル処理に失敗しました: 入力値が無効です';
         } else if (e.toString().contains('not-found')) {
-          errorMessage = '返金処理に失敗しました: 伝票が見つかりません';
+          errorMessage = 'キャンセル処理に失敗しました: 伝票が見つかりません';
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$errorMessage: $e')),
@@ -234,24 +177,11 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
     }
   }
 
-  String _getRefundMethodText(String method) {
-    switch (method) {
-      case 'cash':
-        return '現金';
-      case 'bank_transfer':
-        return '銀行振込';
-      case 'other':
-        return 'その他';
-      default:
-        return '現金';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final grandTotalRounded = widget.bill['amounts']?['grandTotalRounded'] ?? 0;
+    final paidTotalIncl = widget.bill['paymentsSummary']?['paidTotalIncl'] ?? 0;
     final totalRefundedIncl = widget.bill['postEvents']?['totalRefundedIncl'] ?? 0;
-    final maxRefund = grandTotalRounded - totalRefundedIncl;
     final pokerName = widget.bill['party']?['pokerName'] ?? '不明';
 
     final size = MediaQuery.sizeOf(context);
@@ -282,7 +212,7 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      '返金処理',
+                      '会計後キャンセル',
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                     IconButton(
@@ -306,14 +236,19 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
                         ),
                         const SizedBox(height: 4),
                         Text('合計金額: ${grandTotalRounded}円'),
-                        Text('既返金額: ${totalRefundedIncl}円'),
-                        Text(
-                          '最大返金額: ${maxRefund}円',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.orange.shade700,
+                        Text('支払済み: ${paidTotalIncl}円'),
+                        Text('返金額: ${totalRefundedIncl}円'),
+                        if (paidTotalIncl != 0 || totalRefundedIncl != 0)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              '⚠️ 支払い済みまたは返金済みの伝票はキャンセルできません',
+                              style: TextStyle(
+                                color: Colors.red.shade700,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ),
@@ -321,67 +256,19 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
                 
                 const SizedBox(height: 16),
                 
-                // 返金額
+                // キャンセル理由
                 TextFormField(
-                  controller: _refundAmountController,
+                  controller: _cancelReasonController,
                   decoration: const InputDecoration(
-                    labelText: '返金額',
+                    labelText: 'キャンセル理由',
                     border: OutlineInputBorder(),
-                    suffixText: '円',
-                  ),
-                  keyboardType: TextInputType.number,
-                  enabled: !_isProcessing,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return '返金額を入力してください';
-                    }
-                    final amount = int.tryParse(value);
-                    if (amount == null || amount <= 0) {
-                      return '有効な金額を入力してください';
-                    }
-                    if (amount > maxRefund) {
-                      return '返金額が最大返金額（$maxRefund円）を超えています';
-                    }
-                    return null;
-                  },
-                ),
-                
-                const SizedBox(height: 16),
-                
-                // 返金方法
-                DropdownButtonFormField<String>(
-                  value: _refundMethod,
-                  decoration: const InputDecoration(
-                    labelText: '返金方法',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'cash', child: Text('現金')),
-                    DropdownMenuItem(value: 'bank_transfer', child: Text('銀行振込')),
-                    DropdownMenuItem(value: 'other', child: Text('その他')),
-                  ],
-                  onChanged: _isProcessing ? null : (value) {
-                    setState(() {
-                      _refundMethod = value ?? 'cash';
-                    });
-                  },
-                ),
-                
-                const SizedBox(height: 16),
-                
-                // 返金理由
-                TextFormField(
-                  controller: _refundReasonController,
-                  decoration: const InputDecoration(
-                    labelText: '返金理由',
-                    border: OutlineInputBorder(),
-                    hintText: '例: 商品不良、サービス不備など',
+                    hintText: '例: 誤って会計確定してしまった、顧客の要望など',
                   ),
                   maxLines: 3,
                   enabled: !_isProcessing,
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return '返金理由を入力してください';
+                      return 'キャンセル理由を入力してください';
                     }
                     return null;
                   },
@@ -393,32 +280,33 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
+                    color: Colors.red.shade50,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.shade200),
+                    border: Border.all(color: Colors.red.shade200),
                   ),
                   child: const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.info, color: Colors.blue, size: 20),
+                          Icon(Icons.warning, color: Colors.red, size: 20),
                           SizedBox(width: 8),
                           Text(
-                            '注意事項',
+                            '重要',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: Colors.blue,
+                              color: Colors.red,
                             ),
                           ),
                         ],
                       ),
                       SizedBox(height: 8),
                       Text(
-                        '• 返金処理は取り消せません\n'
-                        '• 返金履歴は記録されます\n'
-                        '• 現金返金の場合は、実際の現金の受け渡しを確認してください',
-                        style: TextStyle(color: Colors.blue),
+                        '• この操作は取り消せません\n'
+                        '• 伝票のステータスが「voided」に変更されます\n'
+                        '• 支払い済みまたは返金済みの伝票はキャンセルできません\n'
+                        '• キャンセル後は返金・調整などの操作ができなくなります',
+                        style: TextStyle(color: Colors.red),
                       ),
                     ],
                   ),
@@ -436,12 +324,12 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
                     ),
                     const SizedBox(width: 8),
                     ElevatedButton(
-                      onPressed: _isProcessing ? null : _processRefund,
+                      onPressed: _isProcessing ? null : _processCancel,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
+                        backgroundColor: Colors.grey,
                         foregroundColor: Colors.white,
                       ),
-                      child: const Text('返金処理'),
+                      child: const Text('キャンセル処理'),
                     ),
                   ],
                 ),
@@ -470,3 +358,5 @@ class _PostAccountingRefundDialogState extends State<PostAccountingRefundDialog>
   }
 }
 
+
+*/

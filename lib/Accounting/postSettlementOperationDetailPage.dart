@@ -220,6 +220,7 @@ class _PostSettlementOperationDetailPageState
   bool _loading = true;
   bool _submitting = false;
   String? _error;
+  bool _summaryExpanded = false;
 
   Map<String, dynamic>? _bill;
   List<_TargetCandidate> _decreaseCandidates = [];
@@ -240,6 +241,10 @@ class _PostSettlementOperationDetailPageState
   final TextEditingController _noteCtrl = TextEditingController();
 
   String _immediateMethod = 'cash';
+
+  /// 即時精算で使用するユーザー残高（special methods 表示用）
+  String? _immediateUserId;
+  Map<String, int> _immediateUserBalance = {};
 
   @override
   void initState() {
@@ -305,6 +310,25 @@ class _PostSettlementOperationDetailPageState
         tournamentExistingCounts: currentState.tournamentExistingCounts,
       );
 
+      // 即時精算の special methods 用にユーザー残高を取得
+      final userId =
+          ((bill['party'] as Map<String, dynamic>?)?['userId']) as String?;
+      Map<String, int> userBalance = {};
+      if (userId != null) {
+        try {
+          final userSnap =
+              await _firestore.collection('users').doc(userId).get();
+          final ud = userSnap.data() ?? {};
+          userBalance = {
+            'sideGameChip': (ud['sideGameChip'] as num?)?.toInt() ?? 0,
+            'pointA': (ud['pointA'] as num?)?.toInt() ?? 0,
+            'pointB': (ud['pointB'] as num?)?.toInt() ?? 0,
+          };
+        } catch (_) {
+          // 残高取得失敗時は special methods を非表示にする（エラーは無視）
+        }
+      }
+
       if (!mounted) return;
       setState(() {
         _bill = bill;
@@ -314,6 +338,8 @@ class _PostSettlementOperationDetailPageState
         _sideGameChipMenuOptions = menus.sideGameChipOptions;
         _tournamentOptions = tournamentOptions;
         _selectedItemCategory = _deriveInitialItemCategory(menus.itemOptions);
+        _immediateUserId = userId;
+        _immediateUserBalance = userBalance;
       });
     } catch (e) {
       if (!mounted) return;
@@ -888,6 +914,63 @@ class _PostSettlementOperationDetailPageState
         0;
   }
 
+  /// 即時精算ドロップダウンの選択肢を構築する。
+  /// 即時返金（decrease）の場合は paymentTotals に存在する手段のみ追加。
+  /// 即時徴収（increase）の場合は全手段を追加。
+  List<DropdownMenuItem<String>> _buildImmediateMethodItems() {
+    final fmt = NumberFormat('#,###');
+    final chipRate =
+        StoreConfigService.instance.latestData?.sideGameChipRate ??
+        kDefaultSideGameChipRate;
+
+    final items = <DropdownMenuItem<String>>[
+      const DropdownMenuItem(value: 'cash', child: Text('現金')),
+      const DropdownMenuItem(
+          value: 'credit_card', child: Text('クレジットカード')),
+      const DropdownMenuItem(
+          value: 'electronic_money', child: Text('電子マネー')),
+      const DropdownMenuItem(value: 'qr', child: Text('QR')),
+      const DropdownMenuItem(value: 'bank_transfer', child: Text('銀行振込')),
+      const DropdownMenuItem(value: 'other', child: Text('その他')),
+    ];
+
+    if (_immediateUserId == null) return items;
+
+    final paymentTotals =
+        (_bill?['paymentTotals'] as Map<String, dynamic>?) ?? {};
+    final isRefund = _operationKind == _OperationKind.decreaseRefunded;
+
+    void addSpecial(String method) {
+      // 返金の場合は paymentTotals に記録がある手段のみ
+      if (isRefund) {
+        final paid = (paymentTotals[method] as num?)?.toInt() ?? 0;
+        if (paid <= 0) return;
+      }
+
+      final balance = _immediateUserBalance[method] ?? 0;
+      String label;
+      switch (method) {
+        case 'sideGameChip':
+          final chipYen = (balance * chipRate).toInt();
+          label =
+              'ゲームチップ（残高: ${fmt.format(balance)}枚 / ${fmt.format(chipYen)}円相当）';
+        case 'pointA':
+          label = 'ポイントA（残高: ¥${fmt.format(balance)}）';
+        case 'pointB':
+          label = 'ポイントB（残高: ¥${fmt.format(balance)}）';
+        default:
+          return;
+      }
+      items.add(DropdownMenuItem(value: method, child: Text(label)));
+    }
+
+    addSpecial('sideGameChip');
+    addSpecial('pointA');
+    addSpecial('pointB');
+
+    return items;
+  }
+
   String _methodLabel(String method) {
     switch (method) {
       case 'cash':
@@ -900,9 +983,282 @@ class _PostSettlementOperationDetailPageState
         return 'QR';
       case 'bank_transfer':
         return '銀行振込';
+      case 'sideGameChip':
+        return 'ゲームチップ';
+      case 'pointA':
+        return 'ポイントA';
+      case 'pointB':
+        return 'ポイントB';
       default:
-        return 'その他';
+        return method;
     }
+  }
+
+  /// 数値をカンマ区切りに整形
+  String _fmtNum(int amount) => NumberFormat('#,###').format(amount);
+
+  /// 支払い方法 + 金額を表示用文字列に変換
+  /// sideGameChip / pointA / pointB は「枚数 (XXX円相当)」形式、それ以外は「ラベル ¥金額」形式
+  String _formatMethodDisplay(String method, int amount) {
+    final chipRate =
+        StoreConfigService.instance.latestData?.sideGameChipRate ?? 10.0;
+
+    switch (method) {
+      case 'sideGameChip':
+        final chipCount = (amount / chipRate).floor();
+        return 'ゲームチップ $chipCount (${_fmtNum(amount)}円相当)';
+      case 'pointA':
+        return 'ポイントA ${_fmtNum(amount)} (${_fmtNum(amount)}円相当)';
+      case 'pointB':
+        return 'ポイントB ${_fmtNum(amount)} (${_fmtNum(amount)}円相当)';
+      default:
+        return '${_methodLabel(method)} ¥${_fmtNum(amount)}';
+    }
+  }
+
+  /// paymentMethodsByCategory の key に対応する categoryBreakdown の金額を返す
+  /// sideGameChip (pmbc key) → sideGameChips (breakdown key) のマッピングに対応
+  int _categoryBreakdownAmount(
+    String pmBcKey,
+    Map<String, dynamic> categoryBreakdown,
+  ) {
+    final cbKey = pmBcKey == 'sideGameChip' ? 'sideGameChips' : pmBcKey;
+    return (categoryBreakdown[cbKey] as num?)?.toInt() ?? 0;
+  }
+
+  String _categoryLabel(String key) {
+    switch (key) {
+      case 'extraCost':
+        return '入店料';
+      case 'sideGameChip':
+        return 'ゲームチップ';
+      case 'tournaments':
+        return 'トーナメント';
+      case 'items':
+        return '商品';
+      default:
+        return key;
+    }
+  }
+
+  Widget _buildSummaryCard(
+    Map<String, dynamic>? bill,
+    String name,
+    String status,
+  ) {
+    final paymentTotals =
+        (bill?['paymentTotals'] as Map<String, dynamic>?) ?? {};
+    final paymentMethodsByCategory =
+        (bill?['draftAccountingInput']?['paymentMethodsByCategory'] ??
+                bill?['meta']?['paymentMethodsByCategory'])
+            as Map<String, dynamic>?;
+    final categoryBreakdown =
+        (bill?['categoryBreakdown'] as Map<String, dynamic>?) ?? {};
+
+    // 支払い手段別合計（金額 > 0 のもの）
+    final paymentEntries = paymentTotals.entries
+        .where((e) => ((e.value as num?)?.toInt() ?? 0) > 0)
+        .toList();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    name,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _statusColor(status).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    _statusLabel(status),
+                    style: TextStyle(
+                      color: _statusColor(status),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              children: [
+                Text('営業日: ${bill?['businessDate'] ?? '—'}'),
+                Text('会計金額: ¥${_grandTotalIncl()}'),
+              ],
+            ),
+            if (_currentStateSummary != null) ...[
+              const SizedBox(height: 12),
+              // サマリカード（折りたたみ）
+              GestureDetector(
+                onTap: () => setState(() => _summaryExpanded = !_summaryExpanded),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.indigo.shade100),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 折りたたみヘッダ
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // カテゴリ概要
+                                Text(
+                                  'サマリ',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.indigo[700],
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '商品 ${_currentStateSummary?.itemLineCount ?? 0}件 / '
+                                  '追加料金 ${_currentStateSummary?.extraLineCount ?? 0}件 / '
+                                  'トナメ ${_currentStateSummary?.tournamentLineCount ?? 0}件 / '
+                                  'チップ ${_currentStateSummary?.sideGameChipLineCount ?? 0}件',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                if (paymentEntries.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    paymentEntries
+                                        .map(
+                                          (e) => _formatMethodDisplay(
+                                            e.key,
+                                            (e.value as num).toInt(),
+                                          ),
+                                        )
+                                        .join(' / '),
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            _summaryExpanded
+                                ? Icons.expand_less
+                                : Icons.expand_more,
+                            color: Colors.indigo[400],
+                          ),
+                        ],
+                      ),
+                      // 展開部分：カテゴリ別支払い内訳
+                      if (_summaryExpanded) ...[
+                        const Divider(height: 16),
+                        const Text(
+                          'カテゴリ別支払い内訳',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        if (paymentMethodsByCategory == null ||
+                            paymentMethodsByCategory.isEmpty)
+                          const Text(
+                            '支払い詳細は会計後に自動生成されます',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          )
+                        else
+                          for (final entry in paymentMethodsByCategory.entries)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SizedBox(
+                                    width: 80,
+                                    child: Text(
+                                      _categoryLabel(entry.key),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      _formatPaymentMethodValue(
+                                        entry.value,
+                                        categoryAmount:
+                                            _categoryBreakdownAmount(
+                                              entry.key,
+                                              categoryBreakdown,
+                                            ),
+                                      ),
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            const Text(
+              'このページでは、1件の伝票に対して減額・増額の会計後操作を行います。主語・対象・数量・金額を確認してから実行してください。',
+              style: TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// paymentMethodsByCategory の値（文字列 or List）を表示用テキストに変換
+  /// [categoryAmount]: string 形式の場合にカテゴリ全額として使用する金額
+  String _formatPaymentMethodValue(dynamic value, {int categoryAmount = 0}) {
+    if (value is String) {
+      return _formatMethodDisplay(value, categoryAmount);
+    }
+    if (value is List) {
+      return value.map((item) {
+        if (item is Map) {
+          final method = item['method'] as String? ?? '';
+          final amount = (item['amount'] as num?)?.toInt() ?? 0;
+          return _formatMethodDisplay(method, amount);
+        }
+        return item.toString();
+      }).join('\n');
+    }
+    return value?.toString() ?? '—';
   }
 
   List<String> _operationPreviewLines() {
@@ -1255,92 +1611,7 @@ class _PostSettlementOperationDetailPageState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  name,
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _statusColor(
-                                    status,
-                                  ).withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  _statusLabel(status),
-                                  style: TextStyle(
-                                    color: _statusColor(status),
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text('billId: ${widget.billId}'),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 16,
-                            runSpacing: 8,
-                            children: [
-                              Text('営業日: ${bill?['businessDate'] ?? '—'}'),
-                              Text('会計金額: ¥${_grandTotalIncl()}'),
-                              Text(
-                                'currentCycle: ${((bill?['reopenSummary'] as Map<String, dynamic>?)?['currentSettlementCycle'] as num?)?.toInt() ?? 1}',
-                              ),
-                            ],
-                          ),
-                          if (_currentStateSummary != null) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.indigo[50],
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.indigo.shade100,
-                                ),
-                              ),
-                              child: Text(
-                                'current state: '
-                                '商品 ${_currentStateSummary?.itemLineCount ?? 0}件 / '
-                                '追加料金 ${_currentStateSummary?.extraLineCount ?? 0}件 / '
-                                'トーナメント ${_currentStateSummary?.tournamentLineCount ?? 0}件 / '
-                                'ゲームチップ ${_currentStateSummary?.sideGameChipLineCount ?? 0}件',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          const Text(
-                            'このページでは、1件の伝票に対して減額・増額の会計後操作を行います。主語・対象・数量・金額を確認してから実行してください。',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  _buildSummaryCard(bill, name, status),
                   const SizedBox(height: 16),
                   Text('操作を選択', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
@@ -1399,9 +1670,11 @@ class _PostSettlementOperationDetailPageState
                       value: _InputMode.structured,
                       label: Text(structuredLabel),
                     ),
-                    const ButtonSegment(
+                    ButtonSegment(
                       value: _InputMode.manual,
-                      label: Text('追加料金を手入力'),
+                      label: Text(
+                        _operationKind.isDecrease ? '返金内容を手入力' : '追加料金を手入力',
+                      ),
                     ),
                   ],
                   selected: {_inputMode},
@@ -1440,23 +1713,7 @@ class _PostSettlementOperationDetailPageState
                   DropdownButtonFormField<String>(
                     value: _immediateMethod,
                     decoration: const InputDecoration(labelText: '即時精算の方法'),
-                    items: const [
-                      DropdownMenuItem(value: 'cash', child: Text('現金')),
-                      DropdownMenuItem(
-                        value: 'credit_card',
-                        child: Text('クレジットカード'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'electronic_money',
-                        child: Text('電子マネー'),
-                      ),
-                      DropdownMenuItem(value: 'qr', child: Text('QR')),
-                      DropdownMenuItem(
-                        value: 'bank_transfer',
-                        child: Text('銀行振込'),
-                      ),
-                      DropdownMenuItem(value: 'other', child: Text('その他')),
-                    ],
+                    items: _buildImmediateMethodItems(),
                     onChanged: _submitting
                         ? null
                         : (value) {
@@ -1534,7 +1791,7 @@ class _PostSettlementOperationDetailPageState
 
   Widget _buildManualInputs() {
     final helper = _operationKind.isDecrease
-        ? '例外対応として、追加料金を減額します。対象名や種別は固定で記録します。'
+        ? '例外対応として、返金内容を手入力します。対象名や種別は固定で記録します。'
         : '例外対応として、追加料金を増額します。対象名や種別は固定で記録します。';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

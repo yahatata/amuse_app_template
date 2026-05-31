@@ -35,6 +35,7 @@ import {
   DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES,
   DEFAULT_BUSINESS_HOURS_STYLES,
   DEFAULT_CATEGORY_PAYMENT_METHODS,
+  DEFAULT_CATEGORY_ORDER,
   DEFAULT_POINT_PRIORITY,
   DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE,
   DEFAULT_POINT_AB_ROUNDING_UNIT,
@@ -64,6 +65,7 @@ import {
   DEFAULT_SETTLEMENT_AGGREGATOR_ENABLED,
   DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED,
   DEFAULT_CREATE_ATTENDANCE_BY_MANUAL,
+  DEFAULT_REPORTING_AGGREGATOR_ENABLED,
   DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_ENABLED,
   DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_FUTURE_MINUTES,
   DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_PAST_MINUTES,
@@ -158,6 +160,7 @@ export function buildFromDefaults(): StoreConfig {
       settlementAggregatorEnabled: DEFAULT_SETTLEMENT_AGGREGATOR_ENABLED,
       tableDeviceRegistrationEnabled: DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED,
       createAttendanceByManual: DEFAULT_CREATE_ATTENDANCE_BY_MANUAL,
+      reportingAggregatorEnabled: DEFAULT_REPORTING_AGGREGATOR_ENABLED,
     },
     attendanceTimeAdjustment: {
       enabled: DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_ENABLED,
@@ -183,6 +186,7 @@ export function buildFromDefaults(): StoreConfig {
       paymentPolicy: {
         categoryPaymentMethods: { ...DEFAULT_CATEGORY_PAYMENT_METHODS },
         pointPriority: [...DEFAULT_POINT_PRIORITY],
+        categoryOrder: [...DEFAULT_CATEGORY_ORDER],
         roundingUnits: {
           pointAB: DEFAULT_POINT_AB_ROUNDING_UNIT,
           sideGameChip: DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
@@ -264,6 +268,10 @@ export function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
       result.features!.createAttendanceByManual = features.createAttendanceByManual;
       fromConfig.push('features.createAttendanceByManual');
     } else fb('features.createAttendanceByManual', 'field_missing', result.features!.createAttendanceByManual);
+    if (typeof features.reportingAggregatorEnabled === 'boolean') {
+      result.features!.reportingAggregatorEnabled = features.reportingAggregatorEnabled;
+      fromConfig.push('features.reportingAggregatorEnabled');
+    } else fb('features.reportingAggregatorEnabled', 'field_missing', result.features!.reportingAggregatorEnabled);
   } else {
     fb('features', 'field_missing', result.features);
   }
@@ -392,6 +400,10 @@ export function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
         result.billing!.paymentPolicy!.pointPriority = pp.pointPriority as string[];
         fromConfig.push('billing.paymentPolicy.pointPriority');
       } else fb('billing.paymentPolicy.pointPriority', 'field_missing', result.billing!.paymentPolicy!.pointPriority);
+      if (Array.isArray(pp.categoryOrder)) {
+        result.billing!.paymentPolicy!.categoryOrder = pp.categoryOrder as string[];
+        fromConfig.push('billing.paymentPolicy.categoryOrder');
+      } else fb('billing.paymentPolicy.categoryOrder', 'field_missing', result.billing!.paymentPolicy!.categoryOrder);
       const ru = pp.roundingUnits as Record<string, unknown> | undefined;
       if (ru && typeof ru === 'object') {
         if (typeof ru.pointAB === 'number') {
@@ -582,6 +594,7 @@ export function mergeConfigForUpsert(
     settlementAggregatorEnabled: typeof featEx?.settlementAggregatorEnabled === 'boolean' ? featEx.settlementAggregatorEnabled : featDef.settlementAggregatorEnabled,
     tableDeviceRegistrationEnabled: typeof featEx?.tableDeviceRegistrationEnabled === 'boolean' ? featEx.tableDeviceRegistrationEnabled : featDef.tableDeviceRegistrationEnabled,
     createAttendanceByManual: typeof featEx?.createAttendanceByManual === 'boolean' ? featEx.createAttendanceByManual : featDef.createAttendanceByManual,
+    reportingAggregatorEnabled: typeof featEx?.reportingAggregatorEnabled === 'boolean' ? featEx.reportingAggregatorEnabled : featDef.reportingAggregatorEnabled,
   };
 
   // attendanceTimeAdjustment
@@ -647,6 +660,7 @@ export function mergeConfigForUpsert(
         ? ppEx.categoryPaymentMethods
         : ppDef.categoryPaymentMethods,
       pointPriority: ppEx && Array.isArray(ppEx.pointPriority) ? ppEx.pointPriority : ppDef.pointPriority,
+      categoryOrder: ppEx && Array.isArray(ppEx.categoryOrder) ? ppEx.categoryOrder : ppDef.categoryOrder,
       roundingUnits: {
         pointAB: typeof ruEx?.pointAB === 'number' ? ruEx.pointAB : ruDef.pointAB,
         sideGameChip: typeof ruEx?.sideGameChip === 'number' ? ruEx.sideGameChip : ruDef.sideGameChip,

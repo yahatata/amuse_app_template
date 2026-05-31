@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/Accounting/payment_rounding.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 
@@ -563,67 +564,74 @@ class _CategoryPaymentMethodDialogState
 
       if (selectedMethod == null) continue;
 
-      // ポイント/サイドゲームチップの場合、残高チェック
+      // ポイント/サイドゲームチップの場合、残高・丸め単位チェック
       if (selectedMethod == 'pointA' ||
           selectedMethod == 'pointB' ||
           selectedMethod == 'sideGameChip') {
-        int balance = 0;
-        double availableValue = 0;
-        int availableChips = 0;
+        final chipRate =
+            (StoreConfigService.instance.latestData?.sideGameChipRate ??
+                    kDefaultSideGameChipRate)
+                .toInt();
 
+        int balance = 0;
         switch (selectedMethod) {
           case 'pointA':
             balance = _pointABalance;
-            availableValue = balance.toDouble();
-            availableChips = balance;
             break;
           case 'pointB':
             balance = _pointBBalance;
-            availableValue = balance.toDouble();
-            availableChips = balance;
             break;
           case 'sideGameChip':
             balance = _sideGameChipBalance;
-            availableValue =
-                balance * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate);
-            availableChips =
-                (availableValue / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate))
-                    .round();
             break;
         }
 
-        // 残高が十分な場合
-        if (availableValue >= categoryAmount) {
-          if (selectedMethod == 'sideGameChip') {
-            // サイドゲームチップの場合は、円換算してチップ枚数を計算
-            final chips = (categoryAmount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round();
-            result[category] = selectedMethod; // 文字列のまま（既存互換）
-            // 注意: 文字列の場合、_calculatePaymentMethodsByAmountFromCategorySelection で
-            // 円換算してチップ枚数に変換されるため、ここでは文字列のまま返す
-          } else {
-            result[category] = selectedMethod; // 文字列のまま（既存互換）
-          }
-        }
-        // 残高不足の場合
-        else {
-          // 不足分の支払い方法を選択
+        final roundedYen = computeMaxRoundedPointYen(
+          method: selectedMethod,
+          categoryAmountYen: categoryAmount,
+          balance: balance,
+          chipRate: chipRate,
+        );
+
+        if (roundedYen >= categoryAmount) {
+          result[category] = selectedMethod;
+        } else if (roundedYen > 0) {
+          final firstPartAmount = selectedMethod == 'sideGameChip'
+              ? (roundedYen / chipRate).round()
+              : roundedYen;
+
           final shortfallMethod = await _showShortfallPaymentDialog(
             category,
             selectedMethod,
-            availableChips,
+            firstPartAmount,
             categoryAmount,
+            roundedYenUsed: roundedYen,
           );
 
           if (shortfallMethod == null) {
-            // キャンセルされた
             return null;
           }
 
-          // 分割支払いとして保存
-          final remainingAmount = categoryAmount - availableValue.toInt();
+          final remainingAmount = categoryAmount - roundedYen;
           result[category] = [
-            {'method': selectedMethod, 'amount': availableChips},
+            {'method': selectedMethod, 'amount': firstPartAmount},
             {'method': shortfallMethod, 'amount': remainingAmount},
+          ];
+        } else {
+          final shortfallMethod = await _showShortfallPaymentDialog(
+            category,
+            selectedMethod,
+            0,
+            categoryAmount,
+            roundedYenUsed: 0,
+          );
+
+          if (shortfallMethod == null) {
+            return null;
+          }
+
+          result[category] = [
+            {'method': shortfallMethod, 'amount': categoryAmount},
           ];
         }
       } else {
@@ -640,18 +648,22 @@ class _CategoryPaymentMethodDialogState
     String category,
     String originalMethod,
     int availableChips,
-    int totalAmount,
-  ) async {
-    // 利用可能な金額を計算（サイドゲームチップの場合は換算）
-    final double availableValue;
-    if (originalMethod == 'sideGameChip') {
-      availableValue =
-          availableChips * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate);
-    } else {
-      availableValue = availableChips.toDouble();
-    }
+    int totalAmount, {
+    int? roundedYenUsed,
+  }) async {
+    final chipRate =
+        (StoreConfigService.instance.latestData?.sideGameChipRate ??
+                kDefaultSideGameChipRate)
+            .toInt();
 
-    final shortfall = totalAmount - availableValue.toInt();
+    final availableYen = roundedYenUsed ??
+        (originalMethod == 'sideGameChip'
+            ? availableChips * chipRate
+            : availableChips);
+
+    final shortfall = totalAmount - availableYen;
+    final isRoundingRemainder =
+        roundedYenUsed != null && availableYen < totalAmount;
     final availableMethods =
         (StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods)[category] ?? [];
 
@@ -670,11 +682,11 @@ class _CategoryPaymentMethodDialogState
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Row(
+        title: Row(
           children: [
             Icon(Icons.warning_amber, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('残高不足'),
+            const SizedBox(width: 8),
+            Text(isRoundingRemainder ? '丸め単位による端数' : '残高不足'),
           ],
         ),
         content: Column(
@@ -687,7 +699,9 @@ class _CategoryPaymentMethodDialogState
             ),
             const SizedBox(height: 16),
             Text(
-              '${_getPaymentMethodName(originalMethod)}の残高が不足しています。',
+              isRoundingRemainder
+                  ? '${roundingUnitHint(originalMethod)}。${_getPaymentMethodName(originalMethod)}だけでは全額払えないため、残りは別の支払い方法が必要です。'
+                  : '${_getPaymentMethodName(originalMethod)}の残高が不足しています。',
               style: const TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 8),
@@ -705,7 +719,7 @@ class _CategoryPaymentMethodDialogState
                   ),
                   if (originalMethod == 'sideGameChip')
                     Text(
-                      '${_getPaymentMethodName(originalMethod)}残高: ${availableChips}枚 (¥${availableValue.toInt().toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})',
+                      '${_getPaymentMethodName(originalMethod)}で使用: ${availableChips}枚 (¥${availableYen.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})',
                       style: TextStyle(
                         color: Colors.green.shade700,
                         fontWeight: FontWeight.bold,
@@ -713,7 +727,7 @@ class _CategoryPaymentMethodDialogState
                     )
                   else
                     Text(
-                      '${_getPaymentMethodName(originalMethod)}残高: ¥${availableChips.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                      '${_getPaymentMethodName(originalMethod)}で使用: ¥${availableYen.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
                       style: TextStyle(
                         color: Colors.green.shade700,
                         fontWeight: FontWeight.bold,

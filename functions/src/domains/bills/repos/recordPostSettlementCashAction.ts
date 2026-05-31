@@ -17,8 +17,8 @@
  * 旧 `bills/{billId}/events` 経路には触れない。
  */
 
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import type { DocumentReference } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
+import type { DocumentReference, DocumentSnapshot } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import * as crypto from 'crypto';
 
@@ -50,8 +50,13 @@ import {
   validateAllocations,
 } from '../services/cashActions';
 import { getStoreConfig } from '../../../shared/config/configLoader';
+import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
 import { buildCashActionAnalyticsDelta } from '../../analytics/services/aggregator/cashActionDelta';
 import { processCashActionAnalyticsAtomically } from '../../analytics/services/applyCashActionToAnalytics';
+import { loadTaxReportingBehavior } from '../../reporting/config/taxReportingBehaviorLoader';
+import { buildCashActionEntry } from '../../reporting/services/entryBuilder';
+import { writeReportingEntry } from '../../reporting/services/entryWriter';
+import { applyEntryToReportingMonthly } from '../../reporting/services/monthlyUpdater';
 
 const IDEMPOTENCY_KEY_PREFIX = 'recordPostSettlementCashAction';
 const IDEMPOTENCY_TTL_HOURS = 48;
@@ -60,6 +65,13 @@ const ALLOWED_BILL_STATUSES_FOR_CASH_ACTION = new Set([
   'settled',
   'post_settlement_pending',
 ]);
+
+const SPECIAL_METHODS = ['pointA', 'pointB', 'sideGameChip'] as const;
+type SpecialMethod = (typeof SPECIAL_METHODS)[number];
+
+function isSpecialMethod(method: string): method is SpecialMethod {
+  return (SPECIAL_METHODS as readonly string[]).includes(method);
+}
 
 export interface RecordPostSettlementCashActionRequest {
   billId: string;
@@ -213,6 +225,8 @@ export async function recordPostSettlementCashAction(
   // Step07 changeSpec §5.6: feature flag を transaction 外で読み取る
   const storeConfig = await getStoreConfig();
   const analyticsEnabled = storeConfig.features?.settlementAggregatorEnabled === true;
+  const reportingEnabled = storeConfig.features?.reportingAggregatorEnabled === true;
+  const chipRate = storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
 
   // Step07 changeSpec §5.3.1: transaction 内で組み立てた analytics delta を transaction 外で再利用する capture
   interface AnalyticsCaptureFromTx {
@@ -222,6 +236,16 @@ export async function recordPostSettlementCashAction(
     cashActionId: string;
   }
   let analyticsCapture: AnalyticsCaptureFromTx | null = null;
+
+  interface ReportingCaptureFromTx {
+    billBusinessDate: string;
+    cashActionDoc: CashActionDoc;
+    cashActionId: string;
+    cycleNo: number;
+    adjustmentLines: Array<{ targetCategory: string; amountInclDelta: number }>;
+    linkedAdjustmentId: string | null;
+  }
+  let reportingCapture: ReportingCaptureFromTx | null = null;
 
   const requestHash = stableHashForRequest({
     billId,
@@ -394,6 +418,98 @@ export async function recordPostSettlementCashAction(
           };
         });
 
+      // 4.5) 特殊メソッド処理（残高確認・返金バリデーション）
+      const specialEntries = methodBreakdown.filter((e) => isSpecialMethod(e.method));
+      const hasSpecial = specialEntries.length > 0;
+
+      let userRef: DocumentReference | null = null;
+      let userSnap: DocumentSnapshot | null = null;
+
+      if (hasSpecial) {
+        const userId = (billData.party?.userId as string | null) ?? null;
+        if (!userId) {
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_CASH_ACTION_INVALID',
+            message: 'ポイント/チップ決済にはユーザー紐付きの伝票が必要です',
+            context: { billId },
+          });
+        }
+        userRef = db.collection('users').doc(userId);
+        userSnap = await tx.get(userRef);
+        if (!userSnap.exists) {
+          throw new FunctionCustomError({
+            errorKey: 'ACCOUNTING_CASH_ACTION_INVALID',
+            message: 'ユーザー情報が見つかりません',
+            context: { billId, userId },
+          });
+        }
+      }
+
+      // 4.6) 返金バリデーション（paymentTotals が存在する bill のみ適用）
+      const paymentTotals: Record<string, number> =
+        (billData.paymentTotals as Record<string, number> | undefined) ?? {};
+      const hasPaymentTotals = Object.keys(paymentTotals).length > 0;
+
+      if (cashActionType === 'refund' && hasPaymentTotals) {
+        // 当 cycle の既存 cashActions を全件読み込み、
+        // 返金済み額・追加徴収済み額をメソッド別に集計する
+        const allCashActionsSnap = await tx.get(cashActionsCollectionRef);
+        const alreadyRefundedByMethod: Record<string, number> = {};
+        const alreadyCollectedByMethod: Record<string, number> = {};
+        for (const caDoc of allCashActionsSnap.docs) {
+          const caData = caDoc.data();
+          const breakdown = Array.isArray(caData.methodBreakdown) ? caData.methodBreakdown : [];
+          for (const entry of breakdown) {
+            const m = entry.method as string;
+            const amt = (entry.amountIncl as number) ?? 0;
+            if (caData.cashActionType === 'refund') {
+              alreadyRefundedByMethod[m] = (alreadyRefundedByMethod[m] ?? 0) + amt;
+            } else if (caData.cashActionType === 'collection') {
+              alreadyCollectedByMethod[m] = (alreadyCollectedByMethod[m] ?? 0) + amt;
+            }
+          }
+        }
+
+        // 各メソッドの返金可能上限を検証（paymentTotals にエントリがある手段のみ）
+        // 返金可能上限 = 最初の会計で支払った額 + 追加徴収で受け取った額 - すでに返金した額
+        for (const entry of methodBreakdown) {
+          const method = entry.method;
+          if (!(method in paymentTotals)) continue; // paymentTotals に記録のない手段はスキップ
+          const originalPaid = paymentTotals[method] ?? 0;
+          const alreadyCollected = alreadyCollectedByMethod[method] ?? 0;
+          const alreadyRefunded = alreadyRefundedByMethod[method] ?? 0;
+          const remainingRefundable = originalPaid + alreadyCollected - alreadyRefunded;
+          if (entry.amountIncl > remainingRefundable) {
+            throw new FunctionCustomError({
+              errorKey: 'ACCOUNTING_CASH_ACTION_INVALID',
+              message: `${method} の返金可能額を超えています。返金可能残額: ¥${remainingRefundable}、要求額: ¥${entry.amountIncl}`,
+              context: { billId, method, originalPaid, alreadyCollected, alreadyRefunded, requested: entry.amountIncl },
+            });
+          }
+        }
+      }
+
+      // 4.7) 追加徴収時の残高不足チェック
+      if (cashActionType === 'collection' && hasSpecial && userSnap) {
+        const userData = userSnap.data()!;
+        for (const entry of specialEntries) {
+          const method = entry.method as SpecialMethod;
+          const requiredBalance =
+            method === 'sideGameChip'
+              ? Math.floor(entry.amountIncl / chipRate)
+              : Math.floor(entry.amountIncl);
+          const currentBalance = (userData[method] as number | undefined) ?? 0;
+          if (currentBalance < requiredBalance) {
+            const unit = method === 'sideGameChip' ? '枚' : '円';
+            throw new FunctionCustomError({
+              errorKey: 'ACCOUNTING_CASH_ACTION_INVALID',
+              message: `${method} の残高が不足しています。残高: ${currentBalance}${unit}、必要: ${requiredBalance}${unit}`,
+              context: { billId, method, currentBalance, requiredBalance },
+            });
+          }
+        }
+      }
+
       // 5) allocations 検証（仕様書 §9.4 / §15）
       try {
         validateAllocations({
@@ -550,6 +666,28 @@ export async function recordPostSettlementCashAction(
         updatedAt: Timestamp.now(),
       });
 
+      // 10.5) ユーザー残高更新（特殊メソッドがある場合のみ）
+      if (hasSpecial && userRef) {
+        const balanceUpdates: Record<string, FieldValue> = {
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        for (const entry of specialEntries) {
+          const method = entry.method as SpecialMethod;
+          const delta =
+            method === 'sideGameChip'
+              ? Math.floor(entry.amountIncl / chipRate)
+              : Math.floor(entry.amountIncl);
+          if (delta > 0) {
+            // collection: 差し引き（-）、refund: 加算（+）
+            const sign = cashActionType === 'collection' ? -1 : 1;
+            balanceUpdates[method] = FieldValue.increment(sign * delta);
+          }
+        }
+        if (Object.keys(balanceUpdates).length > 1) {
+          tx.update(userRef, balanceUpdates);
+        }
+      }
+
       // resolvedAdjustments の shape は patch されたものだけを返す
       const resolvedAdjustments = Array.from(allocationResult.patches.entries()).map(
         ([adjustmentId, patch]) => ({
@@ -593,6 +731,32 @@ export async function recordPostSettlementCashAction(
         billUserId: (billData.party?.userId as string | undefined) ?? null,
         cashActionDoc,
         cashActionId: cashActionDocRef.id,
+      };
+
+      // Reporting: capture adjustment lines from allocation targets
+      const reportingAdjustmentLines: Array<{ targetCategory: string; amountInclDelta: number }> = [];
+      for (const snap of allocationAdjustmentSnaps) {
+        if (snap.exists) {
+          const data = snap.data()!;
+          const lines = Array.isArray(data.lines) ? data.lines : [];
+          for (const line of lines) {
+            if (line.targetCategory && typeof line.amountInclDelta === 'number') {
+              reportingAdjustmentLines.push({
+                targetCategory: line.targetCategory,
+                amountInclDelta: line.amountInclDelta,
+              });
+            }
+          }
+        }
+      }
+
+      reportingCapture = {
+        billBusinessDate: (billData.businessDate as string | undefined) ?? '',
+        cashActionDoc,
+        cashActionId: cashActionDocRef.id,
+        cycleNo: currentSettlementCycle,
+        adjustmentLines: reportingAdjustmentLines,
+        linkedAdjustmentId: allocations.length === 1 ? allocations[0].adjustmentId : null,
       };
 
       return storedResult;
@@ -642,6 +806,50 @@ export async function recordPostSettlementCashAction(
       }
     }
 
+    let reportingApplied = false;
+    if (!reused && reportingEnabled && reportingCapture) {
+      const capture = reportingCapture as ReportingCaptureFromTx;
+      if (capture.billBusinessDate.length > 0) {
+        try {
+          const taxBehavior = await loadTaxReportingBehavior();
+
+          const methodBreakdownMap: Record<string, number> = {};
+          for (const mbEntry of capture.cashActionDoc.methodBreakdown) {
+            methodBreakdownMap[mbEntry.method] = (methodBreakdownMap[mbEntry.method] ?? 0) + mbEntry.amountIncl;
+          }
+
+          const reportingEntry = buildCashActionEntry({
+            billId,
+            cycleNo: capture.cycleNo,
+            cashActionId: capture.cashActionId,
+            cashActionType: capture.cashActionDoc.cashActionType,
+            amountIncl: capture.cashActionDoc.amountIncl,
+            methodBreakdown: methodBreakdownMap,
+            adjustmentLines: capture.adjustmentLines,
+            businessDate: capture.billBusinessDate,
+            cashActionExecutedAt: capture.cashActionDoc.executedAt as Timestamp,
+            dateRule: taxBehavior.dateRule,
+            linkedAdjustmentId: capture.linkedAdjustmentId,
+            isImmediate: false,
+          });
+
+          const { written } = await writeReportingEntry(db, reportingEntry);
+          if (written) {
+            await applyEntryToReportingMonthly(db, reportingEntry);
+          }
+          reportingApplied = true;
+        } catch (reportingError) {
+          logOpsError({
+            message: 'recordPostSettlementCashAction reporting write failed',
+            functionEntry: 'recordPostSettlementCashAction',
+            operation: 'writeReportingEntry',
+            cause: reportingError,
+            context: { billId, cashActionId: capture.cashActionId },
+          });
+        }
+      }
+    }
+
     logOpsSuccess({
       message: 'recordPostSettlementCashAction 成功',
       functionEntry: 'recordPostSettlementCashAction',
@@ -657,6 +865,8 @@ export async function recordPostSettlementCashAction(
         parentStatus: response.parent.status,
         analyticsApplied,
         analyticsEnabled,
+        reportingApplied,
+        reportingEnabled,
       },
     });
 

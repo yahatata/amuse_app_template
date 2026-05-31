@@ -58,10 +58,6 @@ describe('Analytics Aggregator', () => {
           cash: 3000,
           credit_card: 2000,
         },
-        paymentsSummary: {
-          paidTotalIncl: 5000,
-          balanceDueIncl: 0,
-        },
       };
 
       // 1回目: 正常処理
@@ -110,11 +106,6 @@ describe('Analytics Aggregator', () => {
         status: 'settled',
         amounts: {
           grandTotalRounded: 10000,
-        },
-        postEvents: {
-          totalRefundedIncl: 0,
-          totalAdjustmentsIncl: 0,
-          netSalesIncl: 10000,
         },
       };
 

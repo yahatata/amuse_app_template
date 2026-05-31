@@ -1,31 +1,35 @@
+// このファイルは削除予定です。動作確認後に削除してください。
+// 旧会計後調整導線の退避ファイルです。現行実装は lib/Accounting の postSettlement 系を参照してください。
+
+/*
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import '../utils/business_date_ambiguous_dialog.dart';
 
-class PostAccountingCancelDialog extends StatefulWidget {
+class PostAccountingReopenDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
   final VoidCallback onUpdated;
 
-  const PostAccountingCancelDialog({
+  const PostAccountingReopenDialog({
     super.key,
     required this.bill,
     required this.onUpdated,
   });
 
   @override
-  State<PostAccountingCancelDialog> createState() => _PostAccountingCancelDialogState();
+  State<PostAccountingReopenDialog> createState() => _PostAccountingReopenDialogState();
 }
 
-class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog> {
+class _PostAccountingReopenDialogState extends State<PostAccountingReopenDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _cancelReasonController = TextEditingController();
+  final _reopenReasonController = TextEditingController();
   final _functions = FunctionsClient.instance;
   
   bool _isProcessing = false;
 
   @override
   void dispose() {
-    _cancelReasonController.dispose();
+    _reopenReasonController.dispose();
     super.dispose();
   }
 
@@ -39,20 +43,20 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
 
     try {
       final billId = widget.bill['id'] ?? '';
-      final idempotencyKey = '$billId:cancel:${DateTime.now().millisecondsSinceEpoch}';
+      final idempotencyKey = '$billId:reopen:${DateTime.now().millisecondsSinceEpoch}';
 
       final result = await _functions.httpsCallable('updateAccounting').call({
         'billId': billId,
         'idempotencyKey': idempotencyKey,
-        'eventType': 'cancel',
-        'reason': _cancelReasonController.text.trim(),
+        'eventType': 'reopen',
+        'reason': _reopenReasonController.text.trim(),
         'selectedBusinessDateKey': selectedBusinessDateKey, // 選択された営業日キーを追加
       });
 
       if (result.data['success'] == true) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('会計後キャンセル処理を完了しました')),
+            const SnackBar(content: Text('伝票再開処理を完了しました')),
           );
           widget.onUpdated();
           Navigator.of(context).pop();
@@ -60,19 +64,19 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('キャンセル処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
+            SnackBar(content: Text('再開処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        String errorMessage = 'キャンセル処理に失敗しました';
+        String errorMessage = '再開処理に失敗しました';
         if (e.toString().contains('failed-precondition')) {
-          errorMessage = 'キャンセル処理に失敗しました: この伝票はキャンセルできません（支払い済みまたは返金済みの可能性があります）';
+          errorMessage = '再開処理に失敗しました: この伝票は再開できません（ステータスが「settled」である必要があります）';
         } else if (e.toString().contains('invalid-argument')) {
-          errorMessage = 'キャンセル処理に失敗しました: 入力値が無効です';
+          errorMessage = '再開処理に失敗しました: 入力値が無効です';
         } else if (e.toString().contains('not-found')) {
-          errorMessage = 'キャンセル処理に失敗しました: 伝票が見つかりません';
+          errorMessage = '再開処理に失敗しました: 伝票が見つかりません';
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$errorMessage: $e')),
@@ -87,11 +91,11 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
     }
   }
 
-  Future<void> _processCancel() async {
+  Future<void> _processReopen() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_cancelReasonController.text.trim().isEmpty) {
+    if (_reopenReasonController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('キャンセル理由を入力してください')),
+        const SnackBar(content: Text('再開理由を入力してください')),
       );
       return;
     }
@@ -101,9 +105,9 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('会計後キャンセル'),
+        title: const Text('伝票再開'),
         content: Text(
-          '$pokerNameの伝票をキャンセル（voided）にしますか？\n\nこの操作は取り消せません。',
+          '$pokerNameの伝票を再開（in_progress）にしますか？\n\n再度会計フローに戻ります。',
         ),
         actions: [
           TextButton(
@@ -126,19 +130,19 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
 
     try {
       final billId = widget.bill['id'] ?? '';
-      final idempotencyKey = '$billId:cancel:${DateTime.now().millisecondsSinceEpoch}';
+      final idempotencyKey = '$billId:reopen:${DateTime.now().millisecondsSinceEpoch}';
 
       final result = await _functions.httpsCallable('updateAccounting').call({
         'billId': billId,
         'idempotencyKey': idempotencyKey,
-        'eventType': 'cancel',
-        'reason': _cancelReasonController.text.trim(),
+        'eventType': 'reopen',
+        'reason': _reopenReasonController.text.trim(),
       });
 
       if (result.data['success'] == true) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('会計後キャンセル処理を完了しました')),
+            const SnackBar(content: Text('伝票再開処理を完了しました')),
           );
           widget.onUpdated();
           Navigator.of(context).pop();
@@ -146,19 +150,19 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('キャンセル処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
+            SnackBar(content: Text('再開処理に失敗しました: ${result.data['message'] ?? '不明なエラー'}')),
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        String errorMessage = 'キャンセル処理に失敗しました';
+        String errorMessage = '再開処理に失敗しました';
         if (e.toString().contains('failed-precondition')) {
-          errorMessage = 'キャンセル処理に失敗しました: この伝票はキャンセルできません（支払い済みまたは返金済みの可能性があります）';
+          errorMessage = '再開処理に失敗しました: この伝票は再開できません（ステータスが「settled」である必要があります）';
         } else if (e.toString().contains('invalid-argument')) {
-          errorMessage = 'キャンセル処理に失敗しました: 入力値が無効です';
+          errorMessage = '再開処理に失敗しました: 入力値が無効です';
         } else if (e.toString().contains('not-found')) {
-          errorMessage = 'キャンセル処理に失敗しました: 伝票が見つかりません';
+          errorMessage = '再開処理に失敗しました: 伝票が見つかりません';
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$errorMessage: $e')),
@@ -176,8 +180,7 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
   @override
   Widget build(BuildContext context) {
     final grandTotalRounded = widget.bill['amounts']?['grandTotalRounded'] ?? 0;
-    final paidTotalIncl = widget.bill['paymentsSummary']?['paidTotalIncl'] ?? 0;
-    final totalRefundedIncl = widget.bill['postEvents']?['totalRefundedIncl'] ?? 0;
+    final status = widget.bill['status'] ?? '';
     final pokerName = widget.bill['party']?['pokerName'] ?? '不明';
 
     final size = MediaQuery.sizeOf(context);
@@ -208,7 +211,7 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      '会計後キャンセル',
+                      '伝票再開',
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                     IconButton(
@@ -232,15 +235,14 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
                         ),
                         const SizedBox(height: 4),
                         Text('合計金額: ${grandTotalRounded}円'),
-                        Text('支払済み: ${paidTotalIncl}円'),
-                        Text('返金額: ${totalRefundedIncl}円'),
-                        if (paidTotalIncl != 0 || totalRefundedIncl != 0)
+                        Text('現在のステータス: $status'),
+                        if (status != 'settled')
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
-                              '⚠️ 支払い済みまたは返金済みの伝票はキャンセルできません',
+                              '⚠️ ステータスが「settled」の伝票のみ再開できます',
                               style: TextStyle(
-                                color: Colors.red.shade700,
+                                color: Colors.orange.shade700,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -252,19 +254,19 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
                 
                 const SizedBox(height: 16),
                 
-                // キャンセル理由
+                // 再開理由
                 TextFormField(
-                  controller: _cancelReasonController,
+                  controller: _reopenReasonController,
                   decoration: const InputDecoration(
-                    labelText: 'キャンセル理由',
+                    labelText: '再開理由',
                     border: OutlineInputBorder(),
-                    hintText: '例: 誤って会計確定してしまった、顧客の要望など',
+                    hintText: '例: 会計をやり直す必要がある、追加注文があるなど',
                   ),
                   maxLines: 3,
                   enabled: !_isProcessing,
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'キャンセル理由を入力してください';
+                      return '再開理由を入力してください';
                     }
                     return null;
                   },
@@ -276,33 +278,32 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade50,
+                    color: Colors.blue.shade50,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red.shade200),
+                    border: Border.all(color: Colors.blue.shade200),
                   ),
                   child: const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.warning, color: Colors.red, size: 20),
+                          Icon(Icons.info, color: Colors.blue, size: 20),
                           SizedBox(width: 8),
                           Text(
-                            '重要',
+                            '注意事項',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: Colors.red,
+                              color: Colors.blue,
                             ),
                           ),
                         ],
                       ),
                       SizedBox(height: 8),
                       Text(
-                        '• この操作は取り消せません\n'
-                        '• 伝票のステータスが「voided」に変更されます\n'
-                        '• 支払い済みまたは返金済みの伝票はキャンセルできません\n'
-                        '• キャンセル後は返金・調整などの操作ができなくなります',
-                        style: TextStyle(color: Colors.red),
+                        '• 伝票のステータスが「in_progress」に変更されます\n'
+                        '• 再度会計フローに戻ります\n'
+                        '• ステータスが「settled」の伝票のみ再開できます',
+                        style: TextStyle(color: Colors.blue),
                       ),
                     ],
                   ),
@@ -320,12 +321,12 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
                     ),
                     const SizedBox(width: 8),
                     ElevatedButton(
-                      onPressed: _isProcessing ? null : _processCancel,
+                      onPressed: _isProcessing ? null : _processReopen,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey,
+                        backgroundColor: Colors.blue,
                         foregroundColor: Colors.white,
                       ),
-                      child: const Text('キャンセル処理'),
+                      child: const Text('再開処理'),
                     ),
                   ],
                 ),
@@ -354,3 +355,5 @@ class _PostAccountingCancelDialogState extends State<PostAccountingCancelDialog>
   }
 }
 
+
+*/

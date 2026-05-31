@@ -9,7 +9,11 @@ import {
   DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE,
   DEFAULT_CATEGORY_PAYMENT_METHODS,
   DEFAULT_POINT_PRIORITY as _DEFAULT_POINT_PRIORITY,
+  DEFAULT_CATEGORY_ORDER,
+  DEFAULT_POINT_AB_ROUNDING_UNIT,
+  DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
 } from '../../../shared/config/defaults';
+import { RoundingUnits } from './paymentRounding';
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 
 export const DEFAULT_POINT_PRIORITY = _DEFAULT_POINT_PRIORITY;
@@ -33,7 +37,9 @@ interface CalculatePaymentSplitParams {
   pointPriority?: string[]; // ポイント使用優先順位の配列（デフォルト: DEFAULT_POINT_PRIORITY）
   categoryPaymentMethods?: Record<string, string[]>; // カテゴリ別支払い方法（デフォルト: CATEGORY_PAYMENT_METHODS）
   sideGameChipExchangeRate?: number;
+  /** カテゴリの処理順。前のカテゴリからポイントを優先消費する。storeMeta/config の billing.paymentPolicy.categoryOrder を渡すこと */
   categoryOrder?: string[];
+  roundingUnits?: RoundingUnits;
 }
 
 /**
@@ -47,7 +53,11 @@ export function calculatePaymentSplit(params: CalculatePaymentSplitParams): Paym
     pointPriority = DEFAULT_POINT_PRIORITY,
     categoryPaymentMethods = DEFAULT_CATEGORY_PAYMENT_METHODS,
     sideGameChipExchangeRate = DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE,
-    categoryOrder = ['extraCost', 'sideGameChip', 'tournaments', 'items'],
+    categoryOrder = DEFAULT_CATEGORY_ORDER,
+    roundingUnits = {
+      pointAB: DEFAULT_POINT_AB_ROUNDING_UNIT,
+      sideGameChip: DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
+    },
   } = params;
 
   // 入力検証
@@ -109,7 +119,8 @@ export function calculatePaymentSplit(params: CalculatePaymentSplitParams): Paym
 
         // 100チップ区切りで切り捨て（チップ数として）
         const maxUsableChips = Math.floor(maxUsableInYen / sideGameChipExchangeRate);
-        const usableChipsRounded = Math.floor(maxUsableChips / 100) * 100; // 100チップ区切りで切り捨て
+        const usableChipsRounded =
+          Math.floor(maxUsableChips / roundingUnits.sideGameChip) * roundingUnits.sideGameChip;
 
         // 円換算
         pointAmountToUse = Math.floor(usableChipsRounded * sideGameChipExchangeRate);
@@ -120,8 +131,8 @@ export function calculatePaymentSplit(params: CalculatePaymentSplitParams): Paym
           ? remainingAmount
           : Math.floor(availableBalance);
 
-        // 1000円区切りで切り捨て
-        pointAmountToUse = Math.floor(maxUsable / 1000) * 1000;
+        pointAmountToUse =
+          Math.floor(Math.floor(maxUsable) / roundingUnits.pointAB) * roundingUnits.pointAB;
       }
 
       if (pointAmountToUse > 0) {
