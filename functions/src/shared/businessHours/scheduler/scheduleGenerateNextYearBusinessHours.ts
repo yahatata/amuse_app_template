@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-import { logOpsError, logOpsSuccess } from "../../logging/logOpsError";
+import { logOpsError, logOpsInfo, logOpsSuccess } from "../../logging/logOpsError";
 import {
   upsertBusinessHoursForMonth,
   syncBusinessHoursToShifts,
@@ -25,6 +25,13 @@ export async function runScheduleGenerateNextYearBusinessHoursTask(
   let skippedMonthCount = 0;
 
   try {
+    logOpsInfo({
+      message: 'scheduleGenerateNextYearBusinessHours start',
+      functionEntry: 'scheduleGenerateNextYearBusinessHours',
+      operation: 'start',
+      context: {targetYear: input.targetYear},
+    });
+
     const targetYear = input.targetYear;
     if (
       typeof targetYear !== "number" ||

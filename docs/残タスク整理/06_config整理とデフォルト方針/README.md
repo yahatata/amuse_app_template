@@ -25,6 +25,6 @@
 
 ## 関連が強いタスク
 
-- `07_scheduler確認`
+- `07(+08)_schedulerとCloudTasks確認`
 - `11_requiredStaffByTimeSlot方針`
 - `12_給与確認タスクキュー方針`

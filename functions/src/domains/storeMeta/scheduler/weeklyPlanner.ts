@@ -6,7 +6,7 @@
  */
 
 import { logger } from "firebase-functions";
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsInfo, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { CloudTasksClient } from "@google-cloud/tasks";
 import { getFirestore } from "firebase-admin/firestore";
 import {
@@ -89,10 +89,16 @@ export async function runWeeklyPlannerTask(
   let skippedClosedDays = 0;
 
   try {
+    logOpsInfo({
+      message: 'weeklyPlanner start',
+      functionEntry: 'weeklyPlanner',
+      operation: 'start',
+      context: {targetWeekStartDate: input.targetWeekStartDate},
+    });
+
     const projectId = getRequiredProjectId();
     const config = await getStoreConfig();
     if (!config.autoOpenClose?.enabled) {
-      logger.info("weeklyPlanner: skipped because autoOpenClose is disabled");
       logOpsSuccess({
         message: 'weeklyPlanner 成功',
         functionEntry: 'weeklyPlanner',

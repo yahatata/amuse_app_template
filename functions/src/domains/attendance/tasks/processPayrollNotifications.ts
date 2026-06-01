@@ -9,8 +9,7 @@
 
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { getFirestore } from 'firebase-admin/firestore';
-import { logger } from 'firebase-functions';
-import { logOpsInfo } from '../../../shared/logging/logOpsError';
+import { logOpsInfo, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
 import { getStoreConfig } from '../../../shared/config/configLoader';
@@ -278,11 +277,15 @@ export const processPayrollNotifications = onTaskDispatched(
       });
     }
 
-    logger.info('processPayrollNotifications: completed', {
-      todayStr,
-      recentPeriodKey,
-      actionsCount: actions.length,
-      actions: actions.map((a) => a.triggerType),
+    logOpsSuccess({
+      message: 'processPayrollNotifications 成功',
+      functionEntry: 'processPayrollNotifications',
+      context: {
+        todayStr,
+        recentPeriodKey,
+        actionsCount: actions.length,
+        triggerTypes: actions.map((a) => a.triggerType),
+      },
     });
   }
 );
