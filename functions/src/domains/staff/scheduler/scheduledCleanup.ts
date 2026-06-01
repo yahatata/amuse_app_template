@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsInfo, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -22,6 +22,13 @@ export async function runScheduledCleanupTask(
   input: ScheduledCleanupTaskInput
 ): Promise<ScheduledCleanupTaskResult> {
   try {
+    logOpsInfo({
+      message: 'scheduledCleanup start',
+      functionEntry: 'scheduledCleanup',
+      operation: 'start',
+      context: {cutoffDate: input.cutoffDate},
+    });
+
     const db = admin.firestore();
     const cutoffDate = parseCutoffDateEndOfDayJst(input.cutoffDate);
 
