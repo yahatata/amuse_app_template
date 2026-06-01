@@ -4,11 +4,11 @@ import { logger } from 'firebase-functions';
 
 const CENTRAL_APP_NAME = 'centralMonitoring';
 
+const CENTRAL_PROJECT_ID_FALLBACK = 'amuse-central-monitoring';
+
 function getCentralFirestore(): FirebaseFirestore.Firestore | null {
-  const centralProjectId = process.env.CENTRAL_PROJECT_ID;
-  if (!centralProjectId) {
-    return null;
-  }
+  const centralProjectId =
+    process.env.CENTRAL_PROJECT_ID ?? CENTRAL_PROJECT_ID_FALLBACK;
 
   const existingApp = getApps().find((app) => app.name === CENTRAL_APP_NAME);
   if (existingApp) {
