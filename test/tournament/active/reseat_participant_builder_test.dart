@@ -173,6 +173,33 @@ void main() {
       expect(candidates.single.userId, 'user_normal');
     });
 
+    test('registered + linked の置きバケと waiting の通常参加者が同一 userId のとき二重表示されない', () {
+      final candidates = ReseatParticipantBuilder.build(
+        regularWaitingPlayers: [
+          WaitingPlayer(
+            userId: 'user_linked',
+            displayName: '山田太郎',
+            joinedAt: DateTime(2026, 1, 1),
+          ),
+        ],
+        okibakeEntries: [
+          _entry(
+            id: 'ok_waiting_linked',
+            entryStatus: 'registered',
+            billLinkStatus: 'linked',
+            linkedUserId: 'user_linked',
+            linkedUserPokerName: '山田太郎',
+          ),
+        ],
+        tables: const [],
+      );
+
+      expect(candidates.length, 1);
+      expect(candidates.single.participantType, ReseatParticipantType.normal);
+      expect(candidates.single.userId, 'user_linked');
+      expect(candidates.single.listDisplayName, '山田太郎');
+    });
+
     test('pending_review / busted / voided は候補に出ない', () {
       final candidates = ReseatParticipantBuilder.build(
         regularWaitingPlayers: const [],

@@ -4,6 +4,7 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
 import type { OkibakeReseatTarget } from '../../tournament_activeTournament/lib/slimOkibakeEntryForReseatLog';
 import {
   buildOkibakeReseatUndoEntryPatch,
+  buildRestoredSeatsForReseatUndo,
   countOkibakeRegisteredRestoresOnUndo,
   validateOkibakeReseatUndoEntry,
 } from '../lib/okibakeReseatRollback';
@@ -27,8 +28,32 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
     await db.runTransaction(async (transaction) => {
       const tournamentRef = db.collection('scheduledTournaments').doc(params.tournamentId);
       const mainViewRef = tournamentRef.collection('views').doc('main');
+      const tablesSeatRef = tournamentRef.collection('tablesSeat');
 
+      const tablesSeatSnap = await transaction.get(tablesSeatRef);
       const mainViewDoc = await transaction.get(mainViewRef);
+
+      const tableIdsToRestore = new Set<string>();
+      for (const tableId of Object.keys(params.previousSeatingData)) {
+        if (tableId !== 'waiting') {
+          tableIdsToRestore.add(tableId);
+        }
+      }
+      for (const target of okibakeTargets) {
+        if (target.okibakeEntryAfter.assignedTableId) {
+          tableIdsToRestore.add(target.okibakeEntryAfter.assignedTableId);
+        }
+        if (target.okibakeEntryBefore.assignedTableId) {
+          tableIdsToRestore.add(target.okibakeEntryBefore.assignedTableId);
+        }
+      }
+
+      const currentSeatsByTable = new Map<string, Record<string, unknown>>();
+      for (const doc of tablesSeatSnap.docs) {
+        if (doc.id === 'waiting' || doc.id === 'busted') continue;
+        currentSeatsByTable.set(doc.id, (doc.data().seats ?? {}) as Record<string, unknown>);
+        tableIdsToRestore.add(doc.id);
+      }
 
       const entrySnaps = new Map<string, DocumentSnapshot>();
       for (const target of okibakeTargets) {
@@ -56,24 +81,42 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
         }
       }
 
-      for (const [tableId, tableData] of Object.entries(params.previousSeatingData)) {
-        if (tableId === 'waiting') {
-          const data = tableData as { waiting?: Record<string, unknown> };
-          const waiting = data.waiting || {};
-          const waitingRef = tournamentRef.collection('tablesSeat').doc('waiting');
-          transaction.set(waitingRef, {
-            waiting,
-            count: Object.keys(waiting).length,
+      const waitingData = params.previousSeatingData.waiting as { waiting?: Record<string, unknown> } | undefined;
+      if (waitingData != null) {
+        const waiting = waitingData.waiting || {};
+        transaction.set(tablesSeatRef.doc('waiting'), {
+          waiting,
+          count: Object.keys(waiting).length,
+          updatedAt: now,
+        });
+      }
+
+      for (const tableId of tableIdsToRestore) {
+        if (tableId === 'waiting' || tableId === 'busted') continue;
+
+        const previousSeats =
+          ((params.previousSeatingData[tableId] as { seats?: Record<string, unknown> } | undefined)?.seats ??
+            {}) as Record<string, unknown>;
+        const currentSeats = currentSeatsByTable.get(tableId) ?? {};
+
+        const restoredSeats =
+          okibakeTargets.length > 0
+            ? buildRestoredSeatsForReseatUndo(
+                previousSeats,
+                currentSeats,
+                okibakeTargets,
+                tableId,
+              )
+            : previousSeats;
+
+        transaction.set(
+          tablesSeatRef.doc(tableId),
+          {
+            seats: restoredSeats,
             updatedAt: now,
-          });
-        } else {
-          const data = tableData as { seats?: Record<string, unknown> };
-          const seatRef = tournamentRef.collection('tablesSeat').doc(tableId);
-          transaction.set(seatRef, {
-            seats: data.seats || {},
-            updatedAt: now,
-          }, { merge: true });
-        }
+          },
+          { merge: true },
+        );
       }
 
       for (const target of okibakeTargets) {

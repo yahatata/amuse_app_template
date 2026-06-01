@@ -207,6 +207,22 @@ describe('bustAndExit', () => {
         .update({
           [`seats.seat${seatNumber.toString().padStart(2, '0')}OkibakeEntryId`]: okibakeEntryId,
         });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set({
+          tournamentId,
+          okibakeEntryId,
+          entryStatus: 'seated',
+          billLinkStatus: 'linked',
+          linkedUserId: userId,
+          linkedUserPokerName: pokerName,
+          linkedBillId: billId,
+          assignedTableId: tableId,
+          assignedSeatKey: `seat${seatNumber.toString().padStart(2, '0')}`,
+        });
 
       const adminId = 'admin_test_bust_okibake_001';
       await createAdminDevice(adminId);
@@ -235,6 +251,18 @@ describe('bustAndExit', () => {
       expect(seats[`seat${seatNumberStr}UserId`]).toBeNull();
       expect(seats[`seat${seatNumberStr}PokerName`]).toBeNull();
       expect(seats[`seat${seatNumberStr}OkibakeEntryId`]).toBeNull();
+
+      const okibakeEntry = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('okibakeTemporaryEntries')
+          .doc(okibakeEntryId)
+          .get()
+      ).data()!;
+      expect(okibakeEntry.entryStatus).toBe('busted');
+      expect(okibakeEntry.bustedTableId).toBe(tableId);
+      expect(okibakeEntry.bustedSeatKey).toBe(`seat${seatNumberStr}`);
     });
   });
 

@@ -68,14 +68,15 @@ export const getRankingData = onCall(async (request) => {
     }
 
     // linked + busted の元置きバケを脱落者候補に補完（永続データは変更しない）
-    const okibakeLinkedSnap = await db
+    // billLinkStatus の fieldOverride が COLLECTION_GROUP のみのため、
+    // サブコレクション where クエリは COLLECTION インデックス不足で失敗する。全件取得後に絞る。
+    const okibakeSnap = await db
       .collection('scheduledTournaments')
       .doc(tournamentId)
       .collection('okibakeTemporaryEntries')
-      .where('billLinkStatus', '==', 'linked')
       .get();
 
-    const okibakeEntries = okibakeLinkedSnap.docs.map((doc) => doc.data() as Record<string, unknown>);
+    const okibakeEntries = okibakeSnap.docs.map((doc) => doc.data() as Record<string, unknown>);
     bustedPlayers = mergeLinkedOkibakeBustedPlayers(bustedPlayers, okibakeEntries);
 
     logOpsSuccess({

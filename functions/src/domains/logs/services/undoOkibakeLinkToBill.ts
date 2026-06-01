@@ -1,10 +1,54 @@
-import { getFirestore, Timestamp, type UpdateData, type DocumentData } from 'firebase-admin/firestore';
+import {
+  FieldValue,
+  getFirestore,
+  Timestamp,
+  type UpdateData,
+  type DocumentData,
+} from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
 const ALLOWED_BILL_STATUSES = new Set(['open', 'in_progress']);
 
 type LinkLogPayload = Record<string, unknown>;
+
+/** 紐付け時に usersList / waiting へ追加された bill 側ユーザー ID。 */
+export function resolveBillLinkedUserIdFromLinkPayload(
+  payload: LinkLogPayload,
+): string | null {
+  if (typeof payload.userId === 'string' && payload.userId.trim().length > 0) {
+    return payload.userId.trim();
+  }
+  const after =
+    typeof payload.after === 'object' && payload.after != null
+      ? (payload.after as Record<string, unknown>)
+      : null;
+  if (
+    after != null &&
+    typeof after.linkedUserId === 'string' &&
+    after.linkedUserId.trim().length > 0
+  ) {
+    return after.linkedUserId.trim();
+  }
+  const okibakeEntryAfter =
+    typeof payload.okibakeEntryAfter === 'object' && payload.okibakeEntryAfter != null
+      ? (payload.okibakeEntryAfter as Record<string, unknown>)
+      : null;
+  if (
+    okibakeEntryAfter != null &&
+    typeof okibakeEntryAfter.linkedUserId === 'string' &&
+    okibakeEntryAfter.linkedUserId.trim().length > 0
+  ) {
+    return okibakeEntryAfter.linkedUserId.trim();
+  }
+  if (
+    typeof payload.linkedUserId === 'string' &&
+    payload.linkedUserId.trim().length > 0
+  ) {
+    return payload.linkedUserId.trim();
+  }
+  return null;
+}
 
 function parseSeatSuffix(seatKey: string): string | null {
   const m = seatKey.match(/^seat(\d{1,2})$/);
@@ -201,10 +245,7 @@ export async function undoOkibakeLinkToBill(
           ? (payload.billTournamentBefore as Record<string, unknown>)
           : null;
 
-      const linkedUserId =
-        typeof payload.userId === 'string'
-          ? payload.userId
-          : (typeof payload.linkedUserId === 'string' ? payload.linkedUserId : null);
+      const billLinkedUserId = resolveBillLinkedUserIdFromLinkPayload(payload);
 
       const usersListBefore =
         typeof payload.usersListBefore === 'object' && payload.usersListBefore != null
@@ -255,66 +296,75 @@ export async function undoOkibakeLinkToBill(
         );
       }
 
-      const usersListSnap = linkedUserId != null ? await tx.get(usersListRef) : null;
-      const waitingSnap =
-        linkedUserId != null && sourceEntryStatus === 'registered' ? await tx.get(waitingRef) : null;
-      const tableSnap = tableRef != null ? await tx.get(tableRef) : null;
-      if (linkedUserId != null) {
-        const usersListData = (usersListSnap?.data() ?? {}) as Record<string, unknown>;
-        const users =
-          typeof usersListData.users === 'object' && usersListData.users != null
-            ? { ...(usersListData.users as Record<string, unknown>) }
-            : {};
-        const beforeUserEntry =
-          Object.prototype.hasOwnProperty.call(usersListBefore, 'userEntry')
-            ? (usersListBefore.userEntry as unknown)
-            : undefined;
-        if (beforeUserEntry === undefined) {
-          throw new HttpsError(
-            'failed-precondition',
-            '操作履歴の usersListBefore.userEntry が不足しているため取り消しできません'
-          );
-        }
-        if (beforeUserEntry == null) {
-          delete users[linkedUserId];
-        } else {
-          users[linkedUserId] = beforeUserEntry;
-        }
-        tx.set(usersListRef, { users, updatedAt: now }, { merge: true });
+      if (billLinkedUserId == null) {
+        throw new HttpsError(
+          'failed-precondition',
+          '操作履歴に userId がなく、伝票紐付け取り消しできません'
+        );
       }
 
-      if (linkedUserId != null && sourceEntryStatus === 'registered') {
-        const waitingData = (waitingSnap?.data() ?? {}) as Record<string, unknown>;
-        const waiting =
-          typeof waitingData.waiting === 'object' && waitingData.waiting != null
-            ? { ...(waitingData.waiting as Record<string, unknown>) }
-            : {};
-        const beforeUserEntry =
+      const waitingSnap =
+        sourceEntryStatus === 'registered' ? await tx.get(waitingRef) : null;
+      const tableSnap = tableRef != null ? await tx.get(tableRef) : null;
+
+      const usersListBeforeUserEntry = Object.prototype.hasOwnProperty.call(
+        usersListBefore,
+        'userEntry',
+      )
+        ? (usersListBefore.userEntry as unknown)
+        : undefined;
+      if (usersListBeforeUserEntry === undefined) {
+        throw new HttpsError(
+          'failed-precondition',
+          '操作履歴の usersListBefore.userEntry が不足しているため取り消しできません'
+        );
+      }
+
+      const usersListPatch: Record<string, unknown> = { updatedAt: now };
+      if (usersListBeforeUserEntry == null) {
+        usersListPatch[`users.${billLinkedUserId}`] = FieldValue.delete();
+      } else {
+        usersListPatch[`users.${billLinkedUserId}`] = usersListBeforeUserEntry;
+      }
+      tx.update(usersListRef, usersListPatch as UpdateData<DocumentData>);
+
+      if (sourceEntryStatus === 'registered') {
+        const waitingBeforeUserEntry =
           waitingBefore != null && Object.prototype.hasOwnProperty.call(waitingBefore, 'userEntry')
             ? (waitingBefore.userEntry as unknown)
             : undefined;
-        if (beforeUserEntry === undefined) {
+        if (waitingBeforeUserEntry === undefined) {
           throw new HttpsError(
             'failed-precondition',
             '操作履歴の waitingBefore.userEntry が不足しているため取り消しできません'
           );
         }
-        if (beforeUserEntry == null) {
-          delete waiting[linkedUserId];
+
+        const waitingData = (waitingSnap?.data() ?? {}) as Record<string, unknown>;
+        const waiting =
+          typeof waitingData.waiting === 'object' && waitingData.waiting != null
+            ? { ...(waitingData.waiting as Record<string, unknown>) }
+            : {};
+        if (waitingBeforeUserEntry == null) {
+          delete waiting[billLinkedUserId];
         } else {
-          waiting[linkedUserId] = beforeUserEntry;
+          waiting[billLinkedUserId] = waitingBeforeUserEntry;
         }
         const countFromBefore =
-          waitingBefore != null && typeof waitingBefore.count === 'number' ? waitingBefore.count : null;
-        tx.set(
-          waitingRef,
-          {
-            waiting,
-            count: countFromBefore ?? Object.keys(waiting).length,
-            updatedAt: now,
-          },
-          { merge: true }
-        );
+          waitingBefore != null && typeof waitingBefore.count === 'number'
+            ? waitingBefore.count
+            : null;
+
+        const waitingPatch: Record<string, unknown> = {
+          updatedAt: now,
+          count: countFromBefore ?? Object.keys(waiting).length,
+        };
+        if (waitingBeforeUserEntry == null) {
+          waitingPatch[`waiting.${billLinkedUserId}`] = FieldValue.delete();
+        } else {
+          waitingPatch[`waiting.${billLinkedUserId}`] = waitingBeforeUserEntry;
+        }
+        tx.update(waitingRef, waitingPatch as UpdateData<DocumentData>);
       }
 
       if (seatBefore != null) {
