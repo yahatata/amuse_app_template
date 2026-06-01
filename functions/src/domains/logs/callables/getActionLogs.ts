@@ -143,6 +143,7 @@ export const getActionLogs = onCall(async (request) => {
 
       if (isPartialBulk && rolledBackUids && rolledBackUids.length > 0) {
         const rolledPayload: Record<string, unknown> = {
+          ...payload,
           playerUids: rolledBackUids,
           playerNames: Array.isArray(rolledBackNames) && rolledBackNames.length >= rolledBackUids.length
             ? rolledBackNames

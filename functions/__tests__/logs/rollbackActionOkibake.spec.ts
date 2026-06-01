@@ -708,4 +708,1000 @@ describe('rollbackAction okibake undo', () => {
       message: expect.stringContaining('Addon'),
     });
   });
+
+  describe('置きバケ Bust undo', () => {
+    let bustOkibakeTemporaryEntry: {
+      run: (req: unknown) => Promise<Record<string, unknown>>;
+    };
+
+    beforeAll(async () => {
+      const mod = await import(
+        '../../src/domains/tournament_activeTournament/callables/bustOkibakeTemporaryEntry'
+      );
+      bustOkibakeTemporaryEntry = mod.bustOkibakeTemporaryEntry as typeof bustOkibakeTemporaryEntry;
+    });
+
+    async function seedDevice(uid: string) {
+      await db.collection('devices').add({
+        uid,
+        role: 'admin',
+        status: 'active',
+        name: 'Terminal Bust Undo',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    async function seedBustUndoFixture(params: {
+      tournamentId: string;
+      okibakeEntryId: string;
+      tableId: string;
+      playersBusted?: number;
+    }) {
+      const { tournamentId, okibakeEntryId, tableId } = params;
+      const playersBusted = params.playersBusted ?? 2;
+      await db.collection('scheduledTournaments').doc(tournamentId).set({
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({
+          entries: 4,
+          playersIn: 4,
+          seatedCount: 3,
+          waitingCount: 1,
+          playersBusted,
+          addons: 5,
+        });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          isEnabled: true,
+          seats: {
+            seat02UserId: null,
+            seat02PokerName: 'BK',
+            seat02OkibakeEntryId: okibakeEntryId,
+          },
+        });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set({
+          okibakeEntryId,
+          tournamentId,
+          temporaryDisplayName: 'BK',
+          entryStatus: 'seated',
+          billLinkStatus: 'unlinked',
+          linkedBillId: null,
+          linkedUserId: null,
+          assignedTableId: tableId,
+          assignedSeatKey: 'seat02',
+          okibakeAddonCount: 0,
+        });
+    }
+
+    function bustOpPayload(params: {
+      tournamentId: string;
+      okibakeEntryId: string;
+      tableId: string;
+    }) {
+      const { tournamentId, okibakeEntryId, tableId } = params;
+      return {
+        tournamentId,
+        okibakeEntryId,
+        tableId,
+        seatKey: 'seat02',
+        playerName: 'BK',
+        seatNumber: 2,
+        seatBefore: {
+          userId: null,
+          pokerName: 'BK',
+          okibakeEntryId,
+        },
+        seatAfter: {
+          userId: null,
+          pokerName: null,
+          okibakeEntryId: null,
+        },
+        okibakeEntryBefore: {
+          entryStatus: 'seated',
+          billLinkStatus: 'unlinked',
+          assignedTableId: tableId,
+          assignedSeatKey: 'seat02',
+        },
+        okibakeEntryAfter: {
+          entryStatus: 'busted',
+          billLinkStatus: 'unlinked',
+          assignedTableId: tableId,
+          assignedSeatKey: 'seat02',
+        },
+      };
+    }
+
+    it('bust 後 rollback で seated / seat 復元、playersBusted -1、他 views は不変', async () => {
+      const uid = 'u-undo-bust';
+      const tournamentId = 't-undo-okibake-bust';
+      const okibakeEntryId = 'e-undo-okibake-bust';
+      const tableId = 'table-undo-bust';
+      const operationId = 'op-undo-okibake-bust';
+
+      await seedDevice(uid);
+      await seedBustUndoFixture({ tournamentId, okibakeEntryId, tableId, playersBusted: 2 });
+
+      await bustOkibakeTemporaryEntry.run({
+        data: { tournamentId, okibakeEntryId, operationId },
+        auth: { uid },
+      } as any);
+
+      const mainAfterBust = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(mainAfterBust.playersBusted).toBe(3);
+
+      const res = await rollbackAction.run({
+        data: {
+          tournamentId,
+          operationId,
+          action: 'okibake_bust',
+          rollBackBy: 'dev-1',
+        },
+      } as any);
+      expect(res.success).toBe(true);
+
+      const entry = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('okibakeTemporaryEntries')
+          .doc(okibakeEntryId)
+          .get()
+      ).data()!;
+      expect(entry.entryStatus).toBe('seated');
+      expect(entry.bustedAt).toBeNull();
+      expect(entry.bustedTableId).toBeNull();
+      expect(entry.bustedSeatKey).toBeNull();
+      expect(entry.assignedTableId).toBe(tableId);
+      expect(entry.assignedSeatKey).toBe('seat02');
+
+      const table = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('tablesSeat')
+          .doc(tableId)
+          .get()
+      ).data()!;
+      expect(table.seats.seat02OkibakeEntryId).toBe(okibakeEntryId);
+      expect(table.seats.seat02PokerName).toBe('BK');
+
+      const mainAfterUndo = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(mainAfterUndo.playersBusted).toBe(2);
+      expect(mainAfterUndo.entries).toBe(4);
+      expect(mainAfterUndo.playersIn).toBe(4);
+      expect(mainAfterUndo.waitingCount).toBe(1);
+      expect(mainAfterUndo.addons).toBe(5);
+
+      const op = (await db.collection('operationLogs').doc(operationId).get()).data()!;
+      expect(op.rolledBack).toBe(true);
+    });
+
+    it('同一 operationLog の rollback 再実行は拒否され playersBusted は二重減算されない', async () => {
+      const tournamentId = 't-undo-bust-double';
+      const okibakeEntryId = 'e-undo-bust-double';
+      const operationId = 'op-undo-bust-double';
+      const tableId = 'tbl-bust-double';
+
+      await seedBustUndoFixture({ tournamentId, okibakeEntryId, tableId, playersBusted: 1 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set(
+          {
+            entryStatus: 'busted',
+            billLinkStatus: 'unlinked',
+            linkedBillId: null,
+            assignedTableId: tableId,
+            assignedSeatKey: 'seat02',
+            bustedAt: admin.firestore.FieldValue.serverTimestamp(),
+            bustedTableId: tableId,
+            bustedSeatKey: 'seat02',
+          },
+          { merge: true }
+        );
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          seats: {
+            seat02UserId: null,
+            seat02PokerName: null,
+            seat02OkibakeEntryId: null,
+          },
+        });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({ playersBusted: 2, entries: 1, playersIn: 1, waitingCount: 0, addons: 0 });
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: '置きバケ Bust',
+        tournamentId,
+        tableId,
+        status: 'succeeded',
+        payload: bustOpPayload({ tournamentId, okibakeEntryId, tableId }),
+      });
+
+      await rollbackAction.run({
+        data: { tournamentId, operationId, action: 'okibake_bust', rollBackBy: 'dev-1' },
+      } as any);
+
+      await expect(
+        rollbackAction.run({
+          data: { tournamentId, operationId, action: 'okibake_bust', rollBackBy: 'dev-1' },
+        } as any)
+      ).rejects.toMatchObject({
+        code: 'failed-precondition',
+        message: expect.stringContaining('ロールバック済み'),
+      });
+
+      const main = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(main.playersBusted).toBe(1);
+    });
+
+    it.each([
+      ['linked', { billLinkStatus: 'linked', linkedBillId: 'bill-linked' }],
+      ['pending_review', { billLinkStatus: 'pending_review' }],
+      ['voided', { entryStatus: 'voided' }],
+      ['seated', { entryStatus: 'seated', bustedAt: null, bustedTableId: null, bustedSeatKey: null }],
+      ['registered', { entryStatus: 'registered', assignedTableId: null, assignedSeatKey: null }],
+    ])('%s の entry は Bust undo を拒否し playersBusted は変わらない', async (_label, overrides) => {
+      const tournamentId = `t-undo-bust-reject-${_label}`;
+      const okibakeEntryId = `e-undo-bust-reject-${_label}`;
+      const operationId = `op-undo-bust-reject-${_label}`;
+      const tableId = 'tbl-bust-reject';
+
+      await seedBustUndoFixture({ tournamentId, okibakeEntryId, tableId, playersBusted: 4 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set(
+          {
+            entryStatus: 'busted',
+            billLinkStatus: 'unlinked',
+            linkedBillId: null,
+            assignedTableId: tableId,
+            assignedSeatKey: 'seat02',
+            bustedAt: admin.firestore.FieldValue.serverTimestamp(),
+            ...overrides,
+          },
+          { merge: true }
+        );
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          seats: {
+            seat02UserId: null,
+            seat02PokerName: null,
+            seat02OkibakeEntryId: null,
+          },
+        });
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: '置きバケ Bust',
+        tournamentId,
+        status: 'succeeded',
+        payload: bustOpPayload({ tournamentId, okibakeEntryId, tableId }),
+      });
+
+      await expect(
+        rollbackAction.run({
+          data: { tournamentId, operationId, action: 'okibake_bust', rollBackBy: 'dev-1' },
+        } as any)
+      ).rejects.toThrow();
+
+      const main = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(main.playersBusted).toBe(4);
+    });
+
+    it('operationLog after と現在状態が一致しない場合は拒否する', async () => {
+      const tournamentId = 't-undo-bust-mismatch';
+      const okibakeEntryId = 'e-undo-bust-mismatch';
+      const operationId = 'op-undo-bust-mismatch';
+      const tableId = 'tbl-bust-mismatch';
+
+      await seedBustUndoFixture({ tournamentId, okibakeEntryId, tableId, playersBusted: 2 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set(
+          {
+            entryStatus: 'busted',
+            assignedTableId: 'other-table',
+            assignedSeatKey: 'seat03',
+          },
+          { merge: true }
+        );
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          seats: {
+            seat02UserId: null,
+            seat02PokerName: null,
+            seat02OkibakeEntryId: null,
+          },
+        });
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: '置きバケ Bust',
+        tournamentId,
+        status: 'succeeded',
+        payload: bustOpPayload({ tournamentId, okibakeEntryId, tableId }),
+      });
+
+      await expect(
+        rollbackAction.run({
+          data: { tournamentId, operationId, action: 'okibake_bust', rollBackBy: 'dev-1' },
+        } as any)
+      ).rejects.toMatchObject({
+        code: 'failed-precondition',
+      });
+
+      const main = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(main.playersBusted).toBe(2);
+    });
+
+    it('playersBusted が 0 のとき undo しても 0 未満にならない', async () => {
+      const tournamentId = 't-undo-bust-floor';
+      const okibakeEntryId = 'e-undo-bust-floor';
+      const operationId = 'op-undo-bust-floor';
+      const tableId = 'tbl-bust-floor';
+
+      await seedBustUndoFixture({ tournamentId, okibakeEntryId, tableId, playersBusted: 0 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set(
+          {
+            entryStatus: 'busted',
+            bustedAt: admin.firestore.FieldValue.serverTimestamp(),
+            bustedTableId: tableId,
+            bustedSeatKey: 'seat02',
+          },
+          { merge: true }
+        );
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          seats: {
+            seat02UserId: null,
+            seat02PokerName: null,
+            seat02OkibakeEntryId: null,
+          },
+        });
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: '置きバケ Bust',
+        tournamentId,
+        status: 'succeeded',
+        payload: bustOpPayload({ tournamentId, okibakeEntryId, tableId }),
+      });
+
+      await rollbackAction.run({
+        data: { tournamentId, operationId, action: 'okibake_bust', rollBackBy: 'dev-1' },
+      } as any);
+
+      const main = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(main.playersBusted).toBe(0);
+    });
+
+    it('元席が埋まっている場合は seat selection required を返し playersBusted は減らない', async () => {
+      const tournamentId = 't-undo-bust-seat-select';
+      const okibakeEntryId = 'e-undo-bust-seat-select';
+      const operationId = 'op-undo-bust-seat-select';
+      const tableId = 'tbl-bust-seat-select';
+
+      await seedBustUndoFixture({ tournamentId, okibakeEntryId, tableId, playersBusted: 3 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set(
+          {
+            entryStatus: 'busted',
+            bustedAt: admin.firestore.FieldValue.serverTimestamp(),
+            bustedTableId: tableId,
+            bustedSeatKey: 'seat02',
+          },
+          { merge: true }
+        );
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          isEnabled: true,
+          seats: {
+            seat02UserId: 'other-user',
+            seat02PokerName: '他の人',
+            seat02OkibakeEntryId: null,
+            seat03UserId: null,
+            seat03PokerName: null,
+            seat03OkibakeEntryId: null,
+          },
+        });
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: '置きバケ Bust',
+        tournamentId,
+        status: 'succeeded',
+        payload: bustOpPayload({ tournamentId, okibakeEntryId, tableId }),
+      });
+
+      let caught: unknown;
+      try {
+        await rollbackAction.run({
+          data: { tournamentId, operationId, action: 'okibake_bust', rollBackBy: 'dev-1' },
+        } as any);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeDefined();
+      const err = caught as { details?: Record<string, unknown> };
+      expect(err.details?.errorKey).toBe('TOURNAMENT_BUST_UNDO_SEAT_SELECTION_REQUIRED');
+      expect(Array.isArray(err.details?.availableSeats)).toBe(true);
+      expect((err.details?.availableSeats as unknown[]).length).toBeGreaterThan(0);
+
+      const main = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(main.playersBusted).toBe(3);
+    });
+
+    it('元席が埋まっていて fallbackSeat が空席なら fallback へ復元する', async () => {
+      const tournamentId = 't-undo-bust-fallback';
+      const okibakeEntryId = 'e-undo-bust-fallback';
+      const operationId = 'op-undo-bust-fallback';
+      const tableId = 'tbl-bust-fallback';
+
+      await seedBustUndoFixture({ tournamentId, okibakeEntryId, tableId, playersBusted: 3 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set(
+          {
+            entryStatus: 'busted',
+            bustedAt: admin.firestore.FieldValue.serverTimestamp(),
+            bustedTableId: tableId,
+            bustedSeatKey: 'seat02',
+          },
+          { merge: true }
+        );
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          isEnabled: true,
+          seats: {
+            seat02UserId: 'other-user',
+            seat02PokerName: '他の人',
+            seat02OkibakeEntryId: null,
+            seat03UserId: null,
+            seat03PokerName: null,
+            seat03OkibakeEntryId: null,
+          },
+        });
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: '置きバケ Bust',
+        tournamentId,
+        status: 'succeeded',
+        payload: bustOpPayload({ tournamentId, okibakeEntryId, tableId }),
+      });
+
+      const res = await rollbackAction.run({
+        data: {
+          tournamentId,
+          operationId,
+          action: 'okibake_bust',
+          rollBackBy: 'dev-1',
+          fallbackSeat: { tableId, seatKey: 'seat03', seatNumber: 3 },
+        },
+      } as any);
+      expect(res.success).toBe(true);
+
+      const entry = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('okibakeTemporaryEntries')
+          .doc(okibakeEntryId)
+          .get()
+      ).data()!;
+      expect(entry.entryStatus).toBe('seated');
+      expect(entry.assignedTableId).toBe(tableId);
+      expect(entry.assignedSeatKey).toBe('seat03');
+
+      const table = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('tablesSeat')
+          .doc(tableId)
+          .get()
+      ).data()!;
+      expect(table.seats.seat03OkibakeEntryId).toBe(okibakeEntryId);
+      expect(table.seats.seat02UserId).toBe('other-user');
+
+      const main = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(main.playersBusted).toBe(2);
+    });
+
+    it('fallbackSeat が埋まっている場合は拒否する', async () => {
+      const tournamentId = 't-undo-bust-fallback-busy';
+      const okibakeEntryId = 'e-undo-bust-fallback-busy';
+      const operationId = 'op-undo-bust-fallback-busy';
+      const tableId = 'tbl-bust-fallback-busy';
+
+      await seedBustUndoFixture({ tournamentId, okibakeEntryId, tableId, playersBusted: 2 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set({ entryStatus: 'busted' }, { merge: true });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          isEnabled: true,
+          seats: {
+            seat02UserId: 'other-user',
+            seat02PokerName: '他の人',
+            seat02OkibakeEntryId: null,
+            seat03UserId: 'busy-user',
+            seat03PokerName: '埋まり',
+            seat03OkibakeEntryId: null,
+          },
+        });
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: '置きバケ Bust',
+        tournamentId,
+        status: 'succeeded',
+        payload: bustOpPayload({ tournamentId, okibakeEntryId, tableId }),
+      });
+
+      await expect(
+        rollbackAction.run({
+          data: {
+            tournamentId,
+            operationId,
+            action: 'okibake_bust',
+            rollBackBy: 'dev-1',
+            fallbackSeat: { tableId, seatKey: 'seat03', seatNumber: 3 },
+          },
+        } as any)
+      ).rejects.toMatchObject({ code: 'failed-precondition' });
+    });
+  });
+
+  describe('通常参加者 Bust undo seat conflict', () => {
+    async function seedBustedUser(
+      tournamentId: string,
+      playerUid: string,
+      pokerName: string
+    ) {
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc('busted')
+        .set({
+          bustedUser: {
+            [playerUid]: {
+              pokerName,
+              bustAt: admin.firestore.Timestamp.now(),
+            },
+          },
+        });
+    }
+
+    it('元席が空いている bust_and_exit rollback 成功時に bustedUser から削除される', async () => {
+      const tournamentId = 't-undo-normal-bust-original';
+      const operationId = 'op-undo-normal-bust-original';
+      const tableId = 'tbl-normal-original';
+      const playerUid = 'player-normal-original';
+
+      await db.collection('scheduledTournaments').doc(tournamentId).set({});
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({ playersBusted: 1, playersIn: 4 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          isEnabled: true,
+          seats: {
+            seat01UserId: null,
+            seat01PokerName: null,
+            seat01OkibakeEntryId: null,
+          },
+        });
+      await seedBustedUser(tournamentId, playerUid, '通常太郎');
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: 'バスト＆退店',
+        tournamentId,
+        tableId,
+        status: 'succeeded',
+        payload: {
+          tournamentId,
+          playerUid,
+          playerName: '通常太郎',
+          tableId,
+          seatNumber: 1,
+        },
+      });
+
+      await rollbackAction.run({
+        data: {
+          tournamentId,
+          operationId,
+          action: 'bust_and_exit',
+          rollBackBy: 'dev-1',
+        },
+      } as any);
+
+      const busted = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('tablesSeat')
+          .doc('busted')
+          .get()
+      ).data()!;
+      expect(busted.bustedUser[playerUid]).toBeUndefined();
+    });
+
+    it('bust_and_reentry rollback 成功時に bustedUser から削除される', async () => {
+      const tournamentId = 't-undo-normal-reentry';
+      const operationId = 'op-undo-normal-reentry';
+      const tableId = 'tbl-normal-reentry';
+      const playerUid = 'player-normal-reentry';
+
+      await db.collection('scheduledTournaments').doc(tournamentId).set({});
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({ playersBusted: 1, playersIn: 4, reentries: 1 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          isEnabled: true,
+          seats: {
+            seat01UserId: null,
+            seat01PokerName: null,
+            seat01OkibakeEntryId: null,
+          },
+        });
+      await seedBustedUser(tournamentId, playerUid, '再入太郎');
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: 'バスト＆再入場',
+        tournamentId,
+        tableId,
+        status: 'succeeded',
+        payload: {
+          tournamentId,
+          playerUid,
+          playerName: '再入太郎',
+          tableId,
+          seatNumber: 1,
+        },
+      });
+
+      await rollbackAction.run({
+        data: {
+          tournamentId,
+          operationId,
+          action: 'bust_and_reentry',
+          rollBackBy: 'dev-1',
+        },
+      } as any);
+
+      const busted = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('tablesSeat')
+          .doc('busted')
+          .get()
+      ).data()!;
+      expect(busted.bustedUser[playerUid]).toBeUndefined();
+    });
+
+    it('元席が埋まっていて fallbackSeat が空席なら fallback へ復元する', async () => {
+      const tournamentId = 't-undo-normal-bust-fallback';
+      const operationId = 'op-undo-normal-bust-fallback';
+      const tableId = 'tbl-normal-bust';
+      const playerUid = 'player-normal-bust';
+
+      await db.collection('scheduledTournaments').doc(tournamentId).set({});
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({ playersBusted: 2, playersIn: 5, reentries: 0 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          isEnabled: true,
+          seats: {
+            seat01UserId: 'other-user',
+            seat01PokerName: '他の人',
+            seat01OkibakeEntryId: null,
+            seat02UserId: null,
+            seat02PokerName: null,
+            seat02OkibakeEntryId: null,
+          },
+        });
+
+      await seedBustedUser(tournamentId, playerUid, '通常太郎');
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: 'バスト＆退店',
+        tournamentId,
+        tableId,
+        status: 'succeeded',
+        payload: {
+          tournamentId,
+          playerUid,
+          playerName: '通常太郎',
+          tableId,
+          seatNumber: 1,
+        },
+      });
+
+      const res = await rollbackAction.run({
+        data: {
+          tournamentId,
+          operationId,
+          action: 'bust_and_exit',
+          rollBackBy: 'dev-1',
+          fallbackSeat: { tableId, seatKey: 'seat02', seatNumber: 2 },
+        },
+      } as any);
+      expect(res.success).toBe(true);
+
+      const table = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('tablesSeat')
+          .doc(tableId)
+          .get()
+      ).data()!;
+      expect(table.seats.seat02UserId).toBe(playerUid);
+      expect(table.seats.seat01UserId).toBe('other-user');
+
+      const busted = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('tablesSeat')
+          .doc('busted')
+          .get()
+      ).data()!;
+      expect(busted.bustedUser[playerUid]).toBeUndefined();
+
+      const main = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(main.playersBusted).toBe(1);
+      expect(main.playersIn).toBe(6);
+    });
+
+    it('元席が埋まっていて fallbackSeat なしの場合 seat selection required を返す', async () => {
+      const tournamentId = 't-undo-normal-bust-select';
+      const operationId = 'op-undo-normal-bust-select';
+      const tableId = 'tbl-normal-select';
+      const playerUid = 'player-normal-select';
+
+      await db.collection('scheduledTournaments').doc(tournamentId).set({});
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({ playersBusted: 1, playersIn: 4 });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .set({
+          isEnabled: true,
+          seats: {
+            seat01UserId: 'other-user',
+            seat01PokerName: '他の人',
+            seat01OkibakeEntryId: null,
+            seat02UserId: null,
+            seat02PokerName: null,
+            seat02OkibakeEntryId: null,
+          },
+        });
+
+      await seedBustedUser(tournamentId, playerUid, '通常太郎');
+
+      await db.collection('operationLogs').doc(operationId).set({
+        operationId,
+        operationName: 'バスト＆退店',
+        tournamentId,
+        status: 'succeeded',
+        payload: {
+          tournamentId,
+          playerUid,
+          playerName: '通常太郎',
+          tableId,
+          seatNumber: 1,
+        },
+      });
+
+      let caught: unknown;
+      try {
+        await rollbackAction.run({
+          data: {
+            tournamentId,
+            operationId,
+            action: 'bust_and_exit',
+            rollBackBy: 'dev-1',
+          },
+        } as any);
+      } catch (error) {
+        caught = error;
+      }
+
+      const err = caught as { details?: Record<string, unknown> };
+      expect(err.details?.errorKey).toBe('TOURNAMENT_BUST_UNDO_SEAT_SELECTION_REQUIRED');
+      expect(err.details?.participantType).toBe('normal');
+
+      const busted = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('tablesSeat')
+          .doc('busted')
+          .get()
+      ).data()!;
+      expect(busted.bustedUser[playerUid]).toBeDefined();
+
+      const main = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(main.playersBusted).toBe(1);
+    });
+  });
 });

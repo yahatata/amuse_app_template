@@ -307,6 +307,166 @@ describe('reseatAllPlayers', () => {
       expect(seats.seat02PokerName).toBe(pokerName);
       expect(seats.seat02OkibakeEntryId).toBeNull();
     });
+
+    it('置きバケ候補指定時、seatXXOkibakeEntryId で席に入り entry が seated になること', async () => {
+      const tournamentId = 'tournament_test_reseat_okibake_assign_001';
+      const okibakeEntryId = 'okibake_entry_reseat_assign_001';
+      const tableId = 'table_001';
+
+      await setupTournament(tournamentId, [tableId]);
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({ waitingCount: 2, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set({
+          okibakeEntryId,
+          tournamentId,
+          temporaryDisplayName: 'オキバケA',
+          entryStatus: 'registered',
+          billLinkStatus: 'unlinked',
+          okibakeAddonCount: 0,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+      const adminId = 'admin_test_reseat_okibake_assign_001';
+      await createAdminDevice(adminId);
+
+      const operationId = `op_reseat_${tournamentId}`;
+      const result = await (reseatAllPlayers as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId,
+          tournamentId,
+          playerAssignments: [
+            { okibakeEntryId, tableId, seatNumber: 1 },
+          ],
+        },
+      } as any);
+
+      expect(result.success).toBe(true);
+
+      const opDoc = await db.collection('operationLogs').doc(operationId).get();
+      expect(opDoc.exists).toBe(true);
+      const opPayload = opDoc.data()!.payload as Record<string, unknown>;
+      const okibakeTargets = opPayload.okibakeReseatTargets as Array<Record<string, unknown>>;
+      expect(Array.isArray(okibakeTargets)).toBe(true);
+      expect(okibakeTargets).toHaveLength(1);
+      expect(okibakeTargets[0].okibakeEntryId).toBe(okibakeEntryId);
+      expect((okibakeTargets[0].okibakeEntryBefore as Record<string, unknown>).entryStatus).toBe('registered');
+      expect((okibakeTargets[0].okibakeEntryAfter as Record<string, unknown>).entryStatus).toBe('seated');
+      expect((okibakeTargets[0].okibakeEntryAfter as Record<string, unknown>).assignedTableId).toBe(tableId);
+      expect((okibakeTargets[0].okibakeEntryAfter as Record<string, unknown>).assignedSeatKey).toBe('seat01');
+
+      const tableSeatDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .get();
+      const seats = tableSeatDoc.data()!.seats;
+      expect(seats.seat01UserId).toBeNull();
+      expect(seats.seat01PokerName).toBe('オキバケA');
+      expect(seats.seat01OkibakeEntryId).toBe(okibakeEntryId);
+
+      const entryDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .get();
+      const entry = entryDoc.data()!;
+      expect(entry.entryStatus).toBe('seated');
+      expect(entry.assignedTableId).toBe(tableId);
+      expect(entry.assignedSeatKey).toBe('seat01');
+
+      const viewsDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .get();
+      expect(viewsDoc.data()!.waitingCount).toBe(1);
+    });
+
+    it('seated 置きバケは新しい席に移動すること', async () => {
+      const tournamentId = 'tournament_test_reseat_okibake_move_001';
+      const okibakeEntryId = 'okibake_entry_reseat_move_001';
+      const tableId = 'table_001';
+
+      await setupTournament(tournamentId, [tableId]);
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set({
+          okibakeEntryId,
+          tournamentId,
+          temporaryDisplayName: 'オキバケB',
+          entryStatus: 'seated',
+          billLinkStatus: 'unlinked',
+          assignedTableId: tableId,
+          assignedSeatKey: 'seat01',
+          okibakeAddonCount: 0,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .update({
+          'seats.seat01UserId': null,
+          'seats.seat01PokerName': 'オキバケB',
+          'seats.seat01OkibakeEntryId': okibakeEntryId,
+        });
+
+      const adminId = 'admin_test_reseat_okibake_move_001';
+      await createAdminDevice(adminId);
+
+      const operationId = `op_reseat_${tournamentId}`;
+      const result = await (reseatAllPlayers as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId,
+          tournamentId,
+          playerAssignments: [
+            { okibakeEntryId, tableId, seatNumber: 2 },
+          ],
+        },
+      } as any);
+
+      expect(result.success).toBe(true);
+
+      const opDoc = await db.collection('operationLogs').doc(operationId).get();
+      const okibakeTargets = (opDoc.data()!.payload as Record<string, unknown>).okibakeReseatTargets as Array<Record<string, unknown>>;
+      expect(okibakeTargets).toHaveLength(1);
+      expect((okibakeTargets[0].okibakeEntryBefore as Record<string, unknown>).entryStatus).toBe('seated');
+      expect((okibakeTargets[0].okibakeEntryBefore as Record<string, unknown>).assignedSeatKey).toBe('seat01');
+      expect((okibakeTargets[0].okibakeEntryAfter as Record<string, unknown>).assignedSeatKey).toBe('seat02');
+
+      const seats = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('tablesSeat')
+          .doc(tableId)
+          .get()
+      ).data()!.seats;
+      expect(seats.seat01OkibakeEntryId).toBeNull();
+      expect(seats.seat02OkibakeEntryId).toBe(okibakeEntryId);
+      expect(seats.seat02PokerName).toBe('オキバケB');
+    });
   });
 
   describe('エラーハンドリング', () => {

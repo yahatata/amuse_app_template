@@ -8,6 +8,11 @@ export interface UndoBulkAddonDetail {
   templateId: string;
 }
 
+export interface UndoBulkAddonOkibakeDetail {
+  okibakeEntryId: string;
+  okibakeEntryBefore: Record<string, unknown>;
+}
+
 export interface UndoBulkAddonParams {
   tournamentId: string;
   playerUids: string[];
@@ -16,6 +21,8 @@ export interface UndoBulkAddonParams {
   rollBackBy: string;
   /** 巻き戻し用（bills の addonCount を戻す）。ある場合は bills を更新し、todaysBills は使わない */
   details?: UndoBulkAddonDetail[];
+  /** 巻き戻し用（okibakeTemporaryEntries を before に戻す） */
+  okibakeDetails?: UndoBulkAddonOkibakeDetail[];
 }
 
 /**
@@ -25,7 +32,9 @@ export async function undoBulkAddon(params: UndoBulkAddonParams): Promise<void> 
   const db = getFirestore();
   const now = Timestamp.now();
   const useBills = params.details != null && params.details.length > 0;
-  const n = useBills ? params.details!.length : params.playerUids.length;
+  const okibakeDetails = params.okibakeDetails ?? [];
+  const nNormal = useBills ? params.details!.length : params.playerUids.length;
+  const n = nNormal + okibakeDetails.length;
 
   try {
     await db.runTransaction(async (transaction) => {
@@ -52,6 +61,17 @@ export async function undoBulkAddon(params: UndoBulkAddonParams): Promise<void> 
             .doc(uid)
         );
         for (const ref of billRefs) reads.push(transaction.get(ref));
+      }
+      for (const o of okibakeDetails) {
+        reads.push(
+          transaction.get(
+            db
+              .collection('scheduledTournaments')
+              .doc(params.tournamentId)
+              .collection('okibakeTemporaryEntries')
+              .doc(o.okibakeEntryId)
+          )
+        );
       }
 
       const results = await Promise.all(reads);
@@ -103,6 +123,25 @@ export async function undoBulkAddon(params: UndoBulkAddonParams): Promise<void> 
               updatedAt: now,
             });
           }
+        }
+      }
+
+      // 置きバケ分を before へ戻す
+      if (okibakeDetails.length > 0) {
+        const offset = 1 + (useBills ? params.details!.length : params.playerUids.length);
+        for (let i = 0; i < okibakeDetails.length; i++) {
+          const detail = okibakeDetails[i];
+          const currentDoc = results[offset + i];
+          if (!currentDoc?.exists) continue;
+          const entryRef = db
+            .collection('scheduledTournaments')
+            .doc(params.tournamentId)
+            .collection('okibakeTemporaryEntries')
+            .doc(detail.okibakeEntryId);
+          transaction.update(entryRef, {
+            ...detail.okibakeEntryBefore,
+            updatedAt: now,
+          });
         }
       }
     });

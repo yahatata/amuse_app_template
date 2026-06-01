@@ -14,6 +14,9 @@ class OkibakeTemporaryEntry {
     this.linkedUserPokerName,
     this.memo,
     this.bustedAt,
+    this.addonIntent,
+    this.assignedTableId,
+    this.assignedSeatKey,
   });
 
   final String okibakeEntryId;
@@ -26,9 +29,13 @@ class OkibakeTemporaryEntry {
   final String? linkedUserId;
   final String? linkedUserPokerName;
   final String? memo;
+  final String? addonIntent;
 
   /// Phase 4 補完: `bustOkibakeTemporaryEntry` で書き込まれる退席時刻。
   final DateTime? bustedAt;
+
+  final String? assignedTableId;
+  final String? assignedSeatKey;
 
   factory OkibakeTemporaryEntry.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? {};
@@ -50,6 +57,21 @@ class OkibakeTemporaryEntry {
 
     final memoRaw = d['memo'];
     final memo = memoRaw is String && memoRaw.trim().isNotEmpty ? memoRaw.trim() : null;
+    final addonIntentRaw = d['addonIntent'];
+    final addonIntent = addonIntentRaw is String && addonIntentRaw.trim().isNotEmpty
+        ? addonIntentRaw.trim()
+        : null;
+
+    final assignedTableRaw = d['assignedTableId'];
+    final assignedTableId = assignedTableRaw is String &&
+            assignedTableRaw.trim().isNotEmpty
+        ? assignedTableRaw.trim()
+        : null;
+    final assignedSeatRaw = d['assignedSeatKey'];
+    final assignedSeatKey = assignedSeatRaw is String &&
+            assignedSeatRaw.trim().isNotEmpty
+        ? assignedSeatRaw.trim()
+        : null;
 
     return OkibakeTemporaryEntry(
       okibakeEntryId: doc.id,
@@ -63,7 +85,18 @@ class OkibakeTemporaryEntry {
       linkedUserPokerName: linkedUserPokerName,
       memo: memo,
       bustedAt: (d['bustedAt'] as Timestamp?)?.toDate(),
+      addonIntent: addonIntent,
+      assignedTableId: assignedTableId,
+      assignedSeatKey: assignedSeatKey,
     );
+  }
+
+  /// 全員リシート候補対象（registered/seated × unlinked/linked）。
+  bool get isReseatCandidate {
+    const validEntry = {'registered', 'seated'};
+    const validBill = {'unlinked', 'linked'};
+    return validEntry.contains(entryStatus) &&
+        validBill.contains(billLinkStatus);
   }
 
   bool get isWaitingUnlinked =>

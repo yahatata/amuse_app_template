@@ -394,6 +394,93 @@ describe('bulkAddon', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('このトーナメントではAddonができません');
     });
+
+    it('通常着席ユーザー + seated/unlinked 置きバケを1回の bulkAddon で処理できる', async () => {
+      const tournamentId = 'tournament_bulk_with_okibake_001';
+      const templateId = 'template_bulk_with_okibake_001';
+      const operationId = 'op_bulk_with_okibake_001';
+      const normal = {
+        userId: 'user_bulk_with_okibake_001',
+        billId: 'bill_bulk_with_okibake_001',
+        pokerName: '通常ユーザー1',
+      };
+      const okibakeEntryId = 'okibake_bulk_with_001';
+
+      await createBillWithActiveStay({
+        billId: normal.billId,
+        userId: normal.userId,
+        pokerName: normal.pokerName,
+        idempotencyKey: 'idem_bulk_with_okibake_001',
+      });
+      await setupTournament(tournamentId, templateId, true, 2);
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .set({
+          okibakeEntryId,
+          tournamentId,
+          temporaryDisplayName: '置きバケA',
+          entryStatus: 'seated',
+          billLinkStatus: 'unlinked',
+          okibakeAddonCount: 0,
+          okibakeAddonRecords: [],
+          assignedTableId: 'tableA',
+          assignedSeatKey: 'seat01',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+      const adminId = 'admin_bulk_with_okibake_001';
+      await createAdminDevice(adminId);
+
+      const result = await (bulkAddon as any).run({
+        auth: { uid: adminId },
+        data: {
+          tournamentId,
+          operationId,
+          tableId: 'tableA',
+          normalUsers: [{ userId: normal.userId, pokerName: normal.pokerName }],
+          okibakeEntries: [{ okibakeEntryId, pokerName: '置きバケA' }],
+        },
+      } as any);
+
+      expect(result.success).toBe(true);
+      expect(result.processedCount).toBe(2);
+      expect(result.processedNormalCount).toBe(1);
+      expect(result.processedOkibakeCount).toBe(1);
+
+      const billTournamentDoc = await db
+        .collection('bills')
+        .doc(normal.billId)
+        .collection('tournaments')
+        .doc(templateId)
+        .get();
+      expect(billTournamentDoc.exists).toBe(true);
+      expect(billTournamentDoc.data()?.addonCount).toBe(1);
+
+      const okibakeDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .get();
+      expect(okibakeDoc.data()?.okibakeAddonCount).toBe(1);
+      expect((okibakeDoc.data()?.okibakeAddonRecords ?? []).length).toBe(1);
+
+      const viewsMainDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .get();
+      expect(viewsMainDoc.data()?.addons).toBe(2);
+
+      const opLogDoc = await db.collection('operationLogs').doc(operationId).get();
+      expect(opLogDoc.exists).toBe(true);
+      const payload = (opLogDoc.data()?.payload ?? {}) as Record<string, unknown>;
+      expect(((payload.normalTargets as unknown[]) ?? []).length).toBe(1);
+      expect(((payload.okibakeTargets as unknown[]) ?? []).length).toBe(1);
+    });
   });
 });
-

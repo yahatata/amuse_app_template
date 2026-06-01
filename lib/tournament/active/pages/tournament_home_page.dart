@@ -1665,6 +1665,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                               okibakeAddonCount: entry.okibakeAddonCount,
                                               billLinkStatus: entry.billLinkStatus,
                                               linkedUserId: entry.linkedUserId,
+                                              addonIntent: entry.addonIntent,
                                             ),
                                           );
                                         }

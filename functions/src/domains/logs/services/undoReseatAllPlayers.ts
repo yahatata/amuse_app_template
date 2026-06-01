@@ -1,10 +1,18 @@
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp, type UpdateData, type DocumentData, type DocumentSnapshot } from 'firebase-admin/firestore';
+import { HttpsError } from 'firebase-functions/v2/https';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import type { OkibakeReseatTarget } from '../../tournament_activeTournament/lib/slimOkibakeEntryForReseatLog';
+import {
+  buildOkibakeReseatUndoEntryPatch,
+  countOkibakeRegisteredRestoresOnUndo,
+  validateOkibakeReseatUndoEntry,
+} from '../lib/okibakeReseatRollback';
 
 export interface UndoReseatAllPlayersParams {
   tournamentId: string;
   previousSeatingData: Record<string, any>; // 前の座席配置データ（waiting + 各 table.seats）
   rollBackBy: string;
+  okibakeReseatTargets?: OkibakeReseatTarget[];
 }
 
 /**
@@ -13,17 +21,33 @@ export interface UndoReseatAllPlayersParams {
 export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): Promise<void> {
   const db = getFirestore();
   const now = Timestamp.now();
-  
+  const okibakeTargets = params.okibakeReseatTargets ?? [];
+
   try {
     await db.runTransaction(async (transaction) => {
-      const mainViewRef = db
-        .collection('scheduledTournaments')
-        .doc(params.tournamentId)
-        .collection('views')
-        .doc('main');
+      const tournamentRef = db.collection('scheduledTournaments').doc(params.tournamentId);
+      const mainViewRef = tournamentRef.collection('views').doc('main');
 
-      // すべての読み取りを先に実行
       const mainViewDoc = await transaction.get(mainViewRef);
+
+      const entrySnaps = new Map<string, DocumentSnapshot>();
+      for (const target of okibakeTargets) {
+        const entryRef = tournamentRef
+          .collection('okibakeTemporaryEntries')
+          .doc(target.okibakeEntryId);
+        entrySnaps.set(target.okibakeEntryId, await transaction.get(entryRef));
+      }
+
+      for (const target of okibakeTargets) {
+        const entrySnap = entrySnaps.get(target.okibakeEntryId);
+        if (!entrySnap?.exists) {
+          throw new HttpsError('not-found', `置きバケ一時参加者 ${target.okibakeEntryId} が見つかりません`);
+        }
+        validateOkibakeReseatUndoEntry(
+          (entrySnap.data() ?? {}) as Record<string, unknown>,
+          target.okibakeEntryAfter,
+        );
+      }
 
       let waitingCount = 0;
       for (const [tableId, tableData] of Object.entries(params.previousSeatingData)) {
@@ -32,16 +56,11 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
         }
       }
 
-      // ここから書き込みのみ
       for (const [tableId, tableData] of Object.entries(params.previousSeatingData)) {
         if (tableId === 'waiting') {
           const data = tableData as { waiting?: Record<string, unknown> };
           const waiting = data.waiting || {};
-          const waitingRef = db
-            .collection('scheduledTournaments')
-            .doc(params.tournamentId)
-            .collection('tablesSeat')
-            .doc('waiting');
+          const waitingRef = tournamentRef.collection('tablesSeat').doc('waiting');
           transaction.set(waitingRef, {
             waiting,
             count: Object.keys(waiting).length,
@@ -49,12 +68,7 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
           });
         } else {
           const data = tableData as { seats?: Record<string, unknown> };
-          const seatRef = db
-            .collection('scheduledTournaments')
-            .doc(params.tournamentId)
-            .collection('tablesSeat')
-            .doc(tableId);
-          // merge: true で seats と updatedAt のみ更新し、isEnabled 等の既存フィールドを保持する
+          const seatRef = tournamentRef.collection('tablesSeat').doc(tableId);
           transaction.set(seatRef, {
             seats: data.seats || {},
             updatedAt: now,
@@ -62,19 +76,47 @@ export async function undoReseatAllPlayers(params: UndoReseatAllPlayersParams): 
         }
       }
 
+      for (const target of okibakeTargets) {
+        const entryRef = tournamentRef
+          .collection('okibakeTemporaryEntries')
+          .doc(target.okibakeEntryId);
+        const patch = buildOkibakeReseatUndoEntryPatch(
+          target.okibakeEntryBefore,
+          params.rollBackBy,
+          now,
+        );
+        transaction.update(entryRef, patch as UpdateData<DocumentData>);
+      }
+
       if (mainViewDoc.exists) {
-        // seatedCount は forward で維持していないため、undo で書き換えない（waitingCount のみ復元）
-        transaction.update(mainViewRef, {
-          waitingCount,
-          updatedAt: now,
-        });
+        const viewsData = mainViewDoc.data() ?? {};
+        const okibakeWaitingRestore = countOkibakeRegisteredRestoresOnUndo(okibakeTargets);
+
+        if (okibakeTargets.length > 0 && okibakeWaitingRestore > 0) {
+          const currentWaitingCount =
+            typeof viewsData.waitingCount === 'number' && Number.isFinite(viewsData.waitingCount)
+              ? viewsData.waitingCount
+              : 0;
+          transaction.update(mainViewRef, {
+            waitingCount: currentWaitingCount + okibakeWaitingRestore,
+            updatedAt: now,
+          });
+        } else if (okibakeTargets.length === 0) {
+          transaction.update(mainViewRef, {
+            waitingCount,
+            updatedAt: now,
+          });
+        }
       }
     });
 
     logOpsSuccess({
       message: 'undoReseatAllPlayers 成功',
       functionEntry: 'undoReseatAllPlayers',
-      context: { tournamentId: params.tournamentId },
+      context: {
+        tournamentId: params.tournamentId,
+        okibakeTargetCount: okibakeTargets.length,
+      },
     });
   } catch (error) {
     logOpsError({

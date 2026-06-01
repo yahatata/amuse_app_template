@@ -1,5 +1,14 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { HttpsError } from 'firebase-functions/v2/https';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import {
+  type FallbackSeatInput,
+  isSeatSlotEmpty,
+  readSeatSlot,
+  removeUserFromBustedUserInTransaction,
+  resolveBustUndoRestorePlan,
+  tournamentBustedUserRef,
+} from '../lib/bustUndoSeat';
 
 export interface UndoBustAndReentryParams {
   tournamentId: string;
@@ -8,10 +17,12 @@ export interface UndoBustAndReentryParams {
   tableId: string;
   seatNumber: number;
   rollBackBy: string;
+  operationLogId: string;
   /** 伝票の billId。bills の reentryCount を戻すために必要 */
   billId?: string;
   /** テンプレートID。bills/{billId}/tournaments/{templateId} の更新に必要 */
   templateId?: string;
+  fallbackSeat?: FallbackSeatInput;
 }
 
 /**
@@ -21,8 +32,37 @@ export interface UndoBustAndReentryParams {
 export async function undoBustAndReentry(params: UndoBustAndReentryParams): Promise<void> {
   const db = getFirestore();
   const now = Timestamp.now();
-  
+  const seatNumStr = String(params.seatNumber).padStart(2, '0');
+  const originalSeatKey = `seat${seatNumStr}`;
+
   try {
+    const originalTableSnap = await db
+      .collection('scheduledTournaments')
+      .doc(params.tournamentId)
+      .collection('tablesSeat')
+      .doc(params.tableId)
+      .get();
+    if (!originalTableSnap.exists) {
+      throw new HttpsError('failed-precondition', '席テーブルが存在しません');
+    }
+    const originalSeats =
+      typeof originalTableSnap.data()?.seats === 'object' &&
+      originalTableSnap.data()?.seats != null
+        ? (originalTableSnap.data()!.seats as Record<string, unknown>)
+        : {};
+    const originalSeatEmpty = isSeatSlotEmpty(readSeatSlot(originalSeats, seatNumStr));
+
+    const restorePlan = await resolveBustUndoRestorePlan({
+      db,
+      tournamentId: params.tournamentId,
+      operationLogId: params.operationLogId,
+      participantType: 'normal',
+      originalTableId: params.tableId,
+      originalSeatKey,
+      originalSeatEmpty,
+      fallbackSeat: params.fallbackSeat,
+    });
+
     const billRef = params.billId ? db.collection('bills').doc(params.billId) : null;
     const billTournamentRef =
       params.billId && params.templateId
@@ -35,39 +75,74 @@ export async function undoBustAndReentry(params: UndoBustAndReentryParams): Prom
         .doc(params.tournamentId)
         .collection('views')
         .doc('main');
-      const seatRef = db
+      const restoreSeatRef = db
         .collection('scheduledTournaments')
         .doc(params.tournamentId)
         .collection('tablesSeat')
-        .doc(params.tableId);
+        .doc(restorePlan.tableId);
+      const bustedRef = tournamentBustedUserRef(db, params.tournamentId);
 
       const reads = [
         transaction.get(mainViewRef),
-        transaction.get(seatRef),
+        transaction.get(restoreSeatRef),
+        transaction.get(bustedRef),
       ] as Promise<FirebaseFirestore.DocumentSnapshot>[];
       if (billTournamentRef) reads.push(transaction.get(billTournamentRef));
 
       const results = await Promise.all(reads);
       const mainViewDoc = results[0];
       const seatDoc = results[1];
-      const billTournamentDoc = billTournamentRef ? results[2] : null;
+      const bustedDoc = results[2];
+      const billTournamentDoc = billTournamentRef ? results[3] : null;
 
       if (!mainViewDoc.exists) {
         throw new Error('Main view not found');
       }
+      if (!seatDoc.exists) {
+        throw new HttpsError('failed-precondition', '戻し先テーブルが存在しません');
+      }
+
+      const seatData = seatDoc.data() ?? {};
+      const seats =
+        typeof seatData.seats === 'object' && seatData.seats != null
+          ? { ...(seatData.seats as Record<string, unknown>) }
+          : {};
+      const restoreSuffix = restorePlan.seatSuffix;
+
+      if (!isSeatSlotEmpty(readSeatSlot(seats, restoreSuffix))) {
+        throw new HttpsError('failed-precondition', '戻し先席は使用中です');
+      }
+
+      if (!restorePlan.usedFallback) {
+        const originalSeatRef = db
+          .collection('scheduledTournaments')
+          .doc(params.tournamentId)
+          .collection('tablesSeat')
+          .doc(params.tableId);
+        const originalSeatDoc = await transaction.get(originalSeatRef);
+        const originalSeatData = originalSeatDoc.data() ?? {};
+        const originalSeatMap =
+          typeof originalSeatData.seats === 'object' && originalSeatData.seats != null
+            ? (originalSeatData.seats as Record<string, unknown>)
+            : {};
+        if (!isSeatSlotEmpty(readSeatSlot(originalSeatMap, seatNumStr))) {
+          throw new HttpsError(
+            'failed-precondition',
+            '元席の状態が変わったため Bust 取り消しできません。再度お試しください。'
+          );
+        }
+      }
+
       const mainViewData = mainViewDoc.data()!;
       const currentReentries = mainViewData.reentries || 0;
       const currentPlayersBusted = mainViewData.playersBusted || 0;
 
-      // bustAndReentry で増やした counters を戻す（reentries / playersBusted は各 +1 されていた）
-      // playersIn は減らさない（巻き戻し後はプレイヤーが席に戻るため）
       transaction.update(mainViewRef, {
         reentries: Math.max(0, currentReentries - 1),
         playersBusted: Math.max(0, currentPlayersBusted - 1),
         updatedAt: now,
       });
 
-      // bills/{billId}/tournaments/{templateId} の reentryCount を 1 減らす（金銭の巻き戻し）。todaysBills は廃止済みのため bills のみ更新
       if (billTournamentRef != null && billTournamentDoc?.exists) {
         const data = billTournamentDoc.data()!;
         const current = data.reentryCount ?? 0;
@@ -83,21 +158,21 @@ export async function undoBustAndReentry(params: UndoBustAndReentryParams): Prom
         }
       }
 
-      // 巻き戻し後は「バストする前」＝その席にプレイヤーが座っている状態に戻す（席を空けずに復元する）
-      if (seatDoc.exists) {
-        const seatData = seatDoc.data()!;
-        const seats = seatData.seats || {};
-        const seatNumStr = String(params.seatNumber).padStart(2, '0');
-        const seatKey = `seat${seatNumStr}UserId`;
-        const nameKey = `seat${seatNumStr}PokerName`;
-        const updatedSeats = { ...seats };
-        updatedSeats[seatKey] = params.playerUid;
-        updatedSeats[nameKey] = params.playerName;
-        transaction.update(seatRef, {
-          seats: updatedSeats,
-          updatedAt: now,
-        });
-      }
+      seats[`seat${restoreSuffix}UserId`] = params.playerUid;
+      seats[`seat${restoreSuffix}PokerName`] = params.playerName;
+      seats[`seat${restoreSuffix}OkibakeEntryId`] = null;
+      transaction.update(restoreSeatRef, {
+        seats,
+        updatedAt: now,
+      });
+
+      removeUserFromBustedUserInTransaction(
+        transaction,
+        bustedRef,
+        bustedDoc.exists,
+        params.playerUid,
+        now
+      );
     });
 
     logOpsSuccess({
@@ -109,6 +184,7 @@ export async function undoBustAndReentry(params: UndoBustAndReentryParams): Prom
         tableId: params.tableId,
         billId: params.billId,
         templateId: params.templateId,
+        usedFallback: restorePlan.usedFallback,
       },
     });
   } catch (error) {

@@ -157,6 +157,7 @@ class WaitingPlayer {
 
   /// `isOkibakeTemporary` のときのみ。未設定なら対象ユーザー設定が可能。
   final String? okibakeLinkedUserId;
+  final String? okibakeAddonIntent;
 
   WaitingPlayer({
     required this.userId,
@@ -167,6 +168,7 @@ class WaitingPlayer {
     this.okibakeAddonCount = 0,
     this.okibakeBillLinkStatus,
     this.okibakeLinkedUserId,
+    this.okibakeAddonIntent,
   }) : waitingMinutes = DateTime.now().difference(joinedAt).inMinutes;
 
   /// Firestore `okibakeTemporaryEntries/{okibakeEntryId}` の待機表示用。
@@ -177,6 +179,7 @@ class WaitingPlayer {
     int okibakeAddonCount = 0,
     String billLinkStatus = 'unlinked',
     String? linkedUserId,
+    String? addonIntent,
   }) {
     return WaitingPlayer(
       userId: 'okibakeTemporary:$okibakeEntryId',
@@ -187,6 +190,7 @@ class WaitingPlayer {
       okibakeAddonCount: okibakeAddonCount,
       okibakeBillLinkStatus: billLinkStatus,
       okibakeLinkedUserId: linkedUserId,
+      okibakeAddonIntent: addonIntent,
     );
   }
 

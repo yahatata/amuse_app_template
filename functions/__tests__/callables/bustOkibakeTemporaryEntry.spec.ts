@@ -121,7 +121,7 @@ describe('bustOkibakeTemporaryEntry', () => {
       });
   }
 
-  it('seated + unlinked で bust し席が解放され bust 情報が保存・views は不変', async () => {
+  it('seated + unlinked で bust し席が解放され bust 情報が保存され playersBusted が +1 される', async () => {
     const uid = 'u-bust-1';
     const tid = 't-bust-1';
     const eid = 'okibake-seat-99';
@@ -186,6 +186,7 @@ describe('bustOkibakeTemporaryEntry', () => {
     expect(afterMain!.waitingCount).toEqual(beforeMain!.waitingCount);
     expect(afterMain!.seatedCount).toEqual(beforeMain!.seatedCount);
     expect(afterMain!.entries).toEqual(beforeMain!.entries);
+    expect(afterMain!.playersBusted).toBe((beforeMain!.playersBusted as number) + 1);
 
     const op = await db.collection('operationLogs').doc('op-bust-h').get();
     expect(op.data()!.status).toBe('succeeded');
@@ -289,7 +290,7 @@ describe('bustOkibakeTemporaryEntry', () => {
     ).rejects.toThrow(HttpsError);
   });
 
-  it('同一 operationId 再送は replay', async () => {
+  it('同一 operationId 再送は replay で playersBusted は二重加算されない', async () => {
     const uid = 'u-brep';
     const tid = 't-brep';
     const eid = 'eb';
@@ -309,5 +310,82 @@ describe('bustOkibakeTemporaryEntry', () => {
       replay: true,
     });
     expect(first.replay).toBe(false);
+
+    const main = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tid)
+        .collection('views')
+        .doc('main')
+        .get()
+    ).data()!;
+    expect(main.playersBusted).toBe(3);
+  });
+
+  it('すでに busted の entry では拒否され playersBusted は増えない', async () => {
+    const uid = 'u-already-busted';
+    const tid = 't-already-busted';
+    const eid = 'e-already-busted';
+    await seedDevice(uid);
+    await seedViews(tid);
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(seatedEntry(eid, tid, { entryStatus: 'busted', billLinkStatus: 'unlinked' }));
+
+    await expect(
+      bustOkibakeTemporaryEntry.run({
+        data: { tournamentId: tid, okibakeEntryId: eid, operationId: 'op-already-busted' },
+        auth: { uid },
+      } as any)
+    ).rejects.toThrow(HttpsError);
+
+    const main = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tid)
+        .collection('views')
+        .doc('main')
+        .get()
+    ).data()!;
+    expect(main.playersBusted).toBe(2);
+  });
+
+  it.each([
+    ['linked', { billLinkStatus: 'linked' }],
+    ['pending_review', { billLinkStatus: 'pending_review' }],
+    ['voided', { entryStatus: 'voided', billLinkStatus: 'unlinked' }],
+  ])('%s の entry は拒否され playersBusted は増えない', async (_label, overrides) => {
+    const uid = 'u-reject-status';
+    const tid = `t-reject-${_label}`;
+    const eid = `e-reject-${_label}`;
+    await seedDevice(uid);
+    await seedViews(tid);
+    await seedTable(tid, eid);
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(seatedEntry(eid, tid, overrides));
+
+    await expect(
+      bustOkibakeTemporaryEntry.run({
+        data: { tournamentId: tid, okibakeEntryId: eid, operationId: `op-reject-${_label}` },
+        auth: { uid },
+      } as any)
+    ).rejects.toThrow(HttpsError);
+
+    const main = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tid)
+        .collection('views')
+        .doc('main')
+        .get()
+    ).data()!;
+    expect(main.playersBusted).toBe(2);
   });
 });
