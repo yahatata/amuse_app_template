@@ -151,6 +151,7 @@ describe('rollbackAction okibake undo', () => {
       .set({
         users: {
           'user-1': { pokerName: 'ユーザー1' },
+          'user-other': { pokerName: '他参加者' },
         },
       });
 
@@ -238,6 +239,7 @@ describe('rollbackAction okibake undo', () => {
         .get()
     ).data()!;
     expect(usersList.users['user-1']).toBeUndefined();
+    expect(usersList.users['user-other']?.pokerName).toBe('他参加者');
   });
 
   it('置きバケ伝票紐付け undo は bill.status=settled を拒否する', async () => {

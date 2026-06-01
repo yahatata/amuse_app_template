@@ -62,6 +62,7 @@ class ReseatParticipantBuilder {
     for (final player in regularWaitingPlayers) {
       if (player.isOkibakeTemporary) continue;
       if (normalUserIds.contains(player.userId)) continue;
+      normalUserIds.add(player.userId);
       candidates.add(
         ReseatParticipant(
           participantType: ReseatParticipantType.normal,
@@ -77,6 +78,8 @@ class ReseatParticipantBuilder {
     for (final entry in okibakeEntries) {
       if (!entry.isReseatCandidate) continue;
 
+      // 伝票紐付け後は同一人物が waiting / 卓席の通常参加者として既にいる。
+      // linkedUserId が通常参加者 ID と一致する置きバケ行は二重表示しない。
       final linkedUid = entry.linkedUserId;
       if (linkedUid != null &&
           linkedUid.isNotEmpty &&

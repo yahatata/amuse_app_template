@@ -1,6 +1,10 @@
 import { HttpsError } from 'firebase-functions/v2/https';
 import type { Timestamp } from 'firebase-admin/firestore';
-import type { OkibakeReseatEntrySnapshot } from '../../tournament_activeTournament/lib/slimOkibakeEntryForReseatLog';
+import type {
+  OkibakeReseatEntrySnapshot,
+  OkibakeReseatTarget,
+} from '../../tournament_activeTournament/lib/slimOkibakeEntryForReseatLog';
+import { parseSeatKeyToTwoDigitSuffix } from '../../tournament_activeTournament/lib/parseOkibakeSeatKey';
 
 function entryFieldMatches(
   entryData: Record<string, unknown>,
@@ -73,4 +77,95 @@ export function countOkibakeRegisteredRestoresOnUndo(
     }
   }
   return count;
+}
+
+function seatPrefixFromOkibakeFieldKey(key: string): string | null {
+  if (!key.endsWith('OkibakeEntryId')) return null;
+  return key.slice(0, -'OkibakeEntryId'.length);
+}
+
+/** 指定席の okibake フィールドをクリアする（UserId が無い okibake 席向け）。 */
+export function clearOkibakeAtSeatPrefix(
+  seats: Record<string, unknown>,
+  seatPrefix: string,
+): void {
+  seats[`${seatPrefix}OkibakeEntryId`] = null;
+  const userId = seats[`${seatPrefix}UserId`];
+  if (userId == null || userId === '') {
+    seats[`${seatPrefix}PokerName`] = null;
+  }
+}
+
+export function removeOkibakeEntryIdFromSeatsMap(
+  seats: Record<string, unknown>,
+  okibakeEntryId: string,
+): void {
+  for (const key of Object.keys(seats)) {
+    if (!key.endsWith('OkibakeEntryId')) continue;
+    if (seats[key] !== okibakeEntryId) continue;
+    const prefix = seatPrefixFromOkibakeFieldKey(key);
+    if (prefix != null) {
+      clearOkibakeAtSeatPrefix(seats, prefix);
+    }
+  }
+}
+
+/**
+ * 全員リシート undo 用: previousSeatingData 復元時に reseat 後の okibake 席残骸を消す。
+ * previous に無い OkibakeEntryId キー（reseat で追加された席）を明示的に null にする。
+ */
+export function buildRestoredSeatsForReseatUndo(
+  previousSeats: Record<string, unknown>,
+  currentSeats: Record<string, unknown>,
+  okibakeTargets: OkibakeReseatTarget[],
+  tableId: string,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...previousSeats };
+
+  const allKeys = new Set([...Object.keys(previousSeats), ...Object.keys(currentSeats)]);
+  for (const key of allKeys) {
+    if (key.endsWith('OkibakeEntryId')) {
+      if (Object.prototype.hasOwnProperty.call(previousSeats, key)) {
+        out[key] = previousSeats[key] ?? null;
+      } else if (currentSeats[key] != null && currentSeats[key] !== '') {
+        out[key] = null;
+        const prefix = seatPrefixFromOkibakeFieldKey(key);
+        if (prefix != null) {
+          const uid = previousSeats[`${prefix}UserId`] ?? currentSeats[`${prefix}UserId`];
+          if (uid == null || uid === '') {
+            out[`${prefix}PokerName`] = previousSeats[`${prefix}PokerName`] ?? null;
+          }
+        }
+      }
+    } else if (Object.prototype.hasOwnProperty.call(previousSeats, key)) {
+      out[key] = previousSeats[key];
+    }
+  }
+
+  for (const target of okibakeTargets) {
+    const { okibakeEntryId, okibakeEntryBefore: before, okibakeEntryAfter: after } = target;
+
+    if (before.entryStatus === 'registered') {
+      removeOkibakeEntryIdFromSeatsMap(out, okibakeEntryId);
+    }
+
+    if (
+      after.assignedTableId === tableId &&
+      typeof after.assignedSeatKey === 'string' &&
+      after.assignedSeatKey.length > 0
+    ) {
+      const shouldClearAfter =
+        before.entryStatus === 'registered' ||
+        before.assignedTableId !== after.assignedTableId ||
+        before.assignedSeatKey !== after.assignedSeatKey;
+      if (shouldClearAfter) {
+        const suffix = parseSeatKeyToTwoDigitSuffix(after.assignedSeatKey);
+        if (suffix != null) {
+          clearOkibakeAtSeatPrefix(out, `seat${suffix}`);
+        }
+      }
+    }
+  }
+
+  return out;
 }

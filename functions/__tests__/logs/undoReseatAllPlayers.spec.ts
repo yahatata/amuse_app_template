@@ -175,6 +175,94 @@ describe('undoReseatAllPlayers okibake restore', () => {
     expect(views.waitingCount).toBe(2);
   });
 
+  it('registered → seated の rollback で previousSeatingData に OkibakeEntryId キーが無くても seat から消える', async () => {
+    const tournamentId = 't-undo-reseat-reg-sparse';
+    const okibakeEntryId = 'okibake-reg-sparse';
+    const tableId = 'table_001';
+    const previousSeatingData = {
+      waiting: { waiting: {}, count: 0 },
+      [tableId]: {
+        seats: {
+          seat01UserId: null,
+          seat01PokerName: null,
+          seat02UserId: null,
+          seat02PokerName: null,
+        },
+      },
+    };
+
+    await seedTables(tournamentId, tableId, {
+      seat01UserId: null,
+      seat01PokerName: 'オキバケA',
+      seat01OkibakeEntryId: okibakeEntryId,
+      seat02UserId: null,
+      seat02PokerName: null,
+      seat02OkibakeEntryId: null,
+    });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('views')
+      .doc('main')
+      .set({ waitingCount: 1, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('okibakeTemporaryEntries')
+      .doc(okibakeEntryId)
+      .set({
+        tournamentId,
+        entryStatus: 'seated',
+        billLinkStatus: 'unlinked',
+        assignedTableId: tableId,
+        assignedSeatKey: 'seat01',
+        seatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    await undoReseatAllPlayers({
+      tournamentId,
+      previousSeatingData,
+      rollBackBy: 'device-rollback-sparse',
+      okibakeReseatTargets: [
+        {
+          okibakeEntryId,
+          okibakeEntryBefore: {
+            entryStatus: 'registered',
+            billLinkStatus: 'unlinked',
+            assignedTableId: null,
+            assignedSeatKey: null,
+            assignedSeatNumber: null,
+            seatedAt: null,
+            updatedAt: null,
+            updatedByDeviceId: null,
+          },
+          okibakeEntryAfter: {
+            entryStatus: 'seated',
+            billLinkStatus: null,
+            assignedTableId: tableId,
+            assignedSeatKey: 'seat01',
+            assignedSeatNumber: 1,
+            seatedAt: null,
+            updatedAt: null,
+            updatedByDeviceId: null,
+          },
+        },
+      ],
+    });
+
+    const seats = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .get()
+    ).data()!.seats;
+    expect(seats.seat01OkibakeEntryId).toBeNull();
+    expect(seats.seat01PokerName).toBeNull();
+  });
+
   it('seated → seated の reseat rollback では waitingCount は変わらない', async () => {
     const tournamentId = 't-undo-reseat-seated';
     const okibakeEntryId = 'okibake-seated';

@@ -8,6 +8,10 @@ import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operatio
 import type { DeviceDoc } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
+import {
+  loadLinkedOkibakeEntryIdsForUser,
+  syncLinkedOkibakeOnNormalBustInTx,
+} from '../lib/syncLinkedOkibakeOnNormalBust';
 
 // 入力データの検証スキーマ
 const bustAndExitSchema = z.object({
@@ -146,10 +150,29 @@ export const bustAndExit = onCall(async (request) => {
 
     // プレイヤー名を取得
     const pokerName = seats[seatPokerNameKey];
+    const seatOkibakeEntryId =
+      typeof seats[seatOkibakeEntryIdKey] === 'string' ? seats[seatOkibakeEntryIdKey] : null;
+
+    const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
+    const linkedOkibakeEntryIds = await loadLinkedOkibakeEntryIdsForUser(
+      db,
+      tournamentId,
+      userId,
+    );
 
     // トランザクションで処理を実行
     const result = await db.runTransaction(async (transaction) => {
-      // 全ての読み取りが完了したので、ここから書き込み操作を開始
+      await syncLinkedOkibakeOnNormalBustInTx({
+        transaction,
+        tournamentRef,
+        userId,
+        mode: 'exit',
+        tableId,
+        seatNumber,
+        seatOkibakeEntryId,
+        preloadedEntryIds: linkedOkibakeEntryIds,
+        now: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
       // 1. シートからユーザーを削除
       const updatedSeats = { ...seats };

@@ -9,6 +9,10 @@ import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operatio
 import * as crypto from 'crypto';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
+import {
+  isLinkedOkibakeActiveForNormalBustSync,
+  syncLinkedOkibakeOnNormalBustInTx,
+} from '../lib/syncLinkedOkibakeOnNormalBust';
 
 // 入力スキーマ
 const bustAndReentrySchema = z.object({
@@ -240,6 +244,17 @@ export const bustAndReentry = onCall(async (request) => {
       const isAlreadyInWaiting = currentWaiting[userId] ? true : false;
       
       console.log(`ユーザー ${userId} のwaiting状態: isAlreadyInWaiting=${isAlreadyInWaiting}`);
+
+      const linkedOkibakeSnap = await transaction.get(
+        tournamentRef.collection('okibakeTemporaryEntries').where('linkedUserId', '==', userId),
+      );
+      const linkedOkibakeEntryIds = linkedOkibakeSnap.docs
+        .filter((doc) =>
+          isLinkedOkibakeActiveForNormalBustSync(doc.data() as Record<string, unknown>),
+        )
+        .map((doc) => doc.id);
+      const seatOkibakeEntryId =
+        typeof seats[seatOkibakeEntryIdKey] === 'string' ? seats[seatOkibakeEntryIdKey] : null;
       
       // 全ての読み取りが完了したので、ここから書き込み操作を開始
       
@@ -270,6 +285,18 @@ export const bustAndReentry = onCall(async (request) => {
       
       // 13. waitingのcountが0より大きい場合、通常の処理
       console.log(`waitingのcountが${waitingCount}のため、通常のリエントリー処理を実行します`);
+
+      await syncLinkedOkibakeOnNormalBustInTx({
+        transaction,
+        tournamentRef,
+        userId,
+        mode: 'reentry',
+        tableId,
+        seatNumber,
+        seatOkibakeEntryId,
+        preloadedEntryIds: linkedOkibakeEntryIds,
+        now: admin.firestore.FieldValue.serverTimestamp(),
+      });
       
       // テーブルシートからユーザーを削除
       const updatedSeats = { ...seats };

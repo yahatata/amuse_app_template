@@ -338,8 +338,7 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
         return AlertDialog(
           title: const Text('リシート確認'),
           content: Text(
-            '${_reseatTargetKeys.length}人のリシートを実行しますか？\n'
-            'この操作は取り消せません。',
+            '${_reseatTargetKeys.length}人のリシートを実行しますか？',
           ),
           actions: [
             TextButton(
