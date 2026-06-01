@@ -106,7 +106,7 @@
 |--------|------|
 | **Cloud Functions** | `okibakeTemporaryEntries` CRUD に相当する Callable、席配置・アドオン・バスト・伝票紐付け、`endTournament` / `force_ended` 経路での `pending_review`、来店なし置きバケ精算 bill、通常参加重複チェック、誤紐付け undo、`rollbackAction` 拡張 |
 | **店舗デバイス Flutter** | トーナメント操作・待機者一覧統合、`StoreConfigService` で `loginPromptMode` 参照、置きバケダイアログ・会計要対応 UI（詳細書 §11・§15） |
-| **LIFF (`public/user/`)** | `registerForTournament` における **TOURNAMENT_OKIBAKE_ALREADY_REGISTERED** の文言・ガイダンス（§22）、ログイン時案内（Phase 8） |
+| **LIFF (`public/user/`)** | `registerForTournament` における **`TOURNAMENT_PARTICIPANT_CONFLICT_WITH_OKIBAKE`** の文言・ガイダンス（§22）、ログイン時案内（Phase 8） |
 | **共有型** | `functions/src/shared/config/types.ts` 等 と Flutter `lib/services/store_config_*.dart` の整合 |
 
 ---
@@ -284,20 +284,32 @@ Phase 1 ではマッピングの枠のみ。個別 Callable のログは Phase 2
 
 - **`assignOkibakeTemporaryEntryToSeat`**: `seatXXOkibakeEntryId`。**`seatXXUserId` に okibakeEntryId を入れない**。`seatXXPokerName` は `linkedUserPokerName ?? temporaryDisplayName`
 - `registered → seated`、`waitingCount -1`、`seatedCount` は詳細書通り
-- **`bustOkibakeTemporaryEntry`**: `seated → busted` と **対象 `tablesSeat` の席クリア**（`okibakeTemporaryEntries` / `operationLogs` は詳細書 §16.8）。**`views/main` のカウンタは一切変更しない**（下記「置きバケ Bust と `views/main`」）。通常参加者向け `bustAndExit` / `bustAndReentry` と同様の **`playersIn` / `playersBusted` 更新は行わない**（未接続のため通常 bust とカウンタ責務を共有しない）。
+- **`bustOkibakeTemporaryEntry`**: `seated → busted` と **対象 `tablesSeat` の席クリア**（`okibakeTemporaryEntries` / `operationLogs` は詳細書 §16.8）。**`views/main.playersBusted` を +1** する（下記「置きバケ Bust と `views/main`」）。**`entries` / `playersIn` / `waitingCount` / `seatedCount` / `addons` は変更しない**。
 - **`applyOkibakeAddon`**: **`registered` / `seated` のみ**可、`busted` / `voided` は不可。**`addonIntent` は実行可否に使わない**。**`scheduledTournaments/{tournamentId}` の `isAddon` / `addonLimitPerPlayer`（§16.0）を読み、`okibakeAddonCount >= addonLimitPerPlayer` のときは拒否**。**registered で Addon 実行後も `entryStatus` は registered**
 
 #### 置きバケ Bust と `views/main`（Phase 3C）
 
-`bustOkibakeTemporaryEntry` 実行時、**以下は変更しない**（詳細仕様書 §16.8 と一致）。
+`bustOkibakeTemporaryEntry` 実行時（詳細仕様書 §16.8 と一致）。
+
+**更新するもの**
+
+- **`okibakeTemporaryEntries`**: `entryStatus` を `busted`、`bustedAt` / `bustedTableId` / `bustedSeatKey` を記録
+- **`tablesSeat`**: 対象 seat から置きバケ参加者を除去
+- **`views/main.playersBusted`**: **+1**（置きバケもトーナメント上の参加枠として bust した脱落者数に含める）
+
+**変更しないもの**
 
 - **`entries`**
 - **`playersIn`**
-- **`playersBusted`**
 - **`waitingCount`**
 - **`seatedCount`**
+- **`addons`**
 
-処理は **`okibakeTemporaryEntries/{okibakeEntryId}` の状態更新**と **`tablesSeat` の該当席フィールド削除**に留める。**Phase 3C 時点では bills / activeStay に接続しない**ため、通常 bust と同様の参加者系カウンタ更新は抱えない。
+`bustOkibakeTemporaryEntry` の undo（`okibake_bust` rollback）成功時は、`entryStatus` / 席を bust 前へ戻し、**`views/main.playersBusted` を -1** する（下限 0 ガード）。上記「変更しないもの」は undo でも変更しない。
+
+同一 `operationId` の replay や、rollback 済み operationLog の再 rollback では **`playersBusted` を二重更新しない**（冪等性・rollback 状態チェックに従う）。
+
+処理は **`okibakeTemporaryEntries/{okibakeEntryId}` の状態更新**、**`tablesSeat` の該当席フィールド削除**、および **`views/main.playersBusted` の +1** に留める。**Phase 3C 時点では bills / activeStay に接続しない**ため、通常 bust と同様の bill 反映は行わない。
 - **通常参加者向け Addon**: **`addon.ts` / `bulkAddon.ts`** での **`addonCount >= 1` 相当固定拒否をやめ、`addonCount >= addonLimitPerPlayer` で拒否**する（詳細書 §16.5。rollback / operationLog との整合に注意。**Phase 3 内で、`applyOkibakeAddon` と同時にまたは先行して対応**。既存コードの読み込み経路・`scheduledTournament` に `addonLimitPerPlayer` が無いときのフォールバック §16.0）
 - **テンプレート／トーナメント作成**: `addonLimitPerPlayer` が **`scheduledTournament` に無いときのフォールバック**により現行互換を保ちつつ、**新規作成時はテンプレート値を確実にコピーする**処理を確認・実装する（Dart / TS の該当箇所は **実装時にリポジトリ検索**。Phase 3 着手前にも場所確認を推奨）
 - **`okibakeAddonRecords` 追加**、`okibakeAddonCount` / `lastOkibakeAddonAt` 更新、`views/main.addons` +1
@@ -310,7 +322,7 @@ Phase 1 ではマッピングの枠のみ。個別 Callable のログは Phase 2
 ### データ整合・冪等性・transaction 方針
 
 - seats / `okibakeTemporaryEntries` / `views/main` の更新境界は詳細書 §13・§16。
-- **`bustOkibakeTemporaryEntry`**: **`views/main` の更新なし**（`entries` / `playersIn` / `playersBusted` / `waitingCount` / `seatedCount`）。詳細書 §16.8 および本章「置きバケ Bust と `views/main`（Phase 3C）」。
+- **`bustOkibakeTemporaryEntry`**: **`views/main.playersBusted` の +1**（`entries` / `playersIn` / `waitingCount` / `seatedCount` / `addons` は非変更）。詳細書 §16.8 および本章「置きバケ Bust と `views/main`（Phase 3C）」。
 
 ### ログ / operationLog / logOps 方針
 
@@ -326,7 +338,7 @@ Phase 1 ではマッピングの枠のみ。個別 Callable のログは Phase 2
 
 ### テスト観点
 
-- 席レイアウト、`seatXXUserId` 非混入、**Addon および席配置での `views/main` 更新**（`assign`: `waitingCount -1`、`applyOkibakeAddon`: `addons +1`）／**置きバケ bust では `views/main` 非変更**
+- 席レイアウト、`seatXXUserId` 非混入、**Addon および席配置での `views/main` 更新**（`assign`: `waitingCount -1`、`applyOkibakeAddon`: `addons +1`）／**置きバケ bust では `playersBusted +1` のみ**（`entries` / `playersIn` / `waitingCount` / `seatedCount` / `addons` は非変更）
 - **`addonLimitPerPlayer` のコピー**（テンプレート変更が既開催へ波及しないこと）と **読み込みフォールバック**
 - **通常 Addon / `bulkAddon`**: `addonCount` と上限の組み合わせ（上限 1・2・0）
 - **`applyOkibakeAddon`**: `okibakeAddonCount` と上限の組み合わせ
@@ -726,7 +738,7 @@ LIFF と店舗 Callable の両方から、置きバケ済みユーザーが**通
 
 ### 参照仕様
 
-- §22（`TOURNAMENT_OKIBAKE_ALREADY_REGISTERED`、`assertNoOkibakeBlockingRegistration` 概念）
+- §22（`TOURNAMENT_PARTICIPANT_CONFLICT_WITH_OKIBAKE`、`assertNoOkibakeBlockingRegistration` 概念）
 
 ### 対象ファイル候補（リポジトリ確認済み）
 
@@ -740,13 +752,13 @@ LIFF と店舗 Callable の両方から、置きバケ済みユーザーが**通
 
 ### 実装内容（要約）
 
-- **`registerForTournament` / `registerParticipants`** の両方で `okibakeTemporaryEntries` を確認
-- 条件: `linkedUserId == 参加 userId`、`tournamentId` 一致、`entryStatus != voided`、`billLinkStatus in [unlinked, pending_review, linked]` → **拒否**
+- **`registerForTournament`**: 対象 `userId` が同一 tournament の有効な置きバケ `linkedUserId` と衝突する場合、**`TOURNAMENT_PARTICIPANT_CONFLICT_WITH_OKIBAKE`** で拒否
+- **`registerParticipants`**: 一括参加登録時、衝突ユーザーは**ユーザー単位 failure**。**errorKey は `TOURNAMENT_PARTICIPANT_CONFLICT_WITH_OKIBAKE`**。他ユーザーは既存の部分成功モデルに従う
+- 有効な置きバケの条件: `linkedUserId == 参加 userId`、`entryStatus != voided`、`billLinkStatus in [unlinked, pending_review, linked]`
 - **`busted`** および **`billLinkStatus: unlinked` 組み合わせ**も拒否対象に含める（詳細書・全体仕様書および依頼文）
 - **`voided` は許可**
 - **`linkedUserId` 未設定は検知対象外**
 - **temporaryDisplayName / memo の自動照合なし**。未紐付けのみでは警告しない。**自動統合なし**。
-- **errorKey: `TOURNAMENT_OKIBAKE_ALREADY_REGISTERED`**
 
 **UI 文言（ChangeSpec指示）**
 
@@ -769,7 +781,7 @@ LIFF と店舗 Callable の両方から、置きバケ済みユーザーが**通
 
 ### エラー / errorKey 方針
 
-**`TOURNAMENT_OKIBAKE_ALREADY_REGISTERED`** と、LIFF/店舗でメッセージ出し分け（§25.3: details 伝播は実装で具体化）。
+**`TOURNAMENT_PARTICIPANT_CONFLICT_WITH_OKIBAKE`** と、LIFF/店舗でメッセージ出し分け（§25.3: details 伝播は実装で具体化）。（旧案 `TOURNAMENT_OKIBAKE_ALREADY_REGISTERED` は廃止）
 
 ### テスト観点
 
@@ -991,7 +1003,7 @@ mode ごとの表示、`pending_review` を含む候補検出
 
 ### エラー / errorKey 方針
 
-`TOURNAMENT_OKIBAKE_ALREADY_REGISTERED` の LIFF と店舗の表示差分
+`TOURNAMENT_PARTICIPANT_CONFLICT_WITH_OKIBAKE` の LIFF と店舗の表示差分
 
 ### テスト観点
 
