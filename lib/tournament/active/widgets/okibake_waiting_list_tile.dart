@@ -140,6 +140,7 @@ class _OkibakeWaitingListTileState extends State<OkibakeWaitingListTile> {
       addonDisabled: _addonDisabled,
       waitingMinutes: widget.player.waitingMinutes,
       billLinkStatus: widget.player.okibakeBillLinkStatus ?? 'unlinked',
+      addonIntent: widget.player.okibakeAddonIntent,
       canSetLinkedUser: _canSetLinkedUser,
     );
     if (!mounted || action == null) return;

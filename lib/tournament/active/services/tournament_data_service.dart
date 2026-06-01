@@ -185,12 +185,35 @@ class TournamentDataService {
             okibakeAddonCount: entry.okibakeAddonCount,
             billLinkStatus: entry.billLinkStatus,
             linkedUserId: entry.linkedUserId,
+            addonIntent: entry.addonIntent,
           ),
         );
       }
       return out;
     } catch (e) {
       print('オキバケ一時参加者リスト取得エラー: $e');
+      return [];
+    }
+  }
+
+  /// 全員リシート候補用: `registered` / `seated` の置きバケ一時参加者を取得する。
+  Future<List<OkibakeTemporaryEntry>> getOkibakeTemporaryEntriesForReseat(
+    String tournamentId,
+  ) async {
+    try {
+      final snapshot = await _firestore
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('okibakeTemporaryEntries')
+          .where('entryStatus', whereIn: ['registered', 'seated'])
+          .get();
+
+      return snapshot.docs
+          .map(OkibakeTemporaryEntry.fromDoc)
+          .where((e) => e.isReseatCandidate)
+          .toList();
+    } catch (e) {
+      print('オキバケ一時参加者（リシート候補）取得エラー: $e');
       return [];
     }
   }

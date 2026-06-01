@@ -149,18 +149,21 @@ class OkibakeLinkUserPickerDialog extends StatefulWidget {
 class _OkibakeLinkUserPickerDialogState
     extends State<OkibakeLinkUserPickerDialog> {
   late final TextEditingController _queryController;
+  late final ScrollController _scrollController;
   late List<OkibakeLinkCandidate> _filtered;
 
   @override
   void initState() {
     super.initState();
     _queryController = TextEditingController();
+    _scrollController = ScrollController();
     _filtered = List<OkibakeLinkCandidate>.from(widget.available);
   }
 
   @override
   void dispose() {
     _queryController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -196,7 +199,7 @@ class _OkibakeLinkUserPickerDialogState
           children: [
             TextField(
               controller: _queryController,
-              autofocus: true,
+              autofocus: false,
               decoration: const InputDecoration(
                 labelText: '名前で絞り込み',
                 border: OutlineInputBorder(),
@@ -214,30 +217,35 @@ class _OkibakeLinkUserPickerDialogState
                         textAlign: TextAlign.center,
                       ),
                     )
-                  : ListView.builder(
-                      itemCount: _filtered.length + (widget.allowClear ? 1 : 0),
-                      itemBuilder: (context, i) {
-                        if (widget.allowClear && i == 0) {
+                  : Scrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: true,
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        itemCount: _filtered.length + (widget.allowClear ? 1 : 0),
+                        itemBuilder: (context, i) {
+                          if (widget.allowClear && i == 0) {
+                            return ListTile(
+                              leading: const Icon(Icons.person_off_outlined),
+                              title: const Text('対象ユーザーなし（未選択）'),
+                              onTap: () => Navigator.pop(context, '*clear*'),
+                            );
+                          }
+                          final c = _filtered[i - (widget.allowClear ? 1 : 0)];
+                          final selectedMark = initialId == c.userId ? ' ✓' : '';
                           return ListTile(
-                            leading: const Icon(Icons.person_off_outlined),
-                            title: const Text('対象ユーザーなし（未選択）'),
-                            onTap: () => Navigator.pop(context, '*clear*'),
-                          );
-                        }
-                        final c = _filtered[i - (widget.allowClear ? 1 : 0)];
-                        final selectedMark = initialId == c.userId ? ' ✓' : '';
-                        return ListTile(
-                          title: Text('${c.displayLabel}$selectedMark'),
-                          subtitle: Text(
-                            'タップするとこのユーザーを対象として選びます',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey[600],
+                            title: Text('${c.displayLabel}$selectedMark'),
+                            subtitle: Text(
+                              'タップするとこのユーザーを対象として選びます',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                              ),
                             ),
-                          ),
-                          onTap: () => Navigator.pop(context, c.userId),
-                        );
-                      },
+                            onTap: () => Navigator.pop(context, c.userId),
+                          );
+                        },
+                      ),
                     ),
             ),
           ],

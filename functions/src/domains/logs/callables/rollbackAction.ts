@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { markOperationLogRolledBack } from "../lib/operationLog";
+import type { OkibakeReseatTarget } from "../../tournament_activeTournament/lib/slimOkibakeEntryForReseatLog";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import {
   undoAddon,
@@ -18,6 +19,7 @@ import {
   undoOkibakeLinkToBill,
   undoOkibakeCreateEntry,
   undoOkibakeAssignSeat,
+  undoOkibakeBust,
 } from "../services";
 
 // 入力スキーマの定義（操作履歴は operationLogs のみ。取り消しは operationId で指定）
@@ -40,9 +42,17 @@ const rollbackActionSchema = z.object({
     'okibake_link_bill',
     'okibake_create_entry',
     'okibake_assign_seat',
+    'okibake_bust',
   ], { errorMap: () => ({ message: "有効な操作タイプを指定してください" }) }),
   rollBackBy: z.string().min(1, "ロールバック実行者のデバイスIDは必須です"),
   rollBackByDeviceName: z.string().optional(),
+  fallbackSeat: z
+    .object({
+      tableId: z.string().min(1),
+      seatKey: z.string().min(1),
+      seatNumber: z.number().int().positive().optional(),
+    })
+    .optional(),
   // 操作固有のパラメータ
   playerUid: z.string().optional(),
   playerName: z.string().optional(),
@@ -50,6 +60,7 @@ const rollbackActionSchema = z.object({
   seatNumber: z.number().optional(),
   playerUids: z.array(z.string()).optional(),
   playerNames: z.array(z.string()).optional(),
+  okibakeEntryIds: z.array(z.string()).optional(),
   details: z.array(z.record(z.any())).optional(),
   previousSeatingData: z.record(z.any()).optional(),
 });
@@ -58,7 +69,8 @@ export const rollbackAction = onCall(async (request) => {
   try {
     // 入力検証
     const validatedData = rollbackActionSchema.parse(request.data);
-    const { tournamentId, operationId, action, rollBackBy, rollBackByDeviceName } = validatedData;
+    const { tournamentId, operationId, action, rollBackBy, rollBackByDeviceName, fallbackSeat } =
+      validatedData;
 
     const db = getFirestore();
 
@@ -85,11 +97,15 @@ export const rollbackAction = onCall(async (request) => {
       const allPlayerUids = (payload.playerUids as string[] | undefined) ?? [];
       const allPlayerNames = (payload.playerNames as string[] | undefined) ?? [];
       const allDetails = payload.details as Array<{ playerUid: string; playerName: string; billId: string; templateId: string }> | undefined;
+      const allOkibakeDetails = payload.okibakeTargets as Array<{ okibakeEntryId: string; okibakeEntryBefore: Record<string, unknown> }> | undefined;
       const tableIdForUndo = (opData.tableId as string) ?? (payload.tableId as string) ?? '';
+      const hasOkibakeTargets = Array.isArray(allOkibakeDetails) && allOkibakeDetails.length > 0;
       const selectedUids = (validatedData.playerUids ?? allPlayerUids) as string[];
       const selectedNames = (validatedData.playerNames ?? allPlayerNames) as string[];
       const selectedDetails = (validatedData.details ?? allDetails) as Array<{ playerUid: string; playerName: string; billId: string; templateId: string }> | undefined;
-      if (selectedUids.length === 0) {
+      const selectedOkibakeEntryIds = (validatedData.okibakeEntryIds ?? (allOkibakeDetails ?? []).map((o) => o.okibakeEntryId)) as string[];
+      const selectedOkibakeDetails = (allOkibakeDetails ?? []).filter((o) => selectedOkibakeEntryIds.includes(o.okibakeEntryId));
+      if (selectedUids.length === 0 && selectedOkibakeEntryIds.length === 0) {
         throw new HttpsError('invalid-argument', '取り消し対象を1人以上選択してください');
       }
       await undoBulkAddon({
@@ -99,22 +115,49 @@ export const rollbackAction = onCall(async (request) => {
         tableId: tableIdForUndo,
         rollBackBy: rollBackByDeviceId,
         details: selectedDetails,
+        okibakeDetails: selectedOkibakeDetails,
       });
-      const rolledBackSet = new Set(selectedUids);
-      const remainingDetails = (allDetails ?? []).filter((d) => !rolledBackSet.has(d.playerUid));
-      if (remainingDetails.length === 0) {
-        await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+      if (!hasOkibakeTargets) {
+        const rolledBackSet = new Set(selectedUids);
+        const remainingDetails = (allDetails ?? []).filter((d) => !rolledBackSet.has(d.playerUid));
+        if (remainingDetails.length === 0) {
+          await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+        } else {
+          await opLogRef.update({
+            payload: {
+              ...payload,
+              playerUids: remainingDetails.map((d) => d.playerUid),
+              playerNames: remainingDetails.map((d) => d.playerName),
+              details: remainingDetails,
+              ...(tableIdForUndo ? { tableId: tableIdForUndo } : {}),
+            },
+            rolledBackPlayerUids: FieldValue.arrayUnion(...selectedUids),
+            rolledBackPlayerNames: FieldValue.arrayUnion(...selectedNames),
+          });
+        }
       } else {
-        await opLogRef.update({
-          payload: {
-            playerUids: remainingDetails.map((d) => d.playerUid),
-            playerNames: remainingDetails.map((d) => d.playerName),
-            details: remainingDetails,
-            ...(tableIdForUndo ? { tableId: tableIdForUndo } : {}),
-          },
-          rolledBackPlayerUids: FieldValue.arrayUnion(...selectedUids),
-          rolledBackPlayerNames: FieldValue.arrayUnion(...selectedNames),
-        });
+        const rolledBackSet = new Set(selectedUids);
+        const remainingDetails = (allDetails ?? []).filter((d) => !rolledBackSet.has(d.playerUid));
+        const okibakeRolledBackSet = new Set(selectedOkibakeEntryIds);
+        const remainingOkibakeDetails = (allOkibakeDetails ?? []).filter((o) => !okibakeRolledBackSet.has(o.okibakeEntryId));
+        const noRemainingNormal = remainingDetails.length === 0;
+        const noRemainingOkibake = remainingOkibakeDetails.length === 0;
+        if (noRemainingNormal && noRemainingOkibake) {
+          await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+        } else {
+          await opLogRef.update({
+            payload: {
+              ...payload,
+              playerUids: remainingDetails.map((d) => d.playerUid),
+              playerNames: remainingDetails.map((d) => d.playerName),
+              details: remainingDetails,
+              okibakeTargets: remainingOkibakeDetails,
+              ...(tableIdForUndo ? { tableId: tableIdForUndo } : {}),
+            },
+            ...(selectedUids.length > 0 ? { rolledBackPlayerUids: FieldValue.arrayUnion(...selectedUids) } : {}),
+            ...(selectedNames.length > 0 ? { rolledBackPlayerNames: FieldValue.arrayUnion(...selectedNames) } : {}),
+          });
+        }
       }
       logOpsSuccess({
         message: "rollbackAction 成功",
@@ -155,7 +198,9 @@ export const rollbackAction = onCall(async (request) => {
         tableId: tableIdForUndo,
         seatNumber: typeof payload.seatNumber === 'number' ? payload.seatNumber : 0,
         rollBackBy: rollBackByDeviceId,
+        operationLogId: operationId,
         billId: payload.billId as string | undefined,
+        fallbackSeat,
       });
     } else if (operationName === 'バスト＆再入場') {
       const plUid = payload.playerUid as string;
@@ -171,8 +216,10 @@ export const rollbackAction = onCall(async (request) => {
         tableId: tableIdForUndo,
         seatNumber: typeof payload.seatNumber === 'number' ? payload.seatNumber : 0,
         rollBackBy: rollBackByDeviceId,
+        operationLogId: operationId,
         billId: payload.billId as string | undefined,
         templateId: payload.templateId as string | undefined,
+        fallbackSeat,
       });
     } else if (operationName === '座席割当') {
       const plUid = payload.playerUid as string;
@@ -198,6 +245,9 @@ export const rollbackAction = onCall(async (request) => {
         tournamentId: tId,
         previousSeatingData: previousSeatingData as Record<string, any>,
         rollBackBy: rollBackByDeviceId,
+        okibakeReseatTargets: Array.isArray(payload.okibakeReseatTargets)
+          ? (payload.okibakeReseatTargets as OkibakeReseatTarget[])
+          : undefined,
       });
     } else if (operationName === 'トーナメント登録') {
       const plUid = payload.playerUid as string;
@@ -397,6 +447,25 @@ export const rollbackAction = onCall(async (request) => {
         tournamentId: tId,
         okibakeEntryId,
         payload,
+      });
+      await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+      logOpsSuccess({
+        message: "rollbackAction 成功",
+        functionEntry: "rollbackAction",
+        context: { tournamentId: tId, operationId, action, operationName },
+      });
+      return { success: true, message: '操作のロールバックが完了しました', operationId, action };
+    } else if (operationName === '置きバケ Bust') {
+      const okibakeEntryId = (payload.okibakeEntryId as string) ?? '';
+      if (!okibakeEntryId) {
+        throw new HttpsError('invalid-argument', '操作記録に okibakeEntryId がありません');
+      }
+      await undoOkibakeBust({
+        tournamentId: tId,
+        okibakeEntryId,
+        payload,
+        operationLogId: operationId,
+        fallbackSeat,
       });
       await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
       logOpsSuccess({

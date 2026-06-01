@@ -8,18 +8,79 @@ import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { canonicalSeatKeyFromSuffix } from '../lib/parseOkibakeSeatKey';
+import {
+  buildOkibakeEntryAfterForReseatLog,
+  slimOkibakeEntryForReseatLog,
+  type OkibakeReseatTarget,
+} from '../lib/slimOkibakeEntryForReseatLog';
+
+const playerAssignmentSchema = z.object({
+  userId: z.string().optional(),
+  okibakeEntryId: z.string().optional(),
+  tableId: z.string(),
+  seatNumber: z.number().int().positive(),
+}).superRefine((value, ctx) => {
+  const hasUserId = typeof value.userId === 'string' && value.userId.length > 0;
+  const hasOkibake =
+    typeof value.okibakeEntryId === 'string' && value.okibakeEntryId.length > 0;
+  if (hasUserId === hasOkibake) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'userId または okibakeEntryId のどちらか一方が必須です',
+    });
+  }
+});
 
 // 入力スキーマ
 const reseatAllPlayersSchema = z.object({
   operationId: z.string().min(1, 'operationId は必須です'),
   tournamentId: z.string(),
-  playerAssignments: z.array(z.object({
-    userId: z.string(),
-    tableId: z.string(),
-    seatNumber: z.number().int().positive(),
-  })),
+  playerAssignments: z.array(playerAssignmentSchema),
   deviceName: z.string().optional(),
 });
+
+type OkibakeEntrySnapshot = {
+  entryStatus: string;
+  billLinkStatus: string;
+  temporaryDisplayName: string;
+  linkedUserPokerName: string | null;
+};
+
+function resolveOkibakeDisplayName(entry: OkibakeEntrySnapshot): string {
+  if (
+    typeof entry.linkedUserPokerName === 'string' &&
+    entry.linkedUserPokerName.trim().length > 0
+  ) {
+    return entry.linkedUserPokerName.trim();
+  }
+  if (
+    typeof entry.temporaryDisplayName === 'string' &&
+    entry.temporaryDisplayName.trim().length > 0
+  ) {
+    return entry.temporaryDisplayName.trim();
+  }
+  return '';
+}
+
+function assertOkibakeReseatCandidate(entry: OkibakeEntrySnapshot, okibakeEntryId: string): void {
+  const validEntry = new Set(['registered', 'seated']);
+  const validBill = new Set(['unlinked', 'linked']);
+  if (
+    !validEntry.has(entry.entryStatus) ||
+    !validBill.has(entry.billLinkStatus)
+  ) {
+    throw new FunctionCustomError({
+      errorKey: 'TOURNAMENT_OKIBAKE_INVALID_STATUS',
+      message: `置きバケ一時参加者 ${okibakeEntryId} の状態がリシート対象外です`,
+      context: {
+        okibakeEntryId,
+        entryStatus: entry.entryStatus,
+        billLinkStatus: entry.billLinkStatus,
+      },
+    });
+  }
+}
 
 export const reseatAllPlayers = onCall(async (request) => {
   // 認証チェック
@@ -43,20 +104,22 @@ export const reseatAllPlayers = onCall(async (request) => {
     const startedAt = FieldValue.serverTimestamp();
     const { data } = request;
     const { operationId, tournamentId, playerAssignments, deviceName } = reseatAllPlayersSchema.parse(data);
-    
+
     console.log(`=== 全員リシート開始 ===`);
     console.log(`tournamentId: ${tournamentId}`);
     console.log(`playerAssignments:`, playerAssignments);
-    
+
     const db = admin.firestore();
-    
+    const normalAssignments = playerAssignments.filter((a) => a.userId);
+    const okibakeAssignments = playerAssignments.filter((a) => a.okibakeEntryId);
+
     // トランザクション開始
     const result = await db.runTransaction(async (transaction) => {
       const tablesSeatRef = db
         .collection('scheduledTournaments')
         .doc(tournamentId)
         .collection('tablesSeat');
-      
+
       const tablesSeatDocs = await transaction.get(tablesSeatRef);
 
       // 1. 巻き戻し用: 変更前の座席配置を保存（undoReseatAllPlayers で復元する形式）
@@ -72,18 +135,18 @@ export const reseatAllPlayers = onCall(async (request) => {
           previousSeatingData[doc.id] = { seats: d.seats ?? {} };
         }
       }
-      
-      // 2. activeStaysからユーザー情報を事前に取得（すべての読み取りを最初に実行）
+
+      // 2. activeStaysからユーザー情報を事前に取得（通常参加者のみ）
       const userPokerNames: { [userId: string]: string } = {};
       const userBillIds: { [userId: string]: string } = {};
-      
-      for (const assignment of playerAssignments) {
+
+      for (const assignment of normalAssignments) {
         const { userId } = assignment;
-        
-        // activeStaysからユーザー情報を取得（存在チェックは本callable側の責務）
+        if (!userId) continue;
+
         const activeStayRef = db.collection('activeStays').doc(userId);
         const activeStayDoc = await transaction.get(activeStayRef);
-        
+
         if (!activeStayDoc.exists) {
           throw new FunctionCustomError({
             errorKey: 'TOURNAMENT_INVALID_STATE',
@@ -102,15 +165,57 @@ export const reseatAllPlayers = onCall(async (request) => {
             context: { tournamentId, userId, reason: 'billId_missing_on_active_stay' },
           });
         }
-        
-        // pokerNameはactiveStaysから取得（todaysBillsには依存しない）
+
         const pokerName = activeStayData.pokerName || `Player_${userId}`;
-        
+
         userPokerNames[userId] = pokerName;
         userBillIds[userId] = billId;
       }
-      
-      // 3. 新しい割り当てに必要なテーブルシートを事前に読み取り
+
+      // 3. 置きバケ entry を事前に読み取り
+      const okibakeEntriesMap = new Map<string, OkibakeEntrySnapshot>();
+      const okibakeEntryRefs = new Map<string, admin.firestore.DocumentReference>();
+      const okibakeEntryRawBefore = new Map<string, Record<string, unknown>>();
+      for (const assignment of okibakeAssignments) {
+        const okibakeEntryId = assignment.okibakeEntryId!;
+        if (okibakeEntriesMap.has(okibakeEntryId)) continue;
+
+        const entryRef = db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('okibakeTemporaryEntries')
+          .doc(okibakeEntryId);
+        const entryDoc = await transaction.get(entryRef);
+
+        if (!entryDoc.exists) {
+          throw new FunctionCustomError({
+            errorKey: 'TOURNAMENT_OKIBAKE_INVALID_STATUS',
+            message: `置きバケ一時参加者 ${okibakeEntryId} が存在しません`,
+            context: { tournamentId, okibakeEntryId },
+          });
+        }
+
+        const entryData = entryDoc.data()!;
+        okibakeEntryRawBefore.set(okibakeEntryId, entryData);
+        const snapshot: OkibakeEntrySnapshot = {
+          entryStatus: typeof entryData.entryStatus === 'string' ? entryData.entryStatus : '',
+          billLinkStatus: typeof entryData.billLinkStatus === 'string' ? entryData.billLinkStatus : '',
+          temporaryDisplayName:
+            typeof entryData.temporaryDisplayName === 'string'
+              ? entryData.temporaryDisplayName
+              : okibakeEntryId,
+          linkedUserPokerName:
+            typeof entryData.linkedUserPokerName === 'string'
+              ? entryData.linkedUserPokerName
+              : null,
+        };
+        assertOkibakeReseatCandidate(snapshot, okibakeEntryId);
+
+        okibakeEntriesMap.set(okibakeEntryId, snapshot);
+        okibakeEntryRefs.set(okibakeEntryId, entryRef);
+      }
+
+      // 4. 新しい割り当てに必要なテーブルシートを事前に読み取り
       const tableSeatDocsMap = new Map();
       for (const assignment of playerAssignments) {
         const { tableId } = assignment;
@@ -120,23 +225,25 @@ export const reseatAllPlayers = onCall(async (request) => {
           tableSeatDocsMap.set(tableId, tableSeatDoc);
         }
       }
-      
-      // 4. waitingドキュメントを事前に読み取り
+
+      // 5. waiting / views/main を事前に読み取り
       const waitingRef = tablesSeatRef.doc('waiting');
       const waitingDoc = await transaction.get(waitingRef);
-      
-      // 全ての読み取りが完了したので、ここから書き込み操作を開始
-      
-      // 4. 各テーブルのシートをクリアし、新しい割り当てを適用
-      const tableUpdates = new Map(); // tableId -> updatedSeats
-      
-      // まず、すべてのテーブルをクリア
+      const viewsMainRef = db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main');
+      const viewsMainDoc = await transaction.get(viewsMainRef);
+
+      const tableUpdates = new Map<string, Record<string, string | null>>();
+
+      // すべてのテーブルをクリア
       for (const doc of tablesSeatDocs.docs) {
         if (doc.id !== 'waiting' && doc.data().isEnabled) {
           const seats = doc.data().seats;
           const clearedSeats: { [key: string]: string | null } = {};
-          
-          // 新しい構造で全シートをnullにリセット
+
           Object.keys(seats).forEach(seatKey => {
             if (
               seatKey.endsWith('UserId') ||
@@ -146,36 +253,86 @@ export const reseatAllPlayers = onCall(async (request) => {
               clearedSeats[seatKey] = null;
             }
           });
-          
+
           tableUpdates.set(doc.id, clearedSeats);
         }
       }
-      
-      // 次に、新しい割り当てを適用
-      for (const assignment of playerAssignments) {
+
+      const nowTs = admin.firestore.FieldValue.serverTimestamp();
+      let registeredOkibakeReseated = 0;
+      const okibakeReseatTargets: OkibakeReseatTarget[] = [];
+
+      // 通常参加者の割り当て
+      for (const assignment of normalAssignments) {
         const { userId, tableId, seatNumber } = assignment;
-        
+        if (!userId) continue;
+
         const tableSeatDoc = tableSeatDocsMap.get(tableId);
-        
+
         if (tableSeatDoc && tableSeatDoc.exists) {
           const seatNumberStr = seatNumber.toString().padStart(2, '0');
-          
-          // 事前に取得したpokerNameを使用
           const pokerName = userPokerNames[userId];
-          
-          // テーブルの更新データを取得または作成
-          let updatedSeats = tableUpdates.get(tableId) || {};
-          
-          // シートにユーザーを割り当て（新しい構造）
+
+          const updatedSeats = tableUpdates.get(tableId) || {};
+
           updatedSeats[`seat${seatNumberStr}UserId`] = userId;
           updatedSeats[`seat${seatNumberStr}PokerName`] = pokerName;
           updatedSeats[`seat${seatNumberStr}OkibakeEntryId`] = null;
-          
+
           tableUpdates.set(tableId, updatedSeats);
         }
       }
-      
-      // 最後に、すべてのテーブル更新を実行
+
+      // 置きバケ参加者の割り当て
+      for (const assignment of okibakeAssignments) {
+        const { okibakeEntryId, tableId, seatNumber } = assignment;
+        if (!okibakeEntryId) continue;
+
+        const tableSeatDoc = tableSeatDocsMap.get(tableId);
+        if (!tableSeatDoc || !tableSeatDoc.exists) continue;
+
+        const entry = okibakeEntriesMap.get(okibakeEntryId)!;
+        if (entry.entryStatus === 'registered') {
+          registeredOkibakeReseated += 1;
+        }
+
+        const seatNumberStr = seatNumber.toString().padStart(2, '0');
+        const seatKey = canonicalSeatKeyFromSuffix(seatNumberStr);
+        const displayName = resolveOkibakeDisplayName(entry);
+        const updatedSeats = tableUpdates.get(tableId) || {};
+
+        updatedSeats[`seat${seatNumberStr}UserId`] = null;
+        updatedSeats[`seat${seatNumberStr}PokerName`] = displayName;
+        updatedSeats[`seat${seatNumberStr}OkibakeEntryId`] = okibakeEntryId;
+
+        tableUpdates.set(tableId, updatedSeats);
+
+        const entryRef = okibakeEntryRefs.get(okibakeEntryId)!;
+        transaction.update(entryRef, {
+          entryStatus: 'seated',
+          assignedTableId: tableId,
+          assignedSeatKey: seatKey,
+          seatedAt: nowTs,
+          updatedAt: nowTs,
+          updatedByDeviceId: device!.id,
+        });
+
+        const okibakeEntryBefore = slimOkibakeEntryForReseatLog(
+          okibakeEntryRawBefore.get(okibakeEntryId),
+        );
+        if (okibakeEntryBefore != null) {
+          okibakeReseatTargets.push({
+            okibakeEntryId,
+            okibakeEntryBefore,
+            okibakeEntryAfter: buildOkibakeEntryAfterForReseatLog({
+              tableId,
+              seatNumber,
+              seatKey,
+            }),
+          });
+        }
+      }
+
       for (const [tableId, updatedSeats] of tableUpdates.entries()) {
         const tableSeatRef = tablesSeatRef.doc(tableId);
         transaction.update(tableSeatRef, {
@@ -183,57 +340,53 @@ export const reseatAllPlayers = onCall(async (request) => {
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
-      
-      // 5. 待機者リストから割り当てられたユーザーのみを削除（事前に読み取ったドキュメントを使用）
+
       if (waitingDoc.exists) {
         const waitingData = waitingDoc.data()!;
         const currentWaiting = waitingData.waiting || {};
-        
-        // 割り当てられたユーザーのみを削除
-        const assignedUserIds = new Set(playerAssignments.map(assignment => assignment.userId));
+
+        const assignedUserIds = new Set(
+          normalAssignments.map((assignment) => assignment.userId).filter(Boolean),
+        );
         const updatedWaiting = { ...currentWaiting };
-        
+
         for (const userId of assignedUserIds) {
-          if (updatedWaiting.hasOwnProperty(userId)) {
-            delete updatedWaiting[userId];
+          if (Object.prototype.hasOwnProperty.call(updatedWaiting, userId!)) {
+            delete updatedWaiting[userId!];
           }
         }
-        
+
         transaction.update(waitingRef, {
           waiting: updatedWaiting,
           count: Object.keys(updatedWaiting).length,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
-      
-      // 6. eventsサブコレクションに記録（ロールバック用）
-      // TODO: 今後実装予定 - eventsサブコレクションへの記録
-      // const eventRef = db
-      //   .collection('scheduledTournaments')
-      //   .doc(tournamentId)
-      //   .collection('events')
-      //   .doc();
-      // transaction.set(eventRef, {
-      //   type: 'reseat_all_players',
-      //   playerAssignments: playerAssignments,
-      //   timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      // });
-      
-      // トランザクション内で取得した情報を返す（トランザクション外で updatePlace と operationLog に使用）
-      return { 
-        success: true, 
+
+      if (registeredOkibakeReseated > 0 && viewsMainDoc.exists) {
+        const viewsData = viewsMainDoc.data() ?? {};
+        const waitingCountRaw =
+          typeof viewsData.waitingCount === 'number' ? viewsData.waitingCount : 0;
+        transaction.update(viewsMainRef, {
+          waitingCount: Math.max(0, waitingCountRaw - registeredOkibakeReseated),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      return {
+        success: true,
         playerCount: playerAssignments.length,
         previousSeatingData,
-        playerAssignments: playerAssignments.map(a => ({
-          userId: a.userId,
+        okibakeReseatTargets,
+        playerAssignments: normalAssignments.map((a) => ({
+          userId: a.userId!,
           tableId: a.tableId,
           seatNumber: a.seatNumber,
-          billId: userBillIds[a.userId],
+          billId: userBillIds[a.userId!],
         })),
       };
     });
-    
-    // トランザクション完了後、トランザクション外で各ユーザーごとにupdatePlaceを逐次呼び出す（ネストトランザクションを避ける）
+
     if (result.playerAssignments) {
       for (const assignment of result.playerAssignments) {
         if (assignment.billId) {
@@ -245,18 +398,16 @@ export const reseatAllPlayers = onCall(async (request) => {
             });
           } catch (error) {
             logOpsError({
-      message: `updatePlace failed for userId ${assignment.userId}`,
-      functionEntry: 'reseatAllPlayers',
-      operation: 'updatePlacePerAssignmentBestEffort',
-      cause: error,
-    });
-            // updatePlaceの失敗は警告ログのみ（scheduledTournamentsの更新は成功している）
+              message: `updatePlace failed for userId ${assignment.userId}`,
+              functionEntry: 'reseatAllPlayers',
+              operation: 'updatePlacePerAssignmentBestEffort',
+              cause: error,
+            });
           }
         }
       }
     }
-    
-    // 操作記録（成功）。op-106。トーナメント単位（卓に紐づかない）のため tableId はトップレベルに付けない
+
     await writeSingleOperationLog({
       operationId,
       operationName: '全員着席替え',
@@ -268,6 +419,9 @@ export const reseatAllPlayers = onCall(async (request) => {
       payload: {
         tournamentId,
         previousSeatingData: result.previousSeatingData,
+        ...(result.okibakeReseatTargets.length > 0
+          ? { okibakeReseatTargets: result.okibakeReseatTargets }
+          : {}),
       },
     });
 
@@ -283,7 +437,7 @@ export const reseatAllPlayers = onCall(async (request) => {
     });
 
     return { success: true, playerCount: result.playerCount };
-    
+
   } catch (error) {
     if (error instanceof HttpsError) {
       throw error;
@@ -325,14 +479,14 @@ export const reseatAllPlayers = onCall(async (request) => {
         });
       } catch (logErr) {
         logOpsError({
-      message: 'operationLog 書き込み失敗',
-      functionEntry: 'reseatAllPlayers',
-      operation: 'reseatAllPlayersOperationLogWrite',
-      cause: logErr,
-    });
+          message: 'operationLog 書き込み失敗',
+          functionEntry: 'reseatAllPlayers',
+          operation: 'reseatAllPlayersOperationLogWrite',
+          cause: logErr,
+        });
       }
     }
-    
+
     throw new HttpsError('internal', error instanceof Error ? error.message : '全員リシートに失敗しました');
   }
 });

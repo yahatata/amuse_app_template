@@ -47,8 +47,8 @@ Future<void> showBulkAddonDialog({
     return;
   }
 
-  // 着席しているユーザーを抽出
-  List<Map<String, dynamic>> seatedUsers = [];
+  // 着席している対象を抽出（通常ユーザー + 置きバケ）
+  List<Map<String, dynamic>> seatedTargets = [];
   
   final maxSeats = tableData?['maxSeats'] as int? ?? 10;
   final seats = tableData?['seats'] as Map<String, dynamic>? ?? {};
@@ -56,20 +56,32 @@ Future<void> showBulkAddonDialog({
   for (int i = 1; i <= maxSeats; i++) {
     final seatNoStr = i.toString().padLeft(2, '0');
     final seatUserId = seats['seat${seatNoStr}UserId'] as String?;
+    final seatOkibakeEntryId = seats['seat${seatNoStr}OkibakeEntryId'] as String?;
     final seatPokerName = seats['seat${seatNoStr}PokerName'] as String?;
-    
-    final isOccupied = seatUserId != null && seatUserId.isNotEmpty;
-    
-    if (isOccupied && seatPokerName != null) {
-      seatedUsers.add({
+
+    final hasNormalUser = seatUserId != null && seatUserId.isNotEmpty;
+    final hasOkibake = seatOkibakeEntryId != null && seatOkibakeEntryId.isNotEmpty;
+
+    if (hasNormalUser && seatPokerName != null) {
+      seatedTargets.add({
+        'targetType': 'normal',
+        'targetKey': 'normal:$seatUserId',
         'userId': seatUserId,
+        'pokerName': seatPokerName,
+        'seatNumber': i,
+      });
+    } else if (hasOkibake && seatPokerName != null) {
+      seatedTargets.add({
+        'targetType': 'okibake',
+        'targetKey': 'okibake:$seatOkibakeEntryId',
+        'okibakeEntryId': seatOkibakeEntryId,
         'pokerName': seatPokerName,
         'seatNumber': i,
       });
     }
   }
 
-  if (seatedUsers.isEmpty) {
+  if (seatedTargets.isEmpty) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
         const SnackBar(
@@ -126,12 +138,13 @@ Future<void> showBulkAddonDialog({
     return;
   }
 
-  final seatUsersAddonRead = List<Map<String, dynamic>>.from(
-    seatedUsers.map((u) => Map<String, dynamic>.from(u)),
+  final seatTargetsAddonRead = List<Map<String, dynamic>>.from(
+    seatedTargets.map((u) => Map<String, dynamic>.from(u)),
   );
 
-  for (final user in seatUsersAddonRead) {
-    final userId = user['userId'] as String;
+  // 通常参加者は activeStay/bill から Addon回数を読む
+  for (final target in seatTargetsAddonRead.where((t) => t['targetType'] == 'normal')) {
+    final userId = target['userId'] as String;
     try {
       final activeStayDoc =
           await FirebaseFirestore.instance.collection('activeStays').doc(userId).get();
@@ -155,20 +168,62 @@ Future<void> showBulkAddonDialog({
           }
         }
       }
-      user['_addonCount'] = addonCount;
+      target['_addonCount'] = addonCount;
+      target['_eligible'] = true;
     } catch (_) {
-      user['_addonCount'] = 0;
+      target['_addonCount'] = 0;
+      target['_eligible'] = false;
+      target['_ineligibleReason'] = '通常ユーザー情報を確認できません';
     }
   }
 
-  // リスト表示は読取結果付きリストを参照
-  seatedUsers = seatUsersAddonRead;
+  // 置きバケは okibakeTemporaryEntries を確認（seated + unlinked のみ対象）
+  final okibakeTargets = seatTargetsAddonRead.where((t) => t['targetType'] == 'okibake').toList();
+  for (final target in okibakeTargets) {
+    final okibakeEntryId = target['okibakeEntryId'] as String;
+    try {
+      final entryDoc = await FirebaseFirestore.instance
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('okibakeTemporaryEntries')
+          .doc(okibakeEntryId)
+          .get();
+      if (!entryDoc.exists) {
+        target['_eligible'] = false;
+        target['_ineligibleReason'] = '置きバケ情報が見つかりません';
+        continue;
+      }
+      final e = entryDoc.data() ?? {};
+      final entryStatus = (e['entryStatus'] as String?) ?? '';
+      final billLinkStatus = (e['billLinkStatus'] as String?) ?? '';
+      final addonCount = (e['okibakeAddonCount'] as num?)?.toInt() ?? 0;
+      final addonIntentRaw = (e['addonIntent'] as String?)?.trim() ?? '';
+      final addonIntentLabel =
+          addonIntentRaw == 'yes'
+              ? '希望'
+              : addonIntentRaw == 'no'
+              ? '希望しない'
+              : '未設定';
+      target['_addonCount'] = addonCount;
+      target['_addonIntentLabel'] = addonIntentLabel;
+      if (entryStatus == 'seated' && billLinkStatus == 'unlinked') {
+        target['_eligible'] = addonCount < addonLimit;
+        if (addonCount >= addonLimit) {
+          target['_ineligibleReason'] = '上限到達';
+        }
+      } else {
+        target['_eligible'] = false;
+        target['_ineligibleReason'] = '対象外状態';
+      }
+    } catch (_) {
+      target['_eligible'] = false;
+      target['_ineligibleReason'] = '置きバケ情報の確認に失敗';
+    }
+  }
 
-  final selectableExists = seatedUsers.any((u) {
-    final ac = u['_addonCount'];
-    final n = ac is int ? ac : (ac as num?)?.toInt() ?? 0;
-    return n < addonLimit;
-  });
+  seatedTargets = seatTargetsAddonRead;
+
+  final selectableExists = seatedTargets.any((u) => u['_eligible'] == true);
 
   if (!selectableExists) {
     if (outerCtx.mounted) {
@@ -190,7 +245,7 @@ Future<void> showBulkAddonDialog({
     context: outerCtx,
     barrierDismissible: false,
     builder: (BuildContext dialogCtx) {
-      Set<String> selectedUserIds = {};
+      Set<String> selectedTargetKeys = {};
       
       return StatefulBuilder(
         builder: (context, setState) {
@@ -212,41 +267,64 @@ Future<void> showBulkAddonDialog({
                     style: TextStyle(fontSize: 14),
                   ),
                   const SizedBox(height: 16),
+                  Builder(
+                    builder: (context) {
+                      final normalCount = seatedTargets.where((t) => t['targetType'] == 'normal').length;
+                      final okibakeCount = seatedTargets.where((t) => t['targetType'] == 'okibake').length;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          '対象: 通常参加者 $normalCount名 / 置きバケ $okibakeCount名',
+                          style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        ),
+                      );
+                    },
+                  ),
                   Expanded(
                     child: ListView.builder(
-                      itemCount: seatedUsers.length,
+                      itemCount: seatedTargets.length,
                       itemBuilder: (context, index) {
-                        final user = seatedUsers[index];
-                        final userId = user['userId'] as String;
-                        final pokerName = user['pokerName'] as String;
-                        final seatNumber = user['seatNumber'] as int;
-                        final acRaw = user['_addonCount'];
+                        final target = seatedTargets[index];
+                        final targetKey = target['targetKey'] as String;
+                        final pokerName = target['pokerName'] as String;
+                        final seatNumber = target['seatNumber'] as int;
+                        final targetType = target['targetType'] as String;
+                        final isEligible = target['_eligible'] == true;
+                        final acRaw = target['_addonCount'];
                         final addonCount =
                             acRaw is int ? acRaw : (acRaw as num?)?.toInt() ?? 0;
-                        final isAlreadyAddon = addonCount >= addonLimit;
+                        final isAlreadyAddon = !isEligible || addonCount >= addonLimit;
+                        final reason = (target['_ineligibleReason'] as String?) ?? '対象外';
+                        final addonIntentLabel = (target['_addonIntentLabel'] as String?) ?? '未設定';
+                        final baseLine =
+                            isAlreadyAddon
+                                ? '席番号: $seatNumber (${reason == '上限到達' ? '上限到達 $addonCount / $addonLimit 回' : reason})'
+                                : '席番号: $seatNumber ($addonCount / $addonLimit 回)';
+                        final subtitleText =
+                            targetType == 'okibake'
+                                ? '$baseLine\nアドオン: $addonIntentLabel'
+                                : baseLine;
 
                         return CheckboxListTile(
                           title: Text(
-                            pokerName,
+                            targetType == 'okibake' ? '$pokerName（置きバケ）' : pokerName,
                             style: TextStyle(
                               color: isAlreadyAddon ? Colors.grey : null,
                             ),
                           ),
                           subtitle: Text(
-                            isAlreadyAddon
-                                ? '席番号: $seatNumber (上限到達 $addonCount / $addonLimit 回)'
-                                : '席番号: $seatNumber ($addonCount / $addonLimit 回)',
+                            subtitleText,
                             style: TextStyle(
                               color: isAlreadyAddon ? Colors.grey : null,
                             ),
                           ),
-                          value: isAlreadyAddon ? false : selectedUserIds.contains(userId),
+                          value: isAlreadyAddon ? false : selectedTargetKeys.contains(targetKey),
                           onChanged: isAlreadyAddon ? null : (bool? value) {
                             setState(() {
                               if (value == true) {
-                                selectedUserIds.add(userId);
+                                selectedTargetKeys.add(targetKey);
                               } else {
-                                selectedUserIds.remove(userId);
+                                selectedTargetKeys.remove(targetKey);
                               }
                             });
                           },
@@ -264,11 +342,11 @@ Future<void> showBulkAddonDialog({
                 child: const Text('キャンセル'),
               ),
               ElevatedButton(
-                onPressed: selectedUserIds.isEmpty
+                onPressed: selectedTargetKeys.isEmpty
                     ? null
                     : () {
-                        final selectedUsersList = seatedUsers
-                            .where((user) => selectedUserIds.contains(user['userId']))
+                        final selectedTargetsList = seatedTargets
+                            .where((target) => selectedTargetKeys.contains(target['targetKey']))
                             .toList();
                         
                         // ダイアログを先に閉じる
@@ -280,7 +358,7 @@ Future<void> showBulkAddonDialog({
                             context: outerCtx,
                             tournamentId: tournamentId,
                             tableId: tableId,
-                            selectedUsers: selectedUsersList,
+                            selectedTargets: selectedTargetsList,
                           ).catchError((error) {
                             // エラーハンドリング（outerCtxを使用）
                             if (outerCtx.mounted) {
@@ -290,10 +368,10 @@ Future<void> showBulkAddonDialog({
                         }
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: selectedUserIds.isEmpty ? Colors.grey : Colors.blue,
+                  backgroundColor: selectedTargetKeys.isEmpty ? Colors.grey : Colors.blue,
                   foregroundColor: Colors.white,
                 ),
-                child: Text(selectedUserIds.isEmpty ? 'ユーザーを選択してください' : '確定'),
+                child: Text(selectedTargetKeys.isEmpty ? '対象を選択してください' : '確定'),
               ),
             ],
           );
@@ -308,7 +386,7 @@ Future<void> _processBulkAddon({
   required BuildContext context,
   required String tournamentId,
   required String tableId,
-  required List<Map<String, dynamic>> selectedUsers,
+  required List<Map<String, dynamic>> selectedTargets,
 }) async {
   // ローディングダイアログを表示
   OverlayEntry? loadingOverlay;
@@ -396,18 +474,30 @@ Future<void> _processBulkAddon({
     final callable = functions.httpsCallable('bulkAddon');
     
     print('=== Cloud Function呼び出し開始 ===');
-    print('送信データ: ${selectedUsers.map((user) => {
-      'userId': user['userId'],
-      'pokerName': user['pokerName'],
-    }).toList()}');
+    final normalUsers = selectedTargets
+        .where((t) => t['targetType'] == 'normal')
+        .map((user) => {
+              'userId': user['userId'],
+              'pokerName': user['pokerName'],
+            })
+        .toList();
+    final okibakeEntries = selectedTargets
+        .where((t) => t['targetType'] == 'okibake')
+        .map((t) => {
+              'okibakeEntryId': t['okibakeEntryId'],
+              'pokerName': t['pokerName'],
+            })
+        .toList();
+
+    print('送信データ: normal=${normalUsers.length}, okibake=${okibakeEntries.length}');
     
     final result = await callable.call({
       'tournamentId': tournamentId,
       'tableId': tableId,
-      'users': selectedUsers.map((user) => {
-        'userId': user['userId'],
-        'pokerName': user['pokerName'],
-      }).toList(),
+      // 互換維持: 既存 users は normalUsers を渡す
+      'users': normalUsers,
+      'normalUsers': normalUsers,
+      'okibakeEntries': okibakeEntries,
     }).timeout(
       const Duration(seconds: 60),
       onTimeout: () {
@@ -432,8 +522,12 @@ Future<void> _processBulkAddon({
     
     if (data['success'] == true) {
       print('=== 成功パス ===');
-      final processedNames = selectedUsers.map((user) => user['pokerName'] as String).join('様, ');
-      final message = '$processedNames様のAddon処理は正常に完了しました';
+      final processedNormalCount = (data['processedNormalCount'] as num?)?.toInt() ??
+          (data['processedCount'] as num?)?.toInt() ??
+          normalUsers.length;
+      final processedOkibakeCount = (data['processedOkibakeCount'] as num?)?.toInt() ?? okibakeEntries.length;
+      final message =
+          'まとめてAddonを実行しました。\n通常参加者: $processedNormalCount名\n置きバケ: $processedOkibakeCount名';
       print('表示メッセージ: $message');
       print('context.mounted: ${context.mounted}');
       
@@ -479,110 +573,31 @@ Future<void> _processBulkAddon({
 
 /// 成功ダイアログを表示
 void _showSuccessDialog(BuildContext context, String message) {
-  print('=== 成功ダイアログ表示開始 ===');
-  
-  // Overlay.maybeOfを使用して安全にOverlayを取得
-  final overlayState = Overlay.maybeOf(context, rootOverlay: true);
-  
-  if (overlayState == null) {
-    // Overlayが取得できない場合はshowDialogで代替
-    print('=== Overlay取得失敗、showDialogで代替 ===');
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.green),
-            const SizedBox(width: 8),
-            const Text('完了'),
-          ],
-        ),
-        content: Text(message),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-    return;
-  }
-  
-  // OverlayEntryを使用してダイアログを表示
-  late final OverlayEntry overlayEntry;
-  
-  overlayEntry = OverlayEntry(
-    builder: (context) => Material(
-      color: Colors.black54,
-      child: Center(
-        child: Container(
-          margin: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder:
+        (context) => AlertDialog(
+          title: Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: const BoxDecoration(
-                  color: Colors.green,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(10),
-                    topRight: Radius.circular(10),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check_circle, color: Colors.white),
-                    const SizedBox(width: 8),
-                    const Text(
-                      '完了',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  message,
-                  style: const TextStyle(fontSize: 16),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.all(16),
-                child: ElevatedButton(
-                  onPressed: () {
-                    overlayEntry.remove();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('OK'),
-                ),
-              ),
+              const Icon(Icons.check_circle, color: Colors.green),
+              const SizedBox(width: 8),
+              const Text('完了'),
             ],
           ),
+          content: Text(message),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('OK'),
+            ),
+          ],
         ),
-      ),
-    ),
   );
-  
-  overlayState.insert(overlayEntry);
-  print('=== 成功ダイアログ表示完了 ===');
 }
 
 /// エラーダイアログを表示

@@ -195,6 +195,16 @@ export const bustOkibakeTemporaryEntry = onCall(async (request) => {
         return failCommit('テーブルが存在しません', 'TOURNAMENT_OKIBAKE_INVALID_STATUS');
       }
 
+      const viewsMainRef = tournamentRef.collection('views').doc('main');
+      const viewsMainSnap = await tx.get(viewsMainRef);
+      if (!viewsMainSnap.exists) {
+        return failCommit(
+          'トーナメントのviews/mainドキュメントが存在しません',
+          'TOURNAMENT_OKIBAKE_INVALID_STATUS'
+        );
+      }
+      const currentPlayersBusted = (viewsMainSnap.data()?.playersBusted as number | undefined) ?? 0;
+
       const seats = ((tableSnap.data() ?? {}).seats ?? {}) as Record<string, unknown>;
       const seatOk = seats[`seat${suffix}OkibakeEntryId`];
       if (seatOk !== okibakeEntryId) {
@@ -223,6 +233,11 @@ export const bustOkibakeTemporaryEntry = onCall(async (request) => {
         updatedAt: nowTs,
       };
       tx.update(entryRef, entryAfterPatch as UpdateData<DocumentData>);
+
+      tx.update(viewsMainRef, {
+        playersBusted: currentPlayersBusted + 1,
+        updatedAt: nowTs,
+      });
 
       const entryAfter = { ...entryBefore, ...entryAfterPatch } as Record<string, unknown>;
 

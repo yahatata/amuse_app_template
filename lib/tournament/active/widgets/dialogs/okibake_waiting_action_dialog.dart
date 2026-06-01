@@ -17,6 +17,19 @@ String formatOkibakeBillLinkStatusLabel(String billLinkStatus) {
   }
 }
 
+String formatOkibakeAddonIntentLabel(String? addonIntent) {
+  switch ((addonIntent ?? '').trim()) {
+    case 'yes':
+      return '希望する';
+    case 'no':
+      return '希望しない';
+    case 'unknown':
+      return 'わからない';
+    default:
+      return '未設定';
+  }
+}
+
 /// 待機中置きバケの操作選択結果。
 enum OkibakeWaitingAction { assignSeat, addon, linkBill, setLinkedUser }
 
@@ -28,6 +41,7 @@ Future<OkibakeWaitingAction?> showOkibakeWaitingActionDialog({
   required bool addonDisabled,
   required int waitingMinutes,
   required String billLinkStatus,
+  String? addonIntent,
   bool linkBillEnabled = true,
   bool canSetLinkedUser = false,
 }) {
@@ -46,6 +60,10 @@ Future<OkibakeWaitingAction?> showOkibakeWaitingActionDialog({
           ),
           Text(
             formatOkibakeBillLinkStatusLabel(billLinkStatus),
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+          ),
+          Text(
+            'アドオン意思: ${formatOkibakeAddonIntentLabel(addonIntent)}',
             style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
           ),
           const SizedBox(height: 4),

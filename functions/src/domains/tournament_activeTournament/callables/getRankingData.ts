@@ -2,6 +2,11 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import {
+  mergeLinkedOkibakeBustedPlayers,
+  sortBustedPlayersByBustAtDesc,
+  type BustedPlayerRow,
+} from '../lib/mergeLinkedOkibakeBustedPlayers';
 
 export const getRankingData = onCall(async (request) => {
   try {
@@ -44,24 +49,34 @@ export const getRankingData = onCall(async (request) => {
       .doc('busted')
       .get();
     
-    let bustedPlayers: any[] = [];
-    
+    let bustedPlayers: BustedPlayerRow[] = [];
+
     if (bustedDoc.exists) {
       const bustedData = bustedDoc.data();
       const bustedUser = bustedData?.bustedUser || {};
-      
-      // bustedUserを配列に変換し、bustAtでソート
-      bustedPlayers = Object.entries(bustedUser).map(([uid, playerData]: [string, any]) => ({
-        uid,
-        pokerName: playerData.pokerName,
-        bustAt: playerData.bustAt,
-      })).sort((a, b) => {
-        // bustAtでソート（新しい順）
-        const aTime = a.bustAt?._seconds || 0;
-        const bTime = b.bustAt?._seconds || 0;
-        return bTime - aTime;
-      });
+
+      bustedPlayers = sortBustedPlayersByBustAtDesc(
+        Object.entries(bustedUser).map(([uid, playerData]) => {
+          const row = (playerData ?? {}) as Record<string, unknown>;
+          return {
+            uid,
+            pokerName: row.pokerName as string,
+            bustAt: row.bustAt,
+          };
+        })
+      );
     }
+
+    // linked + busted の元置きバケを脱落者候補に補完（永続データは変更しない）
+    const okibakeLinkedSnap = await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('okibakeTemporaryEntries')
+      .where('billLinkStatus', '==', 'linked')
+      .get();
+
+    const okibakeEntries = okibakeLinkedSnap.docs.map((doc) => doc.data() as Record<string, unknown>);
+    bustedPlayers = mergeLinkedOkibakeBustedPlayers(bustedPlayers, okibakeEntries);
 
     logOpsSuccess({
       message: 'ランキングデータの取得に成功しました',

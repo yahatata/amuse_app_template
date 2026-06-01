@@ -26,6 +26,7 @@ class OkibakeSeatActionDialog extends StatefulWidget {
     required this.service,
     required this.showResultSnackBar,
     this.showBustAction = true,
+    this.addonIntent,
   });
 
   final String tournamentId;
@@ -41,6 +42,7 @@ class OkibakeSeatActionDialog extends StatefulWidget {
   /// Phase 4 補完: 「置きバケ一覧」経由のときは Bust を出さない（§12.8.4）。
   /// 卓席タップ導線では `true` を維持する。
   final bool showBustAction;
+  final String? addonIntent;
 
   @override
   State<OkibakeSeatActionDialog> createState() =>
@@ -57,6 +59,7 @@ class _OkibakeSeatActionDialogState extends State<OkibakeSeatActionDialog> {
   int _okibakeAddonCount = 0;
   String _billLinkStatus = 'unlinked';
   String? _linkedUserId;
+  String? _addonIntentFromEntry;
 
   @override
   void initState() {
@@ -109,6 +112,12 @@ class _OkibakeSeatActionDialogState extends State<OkibakeSeatActionDialog> {
         linkedUserId = linked is String && linked.trim().isNotEmpty
             ? linked.trim()
             : null;
+        final addonIntentRaw = eData['addonIntent'];
+        if (addonIntentRaw is String && addonIntentRaw.trim().isNotEmpty) {
+          _addonIntentFromEntry = addonIntentRaw.trim();
+        } else {
+          _addonIntentFromEntry = null;
+        }
       }
 
       setState(() {
@@ -325,6 +334,14 @@ class _OkibakeSeatActionDialogState extends State<OkibakeSeatActionDialog> {
       children: [
         Text(
           formatOkibakeBillLinkStatusLabel(_billLinkStatus),
+          style: const TextStyle(
+            fontSize: 13,
+            height: 1.35,
+            color: Colors.black54,
+          ),
+        ),
+        Text(
+          'アドオン意思: ${formatOkibakeAddonIntentLabel(_addonIntentFromEntry ?? widget.addonIntent)}',
           style: const TextStyle(
             fontSize: 13,
             height: 1.35,

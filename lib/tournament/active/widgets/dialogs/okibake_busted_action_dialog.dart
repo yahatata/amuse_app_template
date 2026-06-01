@@ -15,6 +15,7 @@ Future<OkibakeBustedAction?> showOkibakeBustedActionDialog({
   required String displayName,
   required String billLinkStatus,
   required String bustedInfoLine,
+  String? addonIntent,
   bool canSetLinkedUser = false,
 }) {
   return showDialog<OkibakeBustedAction>(
@@ -40,6 +41,10 @@ Future<OkibakeBustedAction?> showOkibakeBustedActionDialog({
           ),
           Text(
             formatOkibakeBillLinkStatusLabel(billLinkStatus),
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+          ),
+          Text(
+            'アドオン意思: ${formatOkibakeAddonIntentLabel(addonIntent)}',
             style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
           ),
         ],

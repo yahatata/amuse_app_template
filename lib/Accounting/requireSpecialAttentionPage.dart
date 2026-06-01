@@ -55,6 +55,7 @@ class _RequireSpecialAttentionPageState
 
   /// ユーザー別タブで選択中のユーザー（null のときはユーザー一覧を表示）
   Map<String, dynamic>? _selectedUserCard;
+  bool _resolvingRemotePayment = false;
 
   @override
   void initState() {
@@ -256,32 +257,86 @@ class _RequireSpecialAttentionPageState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('要対応の会計'),
-        backgroundColor: Colors.brown[700],
-        foregroundColor: Colors.white,
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          tabs: const [
-            Tab(text: '日付ごと'),
-            Tab(text: 'ユーザー別'),
-          ],
-        ),
-      ),
-      body: Column(
+    return PopScope(
+      canPop: !_resolvingRemotePayment,
+      child: Stack(
         children: [
-          _buildFilterChips(),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
+          Scaffold(
+            appBar: AppBar(
+              title: const Text('要対応の会計'),
+              backgroundColor: Colors.brown[700],
+              foregroundColor: Colors.white,
+              bottom: TabBar(
+                controller: _tabController,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+                tabs: const [
+                  Tab(text: '日付ごと'),
+                  Tab(text: 'ユーザー別'),
+                ],
+              ),
+            ),
+            body: Column(
               children: [
-                _buildTabByDate(),
-                _buildTabByUser(),
+                _buildFilterChips(),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildTabByDate(),
+                      _buildTabByUser(),
+                    ],
+                  ),
+                ),
               ],
             ),
+          ),
+          if (_resolvingRemotePayment)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showOkibakeLinkSuccessDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('完了'),
+        content: const Text('置きバケを伝票に紐付けました。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showRemotePaymentResultDialog(
+    BuildContext context, {
+    required bool success,
+    required String message,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text(success ? '完了' : 'エラー'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('OK'),
           ),
         ],
       ),
@@ -681,33 +736,49 @@ class _RequireSpecialAttentionPageState
     if (!mounted || action == null) return;
     final service = TournamentServiceImpl();
     if (action == 'link') {
-      await showOkibakeLinkBillDialog(
+      if (!context.mounted) return;
+      final linkedName = await showOkibakeLinkBillDialog(
         context: context,
         tournamentId: tournamentId,
         okibakeEntryId: okibakeEntryId,
         displayName: vm.displayTitle,
         service: service,
       );
+      if (!mounted || linkedName == null) return;
+      if (!context.mounted) return;
+      await _showOkibakeLinkSuccessDialog(context);
       return;
     }
+    if (!context.mounted) return;
     final amount = await showDialog<int>(
       context: context,
       builder: (ctx) => _RemotePaymentDialog(initialAmount: vm.displayAmountIncl),
     );
     if (amount == null || amount < 0) return;
-    final res = await service.resolveOkibakePendingReviewWithRemotePayment(
-      tournamentId: tournamentId,
-      okibakeEntryId: okibakeEntryId,
-      amountIncl: amount,
-      paymentMethod: 'cash',
-    );
+    if (_resolvingRemotePayment) return;
+    setState(() => _resolvingRemotePayment = true);
+    late ResolveOkibakePendingReviewWithRemotePaymentResult res;
+    try {
+      res = await service.resolveOkibakePendingReviewWithRemotePayment(
+        tournamentId: tournamentId,
+        okibakeEntryId: okibakeEntryId,
+        amountIncl: amount,
+        paymentMethod: 'cash',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _resolvingRemotePayment = false);
+      }
+    }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          res.success ? '来店なし入金を登録しました' : '来店なし入金に失敗しました: ${res.errorMessage ?? ''}',
-        ),
-      ),
+    final message = res.success
+        ? '来店なし入金を登録しました'
+        : '来店なし入金に失敗しました: ${res.errorMessage ?? ''}';
+    if (!context.mounted) return;
+    await _showRemotePaymentResultDialog(
+      context,
+      success: res.success,
+      message: message,
     );
   }
 }

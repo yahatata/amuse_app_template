@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/device_service.dart';
+import 'bust_undo_fallback_seat_dialog.dart';
+import 'bust_undo_seat_selection_error.dart';
 
 class TournamentActionsHistoryPage extends StatefulWidget {
   final String tournamentId;
@@ -35,6 +36,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
     'okibake_update_linked_user',
     'okibake_link_bill',
     'okibake_assign_seat',
+    'okibake_bust',
   };
   TabController? _tabController;
   List<Map<String, dynamic>> _actionLogs = [];
@@ -173,33 +175,62 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
 
   /// 一括アドオン・参加者一括登録で details からプレイヤー一覧を組み立てる
   List<Map<String, dynamic>> _getPlayerItemsFromDetails(Map<String, dynamic> details) {
+    final merged = <Map<String, dynamic>>[];
+
     final detailsList = details['details'];
     if (detailsList is List && detailsList.isNotEmpty) {
-      return detailsList.map((e) {
+      for (final e in detailsList) {
         final m = Map<String, dynamic>.from(e is Map ? e : {});
-        return {
-          'playerUid': m['playerUid']?.toString() ?? '',
-          'playerName': m['playerName']?.toString() ?? '不明',
+        final uid = m['playerUid']?.toString() ?? '';
+        if (uid.isEmpty) continue;
+        merged.add({
+          'targetType': 'normal',
+          'targetId': uid,
+          'playerUid': uid,
+          'playerName': m['playerName']?.toString() ?? 'User_$uid',
           ...m,
-        };
-      }).where((e) => ((e['playerUid'] as String?) ?? '').isNotEmpty).toList();
+        });
+      }
+    } else {
+      final uids = (details['playerUids'] as List?)?.map((e) => e?.toString() ?? '').toList() ?? [];
+      final names = (details['playerNames'] as List?)?.map((e) => e?.toString() ?? '').toList() ?? [];
+      for (var i = 0; i < uids.length; i++) {
+        final uid = uids[i];
+        if (uid.isEmpty) continue;
+        merged.add({
+          'targetType': 'normal',
+          'targetId': uid,
+          'playerUid': uid,
+          'playerName': i < names.length ? names[i] : 'User_$uid',
+        });
+      }
     }
-    final uids = (details['playerUids'] as List?)?.map((e) => e?.toString() ?? '').toList() ?? [];
-    final names = (details['playerNames'] as List?)?.map((e) => e?.toString() ?? '').toList() ?? [];
-    if (uids.isEmpty) return [];
-    return List.generate(uids.length, (i) {
-      return {
-        'playerUid': uids[i],
-        'playerName': i < names.length ? names[i] : 'User_${uids[i]}',
-      };
-    });
+
+    final okibakeTargets = details['okibakeTargets'];
+    if (okibakeTargets is List && okibakeTargets.isNotEmpty) {
+      for (final e in okibakeTargets) {
+        if (e is! Map) continue;
+        final id = e['okibakeEntryId']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        final displayName =
+            (e['playerName'] ?? e['pokerName'] ?? e['displayName'] ?? id).toString();
+        merged.add({
+          'targetType': 'okibake',
+          'targetId': id,
+          'okibakeEntryId': id,
+          'playerName': '$displayName（置きバケ）',
+        });
+      }
+    }
+
+    return merged;
   }
 
   /// 一括アドオン・参加者一括登録の取り消し対象者を選択するダイアログ。選択された subset を返す（キャンセル時は null）
   Future<Map<String, dynamic>?> _showPartialRollbackSelectionDialog(Map<String, dynamic> actionLog) async {
     final details = actionLog['details'];
     if (details is! Map) return null;
-    final detailsMap = Map<String, dynamic>.from(details as Map);
+    final detailsMap = Map<String, dynamic>.from(details);
     final players = _getPlayerItemsFromDetails(detailsMap);
     if (players.isEmpty) return null;
 
@@ -253,9 +284,12 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
                       return;
                     }
                     final subset = indices.map((i) => players[i]).toList();
+                    final normalSubset = subset.where((e) => e['targetType'] != 'okibake').toList();
+                    final okibakeSubset = subset.where((e) => e['targetType'] == 'okibake').toList();
                     Navigator.of(context).pop(<String, dynamic>{
-                      'playerUids': subset.map((e) => e['playerUid']).toList(),
+                      'playerUids': normalSubset.map((e) => e['playerUid']).toList(),
                       'playerNames': subset.map((e) => e['playerName']).toList(),
+                      'okibakeEntryIds': okibakeSubset.map((e) => e['okibakeEntryId']).toList(),
                       'details': subset,
                     });
                   },
@@ -270,7 +304,10 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
     );
   }
 
-  Future<void> _rollbackAction(Map<String, dynamic> actionLog) async {
+  Future<void> _rollbackAction(
+    Map<String, dynamic> actionLog, {
+    Map<String, dynamic>? fallbackSeat,
+  }) async {
     final action = actionLog['action'] as String;
     final isPartialRollback = action == 'bulk_addon' || action == 'register_participants';
 
@@ -289,26 +326,37 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
             '対象: ${_getTargetDisplayForConfirm(actionLog)}\n'
             '実行時刻: ${_formatDateTime(actionLog['executedAt'] ?? actionLog['createdAt'])}';
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('操作の取り消し'),
-        content: Text('この操作を本当に取り消しますか？\n\n$confirmContent'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('取り消し', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
+    final bool confirmed;
+    if (fallbackSeat != null) {
+      confirmed = await showBustUndoFallbackSeatConfirmDialog(
+        context,
+        actionDisplayName: _getActionDisplayName(action, actionLog),
+        targetDisplay: _getTargetDisplayForConfirm(actionLog),
+        fallbackSeat: fallbackSeat,
+      );
+    } else {
+      final rollbackConfirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('操作の取り消し'),
+          content: Text('この操作を本当に取り消しますか？\n\n$confirmContent'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('取り消し', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      confirmed = rollbackConfirmed == true;
+    }
 
-    if (confirmed != true) return;
+    if (!confirmed) return;
 
     if (!mounted) return;
     setState(() => _isRollingBack = true);
@@ -324,6 +372,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
         'action': action,
         'rollBackBy': _currentDeviceId ?? 'unknown',
         if (_currentDeviceName != null && _currentDeviceName!.isNotEmpty) 'rollBackByDeviceName': _currentDeviceName,
+        if (fallbackSeat != null) 'fallbackSeat': fallbackSeat,
       };
 
       // 操作タイプに応じて必要なパラメータを追加（addon は operationLogs から取得するため不要）
@@ -342,11 +391,20 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
           if (selectedSubset != null) {
             params['playerUids'] = selectedSubset['playerUids'];
             params['playerNames'] = selectedSubset['playerNames'];
+            params['okibakeEntryIds'] = selectedSubset['okibakeEntryIds'];
             params['details'] = selectedSubset['details'];
           } else if (actionLog['details'] is Map) {
             final details = actionLog['details'] as Map;
             if (details['playerUids'] != null) params['playerUids'] = details['playerUids'];
             if (details['playerNames'] != null) params['playerNames'] = details['playerNames'];
+            if (details['okibakeTargets'] is List) {
+              params['okibakeEntryIds'] =
+                  (details['okibakeTargets'] as List)
+                      .whereType<Map>()
+                      .map((e) => e['okibakeEntryId']?.toString() ?? '')
+                      .where((e) => e.isNotEmpty)
+                      .toList();
+            }
             if (details['details'] != null) params['details'] = details['details'];
           }
           break;
@@ -397,6 +455,15 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
       }
     } catch (e) {
       print('ロールバックエラー: $e');
+      final seatSelection = extractBustUndoSeatSelectionRequired(e);
+      if (seatSelection != null && fallbackSeat == null && mounted) {
+        setState(() => _isRollingBack = false);
+        final selectedSeat = await showBustUndoFallbackSeatDialog(context, seatSelection);
+        if (selectedSeat != null && mounted) {
+          await _rollbackAction(actionLog, fallbackSeat: selectedSeat);
+        }
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -511,9 +578,28 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
         actionLog['details'] is Map) {
       final details = actionLog['details'] as Map;
       final playerNames = details['playerNames'];
+      final okibakeTargets = details['okibakeTargets'];
+      final mergedNames = <String>[];
       if (playerNames is List && playerNames.isNotEmpty) {
         final names = playerNames.map((e) => e?.toString() ?? '').where((s) => s.isNotEmpty).toList();
-        if (names.isNotEmpty) return names.join(', ');
+        mergedNames.addAll(names);
+      }
+      if (okibakeTargets is List && okibakeTargets.isNotEmpty) {
+        for (final target in okibakeTargets) {
+          if (target is! Map) continue;
+          final raw =
+              target['playerName'] ??
+              target['pokerName'] ??
+              target['displayName'] ??
+              target['okibakeEntryId'];
+          final name = raw?.toString() ?? '';
+          if (name.isNotEmpty) {
+            mergedNames.add('$name（置きバケ）');
+          }
+        }
+      }
+      if (mergedNames.isNotEmpty) {
+        return mergedNames.join(', ');
       }
     }
     if (actionLog['action'] == 'set_ranking_data' && actionLog['details'] is Map) {
@@ -537,12 +623,27 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
   /// 一括操作の対象者を details の playerNames から表示用 Widget を返す（参加者一括登録・一括アドオン）
   Widget _buildTargetNamesFromDetails(Map details) {
     final playerNames = details['playerNames'];
-    if (playerNames is! List || playerNames.isEmpty) {
-      return Text('対象: （なし）');
+    final mergedNames = <String>[];
+    if (playerNames is List && playerNames.isNotEmpty) {
+      mergedNames.addAll(playerNames.map((e) => e?.toString() ?? '').where((s) => s.isNotEmpty));
     }
-    final names = playerNames.map((e) => e?.toString() ?? '').where((s) => s.isNotEmpty).toList();
-    if (names.isEmpty) return Text('対象: （なし）');
-    return Text('対象: ${names.join(', ')}');
+    final okibakeTargets = details['okibakeTargets'];
+    if (okibakeTargets is List && okibakeTargets.isNotEmpty) {
+      for (final target in okibakeTargets) {
+        if (target is! Map) continue;
+        final raw =
+            target['playerName'] ??
+            target['pokerName'] ??
+            target['displayName'] ??
+            target['okibakeEntryId'];
+        final name = raw?.toString() ?? '';
+        if (name.isNotEmpty) {
+          mergedNames.add('$name（置きバケ）');
+        }
+      }
+    }
+    if (mergedNames.isEmpty) return const Text('対象: （なし）');
+    return Text('対象: ${mergedNames.join(', ')}');
   }
 
   /// ランキングデータ設定の details（rankingEntries）からランキング・名前・賞金を表示する

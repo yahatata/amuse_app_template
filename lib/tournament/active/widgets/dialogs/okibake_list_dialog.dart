@@ -481,6 +481,7 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
       addonDisabled: _addonDisabled,
       waitingMinutes: waitingMinutes < 0 ? 0 : waitingMinutes,
       billLinkStatus: widget.entry.billLinkStatus,
+      addonIntent: widget.entry.addonIntent,
       canSetLinkedUser: _canSetLinkedUser,
     );
     if (!mounted || action == null) return;
@@ -508,6 +509,7 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
           displayName: _displayName,
           service: widget.service,
           showBustAction: false,
+          addonIntent: widget.entry.addonIntent,
           showResultSnackBar: (message, isError) =>
               widget.showSnack(message, isError: isError),
         );
@@ -523,6 +525,7 @@ class _OkibakeListTileState extends State<_OkibakeListTile> {
       bustedInfoLine: formatOkibakeBustedInfoLine(
         bustedAt: widget.entry.bustedAt,
       ),
+      addonIntent: widget.entry.addonIntent,
       canSetLinkedUser: _canSetLinkedUser,
     );
     if (!mounted || action == null) return;
