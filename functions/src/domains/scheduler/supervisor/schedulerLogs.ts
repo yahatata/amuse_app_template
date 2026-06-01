@@ -1,6 +1,9 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import type { SchedulerJobKey } from '../../../shared/config/schedulerConfigTypes';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import {
+  writeCentralSchedulerLog,
+} from '../../../shared/centralFirestore/writeToCentralFirestore';
 
 const DISPATCH_LOG_COLLECTION = 'schedulerDispatchLogs';
 const EXECUTION_LOG_COLLECTION = 'schedulerExecutionLogsByCloudTask';
@@ -63,6 +66,18 @@ export async function writeSchedulerDispatchLogBestEffort(
         idempotencyKey: entry.idempotencyKey,
       },
     });
+
+    void writeCentralSchedulerLog(entry.projectId, {
+      jobKey: entry.jobKey,
+      planningDate: entry.planningDate,
+      eventType: entry.eventType === 'enqueued' ? 'start' : entry.eventType,
+      idempotencyKey: entry.idempotencyKey,
+      plannedRunAt: entry.plannedRunAt,
+      supervisorRunId: entry.supervisorRunId,
+      functionEntry: entry.functionName,
+      ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
+      ...(entry.decisionSnapshot !== undefined ? { decisionSnapshot: entry.decisionSnapshot } : {}),
+    });
   } catch (error) {
     logOpsError({
       message: 'schedulerDispatchLogs write failed',
@@ -101,6 +116,21 @@ export async function writeSchedulerExecutionLogByCloudTaskBestEffort(
         idempotencyKey: entry.idempotencyKey,
         supervisorRunId: entry.supervisorRunId,
       },
+    });
+
+    void writeCentralSchedulerLog(entry.projectId, {
+      jobKey: entry.jobKey,
+      eventType:
+        entry.eventType === 'started'
+          ? 'start'
+          : entry.eventType === 'completed'
+          ? 'success'
+          : entry.eventType,
+      idempotencyKey: entry.idempotencyKey,
+      functionEntry: entry.functionName,
+      ...(entry.supervisorRunId !== undefined ? { supervisorRunId: entry.supervisorRunId } : {}),
+      ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
+      ...(entry.decisionSnapshot !== undefined ? { decisionSnapshot: entry.decisionSnapshot } : {}),
     });
   } catch (error) {
     logOpsError({

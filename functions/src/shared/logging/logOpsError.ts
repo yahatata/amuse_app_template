@@ -3,6 +3,21 @@ import { getRequiredProjectId } from '../runtime/projectId';
 import { FunctionCustomError } from './functionCustomError';
 import { extractExternalFromCause, type SourceProductId } from './externalFromCause';
 import { resolveServiceForFunctionEntry } from './serviceByFunctionEntry';
+import {
+  writeCentralErrorLog,
+  writeCentralTaskLog,
+} from '../centralFirestore/writeToCentralFirestore';
+import type { SchedulerJobKey } from '../config/schedulerConfigTypes';
+
+// scheduler handler の functionEntry 一覧。taskLogs への二重書き込みを防ぐために使用。
+const SCHEDULER_JOB_KEYS = new Set<SchedulerJobKey>([
+  'weeklyPlanner',
+  'enqueueTournamentTasksByScheduler',
+  'generateRecurringTournamentsByScheduler',
+  'scheduledCleanup',
+  'scheduleGenerateNextYearBusinessHours',
+  'payrollNotificationScheduler',
+]);
 
 export type ErrorSource = 'external_api' | 'function_common' | 'function_custom';
 
@@ -154,6 +169,23 @@ export function logOpsError(args: LogOpsErrorArgs): void {
   }
 
   logger.error(args.message, payload);
+
+  void writeCentralErrorLog(projectId, {
+    message: args.message,
+    functionEntry: args.functionEntry,
+    service: payload.service,
+    errorSource: payload.errorSource,
+    projectId,
+    ...(payload.operation !== undefined ? { operation: payload.operation } : {}),
+    ...(payload.errorMessage !== undefined ? { errorMessage: payload.errorMessage } : {}),
+    ...(payload.errorName !== undefined ? { errorName: payload.errorName } : {}),
+    ...(payload.errorKey !== undefined ? { errorKey: payload.errorKey } : {}),
+    ...(payload.sourceProduct !== undefined ? { sourceProduct: payload.sourceProduct } : {}),
+    ...(payload.sdkCode !== undefined ? { sdkCode: payload.sdkCode } : {}),
+    ...(payload.httpStatus !== undefined ? { httpStatus: payload.httpStatus } : {}),
+    ...(payload.detailReason !== undefined ? { detailReason: payload.detailReason } : {}),
+    ...(payload.context !== undefined ? { context: payload.context } : {}),
+  });
 }
 
 export type LogOpsSuccessArgs = {
@@ -183,6 +215,15 @@ export function logOpsSuccess(args: LogOpsSuccessArgs): void {
     payload.context = args.context;
   }
   logger.info(args.message, payload);
+
+  if (!SCHEDULER_JOB_KEYS.has(args.functionEntry as SchedulerJobKey)) {
+    void writeCentralTaskLog(projectId, {
+      functionEntry: args.functionEntry,
+      service: payload.service,
+      eventType: 'success',
+      ...(args.context !== undefined ? { context: args.context } : {}),
+    });
+  }
 }
 
 export type LogOpsInfoArgs = {
@@ -211,6 +252,15 @@ export function logOpsInfo(args: LogOpsInfoArgs): void {
     payload.context = args.context;
   }
   logger.info(args.message, payload);
+
+  if (!SCHEDULER_JOB_KEYS.has(args.functionEntry as SchedulerJobKey)) {
+    void writeCentralTaskLog(projectId, {
+      functionEntry: args.functionEntry,
+      service: payload.service,
+      eventType: 'start',
+      ...(args.context !== undefined ? { context: args.context } : {}),
+    });
+  }
 }
 
 /** postback 等、全文を載せず先頭だけ残す */

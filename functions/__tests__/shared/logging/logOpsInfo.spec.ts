@@ -9,7 +9,14 @@ jest.mock('firebase-functions', () => ({
   logger: {
     info: jest.fn(),
     error: jest.fn(),
+    warn: jest.fn(),
   },
+}));
+
+jest.mock('../../../src/shared/centralFirestore/writeToCentralFirestore', () => ({
+  writeCentralErrorLog: jest.fn().mockResolvedValue(undefined),
+  writeCentralTaskLog: jest.fn().mockResolvedValue(undefined),
+  writeCentralSchedulerLog: jest.fn().mockResolvedValue(undefined),
 }));
 
 describe('logOpsInfo', () => {
