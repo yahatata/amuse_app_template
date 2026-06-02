@@ -8,6 +8,7 @@ import {
 } from '../../../shared/config/cloudTasksConfig';
 import { getRequiredProjectId } from '../../../shared/runtime/projectId';
 import { getTaskEndpoints } from '../../../shared/secrets/secretManager';
+import type { SchedulerChildExecutionMetadata } from '../../scheduler/supervisor/schedulerCorrelation';
 const client = new CloudTasksClient();
 
 /**
@@ -20,7 +21,8 @@ export async function enqueueTournamentTask(
   planHash: string,
   scheduledAt: string,
   storeId: string,
-  enqueueDueAt: Date
+  enqueueDueAt: Date,
+  schedulerMetadata?: SchedulerChildExecutionMetadata
 ): Promise<string> {
   const projectId = getRequiredProjectId();
   const { controlHookUrl } = await getTaskEndpoints();
@@ -40,6 +42,7 @@ export async function enqueueTournamentTask(
     planHash,
     scheduledAt,
     storeId,
+    ...(schedulerMetadata ?? {}),
   };
 
   // changeSpec 13: deterministic taskName で重複投入防止

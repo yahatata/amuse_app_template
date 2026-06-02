@@ -13,6 +13,11 @@ import { FunctionCustomError } from '../../../shared/logging/functionCustomError
 import { validateStoreTenantForProduction, isProductionRuntime } from '../../../shared/runtime';
 import { resolveStoreTenantForWrite } from '../../../shared/runtime/storeTenantIdentity';
 import { enqueueTournamentTask } from './tasks';
+import {
+  buildSchedulerChildExecutionMetadata,
+  type SchedulerTaskDispatchParentContext,
+} from '../../scheduler/supervisor/schedulerCorrelation';
+import { writeSchedulerTaskDispatchLogFromParentBestEffort } from '../../scheduler/supervisor/schedulerTaskDispatchLogs';
 
 const HORIZON_DAYS = 14;
 const LOOKBACK_HOURS = 6;
@@ -31,6 +36,7 @@ export interface RunEnqueueOptions {
   rangeStartAt?: string;
   rangeEndAt?: string;
   now?: Date;
+  schedulerParent?: SchedulerTaskDispatchParentContext;
 }
 
 export interface RunEnqueueResult {
@@ -139,6 +145,43 @@ export function validateRequiredFields(data: FirebaseFirestore.DocumentData): st
   return null;
 }
 
+function buildTournamentChildUnitKey(tournamentId: string, taskType: TaskType): string {
+  return `controlHookHttp:${taskType}:${tournamentId}`;
+}
+
+async function logTournamentChildDispatch(
+  schedulerParent: SchedulerTaskDispatchParentContext | undefined,
+  params: {
+    tournamentId: string;
+    taskType: TaskType;
+    planVersion: number;
+    planHash?: string;
+    childScheduledAt: string;
+    eventType: 'enqueued' | 'skip' | 'error';
+    reason?: string;
+    context?: Record<string, unknown>;
+  }
+): Promise<void> {
+  if (!schedulerParent) {
+    return;
+  }
+
+  await writeSchedulerTaskDispatchLogFromParentBestEffort(schedulerParent, {
+    childFunctionEntry: 'controlHookHttp',
+    childUnitKey: buildTournamentChildUnitKey(params.tournamentId, params.taskType),
+    childScheduledAt: params.childScheduledAt,
+    childTargetSummary: {
+      tournamentId: params.tournamentId,
+      taskType: params.taskType,
+      planVersion: params.planVersion,
+      planHash: params.planHash ?? null,
+    },
+    eventType: params.eventType,
+    ...(params.reason !== undefined ? { reason: params.reason } : {}),
+    ...(params.context !== undefined ? { context: params.context } : {}),
+  });
+}
+
 /**
  * 対象 tournament について taskIndex を突合し、必要に応じて Cloud Tasks を投入
  */
@@ -147,7 +190,8 @@ async function processTournament(
   tournamentId: string,
   doc: FirebaseFirestore.DocumentData,
   now: Date,
-  thirtyDaysFromNow: Date
+  thirtyDaysFromNow: Date,
+  schedulerParent?: SchedulerTaskDispatchParentContext
 ): Promise<{ enqueued: number }> {
   let enqueued = 0;
   const planVersion = doc.schedulePlanVersion ?? 0;
@@ -176,6 +220,17 @@ async function processTournament(
     const targetAt =
       taskType === 'startTournament' ? startAt : taskType === 'closeRegistration' ? regEndAt : null;
     if (!targetAt) {
+      await logTournamentChildDispatch(schedulerParent, {
+        tournamentId,
+        taskType,
+        planVersion,
+        childScheduledAt: startAt.toISOString(),
+        eventType: 'skip',
+        reason: 'target_at_unresolved',
+        context: {
+          targetAtResolved: false,
+        },
+      });
       // closeRegistration が blindTemplate 欠落でスキップ(null) の場合は「未完」扱い。
       // results.closeRegistration は初期値 'pending' のまま → taskSyncNeeded を false に落とさない（再試行対象として残す）。
       continue;
@@ -200,6 +255,18 @@ async function processTournament(
 
     if (currentPlanHash && currentPlanHash === planHash) {
       if (currentState === 'enqueued' || currentState === 'executed') {
+        await logTournamentChildDispatch(schedulerParent, {
+          tournamentId,
+          taskType,
+          planVersion,
+          planHash,
+          childScheduledAt: enqueueDueDate.toISOString(),
+          eventType: 'skip',
+          reason: 'task_already_synced',
+          context: {
+            currentState,
+          },
+        });
         results[taskType] = 'done';
         continue;
       }
@@ -230,7 +297,14 @@ async function processTournament(
           planHash,
           enqueueDueDate.toISOString(),
           storeId,
-          enqueueDueDate
+          enqueueDueDate,
+          schedulerParent ?
+            buildSchedulerChildExecutionMetadata(
+              schedulerParent,
+              'controlHookHttp',
+              buildTournamentChildUnitKey(tournamentId, taskType)
+            ) :
+            undefined
         );
         enqueued++;
         const deterministicName = `${tournamentId}-${taskType}-${planHash}`;
@@ -238,6 +312,18 @@ async function processTournament(
           enqueueState: 'enqueued',
           taskName: taskName || deterministicName,
           lastEnqueuedAt: Timestamp.now(),
+        });
+        await logTournamentChildDispatch(schedulerParent, {
+          tournamentId,
+          taskType,
+          planVersion,
+          planHash,
+          childScheduledAt: enqueueDueDate.toISOString(),
+          eventType: 'enqueued',
+          context: {
+            enqueueState: 'enqueued',
+            taskName: taskName || deterministicName,
+          },
         });
         results[taskType] = 'done';
       } catch (err) {
@@ -257,8 +343,32 @@ async function processTournament(
             at: Timestamp.now(),
           },
         });
+        await logTournamentChildDispatch(schedulerParent, {
+          tournamentId,
+          taskType,
+          planVersion,
+          planHash,
+          childScheduledAt: enqueueDueDate.toISOString(),
+          eventType: 'error',
+          reason: err instanceof Error ? err.message : String(err),
+          context: {
+            enqueueState: 'failed',
+          },
+        });
       }
     } else {
+      await logTournamentChildDispatch(schedulerParent, {
+        tournamentId,
+        taskType,
+        planVersion,
+        planHash,
+        childScheduledAt: enqueueDueDate.toISOString(),
+        eventType: 'skip',
+        reason: 'enqueue_due_at_beyond_cloud_tasks_window',
+        context: {
+          enqueueDueAt: enqueueDueDate.toISOString(),
+        },
+      });
       results[taskType] = 'pending';
     }
   }
@@ -391,7 +501,8 @@ export async function runEnqueueTournamentTasks(
             id,
             data,
             now,
-            thirtyDaysFromNow
+            thirtyDaysFromNow,
+            options.schedulerParent
           );
           return { success: true as const, enqueued };
         } catch (err) {

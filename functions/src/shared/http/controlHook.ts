@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { logger } from 'firebase-functions';
 import { logOpsError, logOpsInfo, logOpsSuccess } from '../logging/logOpsError';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { extractSchedulerChildExecutionMetadata } from '../../domains/scheduler/supervisor/schedulerCorrelation';
 
 /**
  * Cloud Tasks からの HTTP リクエストを受け付けるエンドポイント
@@ -20,6 +21,13 @@ interface NewPayload {
   planHash: string;
   scheduledAt?: string;
   storeId?: string;
+  schedulerParentJobKey?: string;
+  schedulerParentPlanningDate?: string;
+  schedulerParentPlannedRunAt?: string;
+  schedulerParentIdempotencyKey?: string;
+  schedulerParentSupervisorRunId?: string;
+  schedulerChildUnitKey?: string;
+  schedulerChildFunctionEntry?: string;
 }
 
 function isNewPayload(body: unknown): body is NewPayload {
@@ -84,6 +92,23 @@ function isTaskIndexMissingSuspiciousExecutionGap(
   return false;
 }
 
+function logNewPayloadTaskOutcome(
+  context: {
+    tournamentId: string;
+    taskType: string;
+    planVersion: number;
+    planHash: string;
+    lastRunResult: 'success' | 'noop';
+  } & Record<string, unknown>
+): void {
+  logOpsSuccess({
+    message: 'controlHook 新payload 処理完了',
+    functionEntry: 'controlHookHttp',
+    operation: 'executeNewPayloadTask',
+    context,
+  });
+}
+
 export const controlHook = async (req: Request, res: Response) => {
   try {
     if (req.method !== 'POST') {
@@ -133,6 +158,7 @@ async function handleNewPayload(
   res: Response,
   body: NewPayload
 ): Promise<void> {
+  const schedulerMetadata = extractSchedulerChildExecutionMetadata(body);
   logOpsInfo({
     message: 'controlHookHttp start',
     functionEntry: 'controlHookHttp',
@@ -142,10 +168,18 @@ async function handleNewPayload(
       taskType: body.taskType,
       planVersion: body.planVersion,
       planHash: body.planHash,
+      ...schedulerMetadata,
     },
   });
 
   const { tournamentId, taskType, planVersion, planHash } = body;
+  const baseSuccessContext = {
+    tournamentId,
+    taskType,
+    planVersion,
+    planHash,
+    ...schedulerMetadata,
+  };
   const db = getFirestore();
   const taskIndexRef = db
     .collection('scheduledTournaments')
@@ -252,6 +286,7 @@ async function handleNewPayload(
           taskType,
           planVersion,
           planHash,
+          ...schedulerMetadata,
           cloudTaskName: cloudTaskName ?? null,
           tournamentStatus: (tournamentData.status as string | undefined) ?? null,
           hasStartedAt: Boolean(runtimeData.startedAt),
@@ -261,6 +296,10 @@ async function handleNewPayload(
     } else {
       logTaskIndexMissing(tournamentId, taskType, planVersion, planHash, cloudTaskName);
     }
+    logNewPayloadTaskOutcome({
+      ...baseSuccessContext,
+      lastRunResult: 'noop',
+    });
     res.status(200).json({ success: true, message: 'no-op (taskIndex missing)' });
     return;
   }
@@ -282,6 +321,10 @@ async function handleNewPayload(
       schedulePlanVersion,
       planVersion,
     });
+    logNewPayloadTaskOutcome({
+      ...baseSuccessContext,
+      lastRunResult: 'noop',
+    });
     res.status(200).json({ success: true, message: 'no-op (version mismatch)' });
     return;
   }
@@ -298,11 +341,16 @@ async function handleNewPayload(
       tournamentId,
       taskType,
     });
+    logNewPayloadTaskOutcome({
+      ...baseSuccessContext,
+      lastRunResult: 'noop',
+    });
     res.status(200).json({ success: true, message: 'no-op (hash mismatch)' });
     return;
   }
 
   // 6. トランザクション内で本処理
+  let lastRunResult: 'success' | 'noop' = 'noop';
   await db.runTransaction(async (transaction) => {
     const [tDoc, rDoc] = await Promise.all([
       transaction.get(tournamentRef),
@@ -335,19 +383,18 @@ async function handleNewPayload(
       }
     }
 
-    const lastRunResult = mainSuccess ? 'success' : 'noop';
+    const currentLastRunResult = mainSuccess ? 'success' : 'noop';
+    lastRunResult = currentLastRunResult;
     transaction.update(taskIndexRef, {
       enqueueState: 'executed',
       lastRunAt: now,
-      lastRunResult,
+      lastRunResult: currentLastRunResult,
     });
   });
 
-  logOpsSuccess({
-    message: 'controlHook 新payload 処理完了',
-    functionEntry: 'controlHookHttp',
-    operation: 'executeNewPayloadTask',
-    context: { tournamentId, taskType, planVersion, planHash },
+  logNewPayloadTaskOutcome({
+    ...baseSuccessContext,
+    lastRunResult,
   });
 
   res.status(200).json({
@@ -369,6 +416,7 @@ async function handleNewPayload(
       operation: 'executeNewPayloadTask',
       cause: err,
       sourceProductHint: 'firestore',
+      context: baseSuccessContext,
     });
     res.status(500).json({
       error: 'Internal server error',

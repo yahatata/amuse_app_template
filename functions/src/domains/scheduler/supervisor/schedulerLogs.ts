@@ -1,6 +1,7 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import type { SchedulerJobKey } from '../../../shared/config/schedulerConfigTypes';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import type { SchedulerTargetScope } from './schedulerTargetScope';
 import {
   writeCentralSchedulerLog,
 } from '../../../shared/centralFirestore/writeToCentralFirestore';
@@ -17,7 +18,9 @@ function omitUndefinedFields(
 }
 
 export interface SchedulerDispatchLog {
+  phase: 'dispatch';
   eventType: 'enqueued' | 'skip' | 'error';
+  rawEventType: 'enqueued' | 'skip' | 'error';
   isSuccess: boolean;
   reason?: string;
   jobKey: SchedulerJobKey;
@@ -25,6 +28,7 @@ export interface SchedulerDispatchLog {
   queueName: string;
   plannedRunAt: string;
   planningDate: string;
+  targetScope: SchedulerTargetScope;
   projectId: string;
   idempotencyKey: string;
   supervisorRunId: string;
@@ -33,15 +37,41 @@ export interface SchedulerDispatchLog {
 }
 
 export interface SchedulerExecutionLogByCloudTask {
+  phase: 'execution';
   eventType: 'started' | 'completed' | 'skip' | 'error';
+  rawEventType: 'started' | 'completed' | 'skip' | 'error';
   isSuccess: boolean;
   reason?: string;
   jobKey: SchedulerJobKey;
   functionName: string;
+  planningDate: string;
+  plannedRunAt: string;
+  targetScope: SchedulerTargetScope;
   projectId: string;
   idempotencyKey: string;
   supervisorRunId?: string;
   decisionSnapshot?: Record<string, boolean | number | string>;
+}
+
+function toLegacySchedulerEventType(
+  phase: SchedulerDispatchLog['phase'] | SchedulerExecutionLogByCloudTask['phase'],
+  rawEventType:
+    | SchedulerDispatchLog['rawEventType']
+    | SchedulerExecutionLogByCloudTask['rawEventType']
+): 'start' | 'skip' | 'error' | 'success' {
+  if (phase === 'dispatch' && rawEventType === 'enqueued') {
+    return 'start';
+  }
+  if (phase === 'execution' && rawEventType === 'started') {
+    return 'start';
+  }
+  if (phase === 'execution' && rawEventType === 'completed') {
+    return 'success';
+  }
+  if (rawEventType === 'skip') {
+    return 'skip';
+  }
+  return 'error';
 }
 
 export async function writeSchedulerDispatchLogBestEffort(
@@ -70,9 +100,12 @@ export async function writeSchedulerDispatchLogBestEffort(
     void writeCentralSchedulerLog(entry.projectId, {
       jobKey: entry.jobKey,
       planningDate: entry.planningDate,
-      eventType: entry.eventType === 'enqueued' ? 'start' : entry.eventType,
-      idempotencyKey: entry.idempotencyKey,
       plannedRunAt: entry.plannedRunAt,
+      targetScope: entry.targetScope,
+      phase: entry.phase,
+      rawEventType: entry.rawEventType,
+      eventType: toLegacySchedulerEventType(entry.phase, entry.rawEventType),
+      idempotencyKey: entry.idempotencyKey,
       supervisorRunId: entry.supervisorRunId,
       functionEntry: entry.functionName,
       ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
@@ -120,12 +153,12 @@ export async function writeSchedulerExecutionLogByCloudTaskBestEffort(
 
     void writeCentralSchedulerLog(entry.projectId, {
       jobKey: entry.jobKey,
-      eventType:
-        entry.eventType === 'started'
-          ? 'start'
-          : entry.eventType === 'completed'
-          ? 'success'
-          : entry.eventType,
+      planningDate: entry.planningDate,
+      plannedRunAt: entry.plannedRunAt,
+      targetScope: entry.targetScope,
+      phase: entry.phase,
+      rawEventType: entry.rawEventType,
+      eventType: toLegacySchedulerEventType(entry.phase, entry.rawEventType),
       idempotencyKey: entry.idempotencyKey,
       functionEntry: entry.functionName,
       ...(entry.supervisorRunId !== undefined ? { supervisorRunId: entry.supervisorRunId } : {}),

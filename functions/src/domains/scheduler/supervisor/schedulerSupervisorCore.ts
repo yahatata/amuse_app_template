@@ -194,11 +194,18 @@ export async function runSchedulerSupervisorCore(
       }
 
       const plannedRunAt = toUtcFromJstDateAndTime(targetJstDate, jobConfig.runAtJst);
+      const targetScope = buildSchedulerTargetScope(
+        jobKey,
+        plannedRunAt
+      ) as SchedulerTargetScope<typeof jobKey>;
+      const scheduleFingerprint = buildScheduleFingerprint(jobKey, schedulerConfig);
       if (plannedRunAt.getTime() <= now.getTime()) {
         skippedCount++;
         const queueName = getScheduledJobQueueName(jobKey);
         await writeSchedulerDispatchLogBestEffort({
+          phase: 'dispatch',
           eventType: 'skip',
+          rawEventType: 'skip',
           isSuccess: true,
           reason: 'planned_run_at_in_past',
           jobKey,
@@ -206,10 +213,11 @@ export async function runSchedulerSupervisorCore(
           queueName,
           plannedRunAt: plannedRunAt.toISOString(),
           planningDate,
+          targetScope,
           projectId,
           idempotencyKey: createIdempotencyKey(jobKey, plannedRunAt),
           supervisorRunId,
-          scheduleFingerprint: buildScheduleFingerprint(jobKey, schedulerConfig),
+          scheduleFingerprint,
           decisionSnapshot: {
             offsetDays: offset,
             isPastRun: true,
@@ -221,11 +229,6 @@ export async function runSchedulerSupervisorCore(
       const queueName = getScheduledJobQueueName(jobKey);
       const taskId = buildScheduledJobTaskId(jobKey, plannedRunAt);
       const idempotencyKey = createIdempotencyKey(jobKey, plannedRunAt);
-      const targetScope = buildSchedulerTargetScope(
-        jobKey,
-        plannedRunAt
-      ) as SchedulerTargetScope<typeof jobKey>;
-      const scheduleFingerprint = buildScheduleFingerprint(jobKey, schedulerConfig);
 
       const payload: ScheduledJobTaskPayload<typeof jobKey> = {
         schemaVersion: SCHEDULER_TASK_PAYLOAD_SCHEMA_VERSION,
@@ -250,13 +253,16 @@ export async function runSchedulerSupervisorCore(
         });
         enqueuedCount++;
         await writeSchedulerDispatchLogBestEffort({
+          phase: 'dispatch',
           eventType: 'enqueued',
+          rawEventType: 'enqueued',
           isSuccess: true,
           jobKey,
           functionName: jobKey,
           queueName,
           plannedRunAt: plannedRunAt.toISOString(),
           planningDate,
+          targetScope,
           projectId,
           idempotencyKey,
           supervisorRunId,
@@ -270,7 +276,9 @@ export async function runSchedulerSupervisorCore(
         if (isTaskAlreadyExistsError(error)) {
           skippedCount++;
           await writeSchedulerDispatchLogBestEffort({
+            phase: 'dispatch',
             eventType: 'skip',
+            rawEventType: 'skip',
             isSuccess: true,
             reason: 'task_already_exists',
             jobKey,
@@ -278,6 +286,7 @@ export async function runSchedulerSupervisorCore(
             queueName,
             plannedRunAt: plannedRunAt.toISOString(),
             planningDate,
+            targetScope,
             projectId,
             idempotencyKey,
             supervisorRunId,
@@ -294,7 +303,9 @@ export async function runSchedulerSupervisorCore(
         const message = error instanceof Error ? error.message : String(error);
         hardErrors.push(`${jobKey}:${message}`);
         await writeSchedulerDispatchLogBestEffort({
+          phase: 'dispatch',
           eventType: 'error',
+          rawEventType: 'error',
           isSuccess: false,
           reason: message,
           jobKey,
@@ -302,6 +313,7 @@ export async function runSchedulerSupervisorCore(
           queueName,
           plannedRunAt: plannedRunAt.toISOString(),
           planningDate,
+          targetScope,
           projectId,
           idempotencyKey,
           supervisorRunId,

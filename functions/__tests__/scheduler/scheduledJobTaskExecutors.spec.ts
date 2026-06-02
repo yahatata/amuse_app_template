@@ -117,10 +117,32 @@ describe("scheduledJobTaskExecutors", () => {
 
     expect(mockRunWeeklyPlannerTask).toHaveBeenCalledWith({
       targetWeekStartDate: "2026-04-06",
+      schedulerParent: {
+        storeId: "test-project",
+        schedulerParentJobKey: "weeklyPlanner",
+        schedulerParentPlanningDate: "2026-04-04",
+        schedulerParentPlannedRunAt: "2026-04-03T20:00:00.000Z",
+        schedulerParentIdempotencyKey: "weeklyPlanner:2026-04-03T20:00:00.000Z",
+        schedulerParentSupervisorRunId: "supervisor_20260403T180000Z_abcdef12",
+      },
     });
     expect(mockWriteExecutionLog).toHaveBeenCalledTimes(2);
-    expect(mockWriteExecutionLog.mock.calls[0][0].eventType).toBe("started");
-    expect(mockWriteExecutionLog.mock.calls[1][0].eventType).toBe("completed");
+    expect(mockWriteExecutionLog.mock.calls[0][0]).toMatchObject({
+      phase: "execution",
+      eventType: "started",
+      rawEventType: "started",
+      targetScope: {
+        targetWeekStartDate: "2026-04-06",
+      },
+    });
+    expect(mockWriteExecutionLog.mock.calls[1][0]).toMatchObject({
+      phase: "execution",
+      eventType: "completed",
+      rawEventType: "completed",
+      targetScope: {
+        targetWeekStartDate: "2026-04-06",
+      },
+    });
   });
 
   it("expected jobKey と payload.jobKey が不一致ならエラー", async () => {
@@ -175,7 +197,15 @@ describe("scheduledJobTaskExecutors", () => {
       evaluationDate: "2026-04-04",
       windowEndDate: "2026-07-04",
     });
-    expect(mockWriteExecutionLog.mock.calls[1][0].eventType).toBe("completed");
+    expect(mockWriteExecutionLog.mock.calls[1][0]).toMatchObject({
+      phase: "execution",
+      eventType: "completed",
+      rawEventType: "completed",
+      targetScope: {
+        evaluationDate: "2026-04-04",
+        windowEndDate: "2026-07-04",
+      },
+    });
   });
 
   it("scheduledCleanup payload を正しく実行する", async () => {
@@ -191,7 +221,14 @@ describe("scheduledJobTaskExecutors", () => {
     expect(mockRunScheduledCleanup).toHaveBeenCalledWith({
       cutoffDate: "2026-03-28",
     });
-    expect(mockWriteExecutionLog.mock.calls[1][0].eventType).toBe("completed");
+    expect(mockWriteExecutionLog.mock.calls[1][0]).toMatchObject({
+      phase: "execution",
+      eventType: "completed",
+      rawEventType: "completed",
+      targetScope: {
+        cutoffDate: "2026-03-28",
+      },
+    });
   });
 
   it("scheduleGenerateNextYearBusinessHours payload を正しく実行する", async () => {
@@ -210,7 +247,14 @@ describe("scheduledJobTaskExecutors", () => {
     expect(mockRunGenerateNextYearBusinessHours).toHaveBeenCalledWith({
       targetYear: 2027,
     });
-    expect(mockWriteExecutionLog.mock.calls[1][0].eventType).toBe("completed");
+    expect(mockWriteExecutionLog.mock.calls[1][0]).toMatchObject({
+      phase: "execution",
+      eventType: "completed",
+      rawEventType: "completed",
+      targetScope: {
+        targetYear: 2027,
+      },
+    });
   });
 
   it("payrollNotificationScheduler payload を正しく実行する", async () => {
@@ -225,8 +269,23 @@ describe("scheduledJobTaskExecutors", () => {
 
     expect(mockRunPayrollNotification).toHaveBeenCalledWith({
       targetDate: "2026-04-04",
+      schedulerParent: {
+        storeId: "test-project",
+        schedulerParentJobKey: "payrollNotificationScheduler",
+        schedulerParentPlanningDate: "2026-04-04",
+        schedulerParentPlannedRunAt: "2026-04-03T20:00:00.000Z",
+        schedulerParentIdempotencyKey: "payrollNotificationScheduler:2026-04-03T20:00:00.000Z",
+        schedulerParentSupervisorRunId: "supervisor_20260403T180000Z_abcdef12",
+      },
     });
-    expect(mockWriteExecutionLog.mock.calls[1][0].eventType).toBe("completed");
+    expect(mockWriteExecutionLog.mock.calls[1][0]).toMatchObject({
+      phase: "execution",
+      eventType: "completed",
+      rawEventType: "completed",
+      targetScope: {
+        targetDate: "2026-04-04",
+      },
+    });
   });
 
   it("replan 実行時に enqueue 失敗なら request を release して error を記録する", async () => {
@@ -253,7 +312,23 @@ describe("scheduledJobTaskExecutors", () => {
     expect(mockMarkReplanCompleted).toHaveBeenCalledTimes(0);
     expect(mockReleaseReplan).toHaveBeenCalledTimes(1);
     expect(mockWriteExecutionLog).toHaveBeenCalledTimes(2);
-    expect(mockWriteExecutionLog.mock.calls[0][0].eventType).toBe("started");
-    expect(mockWriteExecutionLog.mock.calls[1][0].eventType).toBe("error");
+    expect(mockWriteExecutionLog.mock.calls[0][0]).toMatchObject({
+      phase: "execution",
+      eventType: "started",
+      rawEventType: "started",
+      targetScope: {
+        rangeStartAt: "2026-04-03T12:00:00.000Z",
+        rangeEndAt: "2026-04-17T20:00:00.000Z",
+      },
+    });
+    expect(mockWriteExecutionLog.mock.calls[1][0]).toMatchObject({
+      phase: "execution",
+      eventType: "error",
+      rawEventType: "error",
+      targetScope: {
+        rangeStartAt: "2026-04-03T12:00:00.000Z",
+        rangeEndAt: "2026-04-17T20:00:00.000Z",
+      },
+    });
   });
 });

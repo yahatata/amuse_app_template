@@ -4,10 +4,12 @@ import {
   runEnqueueTournamentTasks,
   type RunEnqueueResult,
 } from "../services/enqueueTournamentTasksCore";
+import type { SchedulerTaskDispatchParentContext } from "../../scheduler/supervisor/schedulerCorrelation";
 
 export interface EnqueueTournamentTasksBySchedulerInput {
   rangeStartAt: string;
   rangeEndAt: string;
+  schedulerParent?: SchedulerTaskDispatchParentContext;
 }
 
 export async function runEnqueueTournamentTasksBySchedulerTask(
@@ -27,6 +29,7 @@ export async function runEnqueueTournamentTasksBySchedulerTask(
     const result = await runEnqueueTournamentTasks({
       rangeStartAt: input.rangeStartAt,
       rangeEndAt: input.rangeEndAt,
+      schedulerParent: input.schedulerParent,
     });
     // schedulerSupervisor と同様: store config 欠落等でタスク生成を止めたときは logOpsSuccess にしない
     if (result.skippedReason) {
