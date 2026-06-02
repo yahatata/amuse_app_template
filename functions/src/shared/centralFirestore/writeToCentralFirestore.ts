@@ -87,6 +87,39 @@ export async function writeCentralSchedulerLog(
 }
 
 /**
+ * 中央 Firestore の schedulerTaskDispatchLogs サブコレクションに best-effort write する。
+ * TTL: 30日。
+ */
+export async function writeCentralSchedulerTaskDispatchLog(
+  storeId: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const db = getCentralFirestore();
+  if (!db) return;
+
+  try {
+    const expireAt = new Date();
+    expireAt.setDate(expireAt.getDate() + 30);
+
+    await db
+      .collection('schedulerTaskDispatchLogs')
+      .doc(storeId)
+      .collection('runs')
+      .add({
+        ...data,
+        storeId,
+        loggedAt: FieldValue.serverTimestamp(),
+        expireAt,
+      });
+  } catch (err) {
+    logger.warn('writeCentralSchedulerTaskDispatchLog failed (best-effort)', {
+      storeId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
  * 中央 Firestore の taskLogs サブコレクションに best-effort write する。
  * TTL: 30日。
  */

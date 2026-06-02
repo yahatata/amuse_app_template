@@ -19,6 +19,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
 import { logOpsError, logOpsInfo, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
+import { extractSchedulerChildExecutionMetadata } from '../../scheduler/supervisor/schedulerCorrelation';
 
 type OpenAssessmentAction = 'open_assessment' | 'open_assessment_recheck';
 
@@ -53,11 +54,19 @@ export const openAssessmentTask = onRequest(
     region: 'asia-northeast1',
   },
   async (req, res) => {
+    const schedulerMetadata = extractSchedulerChildExecutionMetadata(req.body);
     try {
       const payload = req.body as {
         action: string;
         intendedBusinessDateKey: string;
         scheduledAt: string;
+        schedulerParentJobKey?: string;
+        schedulerParentPlanningDate?: string;
+        schedulerParentPlannedRunAt?: string;
+        schedulerParentIdempotencyKey?: string;
+        schedulerParentSupervisorRunId?: string;
+        schedulerChildUnitKey?: string;
+        schedulerChildFunctionEntry?: string;
       };
 
       const action = payload.action as OpenAssessmentAction;
@@ -84,6 +93,13 @@ export const openAssessmentTask = onRequest(
       const now = new Date();
       const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);  // UTC+9
       const serverNowJst = jstNow;
+      let taskResult = 'unknown';
+      let taskBlockers: string[] = [];
+
+      const setTaskOutcome = (result: string, blockers: string[] = []) => {
+        taskResult = result;
+        taskBlockers = [...blockers];
+      };
 
       // idempotencyKeyの生成
       const idempotencyKey = `${action}_${payload.intendedBusinessDateKey}_${payload.scheduledAt}`;
@@ -96,6 +112,7 @@ export const openAssessmentTask = onRequest(
           action,
           intendedBusinessDateKey: payload.intendedBusinessDateKey,
           idempotencyKey,
+          ...schedulerMetadata,
         },
       });
 
@@ -118,6 +135,7 @@ export const openAssessmentTask = onRequest(
         // 冪等性チェック
         if (openAssessment?.idempotencyKey === idempotencyKey) {
           console.log(`既に同じidempotencyKeyで更新済みです: ${idempotencyKey}`);
+          setTaskOutcome('duplicate_idempotency');
           return;  // no-op
         }
 
@@ -157,6 +175,7 @@ export const openAssessmentTask = onRequest(
               idempotencyKey,
               createdAt: decidedAt,
             });
+            setTaskOutcome('skipped', ['date_out_of_range']);
             return;
           }
         }
@@ -206,6 +225,7 @@ export const openAssessmentTask = onRequest(
             idempotencyKey,
             createdAt: decidedAt,
           });
+          setTaskOutcome('already_running');
           return;
         }
 
@@ -243,6 +263,7 @@ export const openAssessmentTask = onRequest(
             logData.suppressedByOverride = true;
           }
           transaction.set(logRef, logData);
+          setTaskOutcome('skipped', ['already_running_different_date']);
           return;
         }
 
@@ -314,6 +335,7 @@ export const openAssessmentTask = onRequest(
           logData.suppressedByOverride = suppressedByOverride;
         }
         transaction.set(logRef, logData);
+        setTaskOutcome(result, blockers);
       });
 
       logOpsSuccess({
@@ -324,6 +346,9 @@ export const openAssessmentTask = onRequest(
           intendedBusinessDateKey: payload.intendedBusinessDateKey,
           scheduledAt: payload.scheduledAt,
           idempotencyKey: `${action}_${payload.intendedBusinessDateKey}_${payload.scheduledAt}`,
+          result: taskResult,
+          blockers: taskBlockers,
+          ...schedulerMetadata,
         },
       });
 
@@ -336,6 +361,7 @@ export const openAssessmentTask = onRequest(
         context: {
           intendedBusinessDateKey: (req.body as { intendedBusinessDateKey?: string })?.intendedBusinessDateKey,
           action: (req.body as { action?: string })?.action,
+          ...schedulerMetadata,
         },
       });
       res.status(500).json({ error: error.message });

@@ -118,10 +118,15 @@ describe('schedulerSupervisorCore', () => {
     expect(enqueue).toHaveBeenCalledTimes(0);
     expect(mockWriteDispatchLog).toHaveBeenCalledTimes(1);
     expect(mockWriteDispatchLog.mock.calls[0][0]).toMatchObject({
+      phase: 'dispatch',
       eventType: 'skip',
+      rawEventType: 'skip',
       reason: 'planned_run_at_in_past',
       jobKey: 'scheduledCleanup',
       functionName: 'scheduledCleanup',
+      targetScope: {
+        cutoffDate: '2026-03-25',
+      },
     });
   });
 
@@ -146,10 +151,15 @@ describe('schedulerSupervisorCore', () => {
     expect(enqueue).toHaveBeenCalledTimes(1);
     expect(mockWriteDispatchLog).toHaveBeenCalledTimes(1);
     expect(mockWriteDispatchLog.mock.calls[0][0]).toMatchObject({
+      phase: 'dispatch',
       eventType: 'enqueued',
+      rawEventType: 'enqueued',
       jobKey: 'scheduledCleanup',
       functionName: 'scheduledCleanup',
       queueName: 'scheduled-job-scheduled-cleanup',
+      targetScope: {
+        cutoffDate: '2026-03-25',
+      },
     });
   });
 
@@ -174,9 +184,14 @@ describe('schedulerSupervisorCore', () => {
     expect(result.failedCount).toBe(0);
     expect(mockWriteDispatchLog).toHaveBeenCalledTimes(1);
     expect(mockWriteDispatchLog.mock.calls[0][0]).toMatchObject({
+      phase: 'dispatch',
       eventType: 'skip',
+      rawEventType: 'skip',
       reason: 'task_already_exists',
       jobKey: 'scheduledCleanup',
+      targetScope: {
+        cutoffDate: '2026-03-25',
+      },
     });
   });
 
@@ -201,10 +216,15 @@ describe('schedulerSupervisorCore', () => {
 
     expect(mockWriteDispatchLog).toHaveBeenCalledTimes(1);
     expect(mockWriteDispatchLog.mock.calls[0][0]).toMatchObject({
+      phase: 'dispatch',
       eventType: 'error',
+      rawEventType: 'error',
       isSuccess: false,
       reason: 'enqueue failed',
       jobKey: 'scheduledCleanup',
+      targetScope: {
+        cutoffDate: '2026-03-25',
+      },
     });
   });
 });

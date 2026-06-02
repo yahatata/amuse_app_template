@@ -22,12 +22,20 @@ import {
   DEFAULT_TASK_OPEN_OFFSET_MINUTES,
 } from "../../../shared/config/defaults";
 import { getTaskEndpoints } from "../../../shared/secrets/secretManager";
+import {
+  buildSchedulerChildExecutionMetadata,
+  type SchedulerTaskDispatchParentContext,
+} from "../../scheduler/supervisor/schedulerCorrelation";
+import { writeSchedulerTaskDispatchLogFromParentBestEffort } from "../../scheduler/supervisor/schedulerTaskDispatchLogs";
 
 const tasksClient = new CloudTasksClient();
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const OPEN_ASSESSMENT_FUNCTION_ENTRY = "openAssessmentTask";
+const CLOSE_ASSESSMENT_FUNCTION_ENTRY = "closeAssessmentTask";
 
 export interface WeeklyPlannerTaskInput {
   targetWeekStartDate: string;
+  schedulerParent?: SchedulerTaskDispatchParentContext;
 }
 
 export interface WeeklyPlannerTaskResult {
@@ -79,6 +87,13 @@ function buildScheduleTimeFromJstMinutes(
   minuteOfDay: number
 ): Date {
   return new Date(jstDateAtMidnight.getTime() + minuteOfDay * 60 * 1000);
+}
+
+function buildAssessmentChildUnitKey(
+  functionEntry: typeof OPEN_ASSESSMENT_FUNCTION_ENTRY | typeof CLOSE_ASSESSMENT_FUNCTION_ENTRY,
+  intendedBusinessDateKey: string
+): string {
+  return `${functionEntry}:${intendedBusinessDateKey}`;
 }
 
 export async function runWeeklyPlannerTask(
@@ -186,6 +201,13 @@ export async function runWeeklyPlannerTask(
         action: "open_assessment",
         intendedBusinessDateKey: dateKey,
         scheduledAt: openScheduleTime.toISOString(),
+        ...(input.schedulerParent ?
+          buildSchedulerChildExecutionMetadata(
+            input.schedulerParent,
+            OPEN_ASSESSMENT_FUNCTION_ENTRY,
+            buildAssessmentChildUnitKey(OPEN_ASSESSMENT_FUNCTION_ENTRY, dateKey)
+          ) :
+          {}),
       };
 
       try {
@@ -210,10 +232,60 @@ export async function runWeeklyPlannerTask(
           },
         });
         openTasksEnqueued += 1;
+        if (input.schedulerParent) {
+          await writeSchedulerTaskDispatchLogFromParentBestEffort(input.schedulerParent, {
+            childFunctionEntry: OPEN_ASSESSMENT_FUNCTION_ENTRY,
+            childUnitKey: buildAssessmentChildUnitKey(OPEN_ASSESSMENT_FUNCTION_ENTRY, dateKey),
+            childScheduledAt: openScheduleTime.toISOString(),
+            childTargetSummary: {
+              action: "open_assessment",
+              intendedBusinessDateKey: dateKey,
+            },
+            eventType: "enqueued",
+            context: {
+              queueName: tasksQueue,
+              taskId: openTaskId,
+            },
+          });
+        }
       } catch (error) {
         if (isTaskAlreadyExistsError(error)) {
           logger.info("weeklyPlanner: open task already exists", {dateKey});
+          if (input.schedulerParent) {
+            await writeSchedulerTaskDispatchLogFromParentBestEffort(input.schedulerParent, {
+              childFunctionEntry: OPEN_ASSESSMENT_FUNCTION_ENTRY,
+              childUnitKey: buildAssessmentChildUnitKey(OPEN_ASSESSMENT_FUNCTION_ENTRY, dateKey),
+              childScheduledAt: openScheduleTime.toISOString(),
+              childTargetSummary: {
+                action: "open_assessment",
+                intendedBusinessDateKey: dateKey,
+              },
+              eventType: "skip",
+              reason: "task_already_exists",
+              context: {
+                queueName: tasksQueue,
+                taskId: openTaskId,
+              },
+            });
+          }
         } else {
+          if (input.schedulerParent) {
+            await writeSchedulerTaskDispatchLogFromParentBestEffort(input.schedulerParent, {
+              childFunctionEntry: OPEN_ASSESSMENT_FUNCTION_ENTRY,
+              childUnitKey: buildAssessmentChildUnitKey(OPEN_ASSESSMENT_FUNCTION_ENTRY, dateKey),
+              childScheduledAt: openScheduleTime.toISOString(),
+              childTargetSummary: {
+                action: "open_assessment",
+                intendedBusinessDateKey: dateKey,
+              },
+              eventType: "error",
+              reason: error instanceof Error ? error.message : String(error),
+              context: {
+                queueName: tasksQueue,
+                taskId: openTaskId,
+              },
+            });
+          }
           throw error;
         }
       }
@@ -229,6 +301,13 @@ export async function runWeeklyPlannerTask(
         action: "close_assessment",
         intendedBusinessDateKey: dateKey,
         scheduledAt: closeScheduleTime.toISOString(),
+        ...(input.schedulerParent ?
+          buildSchedulerChildExecutionMetadata(
+            input.schedulerParent,
+            CLOSE_ASSESSMENT_FUNCTION_ENTRY,
+            buildAssessmentChildUnitKey(CLOSE_ASSESSMENT_FUNCTION_ENTRY, dateKey)
+          ) :
+          {}),
       };
 
       try {
@@ -253,10 +332,60 @@ export async function runWeeklyPlannerTask(
           },
         });
         closeTasksEnqueued += 1;
+        if (input.schedulerParent) {
+          await writeSchedulerTaskDispatchLogFromParentBestEffort(input.schedulerParent, {
+            childFunctionEntry: CLOSE_ASSESSMENT_FUNCTION_ENTRY,
+            childUnitKey: buildAssessmentChildUnitKey(CLOSE_ASSESSMENT_FUNCTION_ENTRY, dateKey),
+            childScheduledAt: closeScheduleTime.toISOString(),
+            childTargetSummary: {
+              action: "close_assessment",
+              intendedBusinessDateKey: dateKey,
+            },
+            eventType: "enqueued",
+            context: {
+              queueName: tasksQueue,
+              taskId: closeTaskId,
+            },
+          });
+        }
       } catch (error) {
         if (isTaskAlreadyExistsError(error)) {
           logger.info("weeklyPlanner: close task already exists", {dateKey});
+          if (input.schedulerParent) {
+            await writeSchedulerTaskDispatchLogFromParentBestEffort(input.schedulerParent, {
+              childFunctionEntry: CLOSE_ASSESSMENT_FUNCTION_ENTRY,
+              childUnitKey: buildAssessmentChildUnitKey(CLOSE_ASSESSMENT_FUNCTION_ENTRY, dateKey),
+              childScheduledAt: closeScheduleTime.toISOString(),
+              childTargetSummary: {
+                action: "close_assessment",
+                intendedBusinessDateKey: dateKey,
+              },
+              eventType: "skip",
+              reason: "task_already_exists",
+              context: {
+                queueName: tasksQueue,
+                taskId: closeTaskId,
+              },
+            });
+          }
         } else {
+          if (input.schedulerParent) {
+            await writeSchedulerTaskDispatchLogFromParentBestEffort(input.schedulerParent, {
+              childFunctionEntry: CLOSE_ASSESSMENT_FUNCTION_ENTRY,
+              childUnitKey: buildAssessmentChildUnitKey(CLOSE_ASSESSMENT_FUNCTION_ENTRY, dateKey),
+              childScheduledAt: closeScheduleTime.toISOString(),
+              childTargetSummary: {
+                action: "close_assessment",
+                intendedBusinessDateKey: dateKey,
+              },
+              eventType: "error",
+              reason: error instanceof Error ? error.message : String(error),
+              context: {
+                queueName: tasksQueue,
+                taskId: closeTaskId,
+              },
+            });
+          }
           throw error;
         }
       }

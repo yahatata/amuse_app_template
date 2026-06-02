@@ -19,6 +19,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
 import { logOpsError, logOpsInfo, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
+import { extractSchedulerChildExecutionMetadata } from '../../scheduler/supervisor/schedulerCorrelation';
 
 type ManualOverrideLike = {
   type?: string;
@@ -61,11 +62,19 @@ export const closeAssessmentTask = onRequest(
     region: 'asia-northeast1',
   },
   async (req, res) => {
+    const schedulerMetadata = extractSchedulerChildExecutionMetadata(req.body);
     try {
       const payload = req.body as {
         action: string;
         intendedBusinessDateKey: string;
         scheduledAt: string;
+        schedulerParentJobKey?: string;
+        schedulerParentPlanningDate?: string;
+        schedulerParentPlannedRunAt?: string;
+        schedulerParentIdempotencyKey?: string;
+        schedulerParentSupervisorRunId?: string;
+        schedulerChildUnitKey?: string;
+        schedulerChildFunctionEntry?: string;
       };
 
       if (payload.action !== 'close_assessment') {
@@ -77,6 +86,13 @@ export const closeAssessmentTask = onRequest(
       const now = new Date();
       const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);  // UTC+9
       const serverNowJst = jstNow;
+      let taskResult = 'unknown';
+      let taskBlockers: string[] = [];
+
+      const setTaskOutcome = (result: string, blockers: string[] = []) => {
+        taskResult = result;
+        taskBlockers = [...blockers];
+      };
 
       // idempotencyKeyの生成
       const idempotencyKey = `close_assessment_${payload.intendedBusinessDateKey}_${payload.scheduledAt}`;
@@ -91,6 +107,7 @@ export const closeAssessmentTask = onRequest(
           intendedBusinessDateKey: payload.intendedBusinessDateKey,
           idempotencyKey,
           scheduledAt: payload.scheduledAt,
+          ...schedulerMetadata,
         },
       });
 
@@ -113,6 +130,7 @@ export const closeAssessmentTask = onRequest(
         // 冪等性チェック
         if (closeAssessment?.idempotencyKey === idempotencyKey) {
           console.log(`既に同じidempotencyKeyで更新済みです: ${idempotencyKey}`);
+          setTaskOutcome('duplicate_idempotency');
           return;  // no-op
         }
 
@@ -150,6 +168,7 @@ export const closeAssessmentTask = onRequest(
             idempotencyKey,
             createdAt: decidedAt,
           });
+          setTaskOutcome('skipped', ['date_out_of_range']);
           return;
         }
 
@@ -191,6 +210,7 @@ export const closeAssessmentTask = onRequest(
             idempotencyKey,
             createdAt: decidedAt,
           });
+          setTaskOutcome('already_closed');
           return;
         }
 
@@ -236,6 +256,7 @@ export const closeAssessmentTask = onRequest(
             currentBusinessDateKey: currentBusinessDateKey ?? null,
             lastClosedBusinessDateKey: lastClosedBusinessDateKey ?? null,
           });
+          setTaskOutcome('skipped', ['target_day_already_closed']);
           return;
         }
 
@@ -265,6 +286,7 @@ export const closeAssessmentTask = onRequest(
             idempotencyKey,
             createdAt: decidedAt,
           });
+          setTaskOutcome('next_day_started');
           return;
         }
 
@@ -328,6 +350,7 @@ export const closeAssessmentTask = onRequest(
           logData.suppressedByOverride = suppressedByOverride;
         }
         transaction.set(logRef, logData);
+        setTaskOutcome(result, blockers);
       });
 
       if (staleSkipLogContext != null) {
@@ -346,6 +369,9 @@ export const closeAssessmentTask = onRequest(
           intendedBusinessDateKey: payload.intendedBusinessDateKey,
           scheduledAt: payload.scheduledAt,
           idempotencyKey: `close_assessment_${payload.intendedBusinessDateKey}_${payload.scheduledAt}`,
+          result: taskResult,
+          blockers: taskBlockers,
+          ...schedulerMetadata,
         },
       });
 
@@ -358,6 +384,7 @@ export const closeAssessmentTask = onRequest(
         context: {
           intendedBusinessDateKey: (req.body as { intendedBusinessDateKey?: string })?.intendedBusinessDateKey,
           action: (req.body as { action?: string })?.action,
+          ...schedulerMetadata,
         },
       });
       res.status(500).json({ error: error.message });
