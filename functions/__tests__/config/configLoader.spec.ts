@@ -67,6 +67,8 @@ describe('configLoader', () => {
       expect(config.tournament?.prizeRoundingUnit).toBe(DEFAULT_TOURNAMENT_PRIZE_ROUNDING_UNIT);
       expect(config.tournament?.prizeDistribution?.['1']).toEqual([100.0]);
       expect(config.tournament?.prizeDistribution?.['3']).toEqual([50.0, 30.0, 20.0]);
+      expect(config.tournament?.liffRegistrationEnabled).toBe(true);
+      expect(config.tournament?.liffCalendarEnabled).toBe(true);
       expect(config.okibake?.loginPromptMode).toBe(DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE);
     });
   });

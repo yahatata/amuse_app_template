@@ -20,6 +20,8 @@ void main() {
       expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
       expect(config.payrollStartDay, kDefaultPayrollStartDay);
       expect(config.payrollEndDay, kDefaultPayrollEndDay);
+      expect(config.tournamentLiffRegistrationEnabled, kDefaultTournamentLiffRegistrationEnabled);
+      expect(config.tournamentLiffCalendarEnabled, kDefaultTournamentLiffCalendarEnabled);
     });
 
     test('fromMap(null) でデフォルトを返す', () {
@@ -81,6 +83,17 @@ void main() {
         }).okibakeLoginPromptMode,
         kOkibakeLoginPromptModeLinkPrompt,
       );
+    });
+
+    test('fromMap で tournament.liff 設定をパースする', () {
+      final config = StoreConfigData.fromMap({
+        'tournament': {
+          'liffRegistrationEnabled': false,
+          'liffCalendarEnabled': false,
+        },
+      });
+      expect(config.tournamentLiffRegistrationEnabled, false);
+      expect(config.tournamentLiffCalendarEnabled, false);
     });
   });
 }

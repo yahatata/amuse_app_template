@@ -92,6 +92,10 @@ export interface TournamentConfig {
   /** 賞金額の丸め単位（円）。1, 10, 100, 1000 のいずれか */
   prizeRoundingUnit?: number;
   prizeDistribution?: Record<string, number[]>;  // キー "1"〜"10"
+  /** LIFF ミニアプリ: 本日トーナメントへの参加登録を許可するか */
+  liffRegistrationEnabled?: boolean;
+  /** LIFF ミニアプリ: カレンダータブを表示するか */
+  liffCalendarEnabled?: boolean;
 }
 
 export type StoreConfigRaw = Record<string, unknown>;

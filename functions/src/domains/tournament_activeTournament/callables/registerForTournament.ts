@@ -7,6 +7,13 @@ import { writeSingleOperationLog, toErrorSummary } from "../../logs/lib/operatio
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
 import { findOkibakeLinkedUserConflictInTx } from "../lib/okibakeLinkedUserConflict";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import {
+  getJstTodayRangeUtc,
+  isRegEndAtPast,
+  isStartAtWithinRange,
+} from "../../../shared/tournament/liffTournamentDateUtils";
+import { isTournamentStatusCancelled } from "../../../shared/tournament/mapScheduledTournamentForLiff";
 
 // 入力スキーマ
 const registerForTournamentSchema = z.object({
@@ -25,11 +32,16 @@ export const registerForTournament = onCall(async (request) => {
     
     const userId = request.auth.uid;
     
-    console.log(`=== LIFF用トーナメント参加登録開始 ===`);
-    console.log(`userId: ${userId}`);
-    console.log(`tournamentId: ${tournamentId}`);
-    
     const db = admin.firestore();
+
+    const storeConfig = await getStoreConfig(db);
+    if (storeConfig.tournament?.liffRegistrationEnabled !== true) {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_LIFF_REGISTRATION_DISABLED',
+        message: '参加登録は現在受け付けていません',
+        context: { tournamentId },
+      });
+    }
     
     // トーナメント情報を事前取得
     const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
@@ -44,6 +56,49 @@ export const registerForTournament = onCall(async (request) => {
     }
     
     const tournamentData = tournamentDoc.data()!;
+    const tournamentStatus = tournamentData.status as string | undefined;
+
+    if (isTournamentStatusCancelled(tournamentStatus)) {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_CANCELLED',
+        message: 'このトーナメントは開催中止になりました',
+        context: { tournamentId, status: tournamentStatus },
+      });
+    }
+
+    if (tournamentStatus === 'ended' || tournamentStatus === 'force_ended') {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_ENDED',
+        message: 'トーナメントは終了しました',
+        context: { tournamentId, status: tournamentStatus },
+      });
+    }
+
+    if (tournamentStatus === 'paused') {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_PAUSED',
+        message: 'トーナメントは一時停止中です',
+        context: { tournamentId, status: tournamentStatus },
+      });
+    }
+
+    if (tournamentStatus === 'registered' || isRegEndAtPast(tournamentData.regEndAt)) {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_REGISTRATION_CLOSED',
+        message: '参加締め切りしました',
+        context: { tournamentId, status: tournamentStatus },
+      });
+    }
+
+    const jstRange = getJstTodayRangeUtc();
+    if (!isStartAtWithinRange(tournamentData.startAt, jstRange)) {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_NOT_TODAY',
+        message: '本日のトーナメントのみ参加登録できます',
+        context: { tournamentId },
+      });
+    }
+
     const templateId = tournamentData.templateId;
     const startAt = tournamentData.startAt;
     const snapshot = tournamentData.snapshot;
@@ -74,18 +129,26 @@ export const registerForTournament = onCall(async (request) => {
     if (!activeStayDoc.exists) {
       throw new FunctionCustomError({
         errorKey: 'TOURNAMENT_INVALID_STATE',
-        message: `ユーザー ${userId} のactiveStaysドキュメントが存在しません`,
+        message: '未入店のため参加登録できません',
         context: { tournamentId, userId, reason: 'active_stay_missing' },
       });
     }
 
     const activeStayData = activeStayDoc.data()!;
+    if (activeStayData.isActive !== true) {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: '未入店のため参加登録できません',
+        context: { tournamentId, userId, reason: 'active_stay_inactive' },
+      });
+    }
+
     const billId = activeStayData.billId as string;
 
     if (!billId) {
       throw new FunctionCustomError({
         errorKey: 'TOURNAMENT_INVALID_STATE',
-        message: `ユーザー ${userId} のactiveStaysにbillIdが設定されていません`,
+        message: '未入店のため参加登録できません',
         context: { tournamentId, userId, reason: 'billId_missing_on_active_stay' },
       });
     }
