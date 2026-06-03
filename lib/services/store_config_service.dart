@@ -57,6 +57,8 @@ class StoreConfigData {
   final String tournamentPrizeRoundingMethod;
   final int tournamentPrizeRoundingUnit;
   final Map<int, List<double>> tournamentPrizeDistribution;
+  final bool tournamentLiffRegistrationEnabled;
+  final bool tournamentLiffCalendarEnabled;
 
   StoreConfigData({
     this.dualWriteEnabled = kDefaultDualWriteEnabled,
@@ -102,6 +104,8 @@ class StoreConfigData {
     String? tournamentPrizeRoundingMethod,
     int? tournamentPrizeRoundingUnit,
     Map<int, List<double>>? tournamentPrizeDistribution,
+    bool? tournamentLiffRegistrationEnabled,
+    bool? tournamentLiffCalendarEnabled,
   }) : businessHoursStyles =
            businessHoursStyles ??
            Map<String, Map<String, dynamic>>.from(kDefaultBusinessHoursStyles),
@@ -126,7 +130,12 @@ class StoreConfigData {
            tournamentPrizeRoundingUnit ?? kDefaultTournamentPrizeRoundingUnit,
        tournamentPrizeDistribution =
            tournamentPrizeDistribution ??
-           Map<int, List<double>>.from(kDefaultTournamentPrizeDistribution);
+           Map<int, List<double>>.from(kDefaultTournamentPrizeDistribution),
+       tournamentLiffRegistrationEnabled =
+           tournamentLiffRegistrationEnabled ??
+           kDefaultTournamentLiffRegistrationEnabled,
+       tournamentLiffCalendarEnabled =
+           tournamentLiffCalendarEnabled ?? kDefaultTournamentLiffCalendarEnabled;
 
   static StoreConfigData fromDefaults() => StoreConfigData();
 
@@ -385,6 +394,16 @@ class StoreConfigData {
         final ok = pd != null;
         track('tournament.prizeDistribution', ok);
         return pd ?? kDefaultTournamentPrizeDistribution;
+      }(),
+      tournamentLiffRegistrationEnabled: () {
+        final val = parseBool(tournament?['liffRegistrationEnabled']);
+        track('tournament.liffRegistrationEnabled', val != null);
+        return val ?? kDefaultTournamentLiffRegistrationEnabled;
+      }(),
+      tournamentLiffCalendarEnabled: () {
+        final val = parseBool(tournament?['liffCalendarEnabled']);
+        track('tournament.liffCalendarEnabled', val != null);
+        return val ?? kDefaultTournamentLiffCalendarEnabled;
       }(),
     );
     if (onParseComplete != null) {

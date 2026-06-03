@@ -59,6 +59,8 @@ import {
   DEFAULT_TOURNAMENT_PRIZE_ROUNDING_METHOD,
   DEFAULT_TOURNAMENT_PRIZE_ROUNDING_UNIT,
   DEFAULT_TOURNAMENT_PRIZE_DISTRIBUTION,
+  DEFAULT_TOURNAMENT_LIFF_REGISTRATION_ENABLED,
+  DEFAULT_TOURNAMENT_LIFF_CALENDAR_ENABLED,
   DEFAULT_DUAL_WRITE_ENABLED,
   DEFAULT_ENQUEUE_SCHEDULER_ENABLED,
   DEFAULT_TEMPLATE_BUSINESSDATE_CHECK,
@@ -217,6 +219,8 @@ export function buildFromDefaults(): StoreConfig {
       prizeDistribution: Object.fromEntries(
         Object.entries(DEFAULT_TOURNAMENT_PRIZE_DISTRIBUTION).map(([k, v]) => [String(k), v])
       ),
+      liffRegistrationEnabled: DEFAULT_TOURNAMENT_LIFF_REGISTRATION_ENABLED,
+      liffCalendarEnabled: DEFAULT_TOURNAMENT_LIFF_CALENDAR_ENABLED,
     },
     okibake: {
       loginPromptMode: DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE as OkibakeLoginPromptMode,
@@ -532,6 +536,22 @@ export function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
     } else {
       fb('tournament.prizeDistribution', 'field_missing', result.tournament!.prizeDistribution);
     }
+    if (typeof tRaw.liffRegistrationEnabled === 'boolean') {
+      result.tournament!.liffRegistrationEnabled = tRaw.liffRegistrationEnabled;
+      fromConfig.push('tournament.liffRegistrationEnabled');
+    } else {
+      fb(
+        'tournament.liffRegistrationEnabled',
+        'field_missing',
+        result.tournament!.liffRegistrationEnabled
+      );
+    }
+    if (typeof tRaw.liffCalendarEnabled === 'boolean') {
+      result.tournament!.liffCalendarEnabled = tRaw.liffCalendarEnabled;
+      fromConfig.push('tournament.liffCalendarEnabled');
+    } else {
+      fb('tournament.liffCalendarEnabled', 'field_missing', result.tournament!.liffCalendarEnabled);
+    }
   } else {
     fb('tournament', 'field_missing', result.tournament);
   }
@@ -747,6 +767,14 @@ export function mergeConfigForUpsert(
         ? tourEx.prizeRoundingUnit
         : tourDef.prizeRoundingUnit,
     prizeDistribution: pdValid ? (pdEx as Record<string, number[]>) : tourDef.prizeDistribution,
+    liffRegistrationEnabled:
+      typeof tourEx?.liffRegistrationEnabled === 'boolean'
+        ? tourEx.liffRegistrationEnabled
+        : tourDef.liffRegistrationEnabled,
+    liffCalendarEnabled:
+      typeof tourEx?.liffCalendarEnabled === 'boolean'
+        ? tourEx.liffCalendarEnabled
+        : tourDef.liffCalendarEnabled,
   };
 
   // okibake（詳細仕様書 §14.15）。不正値は defaults / notice_only に寄せる

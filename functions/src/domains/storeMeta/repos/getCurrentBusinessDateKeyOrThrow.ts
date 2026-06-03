@@ -5,20 +5,19 @@
  * @throws HttpsError 'failed-precondition' - state docが存在しない、またはstatusが'closed'/'error'でcurrentBusinessDateKeyがnullの場合
  */
 
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { generateJstDateKey } from '../../../shared/time';
 
-const db = getFirestore();
-
 /**
  * 出勤・退勤用の営業日を取得する。
  * status が running なら currentBusinessDateKey、そうでなければ JST 当日を返す。
  */
-export async function getBusinessDateForAttendance(): Promise<string> {
-  const docRef = db.collection('storeMeta').doc('currentBusinessDay');
+export async function getBusinessDateForAttendance(db?: Firestore): Promise<string> {
+  const firestore = db ?? getFirestore();
+  const docRef = firestore.collection('storeMeta').doc('currentBusinessDay');
   const doc = await docRef.get();
   if (!doc.exists || !doc.data()) {
     return generateJstDateKey();
@@ -35,8 +34,9 @@ export async function getBusinessDateForAttendance(): Promise<string> {
  * lastClosedBusinessDateKey があればそれを返し、無い場合は当日（JST）を返す。
  * Phase4 01 決定10 対応。
  */
-export async function getDisplayBusinessDateKeyForNonRunning(): Promise<string> {
-  const docRef = db.collection('storeMeta').doc('currentBusinessDay');
+export async function getDisplayBusinessDateKeyForNonRunning(db?: Firestore): Promise<string> {
+  const firestore = db ?? getFirestore();
+  const docRef = firestore.collection('storeMeta').doc('currentBusinessDay');
   const doc = await docRef.get();
   if (!doc.exists || !doc.data()) {
     return generateJstDateKey();
@@ -72,9 +72,10 @@ function addDaysToDateKey(dateKey: string, days: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
-export async function getCurrentBusinessDateKeyOrThrow(): Promise<string> {
+export async function getCurrentBusinessDateKeyOrThrow(db?: Firestore): Promise<string> {
   try {
-    const docRef = db.collection('storeMeta').doc('currentBusinessDay');
+    const firestore = db ?? getFirestore();
+    const docRef = firestore.collection('storeMeta').doc('currentBusinessDay');
     const doc = await docRef.get();
 
     if (!doc.exists) {

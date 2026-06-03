@@ -156,12 +156,24 @@ jest.mock('../../src/domains/storeMeta/repos/getCurrentBusinessDateKeyOrThrow', 
 
   return {
     ...actual,
-    getCurrentBusinessDateKeyOrThrow: jest.fn(async () => {
+    getCurrentBusinessDateKeyOrThrow: jest.fn(async (db?: import('firebase-admin/firestore').Firestore) => {
       try {
-        // Prefer the real implementation when storeMeta/currentBusinessDay is prepared in tests.
-        return await actual.getCurrentBusinessDateKeyOrThrow();
-      } catch {
-        // Fallback for legacy tests that do not seed storeMeta/currentBusinessDay.
+        return await actual.getCurrentBusinessDateKeyOrThrow(db);
+      } catch (error) {
+        const errorKey =
+          typeof error === 'object' &&
+          error !== null &&
+          'errorKey' in error &&
+          typeof (error as { errorKey: unknown }).errorKey === 'string'
+            ? (error as { errorKey: string }).errorKey
+            : undefined;
+
+        // 店舗未稼働は実装どおり throw する（LIFF getTodayTournaments 等）
+        if (errorKey === 'STORE_BUSINESS_DATE_UNAVAILABLE') {
+          throw error;
+        }
+
+        // storeMeta/currentBusinessDay 未 seed の legacy テスト向けフォールバック
         return legacyCalcBusinessDate();
       }
     }),

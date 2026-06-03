@@ -200,6 +200,12 @@ export const DEFAULT_TOURNAMENT_PRIZE_ROUNDING_METHOD = 'floor';
 /** 賞金額の丸め単位（円）。1, 10, 100, 1000 のいずれか */
 export const DEFAULT_TOURNAMENT_PRIZE_ROUNDING_UNIT = 100;
 
+/** LIFF ミニアプリ: トーナメント参加登録（既定 ON） */
+export const DEFAULT_TOURNAMENT_LIFF_REGISTRATION_ENABLED = true;
+
+/** LIFF ミニアプリ: トーナメントカレンダー表示（既定 ON） */
+export const DEFAULT_TOURNAMENT_LIFF_CALENDAR_ENABLED = true;
+
 /** 入賞人数ごとの賞金配分比率（%）。キー=入賞人数、値=順位別比率リスト */
 export const DEFAULT_TOURNAMENT_PRIZE_DISTRIBUTION: Record<number, number[]> = {
   1: [100.0],

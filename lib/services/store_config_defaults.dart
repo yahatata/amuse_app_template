@@ -147,6 +147,9 @@ const Map<int, List<double>> kDefaultTournamentPrizeDistribution = {
   10: [32.0, 19.0, 12.0, 8.0, 7.0, 6.0, 5.0, 4.0, 4.0, 3.0],
 };
 
+const bool kDefaultTournamentLiffRegistrationEnabled = true;
+const bool kDefaultTournamentLiffCalendarEnabled = true;
+
 /// 人数 N に対するデフォルトのプライズ配分比率を返す。
 /// 1〜10 は kDefaultTournamentPrizeDistribution、11〜100 は均等配分。
 List<double> getDefaultPrizeDistributionForCount(int n) {

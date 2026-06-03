@@ -8,6 +8,7 @@
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <!-- 店舗別設定ファイル -->
     <script src="./config.js"></script>
+    <script src="./liffTournamentDisplayHelpers.js?v=20260603-fee0"></script>
     <!-- Firebase初期化スクリプト -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -162,8 +163,91 @@
     clearTimeout(longPressTimer);
   });
     </script>
-    <link rel="stylesheet" href="../css/common.css?v=20251114-01">
-    <link rel="stylesheet" href="../css/user.css">
+    <link rel="stylesheet" href="../css/common.css?v=20260603-register-green">
+    <link rel="stylesheet" href="../css/user.css?v=20260603-register-green">
+    <style>
+      /* index.html と同梱 — user.css キャッシュ時もトーナメント余白を抑える */
+      .tournament-page .tournament-list { gap: 12px !important; }
+      .tournament-page .tournament-card {
+        margin-bottom: 0 !important;
+        padding: 10px 10px 8px !important;
+      }
+      .tournament-page .tournament-card-title {
+        margin: 0 0 8px !important;
+        line-height: 1.25 !important;
+        font-size: 1.10rem !important;
+      }
+      .tournament-page .tournament-card-brief { margin-bottom: 8px !important; }
+      .tournament-page .tournament-card-brief p {
+        margin: 0 !important;
+        padding: 5px 0 !important;
+        font-size: 1.10rem !important;
+        line-height: 1.25 !important;
+      }
+      .tournament-page .tournament-card-brief-value {
+        color: #333 !important;
+        font-weight: 600 !important;
+      }
+      .tournament-page .tournament-card-brief p:last-child {
+        padding-bottom: 0 !important;
+      }
+      .tournament-page .tournament-card-details .detail-row {
+        font-size: 1.10rem !important;
+        line-height: 1.25 !important;
+        padding: 5px 0 !important;
+      }
+      .tournament-page .tournament-card-details .detail-value {
+        color: #333 !important;
+        font-weight: 600 !important;
+      }
+      .tournament-page .tournament-card-summary {
+        position: relative !important;
+        padding-right: 52px !important;
+      }
+      .tournament-page .tournament-card-actions-row {
+        flex-direction: column !important;
+        align-items: center !important;
+        gap: 4px !important;
+        margin-top: 0 !important;
+        margin-bottom: 8px !important;
+        width: 100% !important;
+      }
+      .tournament-page .tournament-card-actions-buttons {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        width: 100% !important;
+        gap: 4px 6px !important;
+        align-items: center !important;
+      }
+      .tournament-page .tournament-card-actions-row .btn-register {
+        padding: 7px 17px !important;
+        font-size: 1.43rem !important;
+        min-width: 122px !important;
+      }
+      .tournament-page .tournament-card-actions-row .btn-register:not(.btn-disabled):not([aria-disabled="true"]) {
+        background: linear-gradient(135deg, #4caf50, #43a047) !important;
+        color: #fff !important;
+        box-shadow: 0 4px 12px rgba(76, 175, 80, 0.35) !important;
+      }
+      .tournament-page button.btn.btn-disabled[aria-disabled="true"] {
+        opacity: 0.5 !important;
+        cursor: pointer !important;
+      }
+      .tournament-page .tournament-detail-toggle {
+        font-size: 1.07rem !important;
+      }
+      .tournament-page .tournament-detail-toggle-icon {
+        font-size: 0.98rem !important;
+      }
+      .tournament-page .tournament-card-actions-row .btn {
+        margin: 0 !important;
+        padding: 4px 10px !important;
+        box-shadow: none !important;
+        letter-spacing: 0 !important;
+        text-transform: none !important;
+      }
+    </style>
   </head>
   <body>
 <!-- ========== DEBUG OVERLAY START ==========
@@ -429,67 +513,50 @@
         </div>
       </div>
 
-      <!-- 本日のトーナメント画面 -->
+      <!-- トーナメント画面（本日 / 今後 / カレンダー タブ統合） -->
       <div id="tournament-page" class="page tournament-page" style="display: none;">
-        <h1>本日のトーナメント</h1>
-        <div class="tournament-date-info">
-          <h2 id="today-date">今日のトーナメント</h2>
-        </div>
-        <div id="today-tournament-list" class="tournament-list">
-          <div class="spinner"></div>
-        </div>
-        <div class="tournament-actions">
-          <button class="btn secondary" onclick="showWeeklyTournaments()">今後のトーナメントを見る</button>
-          <button class="btn" onclick="showHomePage()">ホームに戻る</button>
-        </div>
-      </div>
-
-      <!-- 今後のトーナメント画面 -->
-      <div id="weekly-tournament-page" class="page weekly-tournament-page" style="display: none;">
-        <h1>今後のトーナメント</h1>
-        <div class="tournament-period-info">
-          <h2>1週間先までのトーナメント</h2>
-        </div>
-        <div id="weekly-tournament-list" class="tournament-list">
-          <div class="spinner"></div>
-        </div>
-        <div class="tournament-actions">
-          <button class="btn" onclick="showAllTournamentsCalendar()">全トーナメントをカレンダー表示</button>
-          <button class="btn" onclick="showTournament()">本日のトーナメントに戻る</button>
-          <button class="btn secondary" onclick="showHomePage()">ホームに戻る</button>
-        </div>
-      </div>
-
-      <!-- 全トーナメントカレンダー画面 -->
-      <div id="all-tournament-calendar-page" class="page all-tournament-calendar-page" style="display: none;">
-        <h1>全トーナメントカレンダー</h1>
-        
-        <!-- 月送りコントロール -->
-        <div class="calendar-controls" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-          <button class="btn" onclick="previousMonth()" style="padding: 8px 16px;">← 前月</button>
-          <h2 id="calendar-current-month" style="margin: 0;">2025年11月</h2>
-          <button class="btn" onclick="nextMonth()" style="padding: 8px 16px;">次月 →</button>
+        <h1>トーナメント</h1>
+        <div id="tournament-tab-bar" class="tournament-tab-bar">
+          <button type="button" class="tournament-tab-btn active" data-tab="today" onclick="switchTournamentTab('today')">本日</button>
+          <button type="button" class="tournament-tab-btn" data-tab="upcoming" onclick="switchTournamentTab('upcoming')">今後</button>
+          <button type="button" class="tournament-tab-btn" id="tournament-calendar-tab" data-tab="calendar" onclick="switchTournamentTab('calendar')" style="display: none;">カレンダー</button>
         </div>
 
-        <!-- カレンダー表示エリア -->
-        <div class="calendar-container">
-          <div id="tournament-calendar" class="tournament-calendar">
-            <!-- カレンダーが動的に生成される -->
+        <div id="tournament-tab-today" class="tournament-tab-panel">
+          <div class="tournament-date-info">
+            <h2 id="today-date">今日のトーナメント</h2>
+          </div>
+          <div id="today-tournament-list" class="tournament-list">
+            <div class="spinner"></div>
           </div>
         </div>
 
-        <!-- 選択された日のトーナメント詳細 -->
-        <div id="selected-date-tournaments" class="selected-date-tournaments" style="display: none; margin-top: 20px;">
-          <h3 id="selected-date-title"></h3>
-          <div id="selected-date-tournament-list" class="tournament-list">
-            <!-- 選択された日のトーナメント一覧 -->
+        <div id="tournament-tab-upcoming" class="tournament-tab-panel" style="display: none;">
+          <div class="tournament-period-info">
+            <h2>1週間先までのトーナメント</h2>
+          </div>
+          <div id="upcoming-tournament-list" class="tournament-list">
+            <div class="spinner"></div>
+          </div>
+        </div>
+
+        <div id="tournament-tab-calendar" class="tournament-tab-panel" style="display: none;">
+          <div class="calendar-controls" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <button type="button" class="btn" onclick="previousMonth()" style="padding: 8px 16px;">← 前月</button>
+            <h2 id="calendar-current-month" style="margin: 0;">2025年11月</h2>
+            <button type="button" class="btn" onclick="nextMonth()" style="padding: 8px 16px;">次月 →</button>
+          </div>
+          <div class="calendar-container flexible-container-flex">
+            <div id="tournament-calendar" class="tournament-calendar calendar-grid flexible-container-flex"></div>
+          </div>
+          <div id="selected-date-tournaments" class="selected-date-tournaments" style="display: none; margin-top: 20px;">
+            <h3 id="selected-date-title"></h3>
+            <div id="selected-date-tournament-list" class="tournament-list"></div>
           </div>
         </div>
 
         <div class="tournament-actions">
-          <button class="btn" onclick="showWeeklyTournament()">1週間先トーナメントに戻る</button>
-          <button class="btn" onclick="showTournament()">本日のトーナメントに戻る</button>
-          <button class="btn secondary" onclick="showHomePage()">ホームに戻る</button>
+          <button type="button" class="btn secondary" onclick="showHomePage()">ホームに戻る</button>
         </div>
       </div>
 
@@ -524,8 +591,6 @@
       const orderPageEl = document.getElementById('order-page');
       const orderHistoryPageEl = document.getElementById('order-history-page');
       const tournamentPageEl = document.getElementById('tournament-page');
-      const weeklyTournamentPageEl = document.getElementById('weekly-tournament-page');
-      const allTournamentCalendarPageEl = document.getElementById('all-tournament-calendar-page');
       const profilePageEl = document.getElementById('profile-page');
       const errorEl = document.getElementById('error-message');
       const userInfoEl = document.getElementById('user-info');
@@ -704,8 +769,6 @@
         orderPageEl.style.display = 'none';
         orderHistoryPageEl.style.display = 'none';
         tournamentPageEl.classList.remove('active');
-        weeklyTournamentPageEl.classList.remove('active');
-        allTournamentCalendarPageEl.classList.remove('active');
         profilePageEl.style.display = 'none';
         
         // 全てのページのactiveクラスを確実に削除
@@ -715,8 +778,6 @@
         orderPageEl.classList.remove('active');
         orderHistoryPageEl.classList.remove('active');
         tournamentPageEl.classList.remove('active');
-        weeklyTournamentPageEl.classList.remove('active');
-        allTournamentCalendarPageEl.classList.remove('active');
         profilePageEl.classList.remove('active');
         
         // カートボタンの表示制御：注文ページのみ表示（カートが空でない場合）
@@ -1016,14 +1077,12 @@
             const tournamentBtn = document.getElementById('tournament-btn');
             
             if (isStaying) {
-              // 注文・トーナメントボタンを表示
               if (orderBtn) orderBtn.style.display = 'block';
-              if (tournamentBtn) tournamentBtn.style.display = 'block';
             } else {
-              // 注文・トーナメントボタンを非表示
               if (orderBtn) orderBtn.style.display = 'none';
-              if (tournamentBtn) tournamentBtn.style.display = 'none';
             }
+            if (tournamentBtn) tournamentBtn.style.display = 'block';
+            window.userStayingStatus = isStaying;
             
           } else {
           }
@@ -1729,200 +1788,263 @@
       }
 
       // トーナメント関連関数
+      window.liffTournamentSettings = {
+        liffRegistrationEnabled: true,
+        liffCalendarEnabled: true,
+      };
+      window.userStayingStatus = false;
+      window.cachedTodayTournaments = null;
+      window.cachedUpcomingTournaments = null;
+      let activeTournamentTab = 'today';
+
+      function applyLiffTournamentSettings(liffSettings) {
+        if (!liffSettings) return;
+        window.liffTournamentSettings = {
+          liffRegistrationEnabled: liffSettings.liffRegistrationEnabled !== false,
+          liffCalendarEnabled: liffSettings.liffCalendarEnabled !== false,
+        };
+        const calendarTab = document.getElementById('tournament-calendar-tab');
+        if (calendarTab) {
+          calendarTab.style.display = window.liffTournamentSettings.liffCalendarEnabled ? '' : 'none';
+        }
+      }
+
       window.showTournament = () => {
         showPage(tournamentPageEl);
-        loadTodayTournaments();
+        switchTournamentTab('today');
       };
 
-      window.showWeeklyTournaments = () => {
-        showPage(weeklyTournamentPageEl);
-        loadWeeklyTournaments();
+      window.switchTournamentTab = (tabName) => {
+        activeTournamentTab = tabName;
+        const panels = {
+          today: document.getElementById('tournament-tab-today'),
+          upcoming: document.getElementById('tournament-tab-upcoming'),
+          calendar: document.getElementById('tournament-tab-calendar'),
+        };
+        Object.entries(panels).forEach(([key, panel]) => {
+          if (panel) panel.style.display = key === tabName ? 'block' : 'none';
+        });
+        document.querySelectorAll('.tournament-tab-btn').forEach((btn) => {
+          btn.classList.toggle('active', btn.dataset.tab === tabName);
+        });
+        if (tabName === 'today') {
+          loadTodayTournaments();
+        } else if (tabName === 'upcoming') {
+          loadUpcomingTournaments();
+        } else if (tabName === 'calendar') {
+          loadCalendarTabData();
+        }
       };
 
-      // 本日のトーナメントを読み込み
+      function formatDateWithDayFromIso(isoString) {
+        if (!isoString) return '日付不明';
+        return formatDateWithDay(isoString);
+      }
+
+      function formatRegEndAtDisplay(isoString) {
+        if (!isoString) return '不明';
+        return formatTime(isoString);
+      }
+
+      function isRegEndAtPast(isoString) {
+        if (!isoString) return false;
+        const date = new Date(isoString);
+        return !Number.isNaN(date.getTime()) && date.getTime() <= Date.now();
+      }
+
+      function getRegistrationBlockReason(tournament) {
+        const status = tournament.status || '';
+        if (status === 'ended' || status === 'force_ended') {
+          return 'トーナメントは終了しました';
+        }
+        if (tournament.isRegisteredByCurrentUser === true) {
+          return '参加済です';
+        }
+        if (status === 'paused') {
+          return 'トーナメントは一時停止中です';
+        }
+        if (status === 'registered' || isRegEndAtPast(tournament.regEndAt)) {
+          return '参加締め切りしました';
+        }
+        if (window.userStayingStatus !== true) {
+          return '未入店です';
+        }
+        return null;
+      }
+
+      function showRegistrationBlockReasonDialog(message) {
+        alert(`参加できません\n\n${message}`);
+      }
+
+      function renderTournamentCard(tournament, options) {
+        const cardKey = options.cardKey;
+        const showRegisterButton = options.showRegisterButton === true;
+        const showDate = options.showDate === true;
+        const timeLabel = showDate
+          ? `${formatDate(tournament.startAt)} ${formatTime(tournament.startAt)}`
+          : formatTime(tournament.startAt);
+
+        let registerHtml = '';
+        if (showRegisterButton) {
+          const blockReason = getRegistrationBlockReason(tournament);
+          const btnClass = blockReason ? 'btn btn-disabled btn-register' : 'btn btn-register';
+          const ariaDisabled = blockReason ? ' aria-disabled="true"' : '';
+          registerHtml = `<button type="button" class="${btnClass}"${ariaDisabled} onclick="showTournamentRegistration('${tournament.id}')">参加登録</button>`;
+        }
+
+        const entryFeeText = `¥${(tournament.entryFee || 0).toLocaleString()}`;
+        const stackText = `${(tournament.startStack || 0).toLocaleString()}`;
+
+        const reentryText = window.formatLiffReentryDisplay(tournament);
+        const addonText = window.formatLiffAddonDisplay(tournament);
+        const blindText = tournament.blindLevelDurationText || '—';
+
+        const actionsRowHtml = showRegisterButton
+          ? `<div class="tournament-card-actions-row">
+                <div class="tournament-card-actions-buttons">
+                  ${registerHtml}
+                </div>
+              </div>`
+          : '';
+
+        return `
+          <div class="tournament-card">
+            <div class="tournament-card-summary">
+              <div class="tournament-card-main">
+                <h3 class="tournament-card-title">${tournament.name}</h3>
+                <div class="tournament-card-brief">
+                  <p><span class="tournament-card-brief-label">開始時刻:</span> <span class="tournament-card-brief-value">${timeLabel}</span></p>
+                  <p><span class="tournament-card-brief-label">参加費:</span> <span class="tournament-card-brief-value">${entryFeeText}</span></p>
+                  <p><span class="tournament-card-brief-label">初期スタック:</span> <span class="tournament-card-brief-value">${stackText}</span></p>
+                </div>
+                ${actionsRowHtml}
+              </div>
+              <button
+                type="button"
+                class="tournament-detail-toggle"
+                id="${cardKey}-toggle"
+                aria-expanded="false"
+                onclick="toggleTournamentDetails('${cardKey}')"
+              >詳細 <span class="tournament-detail-toggle-icon" aria-hidden="true">▼</span></button>
+            </div>
+            <div class="tournament-card-details" id="${cardKey}-details" style="display: none;">
+              <div class="detail-row">
+                <span class="detail-label">レジスト締切:</span>
+                <span class="detail-value">${formatRegEndAtDisplay(tournament.regEndAt)}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">リエントリー:</span>
+                <span class="detail-value">${reentryText}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">アドオン:</span>
+                <span class="detail-value">${addonText}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">ブラインド時間:</span>
+                <span class="detail-value">${blindText}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
       async function loadTodayTournaments() {
         const todayDateEl = document.getElementById('today-date');
         const todayTournamentList = document.getElementById('today-tournament-list');
-        
-        // 今日の日付を表示
         const today = new Date();
         const todayString = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
-        todayDateEl.textContent = `${todayString}のトーナメント`;
-        
+        if (todayDateEl) todayDateEl.textContent = `${todayString}のトーナメント`;
+
         try {
-          // キャッシュされたデータがある場合は使用
           if (window.cachedTodayTournaments) {
-            const tournaments = window.cachedTodayTournaments;
-            
-            if (tournaments.length === 0) {
-              todayTournamentList.innerHTML = '<p class="empty-message">今日はトーナメントがありません</p>';
-              return;
-            }
-            
-            todayTournamentList.innerHTML = tournaments.map(tournament => `
-              <div class="tournament-item">
-                <div class="tournament-header">
-                  <h3>${tournament.name}</h3>
-                  <span class="tournament-status status-${tournament.status}">${getTournamentStatusDisplay(tournament.status)}</span>
-                </div>
-                <div class="tournament-info">
-                  <p><strong>開始時間:</strong> ${formatTime(tournament.startAt)}</p>
-                  <p><strong>参加費:</strong> ¥${tournament.entryFee || 0}</p>
-                  <p><strong>賞金:</strong> ¥${tournament.prizePool || 0}</p>
-                  <p><strong>参加者数:</strong> ${tournament.participantCount || 0}人</p>
-                  <p><strong>定員:</strong> ${tournament.maxEntrants || '無制限'}人</p>
-                </div>
-                <div class="tournament-actions">
-                  <button class="btn" onclick="showTournamentRegistration('${tournament.id}')">参加登録</button>
-                </div>
-              </div>
-            `).join('');
+            renderTodayTournamentList(window.cachedTodayTournaments);
             return;
           }
-          
-          // スピナーを表示
+
           todayTournamentList.innerHTML = '<div class="spinner"></div>';
-          
+
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
           const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getTodayTournaments = httpsCallable(functions, 'getTodayTournaments');
-          
           const result = await getTodayTournaments({});
-          
+
           if (!result.data.success) {
             throw new Error(result.data.error || 'トーナメント情報の取得に失敗しました');
           }
-          
+
+          applyLiffTournamentSettings(result.data.liffSettings);
           const tournaments = result.data.data || [];
-          
-          // グローバル変数にキャッシュ
           window.cachedTodayTournaments = tournaments;
-          
-          if (tournaments.length === 0) {
-            todayTournamentList.innerHTML = '<p class="empty-message">今日はトーナメントがありません</p>';
-            return;
-          }
-          
-          todayTournamentList.innerHTML = tournaments.map(tournament => `
-            <div class="tournament-item">
-              <div class="tournament-header">
-                <h3>${tournament.name}</h3>
-                <span class="tournament-status status-${tournament.status}">${getTournamentStatusDisplay(tournament.status)}</span>
-              </div>
-              <div class="tournament-info">
-                <p><strong>開始時間:</strong> ${formatTime(tournament.startAt)}</p>
-                <p><strong>参加費:</strong> ¥${tournament.entryFee || 0}</p>
-                <p><strong>賞金:</strong> ¥${tournament.prizePool || 0}</p>
-                <p><strong>参加者数:</strong> ${tournament.participantCount || 0}人</p>
-                <p><strong>定員:</strong> ${tournament.maxEntrants || '無制限'}人</p>
-              </div>
-              <div class="tournament-actions">
-                <button class="btn" onclick="showTournamentRegistration('${tournament.id}')">参加登録</button>
-              </div>
-            </div>
-          `).join('');
-          
+          renderTodayTournamentList(tournaments);
         } catch (error) {
           todayTournamentList.innerHTML = `<p class="error-message">トーナメント情報の読み込みに失敗しました: ${error.message}</p>`;
         }
       }
 
-      // 1週間先までのトーナメントを読み込み
-      async function loadWeeklyTournaments() {
-        const weeklyTournamentList = document.getElementById('weekly-tournament-list');
-        
+      function renderTodayTournamentList(tournaments) {
+        const todayTournamentList = document.getElementById('today-tournament-list');
+        if (!todayTournamentList) return;
+
+        if (tournaments.length === 0) {
+          todayTournamentList.innerHTML = '<p class="empty-message">本日のトーナメント予定はありません。</p>';
+          return;
+        }
+
+        const showRegister = window.liffTournamentSettings.liffRegistrationEnabled === true;
+        todayTournamentList.innerHTML = tournaments.map((tournament, index) =>
+          renderTournamentCard(tournament, {
+            cardKey: `today-${index}`,
+            showRegisterButton: showRegister,
+            showDate: false,
+          })
+        ).join('');
+      }
+
+      async function loadUpcomingTournaments() {
+        const upcomingTournamentList = document.getElementById('upcoming-tournament-list');
         try {
-          // キャッシュされたデータがある場合は使用
-          if (window.cachedWeeklyTournaments) {
-            const tournaments = window.cachedWeeklyTournaments;
-            
-            if (tournaments.length === 0) {
-              weeklyTournamentList.innerHTML = '<p class="empty-message">今後のトーナメントがありません</p>';
-              return;
-            }
-            
-            weeklyTournamentList.innerHTML = tournaments.map((tournament, index) => `
-              <div class="tournament-card" onclick="toggleTournamentDetails('weekly-${index}')">
-                <div class="tournament-card-header">
-                  <div class="tournament-card-title">
-                    <h3>${tournament.name}</h3>
-                    <span class="tournament-card-date">${formatDateWithDay(tournament.startAt)} ${formatTime(tournament.startAt)}</span>
-                  </div>
-                  <div class="tournament-card-arrow" id="weekly-arrow-${index}">▼</div>
-                </div>
-                <div class="tournament-card-details" id="weekly-${index}" style="display: none;">
-                  <div class="detail-row">
-                    <span class="detail-label">参加費:</span>
-                    <span class="detail-value">¥${(tournament.entryFee || 0).toLocaleString()}</span>
-                  </div>
-                  <div class="detail-row">
-                    <span class="detail-label">初期スタック:</span>
-                    <span class="detail-value">${(tournament.startStack || 0).toLocaleString()}</span>
-                  </div>
-                  <div class="detail-row">
-                    <span class="detail-label">レジスト時間:</span>
-                    <span class="detail-value">${formatRegistrationTime(tournament.regEndAt, tournament.startAt)}</span>
-                  </div>
-                  ${tournament.description ? `<div class="detail-row"><span class="detail-label">説明:</span><span class="detail-value">${tournament.description}</span></div>` : ''}
-                </div>
-              </div>
-            `).join('');
+          if (window.cachedUpcomingTournaments) {
+            renderUpcomingTournamentList(window.cachedUpcomingTournaments);
             return;
           }
-          
-          // スピナーを表示
-          weeklyTournamentList.innerHTML = '<div class="spinner"></div>';
-          
+
+          upcomingTournamentList.innerHTML = '<div class="spinner"></div>';
+
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
           const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getUpcomingTournaments = httpsCallable(functions, 'getUpcomingTournaments');
-          
           const result = await getUpcomingTournaments({});
-          
+
           if (!result.data.success) {
             throw new Error(result.data.error || 'トーナメント情報の取得に失敗しました');
           }
-          
+
+          applyLiffTournamentSettings(result.data.liffSettings);
           const tournaments = result.data.tournaments || [];
-          
-          // グローバル変数にキャッシュ
-          window.cachedWeeklyTournaments = tournaments;
-          
-          if (tournaments.length === 0) {
-            weeklyTournamentList.innerHTML = '<p class="empty-message">今後のトーナメントがありません</p>';
-            return;
-          }
-          
-          weeklyTournamentList.innerHTML = tournaments.map((tournament, index) => `
-            <div class="tournament-card" onclick="toggleTournamentDetails('weekly-${index}')">
-              <div class="tournament-card-header">
-                <div class="tournament-card-title">
-                  <h3>${tournament.name}</h3>
-                  <span class="tournament-card-date">${formatDateWithDay(tournament.startAt)} ${formatTime(tournament.startAt)}</span>
-                </div>
-                <div class="tournament-card-arrow" id="weekly-arrow-${index}">▼</div>
-              </div>
-              <div class="tournament-card-details" id="weekly-${index}" style="display: none;">
-                <div class="detail-row">
-                  <span class="detail-label">参加費:</span>
-                  <span class="detail-value">¥${(tournament.entryFee || 0).toLocaleString()}</span>
-                </div>
-                <div class="detail-row">
-                  <span class="detail-label">初期スタック:</span>
-                  <span class="detail-value">${(tournament.startStack || 0).toLocaleString()}</span>
-                </div>
-                <div class="detail-row">
-                  <span class="detail-label">レジスト時間:</span>
-                  <span class="detail-value">${formatRegistrationTime(tournament.regEndAt, tournament.startAt)}</span>
-                </div>
-                ${tournament.description ? `<div class="detail-row"><span class="detail-label">説明:</span><span class="detail-value">${tournament.description}</span></div>` : ''}
-              </div>
-            </div>
-          `).join('');
-          
+          window.cachedUpcomingTournaments = tournaments;
+          renderUpcomingTournamentList(tournaments);
         } catch (error) {
-          weeklyTournamentList.innerHTML = `<p class="error-message">トーナメント情報の読み込みに失敗しました: ${error.message}</p>`;
+          upcomingTournamentList.innerHTML = `<p class="error-message">トーナメント情報の読み込みに失敗しました: ${error.message}</p>`;
         }
+      }
+
+      function renderUpcomingTournamentList(tournaments) {
+        const upcomingTournamentList = document.getElementById('upcoming-tournament-list');
+        if (!upcomingTournamentList) return;
+
+        if (tournaments.length === 0) {
+          upcomingTournamentList.innerHTML = '<p class="empty-message">今後のトーナメントがありません</p>';
+          return;
+        }
+
+        upcomingTournamentList.innerHTML = tournaments.map((tournament, index) =>
+          renderTournamentCard(tournament, {
+            cardKey: `upcoming-${index}`,
+            showRegisterButton: false,
+            showDate: true,
+          })
+        ).join('');
       }
 
       // フォーマット関数
@@ -1980,6 +2102,20 @@
 
       // トーナメント参加登録
       window.showTournamentRegistration = async (tournamentId) => {
+        const tournament = (window.cachedTodayTournaments || []).find((t) => t.id === tournamentId);
+        if (tournament) {
+          const blockReason = getRegistrationBlockReason(tournament);
+          if (blockReason) {
+            showRegistrationBlockReasonDialog(blockReason);
+            return;
+          }
+        }
+
+        const tournamentName = tournament?.name || 'このトーナメント';
+        if (!confirm(`${tournamentName}に参加登録しますか？`)) {
+          return;
+        }
+
         try {
           await executeWithGlobalLoading(async () => {
             const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
@@ -1991,9 +2127,8 @@
             if (result.data.success) {
               alert(`✅ 参加登録完了！\n\n${result.data.data.tournamentName}に参加登録しました。`);
               window.cachedTodayTournaments = null;
-              window.cachedWeeklyTournaments = null;
+              window.cachedUpcomingTournaments = null;
               loadTodayTournaments();
-              loadWeeklyTournaments();
             } else {
               alert(`❌ 参加登録失敗\n\n${result.data.error}`);
             }
@@ -2005,7 +2140,6 @@
 
       window.joinTournament = (tournamentName) => {
         alert(`${tournamentName}に参加しました`);
-        // 後で参加処理を実装
       };
 
       // プロフィール関連関数
@@ -2078,7 +2212,6 @@
           orderPageEl.style.display = 'none';
           orderHistoryPageEl.style.display = 'none';
           tournamentPageEl.style.display = 'none';
-        weeklyTournamentPageEl.style.display = 'none';
           profilePageEl.style.display = 'none';
           
         try {
@@ -2163,38 +2296,108 @@
       // カレンダー関連の関数
       // ==================================================
 
-      // 全トーナメントカレンダーページを表示
-      window.showAllTournamentsCalendar = async function() {
+      // カレンダータブのデータ読み込み
+      async function loadCalendarTabData() {
         try {
-          showPage(allTournamentCalendarPageEl);
-
           const tournamentCalEl = document.getElementById('tournament-calendar');
           if (tournamentCalEl) {
             tournamentCalEl.innerHTML = '<div class="spinner"></div>';
           }
 
-          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          if (allTournamentsData && allTournamentsData.length > 0) {
+            calendarCurrentMonth = calendarCurrentMonth || new Date();
+            renderTournamentCalendar();
+            return;
+          }
 
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
           const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getUpcomingTournaments = httpsCallable(functions, 'getUpcomingTournaments');
-
           const result = await getUpcomingTournaments({ includeAll: true });
 
           if (result.data && result.data.tournaments) {
             allTournamentsData = result.data.tournaments;
-          } else if (Array.isArray(result.data)) {
-            allTournamentsData = result.data;
           } else {
             allTournamentsData = [];
           }
 
+          applyLiffTournamentSettings(result.data.liffSettings);
           calendarCurrentMonth = new Date();
-
           renderTournamentCalendar();
         } catch (error) {
           showError('トーナメント情報の取得に失敗しました');
         }
-      };
+      }
+
+      // 後方互換（旧ページ遷移からの呼び出し）
+      window.showAllTournamentsCalendar = loadCalendarTabData;
+
+      function formatTournamentCalendarDateStr(year, month, day) {
+        return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+
+      function isJapaneseHoliday(date) {
+        try {
+          if (typeof window !== 'undefined' &&
+              typeof window.JapaneseHolidays !== 'undefined' &&
+              window.JapaneseHolidays &&
+              typeof window.JapaneseHolidays.isHoliday === 'function') {
+            const result = window.JapaneseHolidays.isHoliday(date);
+            return result !== undefined && result !== null;
+          }
+        } catch (error) {
+          console.warn('祝日判定ライブラリの呼び出しに失敗:', error);
+        }
+
+        const month = date.getMonth() + 1;
+        const day = date.getDate();
+        const weekday = date.getDay();
+        const fixedHolidays = [
+          { month: 1, day: 1 },
+          { month: 2, day: 11 },
+          { month: 2, day: 23 },
+          { month: 4, day: 29 },
+          { month: 5, day: 3 },
+          { month: 5, day: 4 },
+          { month: 5, day: 5 },
+          { month: 8, day: 11 },
+          { month: 11, day: 3 },
+          { month: 11, day: 23 },
+        ];
+
+        for (const holiday of fixedHolidays) {
+          if (holiday.month === month && holiday.day === day) {
+            return true;
+          }
+        }
+
+        if (month === 3 && (day === 20 || day === 21)) return true;
+        if (month === 9 && (day === 22 || day === 23)) return true;
+
+        if (month === 7 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 14 && day < firstMonday + 21) return true;
+        }
+        if (month === 9 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 14 && day < firstMonday + 21) return true;
+        }
+        if (month === 10 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 7 && day < firstMonday + 14) return true;
+        }
+
+        return false;
+      }
+
+      function getTournamentCalendarDayColor(currentDate, isToday) {
+        const weekday = currentDate.getDay();
+        const isHoliday = isJapaneseHoliday(currentDate);
+        if (isToday) return '#0000ff';
+        if (weekday === 6) return isHoliday ? '#ff0000' : '#0000ff';
+        if (weekday === 0 || isHoliday) return '#ff0000';
+        return '#000000';
+      }
 
       // トーナメントカレンダーを描画
       function renderTournamentCalendar() {
@@ -2215,25 +2418,35 @@
         
         const firstDay = new Date(year, month, 1);
         const lastDay = new Date(year, month + 1, 0);
-        const startDate = new Date(firstDay);
-        startDate.setDate(startDate.getDate() - firstDay.getDay());
+        const firstDayOfMonth = firstDay.getDay();
+        const daysInMonth = lastDay.getDate();
         
-        let calendarHTML = '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, 1fr); width: 100%; box-sizing: border-box;">';
-        const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-        weekdays.forEach(day => {
-          calendarHTML += `<div class="weekday" style="box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem; border-right: 1px solid #ddd;">${day}</div>`;
+        let calendarHTML = '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
+        const weekdayColors = [
+          { day: '日', color: '#ff0000' },
+          { day: '月', color: '#000000' },
+          { day: '火', color: '#000000' },
+          { day: '水', color: '#000000' },
+          { day: '木', color: '#000000' },
+          { day: '金', color: '#000000' },
+          { day: '土', color: '#0000ff' },
+        ];
+        weekdayColors.forEach(({ day, color }) => {
+          calendarHTML += `<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem; font-weight: bold; color: ${color};">${day}</div>`;
         });
         calendarHTML += '</div>';
         
-        calendarHTML += '<div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, 1fr); width: 100%; box-sizing: border-box;">';
+        calendarHTML += '<div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
         
-        for (let i = 0; i < 42; i++) {
-          const currentDate = new Date(startDate);
-          currentDate.setDate(startDate.getDate() + i);
-          
-          const isCurrentMonth = currentDate.getMonth() === month;
+        for (let i = 0; i < firstDayOfMonth; i++) {
+          calendarHTML += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
+        }
+        
+        for (let day = 1; day <= daysInMonth; day++) {
+          const currentDate = new Date(year, month, day);
+          const dateStr = formatTournamentCalendarDateStr(year, month, day);
           const isToday = currentDate.toDateString() === new Date().toDateString();
-          const dateStr = currentDate.toISOString().split('T')[0];
+          const dayColor = getTournamentCalendarDayColor(currentDate, isToday);
           
           const tournamentInfo = tournamentsByDate[dateStr] || { regular: 0, oneTime: 0 };
           const hasRegular = tournamentInfo.regular > 0;
@@ -2241,31 +2454,32 @@
           const hasTournament = hasRegular || hasOneTime;
           
           let dayClass = 'calendar-day';
-          if (!isCurrentMonth) dayClass += ' other-month';
           if (isToday) dayClass += ' today';
-          if (hasTournament && isCurrentMonth) dayClass += ' has-tournament';
+          if (hasTournament) dayClass += ' has-tournament';
           
-          calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" style="box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd;">`;
-          calendarHTML += `<span class="day-number">${currentDate.getDate()}</span>`;
+          calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem; position: relative;">`;
+          calendarHTML += `<span class="day-number" style="font-weight: bold; color: ${dayColor};">${day}</span>`;
           
-          // トーナメントの丸マーク表示
-          if (isCurrentMonth && (hasRegular || hasOneTime)) {
-            calendarHTML += `<div class="tournament-markers" style="display: flex; justify-content: center; gap: 2px; margin-top: 2px; flex-wrap: wrap;">`;
+          if (hasRegular || hasOneTime) {
+            calendarHTML += '<div class="tournament-markers">';
             
-            // 定期開催の丸を数だけ表示
-            for (let i = 0; i < tournamentInfo.regular; i++) {
-              calendarHTML += `<span class="tournament-dot regular" style="width: 6px; height: 6px; background-color: #2196f3; border-radius: 50%; display: inline-block;"></span>`;
+            for (let j = 0; j < tournamentInfo.regular; j++) {
+              calendarHTML += '<span class="tournament-dot regular"></span>';
             }
             
-            // 単発開催の丸を数だけ表示
-            for (let i = 0; i < tournamentInfo.oneTime; i++) {
-              calendarHTML += `<span class="tournament-dot one-time" style="width: 6px; height: 6px; background-color: #4caf50; border-radius: 50%; display: inline-block;"></span>`;
+            for (let j = 0; j < tournamentInfo.oneTime; j++) {
+              calendarHTML += '<span class="tournament-dot one-time"></span>';
             }
             
-            calendarHTML += `</div>`;
+            calendarHTML += '</div>';
           }
           
           calendarHTML += '</div>';
+        }
+        
+        const totalDays = firstDayOfMonth + daysInMonth;
+        for (let i = totalDays; i < 42; i++) {
+          calendarHTML += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
         }
         
         calendarHTML += '</div>';
@@ -2292,18 +2506,16 @@
           
           // 指定された月のトーナメントのみカウント
           if (tournamentYear === year && tournamentMonth === month) {
-            const dateStr = startDate.toISOString().split('T')[0];
+            const dateStr = formatTournamentCalendarDateStr(
+              tournamentYear,
+              tournamentMonth,
+              startDate.getDate()
+            );
             
             if (!grouped[dateStr]) {
               grouped[dateStr] = { regular: 0, oneTime: 0 };
             }
-            
-            // categoryが'regular'の場合は定期開催
-            if (tournament.category === 'regular') {
-              grouped[dateStr].regular += 1;
-            } else {
-              grouped[dateStr].oneTime += 1;
-            }
+            grouped[dateStr].oneTime += 1;
           }
         });
         
@@ -2317,7 +2529,7 @@
 
         calendar.addEventListener('click', (e) => {
           const dayCell = e.target.closest('.calendar-day');
-          if (dayCell && !dayCell.classList.contains('other-month')) {
+          if (dayCell && !dayCell.classList.contains('empty')) {
             const date = dayCell.dataset.date;
             
             // トーナメントがあるかチェック
@@ -2326,7 +2538,12 @@
               const startDate = typeof tournament.startAt === 'string' 
                 ? new Date(tournament.startAt)
                 : tournament.startAt.toDate();
-              return startDate.toISOString().split('T')[0] === date;
+              const dateStr = formatTournamentCalendarDateStr(
+                startDate.getFullYear(),
+                startDate.getMonth(),
+                startDate.getDate()
+              );
+              return dateStr === date;
             });
             
             if (tournamentsForDate.length > 0) {
@@ -2352,42 +2569,27 @@
           const startDate = typeof tournament.startAt === 'string' 
             ? new Date(tournament.startAt)
             : tournament.startAt.toDate();
-          return startDate.toISOString().split('T')[0] === dateStr;
+          return formatTournamentCalendarDateStr(
+            startDate.getFullYear(),
+            startDate.getMonth(),
+            startDate.getDate()
+          ) === dateStr;
         });
         
         // タイトル設定
         const year = date.getFullYear();
         const month = date.getMonth() + 1;
         const day = date.getDate();
-        selectedDateTitleEl.textContent = `${year}年${month}月${day}日のトーナメント (${tournamentsForDate.length}件)`;
+        selectedDateTitleEl.textContent = `${year}年${month}月${day}日のトーナメント`;
         
-        // トーナメント一覧を生成
-        let listHTML = '';
-        tournamentsForDate.forEach(tournament => {
-          // startAtは既にISO文字列
-          const startDate = typeof tournament.startAt === 'string' 
-            ? new Date(tournament.startAt)
-            : tournament.startAt.toDate();
-          const hours = startDate.getHours().toString().padStart(2, '0');
-          const minutes = startDate.getMinutes().toString().padStart(2, '0');
-          const timeStr = `${hours}:${minutes}`;
-          
-          const entryFee = tournament.entryFee || 0;
-          const prizePool = tournament.prizePool || 0;
-          
-          listHTML += `
-            <div class="tournament-item" style="background-color: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-              <h3 style="margin: 0 0 8px 0; font-size: 1.1rem;">${tournament.name || '名称未設定'}</h3>
-              <p style="margin: 4px 0; color: #666;">
-                <strong>開始時刻:</strong> ${timeStr}<br>
-                <strong>参加費:</strong> ${entryFee.toLocaleString()}円<br>
-                <strong>賞金:</strong> ${prizePool.toLocaleString()}円
-              </p>
-            </div>
-          `;
-        });
+        selectedDateTournamentListEl.innerHTML = tournamentsForDate.map((tournament, index) =>
+          renderTournamentCard(tournament, {
+            cardKey: `calendar-${dateStr}-${index}`,
+            showRegisterButton: false,
+            showDate: true,
+          })
+        ).join('');
         
-        selectedDateTournamentListEl.innerHTML = listHTML;
         selectedDateTournamentsEl.style.display = 'block';
         
         // 詳細エリアまでスクロール
@@ -2418,26 +2620,20 @@
         }
       };
 
-      // 1週間先トーナメントページに戻る
-      window.showWeeklyTournament = function() {
-        showPage(weeklyTournamentPageEl);
-      };
-
       // トーナメント詳細の表示切り替え
-      window.toggleTournamentDetails = function(detailId) {
-        const detailsEl = document.getElementById(detailId);
-        const arrowEl = document.getElementById(detailId.replace('weekly-', 'weekly-arrow-'));
-        
+      window.toggleTournamentDetails = function(cardKey) {
+        const detailsEl = document.getElementById(`${cardKey}-details`);
+        const toggleEl = document.getElementById(`${cardKey}-toggle`);
         if (!detailsEl) return;
-        
         const isVisible = detailsEl.style.display !== 'none';
-        
-        if (isVisible) {
-          detailsEl.style.display = 'none';
-          if (arrowEl) arrowEl.textContent = '▼';
-        } else {
-          detailsEl.style.display = 'block';
-          if (arrowEl) arrowEl.textContent = '▲';
+        const willExpand = !isVisible;
+        detailsEl.style.display = willExpand ? 'block' : 'none';
+        if (toggleEl) {
+          toggleEl.setAttribute('aria-expanded', String(willExpand));
+          const iconEl = toggleEl.querySelector('.tournament-detail-toggle-icon');
+          if (iconEl) {
+            iconEl.textContent = willExpand ? '▲' : '▼';
+          }
         }
       };
 
