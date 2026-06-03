@@ -10,6 +10,7 @@
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logOpsInfo, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { extractSchedulerChildExecutionMetadata } from '../../scheduler/supervisor/schedulerCorrelation';
 
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
 import { getStoreConfig } from '../../../shared/config/configLoader';
@@ -28,6 +29,13 @@ import {
 
 interface ProcessPayrollNotificationsTaskPayload {
   targetDate?: string;
+  schedulerParentJobKey?: string;
+  schedulerParentPlanningDate?: string;
+  schedulerParentPlannedRunAt?: string;
+  schedulerParentIdempotencyKey?: string;
+  schedulerParentSupervisorRunId?: string;
+  schedulerChildUnitKey?: string;
+  schedulerChildFunctionEntry?: string;
 }
 
 // ─── Pure types & helpers (Firestore-independent, unit-testable) ───
@@ -191,6 +199,7 @@ export const processPayrollNotifications = onTaskDispatched(
   },
   async (request) => {
     const payload = (request.data ?? {}) as ProcessPayrollNotificationsTaskPayload;
+    const schedulerMetadata = extractSchedulerChildExecutionMetadata(payload);
     const todayStr = payload.targetDate && /^\d{4}-\d{2}-\d{2}$/.test(payload.targetDate) ?
       payload.targetDate :
       (() => {
@@ -210,7 +219,10 @@ export const processPayrollNotifications = onTaskDispatched(
       message: 'processPayrollNotifications start',
       functionEntry: 'processPayrollNotifications',
       operation: 'start',
-      context: {todayStr},
+      context: {
+        todayStr,
+        ...schedulerMetadata,
+      },
     });
 
     const db = getFirestore();
@@ -285,6 +297,7 @@ export const processPayrollNotifications = onTaskDispatched(
         recentPeriodKey,
         actionsCount: actions.length,
         triggerTypes: actions.map((a) => a.triggerType),
+        ...schedulerMetadata,
       },
     });
   }

@@ -5,6 +5,10 @@ import {
   assertValidScheduledJobTaskPayload,
   type ScheduledJobTaskPayload,
 } from "../supervisor/schedulerTaskPayload";
+import {
+  buildSchedulerParentMetadata,
+  buildSchedulerTaskDispatchParentContext,
+} from "../supervisor/schedulerCorrelation";
 import { writeSchedulerExecutionLogByCloudTaskBestEffort } from "../supervisor/schedulerLogs";
 import { runWeeklyPlannerTask } from "../../storeMeta/scheduler/weeklyPlanner";
 import { runEnqueueTournamentTasksBySchedulerTask } from "../../tournament_createTournament/scheduler/EnqueueTournamentTasksByScheduler";
@@ -104,7 +108,10 @@ async function executeWeeklyPlanner(
     "targetWeekStartDate"
   );
 
-  const result = await runWeeklyPlannerTask({targetWeekStartDate});
+  const result = await runWeeklyPlannerTask({
+    targetWeekStartDate,
+    schedulerParent: buildSchedulerTaskDispatchParentContext(payload),
+  });
   return {
     eventType: "completed",
     decisionSnapshot: {
@@ -127,6 +134,7 @@ async function executeEnqueueTournamentTasks(
   const result = await runEnqueueTournamentTasksBySchedulerTask({
     rangeStartAt,
     rangeEndAt,
+    schedulerParent: buildSchedulerTaskDispatchParentContext(payload),
   });
   if (!result.success) {
     const errorSummary = (result.errors ?? [])
@@ -216,7 +224,10 @@ async function executePayrollNotificationScheduler(
     ({} as Record<string, unknown>);
   const targetDate = assertDateKey(targetScope.targetDate, "targetDate");
 
-  const result = await runPayrollNotificationSchedulerTask({targetDate});
+  const result = await runPayrollNotificationSchedulerTask({
+    targetDate,
+    schedulerParent: buildSchedulerTaskDispatchParentContext(payload),
+  });
   return {
     eventType: "completed",
     decisionSnapshot: {
@@ -255,6 +266,8 @@ export async function executeScheduledJobTask(
 ): Promise<void> {
   const payload = parsePayload(expectedJobKey, rawPayload);
 
+  const schedulerParentMetadata = buildSchedulerParentMetadata(payload);
+
   logOpsInfo({
     message: "executeScheduledJobTask start",
     functionEntry: "executeScheduledJobTask",
@@ -268,10 +281,15 @@ export async function executeScheduledJobTask(
   });
 
   await writeSchedulerExecutionLogByCloudTaskBestEffort({
+    phase: "execution",
     eventType: "started",
+    rawEventType: "started",
     isSuccess: true,
     jobKey: payload.jobKey,
     functionName: payload.jobKey,
+    planningDate: payload.planningDate,
+    plannedRunAt: payload.plannedRunAt,
+    targetScope: payload.targetScope,
     projectId: payload.projectId,
     idempotencyKey: payload.idempotencyKey,
     supervisorRunId: payload.supervisorRunId,
@@ -285,11 +303,16 @@ export async function executeScheduledJobTask(
     const outcome = await runScheduledJob(payload);
 
     await writeSchedulerExecutionLogByCloudTaskBestEffort({
+      phase: "execution",
       eventType: outcome.eventType,
+      rawEventType: outcome.eventType,
       isSuccess: true,
       reason: outcome.reason,
       jobKey: payload.jobKey,
       functionName: payload.jobKey,
+      planningDate: payload.planningDate,
+      plannedRunAt: payload.plannedRunAt,
+      targetScope: payload.targetScope,
       projectId: payload.projectId,
       idempotencyKey: payload.idempotencyKey,
       supervisorRunId: payload.supervisorRunId,
@@ -306,6 +329,7 @@ export async function executeScheduledJobTask(
         supervisorRunId: payload.supervisorRunId,
         planningDate: payload.planningDate,
         plannedRunAt: payload.plannedRunAt,
+        ...schedulerParentMetadata,
         outcomeEventType: outcome.eventType,
         outcomeReason: outcome.reason ?? null,
       },
@@ -317,11 +341,16 @@ export async function executeScheduledJobTask(
   } catch (error) {
     const reason = toErrorReason(error);
     await writeSchedulerExecutionLogByCloudTaskBestEffort({
+      phase: "execution",
       eventType: "error",
+      rawEventType: "error",
       isSuccess: false,
       reason,
       jobKey: payload.jobKey,
       functionName: payload.jobKey,
+      planningDate: payload.planningDate,
+      plannedRunAt: payload.plannedRunAt,
+      targetScope: payload.targetScope,
       projectId: payload.projectId,
       idempotencyKey: payload.idempotencyKey,
       supervisorRunId: payload.supervisorRunId,
@@ -343,6 +372,7 @@ export async function executeScheduledJobTask(
         supervisorRunId: payload.supervisorRunId,
         planningDate: payload.planningDate,
         plannedRunAt: payload.plannedRunAt,
+        ...schedulerParentMetadata,
       },
     });
     throw error;
