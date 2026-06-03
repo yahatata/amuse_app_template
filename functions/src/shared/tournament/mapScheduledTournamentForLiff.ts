@@ -13,8 +13,10 @@ export interface LiffTournamentItem {
   entryFee: number;
   startStack: number;
   isReentry: boolean;
+  maxReentries: number | null;
   reentryFee: number;
   isAddon: boolean;
+  addonLimitPerPlayer: number | null;
   addonFee: number;
   blindLevelDurationText: string;
   isRegisteredByCurrentUser?: boolean;
@@ -29,8 +31,10 @@ interface TemplateFields {
   entryFee: number;
   startStack: number;
   isReentry: boolean;
+  maxReentries: number | null;
   reentryFee: number;
   isAddon: boolean;
+  addonLimitPerPlayer: number | null;
   addonFee: number;
   blindStructureId: string;
 }
@@ -70,6 +74,16 @@ function resolveTemplateFields(
     return false;
   };
 
+  const pickOptionalNumber = (...keys: string[]): number | null => {
+    for (const key of keys) {
+      const fromSnapshot = snapshot[key];
+      if (typeof fromSnapshot === 'number') return fromSnapshot;
+      const fromTemplate = template[key];
+      if (typeof fromTemplate === 'number') return fromTemplate;
+    }
+    return null;
+  };
+
   const blindStructureId =
     pickString('blindStructure') ||
     pickString('blindStructureId') ||
@@ -82,8 +96,10 @@ function resolveTemplateFields(
     entryFee: pickNumber('entryFee'),
     startStack: pickNumber('startStack'),
     isReentry: pickBoolean('isReentry'),
+    maxReentries: pickOptionalNumber('maxReentries', 'maxReentriesPerPlayer'),
     reentryFee: pickNumber('reentryFee'),
     isAddon: pickBoolean('isAddon'),
+    addonLimitPerPlayer: pickOptionalNumber('addonLimitPerPlayer'),
     addonFee: pickNumber('addonFee'),
     blindStructureId,
   };
@@ -159,8 +175,10 @@ export async function mapScheduledTournamentsForLiff(
       entryFee: fields.entryFee,
       startStack: fields.startStack,
       isReentry: fields.isReentry,
+      maxReentries: fields.maxReentries,
       reentryFee: fields.reentryFee,
       isAddon: fields.isAddon,
+      addonLimitPerPlayer: fields.addonLimitPerPlayer,
       addonFee: fields.addonFee,
       blindLevelDurationText: fields.blindStructureId
         ? blindTextById.get(fields.blindStructureId) ?? ''

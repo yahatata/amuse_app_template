@@ -22,6 +22,11 @@ export function getJstTodayRangeUtc(now: Date = new Date()): JstDayRangeUtc {
   return { start, end, dateKey };
 }
 
+/** JST 基準の暦日キー（yyyy-MM-dd） */
+export function getJstCalendarDateKey(now: Date = new Date()): string {
+  return getJstTodayRangeUtc(now).dateKey;
+}
+
 export function toDate(value: unknown): Date | null {
   if (!value) return null;
   if (value instanceof Timestamp) {
@@ -51,16 +56,6 @@ export function toDate(value: unknown): Date | null {
 export function convertFirestoreTimestampToIso(timestamp: unknown): string {
   const date = toDate(timestamp);
   return date ? date.toISOString() : '';
-}
-
-export function isStartAtWithinRange(
-  startAt: unknown,
-  range: { start: Date; end: Date }
-): boolean {
-  const date = toDate(startAt);
-  if (!date) return false;
-  const ms = date.getTime();
-  return ms >= range.start.getTime() && ms < range.end.getTime();
 }
 
 export function isRegEndAtPast(regEndAt: unknown, now: Date = new Date()): boolean {

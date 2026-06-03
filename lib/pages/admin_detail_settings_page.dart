@@ -22,9 +22,6 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
   bool _isProcessing = false;
   bool? _reportingEnabled;
   bool _loadingReportingFlag = true;
-  bool? _liffRegistrationEnabled;
-  bool? _liffCalendarEnabled;
-  bool _loadingLiffTournamentFlags = true;
 
   // 整合性チェック用
   String? _checkTargetDate;
@@ -58,7 +55,6 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
   void initState() {
     super.initState();
     _loadReportingFlag();
-    _loadLiffTournamentFlags();
   }
 
   Future<void> _loadReportingFlag() async {
@@ -82,101 +78,6 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
           _loadingReportingFlag = false;
         });
       }
-    }
-  }
-
-  Future<void> _loadLiffTournamentFlags() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('storeMeta')
-          .doc('config')
-          .get();
-      final tournament = doc.data()?['tournament'] as Map<String, dynamic>?;
-      final registration = tournament?['liffRegistrationEnabled'];
-      final calendar = tournament?['liffCalendarEnabled'];
-      if (mounted) {
-        setState(() {
-          _liffRegistrationEnabled = registration is bool ? registration : true;
-          _liffCalendarEnabled = calendar is bool ? calendar : true;
-          _loadingLiffTournamentFlags = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _liffRegistrationEnabled = true;
-          _liffCalendarEnabled = true;
-          _loadingLiffTournamentFlags = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _toggleLiffRegistrationFlag(bool newValue) async {
-    if (_isProcessing) return;
-    setState(() => _isProcessing = true);
-
-    try {
-      final auth = FirebaseAuth.instance;
-      if (auth.currentUser == null) {
-        await auth.signInAnonymously();
-      }
-
-      await FirebaseFirestore.instance
-          .collection('storeMeta')
-          .doc('config')
-          .set(
-            {
-              'tournament': {'liffRegistrationEnabled': newValue},
-            },
-            SetOptions(merge: true),
-          );
-
-      if (!mounted) return;
-      setState(() => _liffRegistrationEnabled = newValue);
-      _showSnackBar(
-        'liffRegistrationEnabled を ${newValue ? 'ON' : 'OFF'} にしました',
-        Colors.green,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      _showSnackBar('エラー: $e', Colors.red);
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
-    }
-  }
-
-  Future<void> _toggleLiffCalendarFlag(bool newValue) async {
-    if (_isProcessing) return;
-    setState(() => _isProcessing = true);
-
-    try {
-      final auth = FirebaseAuth.instance;
-      if (auth.currentUser == null) {
-        await auth.signInAnonymously();
-      }
-
-      await FirebaseFirestore.instance
-          .collection('storeMeta')
-          .doc('config')
-          .set(
-            {
-              'tournament': {'liffCalendarEnabled': newValue},
-            },
-            SetOptions(merge: true),
-          );
-
-      if (!mounted) return;
-      setState(() => _liffCalendarEnabled = newValue);
-      _showSnackBar(
-        'liffCalendarEnabled を ${newValue ? 'ON' : 'OFF'} にしました',
-        Colors.green,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      _showSnackBar('エラー: $e', Colors.red);
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -373,63 +274,6 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
                           'currentBusinessDay',
                         ),
               ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'LIFF トーナメント設定',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: _loadingLiffTournamentFlags
-                  ? const ListTile(
-                      leading: Icon(Icons.sports_esports, color: Colors.deepOrange),
-                      title: Text('ミニアプリ トーナメント参加登録（liffRegistrationEnabled）'),
-                      trailing: SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : SwitchListTile(
-                      secondary: const Icon(Icons.sports_esports, color: Colors.deepOrange),
-                      title: const Text(
-                        'ミニアプリ トーナメント参加登録（liffRegistrationEnabled）',
-                      ),
-                      subtitle: const Text(
-                        'OFF の場合、ミニアプリではトーナメント閲覧のみ可能です。',
-                      ),
-                      value: _liffRegistrationEnabled ?? true,
-                      onChanged: _isProcessing ? null : _toggleLiffRegistrationFlag,
-                    ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: _loadingLiffTournamentFlags
-                  ? const ListTile(
-                      leading: Icon(Icons.calendar_month, color: Colors.deepOrange),
-                      title: Text('ミニアプリ トーナメントカレンダー（liffCalendarEnabled）'),
-                      trailing: SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : SwitchListTile(
-                      secondary:
-                          const Icon(Icons.calendar_month, color: Colors.deepOrange),
-                      title: const Text(
-                        'ミニアプリ トーナメントカレンダー（liffCalendarEnabled）',
-                      ),
-                      subtitle: const Text(
-                        'OFF の場合、ミニアプリのカレンダータブを非表示にします。',
-                      ),
-                      value: _liffCalendarEnabled ?? true,
-                      onChanged: _isProcessing ? null : _toggleLiffCalendarFlag,
-                    ),
             ),
             const SizedBox(height: 24),
             const Text(

@@ -22,6 +22,8 @@ describe('registerForTournament', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
   const projectId = 'test-project-register-tournament';
+  const CURRENT_BUSINESS_DATE = '2026-06-03';
+  const OTHER_BUSINESS_DATE = '2026-06-04';
 
   beforeAll(async () => {
     process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
@@ -49,7 +51,16 @@ describe('registerForTournament', () => {
   beforeEach(async () => {
     await testEnv.clearFirestore();
     delete process.env.WRITE_TODAYS_BILLS_IN_PARALLEL;
+    await setUpStoreMetaRunning(CURRENT_BUSINESS_DATE);
   });
+
+  async function setUpStoreMetaRunning(businessDateKey: string) {
+    await db.collection('storeMeta').doc('currentBusinessDay').set({
+      status: 'running',
+      currentBusinessDateKey: businessDateKey,
+      lastClosedBusinessDateKey: null,
+    });
+  }
 
   // テスト用: JST 本日の startAt
   function jstTodayStartAt(hour = 14): admin.firestore.Timestamp {
@@ -84,6 +95,7 @@ describe('registerForTournament', () => {
     await db.collection('scheduledTournaments').doc(tournamentId).set({
       templateId,
       status: 'scheduled',
+      businessDate: CURRENT_BUSINESS_DATE,
       startAt,
       regEndAt,
       snapshot: {
@@ -525,14 +537,11 @@ describe('registerForTournament', () => {
       expect(result.error).toContain('参加締め切りしました');
     });
 
-    it('本日以外のトーナメントはエラー', async () => {
+    it('businessDate !== currentBusinessDateKey の場合 TOURNAMENT_NOT_TODAY', async () => {
       const tournamentId = 'tournament_not_today';
       const templateId = 'template_not_today';
       const userId = 'user_not_today';
       const billId = 'bill_not_today';
-      const tomorrow = admin.firestore.Timestamp.fromDate(
-        new Date(Date.now() + 24 * 60 * 60 * 1000)
-      );
 
       await createBillWithActiveStay({
         billId,
@@ -540,7 +549,7 @@ describe('registerForTournament', () => {
         pokerName: 'テスト',
         idempotencyKey: 'idem_not_today',
       });
-      await setupTournament(tournamentId, templateId, { startAt: tomorrow });
+      await setupTournament(tournamentId, templateId, { businessDate: OTHER_BUSINESS_DATE });
 
       const result = await (registerForTournament as any).run({
         data: { tournamentId },
@@ -549,6 +558,60 @@ describe('registerForTournament', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('本日のトーナメントのみ');
+    });
+
+    it('startAt のJST暦日が今日でも businessDate が違えば TOURNAMENT_NOT_TODAY', async () => {
+      const tournamentId = 'tournament_wrong_bd';
+      const templateId = 'template_wrong_bd';
+      const userId = 'user_wrong_bd';
+      const billId = 'bill_wrong_bd';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: 'テスト',
+        idempotencyKey: 'idem_wrong_bd',
+      });
+      await setupTournament(tournamentId, templateId, {
+        businessDate: OTHER_BUSINESS_DATE,
+        startAt: jstTodayStartAt(15),
+      });
+
+      const result = await (registerForTournament as any).run({
+        data: { tournamentId },
+        auth: { uid: userId },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('本日のトーナメントのみ');
+    });
+
+    it('startAt のJST暦日が今日でなくても businessDate が currentBusinessDateKey なら本日判定を通る', async () => {
+      const tournamentId = 'tournament_future_start';
+      const templateId = 'template_future_start';
+      const userId = 'user_future_start';
+      const billId = 'bill_future_start';
+      const tomorrow = admin.firestore.Timestamp.fromDate(
+        new Date(Date.now() + 24 * 60 * 60 * 1000)
+      );
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: 'テスト',
+        idempotencyKey: 'idem_future_start',
+      });
+      await setupTournament(tournamentId, templateId, {
+        businessDate: CURRENT_BUSINESS_DATE,
+        startAt: tomorrow,
+      });
+
+      const result = await (registerForTournament as any).run({
+        data: { tournamentId },
+        auth: { uid: userId },
+      });
+
+      expect(result.success).toBe(true);
     });
 
     it('liffRegistrationEnabled=false の場合エラー', async () => {

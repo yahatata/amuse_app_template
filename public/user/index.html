@@ -8,6 +8,7 @@
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <!-- 店舗別設定ファイル -->
     <script src="./config.js"></script>
+    <script src="./liffTournamentDisplayHelpers.js?v=20260603-fee0"></script>
     <!-- Firebase初期化スクリプト -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -162,8 +163,91 @@
     clearTimeout(longPressTimer);
   });
     </script>
-    <link rel="stylesheet" href="../css/common.css?v=20251114-01">
-    <link rel="stylesheet" href="../css/user.css">
+    <link rel="stylesheet" href="../css/common.css?v=20260603-register-green">
+    <link rel="stylesheet" href="../css/user.css?v=20260603-register-green">
+    <style>
+      /* index.html と同梱 — user.css キャッシュ時もトーナメント余白を抑える */
+      .tournament-page .tournament-list { gap: 12px !important; }
+      .tournament-page .tournament-card {
+        margin-bottom: 0 !important;
+        padding: 10px 10px 8px !important;
+      }
+      .tournament-page .tournament-card-title {
+        margin: 0 0 8px !important;
+        line-height: 1.25 !important;
+        font-size: 1.10rem !important;
+      }
+      .tournament-page .tournament-card-brief { margin-bottom: 8px !important; }
+      .tournament-page .tournament-card-brief p {
+        margin: 0 !important;
+        padding: 5px 0 !important;
+        font-size: 1.10rem !important;
+        line-height: 1.25 !important;
+      }
+      .tournament-page .tournament-card-brief-value {
+        color: #333 !important;
+        font-weight: 600 !important;
+      }
+      .tournament-page .tournament-card-brief p:last-child {
+        padding-bottom: 0 !important;
+      }
+      .tournament-page .tournament-card-details .detail-row {
+        font-size: 1.10rem !important;
+        line-height: 1.25 !important;
+        padding: 5px 0 !important;
+      }
+      .tournament-page .tournament-card-details .detail-value {
+        color: #333 !important;
+        font-weight: 600 !important;
+      }
+      .tournament-page .tournament-card-summary {
+        position: relative !important;
+        padding-right: 52px !important;
+      }
+      .tournament-page .tournament-card-actions-row {
+        flex-direction: column !important;
+        align-items: center !important;
+        gap: 4px !important;
+        margin-top: 0 !important;
+        margin-bottom: 8px !important;
+        width: 100% !important;
+      }
+      .tournament-page .tournament-card-actions-buttons {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        width: 100% !important;
+        gap: 4px 6px !important;
+        align-items: center !important;
+      }
+      .tournament-page .tournament-card-actions-row .btn-register {
+        padding: 7px 17px !important;
+        font-size: 1.43rem !important;
+        min-width: 122px !important;
+      }
+      .tournament-page .tournament-card-actions-row .btn-register:not(.btn-disabled):not([aria-disabled="true"]) {
+        background: linear-gradient(135deg, #4caf50, #43a047) !important;
+        color: #fff !important;
+        box-shadow: 0 4px 12px rgba(76, 175, 80, 0.35) !important;
+      }
+      .tournament-page button.btn.btn-disabled[aria-disabled="true"] {
+        opacity: 0.5 !important;
+        cursor: pointer !important;
+      }
+      .tournament-page .tournament-detail-toggle {
+        font-size: 1.07rem !important;
+      }
+      .tournament-page .tournament-detail-toggle-icon {
+        font-size: 0.98rem !important;
+      }
+      .tournament-page .tournament-card-actions-row .btn {
+        margin: 0 !important;
+        padding: 4px 10px !important;
+        box-shadow: none !important;
+        letter-spacing: 0 !important;
+        text-transform: none !important;
+      }
+    </style>
   </head>
   <body>
 <!-- ========== DEBUG OVERLAY START ==========
@@ -462,8 +546,8 @@
             <h2 id="calendar-current-month" style="margin: 0;">2025年11月</h2>
             <button type="button" class="btn" onclick="nextMonth()" style="padding: 8px 16px;">次月 →</button>
           </div>
-          <div class="calendar-container">
-            <div id="tournament-calendar" class="tournament-calendar"></div>
+          <div class="calendar-container flexible-container-flex">
+            <div id="tournament-calendar" class="tournament-calendar calendar-grid flexible-container-flex"></div>
           </div>
           <div id="selected-date-tournaments" class="selected-date-tournaments" style="display: none; margin-top: 20px;">
             <h3 id="selected-date-title"></h3>
@@ -1788,50 +1872,60 @@
         return null;
       }
 
+      function showRegistrationBlockReasonDialog(message) {
+        alert(`参加できません\n\n${message}`);
+      }
+
       function renderTournamentCard(tournament, options) {
         const cardKey = options.cardKey;
         const showRegisterButton = options.showRegisterButton === true;
         const showDate = options.showDate === true;
         const timeLabel = showDate
-          ? `${formatDateWithDayFromIso(tournament.startAt)} ${formatTime(tournament.startAt)}`
+          ? `${formatDate(tournament.startAt)} ${formatTime(tournament.startAt)}`
           : formatTime(tournament.startAt);
 
         let registerHtml = '';
         if (showRegisterButton) {
           const blockReason = getRegistrationBlockReason(tournament);
-          const disabled = blockReason ? 'disabled' : '';
-          const btnClass = blockReason ? 'btn btn-disabled' : 'btn';
-          registerHtml = `
-            <div class="tournament-card-register">
-              <button type="button" class="${btnClass}" ${disabled} onclick="showTournamentRegistration('${tournament.id}')">参加登録</button>
-              ${blockReason ? `<p class="tournament-block-reason">${blockReason}</p>` : ''}
-            </div>
-          `;
+          const btnClass = blockReason ? 'btn btn-disabled btn-register' : 'btn btn-register';
+          const ariaDisabled = blockReason ? ' aria-disabled="true"' : '';
+          registerHtml = `<button type="button" class="${btnClass}"${ariaDisabled} onclick="showTournamentRegistration('${tournament.id}')">参加登録</button>`;
         }
 
-        const reentryText = tournament.isReentry
-          ? `可（${(tournament.reentryFee || 0).toLocaleString()}円）`
-          : '不可';
-        const addonText = tournament.isAddon
-          ? `可（${(tournament.addonFee || 0).toLocaleString()}円）`
-          : '不可';
+        const entryFeeText = `¥${(tournament.entryFee || 0).toLocaleString()}`;
+        const stackText = `${(tournament.startStack || 0).toLocaleString()}`;
+
+        const reentryText = window.formatLiffReentryDisplay(tournament);
+        const addonText = window.formatLiffAddonDisplay(tournament);
         const blindText = tournament.blindLevelDurationText || '—';
+
+        const actionsRowHtml = showRegisterButton
+          ? `<div class="tournament-card-actions-row">
+                <div class="tournament-card-actions-buttons">
+                  ${registerHtml}
+                </div>
+              </div>`
+          : '';
 
         return `
           <div class="tournament-card">
             <div class="tournament-card-summary">
-              <div class="tournament-card-title-row">
-                <h3>${tournament.name}</h3>
+              <div class="tournament-card-main">
+                <h3 class="tournament-card-title">${tournament.name}</h3>
+                <div class="tournament-card-brief">
+                  <p><span class="tournament-card-brief-label">開始時刻:</span> <span class="tournament-card-brief-value">${timeLabel}</span></p>
+                  <p><span class="tournament-card-brief-label">参加費:</span> <span class="tournament-card-brief-value">${entryFeeText}</span></p>
+                  <p><span class="tournament-card-brief-label">初期スタック:</span> <span class="tournament-card-brief-value">${stackText}</span></p>
+                </div>
+                ${actionsRowHtml}
               </div>
-              <div class="tournament-card-brief">
-                <p><strong>開始時刻:</strong> ${timeLabel}</p>
-                <p><strong>参加費:</strong> ¥${(tournament.entryFee || 0).toLocaleString()}</p>
-                <p><strong>初期スタック:</strong> ${(tournament.startStack || 0).toLocaleString()}</p>
-              </div>
-              <div class="tournament-card-actions-row">
-                <button type="button" class="btn secondary btn-detail" onclick="toggleTournamentDetails('${cardKey}')">詳細</button>
-                ${registerHtml}
-              </div>
+              <button
+                type="button"
+                class="tournament-detail-toggle"
+                id="${cardKey}-toggle"
+                aria-expanded="false"
+                onclick="toggleTournamentDetails('${cardKey}')"
+              >詳細 <span class="tournament-detail-toggle-icon" aria-hidden="true">▼</span></button>
             </div>
             <div class="tournament-card-details" id="${cardKey}-details" style="display: none;">
               <div class="detail-row">
@@ -1893,7 +1987,7 @@
         if (!todayTournamentList) return;
 
         if (tournaments.length === 0) {
-          todayTournamentList.innerHTML = '<p class="empty-message">今日はトーナメントがありません</p>';
+          todayTournamentList.innerHTML = '<p class="empty-message">本日のトーナメント予定はありません。</p>';
           return;
         }
 
@@ -2011,7 +2105,10 @@
         const tournament = (window.cachedTodayTournaments || []).find((t) => t.id === tournamentId);
         if (tournament) {
           const blockReason = getRegistrationBlockReason(tournament);
-          if (blockReason) return;
+          if (blockReason) {
+            showRegistrationBlockReasonDialog(blockReason);
+            return;
+          }
         }
 
         const tournamentName = tournament?.name || 'このトーナメント';
@@ -2235,6 +2332,73 @@
       // 後方互換（旧ページ遷移からの呼び出し）
       window.showAllTournamentsCalendar = loadCalendarTabData;
 
+      function formatTournamentCalendarDateStr(year, month, day) {
+        return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+
+      function isJapaneseHoliday(date) {
+        try {
+          if (typeof window !== 'undefined' &&
+              typeof window.JapaneseHolidays !== 'undefined' &&
+              window.JapaneseHolidays &&
+              typeof window.JapaneseHolidays.isHoliday === 'function') {
+            const result = window.JapaneseHolidays.isHoliday(date);
+            return result !== undefined && result !== null;
+          }
+        } catch (error) {
+          console.warn('祝日判定ライブラリの呼び出しに失敗:', error);
+        }
+
+        const month = date.getMonth() + 1;
+        const day = date.getDate();
+        const weekday = date.getDay();
+        const fixedHolidays = [
+          { month: 1, day: 1 },
+          { month: 2, day: 11 },
+          { month: 2, day: 23 },
+          { month: 4, day: 29 },
+          { month: 5, day: 3 },
+          { month: 5, day: 4 },
+          { month: 5, day: 5 },
+          { month: 8, day: 11 },
+          { month: 11, day: 3 },
+          { month: 11, day: 23 },
+        ];
+
+        for (const holiday of fixedHolidays) {
+          if (holiday.month === month && holiday.day === day) {
+            return true;
+          }
+        }
+
+        if (month === 3 && (day === 20 || day === 21)) return true;
+        if (month === 9 && (day === 22 || day === 23)) return true;
+
+        if (month === 7 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 14 && day < firstMonday + 21) return true;
+        }
+        if (month === 9 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 14 && day < firstMonday + 21) return true;
+        }
+        if (month === 10 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 7 && day < firstMonday + 14) return true;
+        }
+
+        return false;
+      }
+
+      function getTournamentCalendarDayColor(currentDate, isToday) {
+        const weekday = currentDate.getDay();
+        const isHoliday = isJapaneseHoliday(currentDate);
+        if (isToday) return '#0000ff';
+        if (weekday === 6) return isHoliday ? '#ff0000' : '#0000ff';
+        if (weekday === 0 || isHoliday) return '#ff0000';
+        return '#000000';
+      }
+
       // トーナメントカレンダーを描画
       function renderTournamentCalendar() {
         const calendar = document.getElementById('tournament-calendar');
@@ -2254,25 +2418,35 @@
         
         const firstDay = new Date(year, month, 1);
         const lastDay = new Date(year, month + 1, 0);
-        const startDate = new Date(firstDay);
-        startDate.setDate(startDate.getDate() - firstDay.getDay());
+        const firstDayOfMonth = firstDay.getDay();
+        const daysInMonth = lastDay.getDate();
         
-        let calendarHTML = '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, 1fr); width: 100%; box-sizing: border-box;">';
-        const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-        weekdays.forEach(day => {
-          calendarHTML += `<div class="weekday" style="box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem; border-right: 1px solid #ddd;">${day}</div>`;
+        let calendarHTML = '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
+        const weekdayColors = [
+          { day: '日', color: '#ff0000' },
+          { day: '月', color: '#000000' },
+          { day: '火', color: '#000000' },
+          { day: '水', color: '#000000' },
+          { day: '木', color: '#000000' },
+          { day: '金', color: '#000000' },
+          { day: '土', color: '#0000ff' },
+        ];
+        weekdayColors.forEach(({ day, color }) => {
+          calendarHTML += `<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem; font-weight: bold; color: ${color};">${day}</div>`;
         });
         calendarHTML += '</div>';
         
-        calendarHTML += '<div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, 1fr); width: 100%; box-sizing: border-box;">';
+        calendarHTML += '<div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
         
-        for (let i = 0; i < 42; i++) {
-          const currentDate = new Date(startDate);
-          currentDate.setDate(startDate.getDate() + i);
-          
-          const isCurrentMonth = currentDate.getMonth() === month;
+        for (let i = 0; i < firstDayOfMonth; i++) {
+          calendarHTML += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
+        }
+        
+        for (let day = 1; day <= daysInMonth; day++) {
+          const currentDate = new Date(year, month, day);
+          const dateStr = formatTournamentCalendarDateStr(year, month, day);
           const isToday = currentDate.toDateString() === new Date().toDateString();
-          const dateStr = currentDate.toISOString().split('T')[0];
+          const dayColor = getTournamentCalendarDayColor(currentDate, isToday);
           
           const tournamentInfo = tournamentsByDate[dateStr] || { regular: 0, oneTime: 0 };
           const hasRegular = tournamentInfo.regular > 0;
@@ -2280,31 +2454,32 @@
           const hasTournament = hasRegular || hasOneTime;
           
           let dayClass = 'calendar-day';
-          if (!isCurrentMonth) dayClass += ' other-month';
           if (isToday) dayClass += ' today';
-          if (hasTournament && isCurrentMonth) dayClass += ' has-tournament';
+          if (hasTournament) dayClass += ' has-tournament';
           
-          calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" style="box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd;">`;
-          calendarHTML += `<span class="day-number">${currentDate.getDate()}</span>`;
+          calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem; position: relative;">`;
+          calendarHTML += `<span class="day-number" style="font-weight: bold; color: ${dayColor};">${day}</span>`;
           
-          // トーナメントの丸マーク表示
-          if (isCurrentMonth && (hasRegular || hasOneTime)) {
-            calendarHTML += `<div class="tournament-markers" style="display: flex; justify-content: center; gap: 2px; margin-top: 2px; flex-wrap: wrap;">`;
+          if (hasRegular || hasOneTime) {
+            calendarHTML += '<div class="tournament-markers">';
             
-            // 定期開催の丸を数だけ表示
-            for (let i = 0; i < tournamentInfo.regular; i++) {
-              calendarHTML += `<span class="tournament-dot regular" style="width: 6px; height: 6px; background-color: #2196f3; border-radius: 50%; display: inline-block;"></span>`;
+            for (let j = 0; j < tournamentInfo.regular; j++) {
+              calendarHTML += '<span class="tournament-dot regular"></span>';
             }
             
-            // 単発開催の丸を数だけ表示
-            for (let i = 0; i < tournamentInfo.oneTime; i++) {
-              calendarHTML += `<span class="tournament-dot one-time" style="width: 6px; height: 6px; background-color: #4caf50; border-radius: 50%; display: inline-block;"></span>`;
+            for (let j = 0; j < tournamentInfo.oneTime; j++) {
+              calendarHTML += '<span class="tournament-dot one-time"></span>';
             }
             
-            calendarHTML += `</div>`;
+            calendarHTML += '</div>';
           }
           
           calendarHTML += '</div>';
+        }
+        
+        const totalDays = firstDayOfMonth + daysInMonth;
+        for (let i = totalDays; i < 42; i++) {
+          calendarHTML += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
         }
         
         calendarHTML += '</div>';
@@ -2331,7 +2506,11 @@
           
           // 指定された月のトーナメントのみカウント
           if (tournamentYear === year && tournamentMonth === month) {
-            const dateStr = startDate.toISOString().split('T')[0];
+            const dateStr = formatTournamentCalendarDateStr(
+              tournamentYear,
+              tournamentMonth,
+              startDate.getDate()
+            );
             
             if (!grouped[dateStr]) {
               grouped[dateStr] = { regular: 0, oneTime: 0 };
@@ -2350,7 +2529,7 @@
 
         calendar.addEventListener('click', (e) => {
           const dayCell = e.target.closest('.calendar-day');
-          if (dayCell && !dayCell.classList.contains('other-month')) {
+          if (dayCell && !dayCell.classList.contains('empty')) {
             const date = dayCell.dataset.date;
             
             // トーナメントがあるかチェック
@@ -2359,7 +2538,12 @@
               const startDate = typeof tournament.startAt === 'string' 
                 ? new Date(tournament.startAt)
                 : tournament.startAt.toDate();
-              return startDate.toISOString().split('T')[0] === date;
+              const dateStr = formatTournamentCalendarDateStr(
+                startDate.getFullYear(),
+                startDate.getMonth(),
+                startDate.getDate()
+              );
+              return dateStr === date;
             });
             
             if (tournamentsForDate.length > 0) {
@@ -2385,14 +2569,18 @@
           const startDate = typeof tournament.startAt === 'string' 
             ? new Date(tournament.startAt)
             : tournament.startAt.toDate();
-          return startDate.toISOString().split('T')[0] === dateStr;
+          return formatTournamentCalendarDateStr(
+            startDate.getFullYear(),
+            startDate.getMonth(),
+            startDate.getDate()
+          ) === dateStr;
         });
         
         // タイトル設定
         const year = date.getFullYear();
         const month = date.getMonth() + 1;
         const day = date.getDate();
-        selectedDateTitleEl.textContent = `${year}年${month}月${day}日のトーナメント (${tournamentsForDate.length}件)`;
+        selectedDateTitleEl.textContent = `${year}年${month}月${day}日のトーナメント`;
         
         selectedDateTournamentListEl.innerHTML = tournamentsForDate.map((tournament, index) =>
           renderTournamentCard(tournament, {
@@ -2435,9 +2623,18 @@
       // トーナメント詳細の表示切り替え
       window.toggleTournamentDetails = function(cardKey) {
         const detailsEl = document.getElementById(`${cardKey}-details`);
+        const toggleEl = document.getElementById(`${cardKey}-toggle`);
         if (!detailsEl) return;
         const isVisible = detailsEl.style.display !== 'none';
-        detailsEl.style.display = isVisible ? 'none' : 'block';
+        const willExpand = !isVisible;
+        detailsEl.style.display = willExpand ? 'block' : 'none';
+        if (toggleEl) {
+          toggleEl.setAttribute('aria-expanded', String(willExpand));
+          const iconEl = toggleEl.querySelector('.tournament-detail-toggle-icon');
+          if (iconEl) {
+            iconEl.textContent = willExpand ? '▲' : '▼';
+          }
+        }
       };
 
 

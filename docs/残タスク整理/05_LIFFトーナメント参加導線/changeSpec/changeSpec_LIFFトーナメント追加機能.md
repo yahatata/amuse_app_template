@@ -10,18 +10,10 @@
 | **調査根拠** | 実装落とし込み調査（`public/user/index.html` / `getTodayTournaments.ts` / `getUpcomingTournaments.ts` / `registerForTournament.ts` / `storeMeta/config` 周辺） |
 | **実装** | **本 ChangeSpec の作成のみ。コード変更は行わない。** |
 
-### 確定事項（本 ChangeSpec で上書きする仕様書との差分）
+### 確定事項
 
-仕様書 [`01_仕様整理.md`](../01_仕様整理.md) §9 のフィールド名・保存階層は、実装確定事項に従い以下とする。
-
-| 仕様書記載 | 本 ChangeSpec（確定） |
-|-----------|----------------------|
-| `storeMeta/config` 直下 `tournamentLiffRegistrationEnabled` | `storeMeta/config.tournament.liffRegistrationEnabled` |
-| `storeMeta/config` 直下 `tournamentLiffCalendarEnabled` | `storeMeta/config.tournament.liffCalendarEnabled` |
-| デフォルト値未記載 | いずれも **fallback `true`** |
-
-その他の確定事項（仕様書と整合）:
-
+- 店舗設定フィールドは `storeMeta/config.tournament.liffRegistrationEnabled` / `liffCalendarEnabled` とする。いずれも **fallback `true`**
+- 上記 2 設定の**編集 UI は本 ChangeSpec の対象外**とする（店舗端末 UI からも編集しない。Firestore 等での運用変更を想定）
 - `status=running` では参加可否を status で判定しない。`regEndAt` を使用する。
 - `status=registered` は参加不可。表示文言は「参加締め切りしました」（優先順位 4）。
 - 参加済判定は **`getTodayTournaments` の一覧 API で `isRegisteredByCurrentUser` を返却する**（必須）。`getUpcomingTournaments` では任意（§4.2）。
@@ -56,8 +48,7 @@
 |--------|------|
 | **LIFF FE** | `public/user/index.html`, `public/css/user.css` |
 | **Cloud Functions** | `getTodayTournaments`, `getUpcomingTournaments`, `registerForTournament`、共有ヘルパー（新規） |
-| **店舗設定** | `storeMeta/config.tournament.liffRegistrationEnabled`, `liffCalendarEnabled` |
-| **Flutter 管理画面** | 上記 2 設定の編集 UI |
+| **店舗設定** | `storeMeta/config.tournament.liffRegistrationEnabled`, `liffCalendarEnabled`（読み取り・fallback） |
 
 ### 対象外
 
@@ -65,6 +56,7 @@
 - 置きバケ / リエントリー実行 / アドオン実行 / バースト / 着席 / 席移動 / 順位確定 / プライズ確定 / その他運営操作
 - **`freeze` / `frozen` に関する表示・参加判定の変更**（§8）
 - 店舗端末 Flutter のトーナメント運営 UI
+- **LIFF トーナメント設定（`liffRegistrationEnabled` / `liffCalendarEnabled`）の編集 UI**（店舗端末・管理画面いずれも本 ChangeSpec では追加しない）
 - ホーム画面へのトーナメント情報表示（仕様 §4.1：ホームには表示しない）
 
 ---
@@ -76,7 +68,7 @@
 | ファイル | 変更理由 | 変更内容 |
 |---------|---------|---------|
 | `public/user/index.html` | トーナメント UI・JS の実装がすべてここに集約されている | 3 ページ統合タブ化、共通カード描画、未入店閲覧解放、参加確認ダイアログ、参加不可理由・グレーアウト制御 |
-| `public/css/user.css` | トーナメント関連クラス（`.tournament-item`, `.tournament-card` 等）のスタイル定義 | タブ UI、詳細展開、グレーアウトボタン、参加不可理由テキスト |
+| `public/css/user.css` | トーナメント関連クラス（`.tournament-item`, `.tournament-card` 等）のスタイル定義 | タブ UI、詳細展開、グレーアウトボタン |
 
 ### Cloud Functions — Callable
 
@@ -103,13 +95,12 @@
 | `functions/src/shared/config/defaults.ts` | デフォルト SSoT | 上記 2 フィールドを `true` で定義 |
 | `functions/src/shared/config/configLoader.ts` | `mergeWithDefaults` / `buildFromDefaults` / `mergeConfigForUpsert` | 上記 2 フィールドの読み取り・フォールバック |
 
-### Flutter — 店舗設定
+### Flutter — 店舗設定（読み取りのみ）
 
 | ファイル | 変更理由 | 変更内容 |
 |---------|---------|---------|
 | `lib/services/store_config_defaults.dart` | Flutter 側デフォルト | `kDefaultTournamentLiffRegistrationEnabled`, `kDefaultTournamentLiffCalendarEnabled`（いずれも `true`） |
-| `lib/services/store_config_service.dart` | `StoreConfigData` + Firestore パース | 上記 2 フィールドの購読・プロパティ追加 |
-| `lib/pages/admin_detail_settings_page.dart` | 既存の `storeMeta/config` 直接 merge 書込 UI（`reportingAggregatorEnabled` トグル L84–116 と同パターン） | LIFF トーナメント設定トグル 2 件追加 |
+| `lib/services/store_config_service.dart` | `StoreConfigData` + Firestore パース | 上記 2 フィールドの購読・プロパティ追加（**編集 UI は追加しない**） |
 
 ### テスト
 
@@ -268,10 +259,10 @@ function renderTournamentCard(tournament, options)
 | 詳細項目 | データソース |
 |---------|-------------|
 | レジスト締切時刻 | `regEndAt` |
-| リエントリー可否 | `isReentry` |
-| リエントリー費用 | `reentryFee`（`isReentry===false` 時は「不可」等） |
-| アドオン可否 | `isAddon` |
-| アドオン費用 | `addonFee`（`isAddon===false` 時は「不可」等） |
+| リエントリー上限回数または可否 | `isReentry`, `maxReentries`（`0` または `false` なら「不可」、`> 0` なら「上限N回」、未設定/null なら「可」） |
+| リエントリー費用 | `reentryFee`（number の場合に併記。0円も表示） |
+| アドオン上限回数または可否 | `isAddon`, `addonLimitPerPlayer`（`0` または `false` なら「不可」、`> 0` なら「上限N回」、未設定/null なら「可」） |
+| アドオン費用 | `addonFee`（number の場合に併記。0円も表示） |
 | ブラインド時間 | `blindLevelDurationText`（Callable 新規） |
 
 ### 3.5 参加制御
@@ -294,7 +285,13 @@ function renderTournamentCard(tournament, options)
 
 #### グレーアウト制御
 
-`liffRegistrationEnabled === true` かつ本日タブの場合、参加不可時はボタンを disabled + グレーアウト。
+`liffRegistrationEnabled === true` かつ本日タブの場合、参加不可時はボタンをグレーアウト表示する。
+
+**`disabled` 属性は付けない**（タップで理由表示が必要なため）。代わりに:
+
+- クラス `btn-disabled` で見た目をグレーアウト
+- `aria-disabled="true"` を付与
+- `click` ハンドラ内で `getRegistrationBlockReason` を再判定し、理由がある場合は `registerForTournament` を呼ばずメッセージ表示
 
 判定関数（新規）:
 
@@ -318,14 +315,21 @@ function getRegistrationBlockReason(tournament, userContext)
 >
 > `cancelled` は一覧に出ないため参加不可理由にも含めない。
 
+#### 参加不可理由の表示
+
+- カード初期表示では理由を**常時表示しない**
+- 参加不可状態の参加登録ボタンタップ時に `alert` ダイアログで表示（タイトル相当: 「参加できません」+ 理由本文）
+- 表示文言は優先順位表のとおり（ですます口調）
+
 #### 参加確認ダイアログ
 
 `showTournamentRegistration`（L1982）を以下フローに変更:
 
 ```text
 参加登録ボタン押下
-  → getRegistrationBlockReason が null であることを確認（disabled なら何もしない）
-  → confirm（または専用モーダル）で確認
+  → getRegistrationBlockReason を再判定
+  → 理由あり: alert で理由表示して終了（registerForTournament は呼ばない）
+  → 理由なし: confirm（または専用モーダル）で確認
   → registerForTournament 呼び出し
   → 結果 alert（既存パターン維持）
   → 成功時: キャッシュクリア + loadTodayTournaments()
@@ -360,6 +364,40 @@ window.userStayingStatus = isStaying; // getUserStatus から
 | 参加済判定未返却 | 同上 |
 
 #### 変更内容
+
+**0. 本日トーナメントの取得基準（businessDate）**
+
+LIFF 本日タブの「本日」は `scheduledTournaments.businessDate` との一致で判定する。`startAt` の JST 暦日範囲クエリは使用しない。
+
+`targetBusinessDate` の決定:
+
+| 店舗状態 | targetBusinessDate |
+|---------|-------------------|
+| 営業中（`getCurrentBusinessDateKeyOrThrow()` 成功） | `currentBusinessDateKey` |
+| 営業外（`STORE_BUSINESS_DATE_UNAVAILABLE`） | JST 暦日 `yyyy-MM-dd`（`getJstCalendarDateKey()`） |
+
+```typescript
+let targetBusinessDate: string;
+try {
+  targetBusinessDate = await getCurrentBusinessDateKeyOrThrow(db);
+} catch (error) {
+  if (errorKey === 'STORE_BUSINESS_DATE_UNAVAILABLE') {
+    targetBusinessDate = getJstCalendarDateKey();
+  } else {
+    throw error;
+  }
+}
+
+const snapshot = await db
+  .collection('scheduledTournaments')
+  .where('businessDate', '==', targetBusinessDate)
+  .orderBy('startAt', 'asc')
+  .limit(50)
+  .get();
+```
+
+- 営業外でも Callable は失敗にしない（該当なしなら `success: true`, `data: []`）
+- `registerForTournament` は営業中の `currentBusinessDateKey` 必須のまま（参加登録は営業外不可）
 
 **1. cancelled 除外**
 
@@ -404,7 +442,7 @@ blindLevelDurationText: string;  // 例 "25分 / 20分 / 15分"。取得不能�
 
 **4. テンプレート情報の参照修正**
 
-表示項目（name, entryFee, startStack, isReentry 等）の優先参照:
+表示項目（name, entryFee, startStack, isReentry, maxReentries, addonLimitPerPlayer 等）の優先参照:
 
 1. `data.snapshot`（`createScheduledTournament.ts` L236 で書き込み）
 2. フォールバック: 既存の `templateId` → `tournamentTemplates` 一括取得
@@ -488,7 +526,7 @@ FE で使用しない以下は **返却省略を推奨**（後方互換が必要
 | D | `status === 'ended' \|\| 'force_ended'` | `TOURNAMENT_ENDED` | トーナメントは終了しました |
 | E | `status === 'paused'` | `TOURNAMENT_PAUSED` | トーナメントは一時停止中です |
 | F | `status === 'registered'` **または** `regEndAt` 過ぎ | `TOURNAMENT_REGISTRATION_CLOSED` | 参加締め切りしました |
-| G | `startAt` が JST 本日範囲外 | `TOURNAMENT_NOT_TODAY` | 本日のトーナメントのみ参加登録できます |
+| G | `businessDate !== currentBusinessDateKey` | `TOURNAMENT_NOT_TODAY` | 本日のトーナメントのみ参加登録できます |
 | H | `snapshot` / `templateId`（既存） | — | — |
 | I | `activeStays` 未存在 / `billId` 未設定（既存） | `TOURNAMENT_INVALID_STATE` | 未入店のため参加登録できません（文言調整） |
 | J | bills 重複（既存 `TOURNAMENT_ALREADY_REGISTERED`） | — | 参加済です |
@@ -498,7 +536,16 @@ FE で使用しない以下は **返却省略を推奨**（後方互換が必要
 
 #### 本日判定
 
-`getTodayTournaments` と同一の JST 日付範囲ロジックを共有関数化して使用。
+**getTodayTournaments（一覧）**
+
+- 営業中: `businessDate === currentBusinessDateKey`
+- 営業外: `businessDate === getJstCalendarDateKey()`（JST 暦日 yyyy-MM-dd）
+- いずれも `startAt` 暦日範囲は使わない
+
+**registerForTournament（参加登録）**
+
+- 営業中のみ: `tournamentData.businessDate === currentBusinessDateKey`（`getCurrentBusinessDateKeyOrThrow()` 必須）
+- 営業外は参加不可（本日タブに表示されていても登録はエラー）
 
 #### エラーログ
 
@@ -555,7 +602,9 @@ export const DEFAULT_TOURNAMENT_LIFF_CALENDAR_ENABLED = true;
 
 `mergeWithDefaults` の tournament 節（L498–536 付近）および `mergeConfigForUpsert` の tournament 節（L715–749 付近）に boolean 読み取り + fallback を追加。
 
-### 5.3 Flutter
+### 5.3 Flutter（読み取りのみ）
+
+店舗端末 UI および管理画面 UI から、本設定を編集する機能は**追加しない**。
 
 #### `store_config_defaults.dart`
 
@@ -569,25 +618,7 @@ const bool kDefaultTournamentLiffCalendarEnabled = true;
 - `StoreConfigData` に `tournamentLiffRegistrationEnabled`, `tournamentLiffCalendarEnabled` 追加
 - `fromFirestore` で `tournament?['liffRegistrationEnabled']` / `liffCalendarEnabled` をパース（欠損時デフォルト `true`）
 
-#### `admin_detail_settings_page.dart`
-
-`reportingAggregatorEnabled` トグル（L84–116）と同パターンで Firestore merge 書込:
-
-```dart
-await FirebaseFirestore.instance.collection('storeMeta').doc('config').set(
-  {
-    'tournament': {'liffRegistrationEnabled': newValue},
-  },
-  SetOptions(merge: true),
-);
-```
-
-UI ラベル例:
-
-- ミニアプリ トーナメント参加登録（ON/OFF）
-- ミニアプリ トーナメントカレンダー表示（ON/OFF）
-
-`.cursor/rules/flutter-loading-display.mdc` に従い `_isProcessing` による二重タップ防止を維持。
+設定値の変更は Firestore `storeMeta/config` を直接更新する運用とする（本 ChangeSpec の実装範囲外）。
 
 ---
 
@@ -609,6 +640,12 @@ UI ラベル例:
 
 | ケース | 期待 |
 |--------|------|
+| 店舗営業中 | `currentBusinessDateKey` 一致のトーナメントを返す |
+| 店舗営業外 | エラーにせず JST 暦日一致のトーナメントを返す |
+| 店舗営業外・該当なし | `success: true`, `data: []`, `count: 0` |
+| `businessDate !== targetBusinessDate` | 一覧に含まれない |
+| `startAt` JST 暦日が今日でも `businessDate` が違う | 含まれない |
+| `startAt` JST 暦日が今日でなくても `businessDate` が一致 | 含まれる |
 | cancelled トーナメント | 一覧に含まれない |
 | ended / paused / running | doc.status がそのまま返る |
 | blindLevelDurationText | blindTemplates から正しく生成 |
@@ -635,7 +672,9 @@ UI ラベル例:
 | status = registered | `TOURNAMENT_REGISTRATION_CLOSED` |
 | regEndAt 過ぎ | `TOURNAMENT_REGISTRATION_CLOSED` |
 | status = cancelled | `TOURNAMENT_CANCELLED` |
-| startAt が明日 | `TOURNAMENT_NOT_TODAY` |
+| `businessDate !== currentBusinessDateKey` | `TOURNAMENT_NOT_TODAY` |
+| `startAt` JST 暦日が今日でも `businessDate` が違う | `TOURNAMENT_NOT_TODAY` |
+| `businessDate === currentBusinessDateKey`（`startAt` が暦日上は明日でも可） | 本日判定通過 |
 | happy path | 既存テスト維持 |
 
 #### `configLoader.spec.ts`
@@ -657,18 +696,19 @@ UI ラベル例:
 | # | 観点 |
 |---|------|
 | 1 | 未入店でトーナメントボタン表示・一覧閲覧可 |
-| 2 | 未入店で参加ボタン（設定 ON 時）グレーアウト + 「未入店です」 |
+| 2 | 未入店で参加ボタン（設定 ON 時）グレーアウト。タップで alert「未入店です」 |
 | 3 | liffRegistrationEnabled=false で参加ボタン非表示 |
 | 4 | liffCalendarEnabled=false でカレンダータブ非表示 |
 | 5 | 本日タブのみ参加ボタン表示 |
 | 6 | 確認ダイアログ → 登録成功 / 失敗表示 |
-| 7 | 参加不可理由の優先順位（ended > 参加済 > paused > 締切 > 未入店） |
-| 8 | status=registered → 「参加締め切りしました」 |
+| 7 | 参加不可理由の優先順位（ended > 参加済 > paused > 締切 > 未入店）。タップ時 alert で表示 |
+| 8 | status=registered → タップで「参加締め切りしました」を alert 表示 |
 | 9 | status=running + regEndAt 未来 → 参加可（入店中・未参加時） |
 | 10 | cancelled トーナメントが一覧に出ない |
 | 11 | タブ切替でキャッシュ再利用 |
 | 12 | カード通常/詳細表示項目（ブラインド時間含む） |
 | 13 | 定員・プライズ・参加者数・status バッジが表示されない |
+| 14 | 店舗営業外でも本日タブに JST 暦日一致のトーナメントが表示される（0件時は通常の空表示） |
 
 ---
 
@@ -694,22 +734,18 @@ Phase 4: 参加登録 Callable 拡張
   ├─ registerForTournament.ts
   └─ test: registerForTournament.spec.ts 追加
 
-Phase 5: Flutter 管理 UI
-  └─ admin_detail_settings_page.dart
-
-Phase 6: LIFF FE
+Phase 5: LIFF FE
   ├─ index.html（タブ化・カード共通化・参加制御）
   └─ user.css
 
-Phase 7: 手動 E2E 確認（§6.3）
+Phase 6: 手動 E2E 確認（§6.3）
 ```
 
 **依存関係**:
 
 - Phase 3 は Phase 1–2 に依存（liffSettings 返却 + blind ヘルパー）
 - Phase 4 は Phase 1 に依存（店舗設定ガード）
-- Phase 6 は Phase 3 に依存（新 API フィールド・liffSettings）
-- Phase 5 は Phase 1 と独立（Firestore 直接書込のため Flutter 側 defaults のみ先行即可）
+- Phase 5 は Phase 3 に依存（新 API フィールド・liffSettings）
 
 ---
 
@@ -746,8 +782,10 @@ interface LiffTournamentItem {
   entryFee: number;
   startStack: number;
   isReentry: boolean;
+  maxReentries: number | null;
   reentryFee: number;
   isAddon: boolean;
+  addonLimitPerPlayer: number | null;
   addonFee: number;
   blindLevelDurationText: string;
   isRegisteredByCurrentUser?: boolean;  // getTodayTournaments: 必須。getUpcomingTournaments: 任意

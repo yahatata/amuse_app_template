@@ -8,11 +8,8 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
 import { findOkibakeLinkedUserConflictInTx } from "../lib/okibakeLinkedUserConflict";
 import { getStoreConfig } from "../../../shared/config/configLoader";
-import {
-  getJstTodayRangeUtc,
-  isRegEndAtPast,
-  isStartAtWithinRange,
-} from "../../../shared/tournament/liffTournamentDateUtils";
+import { getCurrentBusinessDateKeyOrThrow } from "../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow";
+import { isRegEndAtPast } from "../../../shared/tournament/liffTournamentDateUtils";
 import { isTournamentStatusCancelled } from "../../../shared/tournament/mapScheduledTournamentForLiff";
 
 // 入力スキーマ
@@ -90,12 +87,20 @@ export const registerForTournament = onCall(async (request) => {
       });
     }
 
-    const jstRange = getJstTodayRangeUtc();
-    if (!isStartAtWithinRange(tournamentData.startAt, jstRange)) {
+    const currentBusinessDateKey = await getCurrentBusinessDateKeyOrThrow();
+    const tournamentBusinessDate =
+      typeof tournamentData.businessDate === 'string'
+        ? tournamentData.businessDate.trim()
+        : '';
+    if (tournamentBusinessDate !== currentBusinessDateKey) {
       throw new FunctionCustomError({
         errorKey: 'TOURNAMENT_NOT_TODAY',
         message: '本日のトーナメントのみ参加登録できます',
-        context: { tournamentId },
+        context: {
+          tournamentId,
+          businessDate: tournamentBusinessDate || null,
+          currentBusinessDateKey,
+        },
       });
     }
 
