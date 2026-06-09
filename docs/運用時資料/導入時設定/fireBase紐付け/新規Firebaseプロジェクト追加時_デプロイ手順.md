@@ -301,3 +301,16 @@ gcloud functions list --v2 --regions="us-central1,asia-northeast1" --project "$P
   - `tournament-queue` / `business-date-assessment-queue` を `asia-northeast1` に作成する
 - `403 PERMISSION_DENIED`（Cloud Tasks -> Cloud Run）
   - `tasks-invoker` の `roles/run.invoker` 付与先サービスを確認する
+
+## 11. この後に必要な中央管理アプリ連携
+
+この手順書は、**店舗側 Firebase Project を動かすところまで**を主対象とする。
+
+新規店舗を実運用に載せるには、このあと中央管理アプリ側で次も必要。
+
+1. 中央 `stores/{storeId}` へ店舗登録
+2. 中央同期用 runtime SA に `roles/datastore.viewer` 付与
+3. `設定 > 店舗 Config 同期` 実行
+4. `Scheduler 監視` / `Task 監視` / `エラー一覧` の初回確認
+
+詳細は `中央管理アプリ連携手順.md` を参照。
