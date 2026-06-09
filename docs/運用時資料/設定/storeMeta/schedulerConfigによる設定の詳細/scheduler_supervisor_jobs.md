@@ -62,6 +62,22 @@ task 実行関数側の実行結果を記録する。
 2. `schedulerExecutionLogsByCloudTask` に `started` と `completed` が対応しているか
 3. `error` が出ている場合は `jobKey` と `reason` を確認し、再実行要否を判断
 
+## 4.1 中央管理アプリとの関係
+
+`storeMeta/schedulerConfig` は、中央管理アプリでも次のために使われる。
+
+- `Scheduler 監視` の区分 C 判定
+- queue 説明
+- 設定参照 UI
+
+そのため、`schedulerConfig` を変更したあとは、店舗側だけでなく中央管理アプリでも再同期が必要。
+
+手順:
+
+1. 店舗側 `storeMeta/schedulerConfig` を更新
+2. 中央管理アプリ `設定 > 店舗 Config 同期` を再実行
+3. `Scheduler 監視` に Config 未同期バナーが出ていないか確認
+
 ## 5. tournament 再計画（replan）確認
 
 対象コレクション: `enqueueTournamentTasksReplanRequests`（固定 doc: `enqueueTournamentTasksByScheduler`）
@@ -82,4 +98,5 @@ task 実行関数側の実行結果を記録する。
 ## 6. 変更時の注意
 
 - `runAtJst` や `enabled` を変更したら、次回 `schedulerSupervisor` 実行後に dispatch/execution ログで反映確認を行う。
+- `planningHorizonDays` を変更したら、中央 `Scheduler 監視` の解釈も変わるため Config 再同期を行う。
 - `planningHorizonDays` は `1〜14` の範囲外を指定してもデフォルト値へ補正される。
