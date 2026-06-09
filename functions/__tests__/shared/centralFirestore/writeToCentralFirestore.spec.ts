@@ -108,4 +108,26 @@ describe('writeCentralTaskLog', () => {
     });
     delete process.env.CENTRAL_PROJECT_ID;
   });
+
+  it('context 内の undefined を除去し、storeId（project ID）を context に補完する', async () => {
+    process.env.CENTRAL_PROJECT_ID = 'amuse-central-monitoring';
+    await writeCentralTaskLog('amuse-app-template', {
+      functionEntry: 'runEnqueueTournamentTasks',
+      eventType: 'success',
+      context: {
+        enqueuedCount: 3,
+        storeId: undefined,
+        tenantId: undefined,
+      },
+    });
+
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    const written = mockAdd.mock.calls[0][0] as Record<string, unknown>;
+    expect(written.storeId).toBe('amuse-app-template');
+    expect(written.context).toEqual({
+      enqueuedCount: 3,
+      storeId: 'amuse-app-template',
+    });
+    delete process.env.CENTRAL_PROJECT_ID;
+  });
 });
