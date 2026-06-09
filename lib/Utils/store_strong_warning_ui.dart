@@ -148,6 +148,9 @@ class StoreStrongWarningOverlay extends StatefulWidget {
   final VoidCallback? onCloseStore;
   final VoidCallback? onBusinessContinue;
 
+  /// 閉店前確認など、一時的に強警告 UI を出さない経路向け。
+  final bool suppressStrongWarning;
+
   const StoreStrongWarningOverlay({
     super.key,
     required this.child,
@@ -155,6 +158,7 @@ class StoreStrongWarningOverlay extends StatefulWidget {
     this.recheckMinutes = 15,
     this.onCloseStore,
     this.onBusinessContinue,
+    this.suppressStrongWarning = false,
   });
 
   @override
@@ -168,6 +172,10 @@ class _StoreStrongWarningOverlayState extends State<StoreStrongWarningOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.suppressStrongWarning) {
+      return widget.child;
+    }
+
     return StreamBuilder<StoreMetaData>(
       stream: StoreMetaService.instance.stream,
       builder: (context, snapshot) {
@@ -264,15 +272,23 @@ class StoreStrongWarningWrapper extends StatelessWidget {
   final VoidCallback? onCloseStore;
   final VoidCallback? onBusinessContinue;
 
+  /// 閉店前確認→トーナメント終了など、強警告ゲートを出さない一時経路向け。
+  final bool suppressStrongWarning;
+
   const StoreStrongWarningWrapper({
     super.key,
     required this.child,
     this.onCloseStore,
     this.onBusinessContinue,
+    this.suppressStrongWarning = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (suppressStrongWarning) {
+      return child;
+    }
+
     final recheckMinutes =
         StoreConfigService
             .instance
@@ -288,6 +304,7 @@ class StoreStrongWarningWrapper extends StatelessWidget {
           recheckMinutes: recheckMinutes,
           onCloseStore: onCloseStore,
           onBusinessContinue: onBusinessContinue,
+          suppressStrongWarning: suppressStrongWarning,
           child: child,
         );
       },

@@ -5,6 +5,10 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { writeSingleOperationLog } from '../../logs/lib/operationLog';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import {
+  isOkibakeLinkedUserRequiredHttpsError,
+  TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED_ERROR_KEY,
+} from '../lib/okibakeLinkedUserRequiredError';
+import {
   applyPendingReviewTransitionInTx,
   collectPendingReviewTargetsInTx,
 } from '../lib/pendingReview';
@@ -92,7 +96,7 @@ export const endTournament = onCall(async (request) => {
           'failed-precondition',
           '未接続の置きバケに対象ユーザー未設定が残っています。対象ユーザー設定後に終了してください。',
           {
-            errorKey: 'TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED',
+            errorKey: TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED_ERROR_KEY,
             blockingOkibakeEntries: pendingReview.blockingEntries,
           }
         );
@@ -159,12 +163,14 @@ export const endTournament = onCall(async (request) => {
       operationId,
     };
   } catch (error) {
-    logOpsError({
-      message: 'endTournament error:',
-      functionEntry: 'endTournament',
-      cause: error,
-      context: logContext,
-    });
+    if (!isOkibakeLinkedUserRequiredHttpsError(error)) {
+      logOpsError({
+        message: 'endTournament error:',
+        functionEntry: 'endTournament',
+        cause: error,
+        context: logContext,
+      });
+    }
 
     if (error instanceof HttpsError) {
       throw error;

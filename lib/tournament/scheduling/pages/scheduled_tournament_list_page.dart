@@ -22,6 +22,8 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _isLoading = false;
   List<Map<String, dynamic>> _tournamentTemplates = [];
+  Future<void>? _templatesLoadFuture;
+  bool _isOpeningCreateDialog = false;
   
   // トーナメント表示期間の選択
   String _selectedPeriod = 'today'; // デフォルトは今日
@@ -65,17 +67,17 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
       debugPrint('DateTimeUtilsテスト失敗: $e');
     }
     
-    _loadTournamentTemplates();
+    _ensureTournamentTemplatesLoaded();
     // StreamBuilderが自動的にデータを読み込むため、初期読み込みは不要
   }
 
+  /// テンプレート取得 Future を共有し、二重リクエストを防ぐ。
+  Future<void> _ensureTournamentTemplatesLoaded() {
+    return _templatesLoadFuture ??= _fetchTournamentTemplates();
+  }
 
   /// トーナメントテンプレートを読み込み
-  Future<void> _loadTournamentTemplates() async {
-    // setState(() {
-    //   _isLoadingTemplates = true;
-    // });
-
+  Future<void> _fetchTournamentTemplates() async {
     try {
       final callable = _functions.httpsCallable('getTournamentTemplates');
       final result = await callable.call({});
@@ -91,22 +93,63 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
           return converted;
         }).toList();
 
-        setState(() {
-          _tournamentTemplates = convertedTemplates;
-          // _isLoadingTemplates = false;
-        });
+        if (mounted) {
+          setState(() {
+            _tournamentTemplates = convertedTemplates;
+          });
+        }
       } else {
         throw Exception(response['error'] ?? 'テンプレートの取得に失敗しました');
       }
     } catch (e) {
-      // setState(() {
-      //   _isLoadingTemplates = false;
-      // });
+      _templatesLoadFuture = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('テンプレート取得エラー: $e')),
         );
       }
+    }
+  }
+
+  /// 作成ボタン押下: 未取得なら読込 CPI を出し、完了後に作成ダイアログを開く。
+  Future<void> _handleCreateTournamentTap() async {
+    if (_isLoading || _isOpeningCreateDialog) return;
+
+    _isOpeningCreateDialog = true;
+    try {
+      if (_tournamentTemplates.isEmpty) {
+        final navigator = Navigator.of(context);
+        unawaited(
+          showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) => const PopScope(
+              canPop: false,
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          ),
+        );
+
+        try {
+          await _ensureTournamentTemplatesLoaded();
+        } finally {
+          if (mounted && navigator.canPop()) {
+            navigator.pop();
+          }
+        }
+      }
+
+      if (!mounted) return;
+      if (_tournamentTemplates.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('利用可能なテンプレートがありません')),
+        );
+        return;
+      }
+
+      _showCreateTournamentDialog();
+    } finally {
+      _isOpeningCreateDialog = false;
     }
   }
 
@@ -361,7 +404,9 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isLoading ? null : _showCreateTournamentDialog,
+        onPressed: (_isLoading || _isOpeningCreateDialog)
+            ? null
+            : _handleCreateTournamentTap,
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
@@ -386,13 +431,6 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
 
   /// トーナメント作成ダイアログを表示
   void _showCreateTournamentDialog() {
-    if (_tournamentTemplates.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('利用可能なテンプレートがありません')),
-      );
-      return;
-    }
-
     Map<String, dynamic>? selectedTemplate;
     final startDateController = TextEditingController();
     final startTimeController = TextEditingController(text: '19:00');

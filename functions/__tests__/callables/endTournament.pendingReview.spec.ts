@@ -3,6 +3,12 @@ import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 
+const logOpsErrorMock = jest.fn();
+jest.mock('../../src/shared/logging/logOpsError', () => ({
+  logOpsError: (...args: unknown[]) => logOpsErrorMock(...args),
+  logOpsSuccess: jest.fn(),
+}));
+
 describe('endTournament pending review block details', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
@@ -31,6 +37,7 @@ describe('endTournament pending review block details', () => {
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
+    logOpsErrorMock.mockClear();
   });
 
   async function seedDevice(uid: string) {
@@ -99,6 +106,7 @@ describe('endTournament pending review block details', () => {
         errorKey: 'TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED',
       },
     });
+    expect(logOpsErrorMock).not.toHaveBeenCalled();
 
     try {
       await runEnd(uid, tid);

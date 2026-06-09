@@ -19,10 +19,14 @@ class TableDetailPage extends StatefulWidget {
   final String tournamentId;
   final String tableId;
 
+  /// [TournamentHomePage.suppressStoreStrongWarning] から引き継ぐ。
+  final bool suppressStoreStrongWarning;
+
   const TableDetailPage({
     super.key,
     required this.tournamentId,
     required this.tableId,
+    this.suppressStoreStrongWarning = false,
   });
 
   @override
@@ -229,6 +233,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
         ],
       ),
       body: StoreStrongWarningWrapper(
+        suppressStrongWarning: widget.suppressStoreStrongWarning,
         onCloseStore: () {
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => const terminalHomePage()),

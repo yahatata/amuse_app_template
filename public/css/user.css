@@ -1016,6 +1016,22 @@ button.btn.btn-disabled:disabled {
   background-color: #fff59d !important;
 }
 
+.tournament-page .calendar-day.selected {
+  background-color: #e0e0e0 !important;
+  outline: 2px solid #757575;
+  outline-offset: -2px;
+}
+
+.tournament-page .calendar-day.has-tournament.selected {
+  background-color: #fff176 !important;
+  outline-color: #f9a825;
+}
+
+.tournament-page .calendar-day.today.selected {
+  background-color: #bbdefb !important;
+  outline-color: #1976d2;
+}
+
 .tournament-page .day-number {
   font-size: 0.9rem;
   line-height: 1;

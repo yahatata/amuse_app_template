@@ -246,11 +246,13 @@ class _ClosePreConfirmationPageState extends State<ClosePreConfirmationPage> {
           ElevatedButton(
             onPressed: () async {
               Navigator.of(ctx).pop();
-              await Navigator.of(context).push(
+              await Navigator.of(context).push<void>(
                 MaterialPageRoute<void>(
+                  fullscreenDialog: true,
                   builder: (_) => TournamentHomePage(
                     tournamentId: tournamentId,
                     tournamentName: name,
+                    suppressStoreStrongWarning: true,
                   ),
                 ),
               );

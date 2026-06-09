@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/Accounting/bill_line_items_for_edit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
@@ -46,14 +47,36 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   /// 選択肢読込中（changeSpec: 読込 CPI）
   bool _isLoadingOptions = true;
 
+  /// 会計前の明細読込中（サブコレクション）
+  bool _isLoadingBillDetails = false;
+
+  /// 会計前の明細読込完了
+  bool _billDetailsLoaded = false;
+
+  String? _billDetailsLoadError;
+
   /// 会計修正送信中（changeSpec: 更新ロック＋CPI）
   bool _isSubmitting = false;
+
+  bool get _isLoadingEditor =>
+      _isLoadingOptions || (_isBeforeAccounting && _isLoadingBillDetails);
+
+  bool get _canSubmitEdit =>
+      !_isSubmitting &&
+      !_isLoadingEditor &&
+      (!_isBeforeAccounting || _billDetailsLoaded);
 
   @override
   void initState() {
     super.initState();
     _isBeforeAccounting = widget.bill['accountingStartedAt'] == null;
-    _initializeData();
+    if (_isBeforeAccounting) {
+      _isLoadingBillDetails = true;
+      _loadBillLineItems();
+    } else {
+      _initializeDataFromBillMap();
+      _billDetailsLoaded = true;
+    }
     _loadAvailableOptions();
   }
 
@@ -139,7 +162,54 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
     }
   }
 
-  void _initializeData() {
+  Future<void> _loadBillLineItems() async {
+    final billId = widget.bill['id'] as String?;
+    if (billId == null || billId.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isLoadingBillDetails = false;
+          _billDetailsLoadError = '請求書IDが不明です';
+        });
+      }
+      return;
+    }
+
+    try {
+      final lineItems = await loadBillLineItemsForEdit(_firestore, billId);
+      if (!mounted) return;
+      setState(() {
+        _applyLineItems(lineItems);
+        _billDetailsLoaded = true;
+        _billDetailsLoadError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _billDetailsLoadError = '明細の取得に失敗しました: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingBillDetails = false);
+      }
+    }
+  }
+
+  void _applyLineItems(BillLineItemsForEdit lineItems) {
+    _extraCosts = lineItems.extraCosts
+        .map((cost) => Map<String, dynamic>.from(cost))
+        .toList();
+    _tournaments = lineItems.tournaments.map(
+      (key, value) => MapEntry(key, Map<String, dynamic>.from(value)),
+    );
+    _items = lineItems.items
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    _sideGameChips = lineItems.sideGameChips
+        .map((chip) => Map<String, dynamic>.from(chip))
+        .toList();
+  }
+
+  void _initializeDataFromBillMap() {
     // 入店料の初期化
     final extraCosts = widget.bill['extraCost'] as List<dynamic>? ?? [];
     _extraCosts = extraCosts.map((cost) => {
@@ -343,7 +413,7 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   }
 
   Future<void> _updateAccounting() async {
-    if (_isSubmitting || _isLoadingOptions) return;
+    if (!_canSubmitEdit) return;
     if (!_formKey.currentState!.validate()) return;
     
     // 会計完了済みの場合は修正理由が必要
@@ -472,8 +542,33 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
                       // タブ（読込中は主領域 CPI）
                       SizedBox(
                         height: 400,
-                        child: _isLoadingOptions
+                        child: _isLoadingEditor
                             ? const Center(child: CircularProgressIndicator())
+                            : _billDetailsLoadError != null
+                            ? Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      _billDetailsLoadError!,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    OutlinedButton(
+                                      onPressed: _isSubmitting
+                                          ? null
+                                          : () {
+                                              setState(() {
+                                                _isLoadingBillDetails = true;
+                                                _billDetailsLoadError = null;
+                                              });
+                                              _loadBillLineItems();
+                                            },
+                                      child: const Text('再読込'),
+                                    ),
+                                  ],
+                                ),
+                              )
                             : DefaultTabController(
                                 length: 4,
                                 child: Column(
@@ -543,9 +638,7 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
                           ),
                           const SizedBox(width: 8),
                           ElevatedButton(
-                            onPressed: (_isSubmitting || _isLoadingOptions)
-                                ? null
-                                : _updateAccounting,
+                            onPressed: _canSubmitEdit ? _updateAccounting : null,
                             child: const Text('修正'),
                           ),
                         ],

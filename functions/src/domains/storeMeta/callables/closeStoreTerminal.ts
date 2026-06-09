@@ -22,6 +22,10 @@ import {
   collectPendingReviewTargetsInTx,
 } from '../../tournament_activeTournament/lib/pendingReview';
 import {
+  isOkibakeLinkedUserRequiredHttpsError,
+  TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED_ERROR_KEY,
+} from '../../tournament_activeTournament/lib/okibakeLinkedUserRequiredError';
+import {
   OPENCLOSE_TASKS_QUEUE,
   OPENCLOSE_TASKS_REGION,
   OPENCLOSE_INVOKER_SA_PREFIX,
@@ -357,7 +361,7 @@ export const closeStoreTerminal = onCall(
                     'failed-precondition',
                     `トーナメント ${t.tournamentId} に対象ユーザー未設定の未接続置きバケがあるため強制終了できません。`,
                     {
-                      errorKey: 'TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED',
+                      errorKey: TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED_ERROR_KEY,
                       tournamentId: t.tournamentId,
                       blockingOkibakeEntries: pendingReview.blockingEntries,
                     }
@@ -528,18 +532,20 @@ export const closeStoreTerminal = onCall(
         const err = stepError instanceof Error ? stepError : new Error(String(stepError));
         const errMsg = err.message.slice(0, 200);
         const errCode = err instanceof HttpsError ? err.code : 'internal';
-        logOpsError({
-          message: 'closeStoreTerminal: close step failed',
-          functionEntry: 'closeStoreTerminal',
-          operation: `runCloseStep.${stepName}`,
-          cause: stepError,
-          errorKey: 'STORE_CLOSE_STEP_FAILED',
-          context: {
-            runId,
-            closedBusinessDate,
-            stepName,
-          },
-        });
+        if (!isOkibakeLinkedUserRequiredHttpsError(stepError)) {
+          logOpsError({
+            message: 'closeStoreTerminal: close step failed',
+            functionEntry: 'closeStoreTerminal',
+            operation: `runCloseStep.${stepName}`,
+            cause: stepError,
+            errorKey: 'STORE_CLOSE_STEP_FAILED',
+            context: {
+              runId,
+              closedBusinessDate,
+              stepName,
+            },
+          });
+        }
 
         await attemptRef.update({
           result: 'failed',
