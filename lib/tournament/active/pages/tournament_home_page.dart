@@ -14,7 +14,7 @@ import 'package:amuse_app_template/tournament/active/widgets/dialogs/reseat_all_
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/register_participants_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_list_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_register_dialog.dart';
-import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_update_linked_user_dialog.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_end_okibake_guard.dart';
 import 'package:amuse_app_template/tournament/active/widgets/okibake_waiting_list_tile.dart';
 import 'package:amuse_app_template/tournament/active/widgets/regular_waiting_list_tile.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
@@ -33,10 +33,14 @@ class TournamentHomePage extends StatefulWidget {
   final String tournamentId;
   final String tournamentName;
 
+  /// 閉店前確認から開いたときなど、強警告ゲートを出さない。
+  final bool suppressStoreStrongWarning;
+
   const TournamentHomePage({
     super.key,
     required this.tournamentId,
     required this.tournamentName,
+    this.suppressStoreStrongWarning = false,
   });
 
   @override
@@ -416,112 +420,19 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   bool _isEndingTournament = false;
 
   Future<bool> _showLinkedUserRequiredDialog(
-    List<_BlockingOkibakeEntry> blockingEntries,
-  ) async {
-    final pending = List<_BlockingOkibakeEntry>.from(blockingEntries);
-    if (pending.isEmpty || !mounted) return true;
-
-    final result = await showDialog<bool>(
+    List<BlockingOkibakeEntry> blockingEntries,
+  ) {
+    return TournamentEndOkibakeGuard.showLinkedUserRequiredDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (dialogCtx) {
-        return StatefulBuilder(
-          builder: (ctx, setInnerState) {
-            return AlertDialog(
-              title: const Text('対象ユーザー設定が必要です'),
-              content: SizedBox(
-                width: 480,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '終了前に、以下の置きバケへ対象ユーザーを設定してください。',
-                    ),
-                    const SizedBox(height: 12),
-                    Flexible(
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: pending.length,
-                        separatorBuilder: (_, __) => const Divider(height: 12),
-                        itemBuilder: (itemCtx, index) {
-                          final entry = pending[index];
-                          return ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(
-                              entry.displayName.isNotEmpty
-                                  ? entry.displayName
-                                  : '置きバケ',
-                            ),
-                            subtitle: Text('状態: ${entry.entryStatusLabel}'),
-                            trailing: FilledButton(
-                              onPressed: () async {
-                                final updated = await showDialog<bool>(
-                                  context: itemCtx,
-                                  barrierDismissible: false,
-                                  builder: (_) => OkibakeUpdateLinkedUserDialog(
-                                    tournamentId: widget.tournamentId,
-                                    okibakeEntryId: entry.okibakeEntryId,
-                                    displayName: entry.displayName,
-                                    service: _service,
-                                  ),
-                                );
-                                if (updated == true && mounted) {
-                                  setInnerState(() {
-                                    pending.removeAt(index);
-                                  });
-                                  if (pending.isEmpty && mounted) {
-                                    Navigator.of(dialogCtx).pop(true);
-                                  }
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('対象ユーザーを設定しました'),
-                                    ),
-                                  );
-                                  _loadTournamentData();
-                                }
-                              },
-                              child: const Text('対象ユーザー設定'),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogCtx).pop(false),
-                  child: const Text('閉じる'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      tournamentId: widget.tournamentId,
+      service: _service,
+      blockingEntries: blockingEntries,
+      onLinkedUserUpdated: _loadTournamentData,
     );
-    return result == true;
   }
 
-  List<_BlockingOkibakeEntry> _parseBlockingOkibakeEntries(dynamic raw) {
-    if (raw is! List) return const [];
-    final parsed = <_BlockingOkibakeEntry>[];
-    for (final item in raw) {
-      if (item is! Map) continue;
-      final m = Map<String, dynamic>.from(item);
-      final entryId = (m['okibakeEntryId'] as String?)?.trim() ?? '';
-      if (entryId.isEmpty) continue;
-      parsed.add(
-        _BlockingOkibakeEntry(
-          okibakeEntryId: entryId,
-          displayName: ((m['displayName'] as String?) ?? '').trim(),
-          entryStatus: ((m['entryStatus'] as String?) ?? '').trim(),
-        ),
-      );
-    }
-    return parsed;
+  List<BlockingOkibakeEntry> _parseBlockingOkibakeEntries(dynamic raw) {
+    return TournamentEndOkibakeGuard.parseBlockingOkibakeEntries(raw);
   }
 
   void _endTournament() async {
@@ -979,6 +890,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
         builder: (context) => TableDetailPage(
           tournamentId: widget.tournamentId,
           tableId: tableId,
+          suppressStoreStrongWarning: widget.suppressStoreStrongWarning,
         ),
       ),
     );
@@ -1482,6 +1394,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
         ],
       ),
       body: StoreStrongWarningWrapper(
+        suppressStrongWarning: widget.suppressStoreStrongWarning,
         onCloseStore: () {
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => const terminalHomePage()),
@@ -2065,30 +1978,5 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
       ),
       ),
     );
-  }
-}
-
-class _BlockingOkibakeEntry {
-  const _BlockingOkibakeEntry({
-    required this.okibakeEntryId,
-    required this.displayName,
-    required this.entryStatus,
-  });
-
-  final String okibakeEntryId;
-  final String displayName;
-  final String entryStatus;
-
-  String get entryStatusLabel {
-    switch (entryStatus) {
-      case 'registered':
-        return '待機中';
-      case 'seated':
-        return '着席中';
-      case 'busted':
-        return '退席済み';
-      default:
-        return entryStatus;
-    }
   }
 }

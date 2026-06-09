@@ -542,7 +542,7 @@
 
         <div id="tournament-tab-calendar" class="tournament-tab-panel" style="display: none;">
           <div class="calendar-controls" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <button type="button" class="btn" onclick="previousMonth()" style="padding: 8px 16px;">← 前月</button>
+            <button type="button" class="btn" id="calendar-prev-month-btn" onclick="previousMonth()" style="padding: 8px 16px;">← 前月</button>
             <h2 id="calendar-current-month" style="margin: 0;">2025年11月</h2>
             <button type="button" class="btn" onclick="nextMonth()" style="padding: 8px 16px;">次月 →</button>
           </div>
@@ -600,6 +600,8 @@
 
       // カレンダー用の変数
       let calendarCurrentMonth = new Date();
+      let calendarSelectedDateStr = null;
+      let calendarClickEventsBound = false;
       let allTournamentsData = [];
 
       // ページ読み込み完了時の初期化処理
@@ -2306,6 +2308,7 @@
 
           if (allTournamentsData && allTournamentsData.length > 0) {
             calendarCurrentMonth = calendarCurrentMonth || new Date();
+            clampCalendarCurrentMonthToMinimum();
             renderTournamentCalendar();
             return;
           }
@@ -2334,6 +2337,38 @@
 
       function formatTournamentCalendarDateStr(year, month, day) {
         return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+
+      /** カレンダー表示の下限: 当月（当月内の過去日付は表示可）。 */
+      function isBeforeCurrentCalendarMonth(date) {
+        const now = new Date();
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
+        return year < currentYear || (year === currentYear && month < currentMonth);
+      }
+
+      function isCurrentCalendarMonth(date) {
+        const now = new Date();
+        return date.getFullYear() === now.getFullYear()
+          && date.getMonth() === now.getMonth();
+      }
+
+      function clampCalendarCurrentMonthToMinimum() {
+        if (isBeforeCurrentCalendarMonth(calendarCurrentMonth)) {
+          const now = new Date();
+          calendarCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+      }
+
+      function updateCalendarMonthNavButtons() {
+        const prevBtn = document.getElementById('calendar-prev-month-btn');
+        if (!prevBtn) return;
+        const atMinimum = isCurrentCalendarMonth(calendarCurrentMonth);
+        prevBtn.disabled = atMinimum;
+        prevBtn.style.opacity = atMinimum ? '0.5' : '1';
+        prevBtn.style.cursor = atMinimum ? 'not-allowed' : 'pointer';
       }
 
       function isJapaneseHoliday(date) {
@@ -2408,6 +2443,9 @@
           return;
         }
 
+        clampCalendarCurrentMonthToMinimum();
+        updateCalendarMonthNavButtons();
+
         const year = calendarCurrentMonth.getFullYear();
         const month = calendarCurrentMonth.getMonth();
         
@@ -2456,6 +2494,7 @@
           let dayClass = 'calendar-day';
           if (isToday) dayClass += ' today';
           if (hasTournament) dayClass += ' has-tournament';
+          if (calendarSelectedDateStr === dateStr) dayClass += ' selected';
           
           calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem; position: relative;">`;
           calendarHTML += `<span class="day-number" style="font-weight: bold; color: ${dayColor};">${day}</span>`;
@@ -2522,51 +2561,18 @@
         return grouped;
       }
 
-      // カレンダーの日付クリックイベント
-      function setupCalendarClickEvents() {
-        const calendar = document.getElementById('tournament-calendar');
-        if (!calendar) return;
-
-        calendar.addEventListener('click', (e) => {
-          const dayCell = e.target.closest('.calendar-day');
-          if (dayCell && !dayCell.classList.contains('empty')) {
-            const date = dayCell.dataset.date;
-            
-            // トーナメントがあるかチェック
-            const tournamentsForDate = allTournamentsData.filter(tournament => {
-              if (!tournament.startAt) return false;
-              const startDate = typeof tournament.startAt === 'string' 
-                ? new Date(tournament.startAt)
-                : tournament.startAt.toDate();
-              const dateStr = formatTournamentCalendarDateStr(
-                startDate.getFullYear(),
-                startDate.getMonth(),
-                startDate.getDate()
-              );
-              return dateStr === date;
-            });
-            
-            if (tournamentsForDate.length > 0) {
-              showTournamentsForDate(date);
-            }
-          }
-        });
+      function clearCalendarDateSelection() {
+        calendarSelectedDateStr = null;
+        const selectedDateTournamentsEl = document.getElementById('selected-date-tournaments');
+        if (selectedDateTournamentsEl) {
+          selectedDateTournamentsEl.style.display = 'none';
+        }
       }
 
-      // 指定日のトーナメント一覧を表示
-      function showTournamentsForDate(dateStr) {
-        const selectedDateTournamentsEl = document.getElementById('selected-date-tournaments');
-        const selectedDateTitleEl = document.getElementById('selected-date-title');
-        const selectedDateTournamentListEl = document.getElementById('selected-date-tournament-list');
-        
-        if (!selectedDateTournamentsEl || !selectedDateTitleEl || !selectedDateTournamentListEl) return;
-        
-        // 指定日のトーナメントを抽出
-        const date = new Date(dateStr + 'T00:00:00');
-        const tournamentsForDate = allTournamentsData.filter(tournament => {
+      function getTournamentsForCalendarDate(dateStr) {
+        return allTournamentsData.filter(tournament => {
           if (!tournament.startAt) return false;
-          // startAtは既にISO文字列
-          const startDate = typeof tournament.startAt === 'string' 
+          const startDate = typeof tournament.startAt === 'string'
             ? new Date(tournament.startAt)
             : tournament.startAt.toDate();
           return formatTournamentCalendarDateStr(
@@ -2575,14 +2581,48 @@
             startDate.getDate()
           ) === dateStr;
         });
+      }
+
+      // カレンダーの日付クリックイベント（#tournament-calendar に1回だけバインド）
+      function setupCalendarClickEvents() {
+        const calendar = document.getElementById('tournament-calendar');
+        if (!calendar || calendarClickEventsBound) return;
+        calendarClickEventsBound = true;
+
+        calendar.addEventListener('click', (e) => {
+          const dayCell = e.target.closest('.calendar-day');
+          if (!dayCell || dayCell.classList.contains('empty')) return;
+
+          const dateStr = dayCell.dataset.date;
+          if (!dateStr) return;
+
+          calendarSelectedDateStr = dateStr;
+          renderTournamentCalendar();
+
+          const tournamentsForDate = getTournamentsForCalendarDate(dateStr);
+          if (tournamentsForDate.length > 0) {
+            showTournamentsForDate(dateStr, tournamentsForDate);
+          } else {
+            showEmptyTournamentsForDate(dateStr);
+          }
+        });
+      }
+
+      // 指定日のトーナメント一覧を表示
+      function showTournamentsForDate(dateStr, tournamentsForDate) {
+        const selectedDateTournamentsEl = document.getElementById('selected-date-tournaments');
+        const selectedDateTitleEl = document.getElementById('selected-date-title');
+        const selectedDateTournamentListEl = document.getElementById('selected-date-tournament-list');
         
-        // タイトル設定
-        const year = date.getFullYear();
-        const month = date.getMonth() + 1;
-        const day = date.getDate();
-        selectedDateTitleEl.textContent = `${year}年${month}月${day}日のトーナメント`;
+        if (!selectedDateTournamentsEl || !selectedDateTitleEl || !selectedDateTournamentListEl) return;
         
-        selectedDateTournamentListEl.innerHTML = tournamentsForDate.map((tournament, index) =>
+        const tournaments = tournamentsForDate || getTournamentsForCalendarDate(dateStr);
+        const date = new Date(dateStr + 'T00:00:00');
+        
+        selectedDateTitleEl.textContent =
+          `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日のトーナメント`;
+        
+        selectedDateTournamentListEl.innerHTML = tournaments.map((tournament, index) =>
           renderTournamentCard(tournament, {
             cardKey: `calendar-${dateStr}-${index}`,
             showRegisterButton: false,
@@ -2591,33 +2631,43 @@
         ).join('');
         
         selectedDateTournamentsEl.style.display = 'block';
-        
-        // 詳細エリアまでスクロール
         selectedDateTournamentsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
 
-      // 前月へ移動
-      window.previousMonth = function() {
-        calendarCurrentMonth.setMonth(calendarCurrentMonth.getMonth() - 1);
-        renderTournamentCalendar();
-        
-        // 詳細表示を非表示
+      function showEmptyTournamentsForDate(dateStr) {
         const selectedDateTournamentsEl = document.getElementById('selected-date-tournaments');
-        if (selectedDateTournamentsEl) {
-          selectedDateTournamentsEl.style.display = 'none';
+        const selectedDateTitleEl = document.getElementById('selected-date-title');
+        const selectedDateTournamentListEl = document.getElementById('selected-date-tournament-list');
+
+        if (!selectedDateTournamentsEl || !selectedDateTitleEl || !selectedDateTournamentListEl) return;
+
+        const date = new Date(dateStr + 'T00:00:00');
+        selectedDateTitleEl.textContent =
+          `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日のトーナメント`;
+        selectedDateTournamentListEl.innerHTML =
+          '<p class="calendar-no-tournaments-msg" style="margin: 12px 0; color: #666; font-size: 0.95rem; text-align: center;">この日はトーナメントの予定がありません。</p>';
+
+        selectedDateTournamentsEl.style.display = 'block';
+        selectedDateTournamentsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      // 前月へ移動（当月より前には戻れない）
+      window.previousMonth = function() {
+        if (isCurrentCalendarMonth(calendarCurrentMonth)) {
+          return;
         }
+        calendarCurrentMonth.setMonth(calendarCurrentMonth.getMonth() - 1);
+        clampCalendarCurrentMonthToMinimum();
+        renderTournamentCalendar();
+        clearCalendarDateSelection();
       };
 
       // 次月へ移動
       window.nextMonth = function() {
         calendarCurrentMonth.setMonth(calendarCurrentMonth.getMonth() + 1);
+        clampCalendarCurrentMonthToMinimum();
         renderTournamentCalendar();
-        
-        // 詳細表示を非表示
-        const selectedDateTournamentsEl = document.getElementById('selected-date-tournaments');
-        if (selectedDateTournamentsEl) {
-          selectedDateTournamentsEl.style.display = 'none';
-        }
+        clearCalendarDateSelection();
       };
 
       // トーナメント詳細の表示切り替え

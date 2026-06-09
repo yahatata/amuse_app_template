@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
-import 'package:amuse_app_template/globalConstant.dart';
+import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_end_okibake_guard.dart';
 
 class RankingSetupPage extends StatefulWidget {
   final String tournamentId;
@@ -16,11 +17,13 @@ class RankingSetupPage extends StatefulWidget {
 
 class _RankingSetupPageState extends State<RankingSetupPage> {
   final _functions = FunctionsClient.instance;
+  final TournamentService _service = TournamentServiceImpl();
   
   // データ
   Map<String, dynamic>? _mainViewData;
   List<Map<String, dynamic>> _bustedPlayers = [];
   bool _isLoading = true;
+  bool _isEndingTournament = false;
   String? _errorMessage;
   
   // 選択されたプレイヤー
@@ -240,7 +243,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
 
         // 全ての順位が埋まっているかチェック
         final allRanksFilled = _checkAllRanksFilled();
-        if (allRanksFilled) {
+        if (allRanksFilled && mounted) {
           // トーナメント終了処理の確認
           final endTournament = await showDialog<bool>(
             context: context,
@@ -259,10 +262,45 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
               ],
             ),
           );
-          if (endTournament == true) {
-            await _endTournament();
+          if (endTournament == true && mounted) {
+            setState(() {
+              _isEndingTournament = true;
+            });
+            try {
+              final endOutcome =
+                  await TournamentEndOkibakeGuard.executeNormalEnd(
+                context: context,
+                tournamentId: widget.tournamentId,
+                service: _service,
+              );
+              if (!mounted) return;
+              switch (endOutcome) {
+                case TournamentNormalEndOutcome.ended:
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('トーナメントを終了しました')),
+                  );
+                case TournamentNormalEndOutcome.cancelled:
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        '対象ユーザー未設定の置きバケがあるため、終了処理を完了できませんでした',
+                      ),
+                    ),
+                  );
+                case TournamentNormalEndOutcome.failed:
+                  break;
+              }
+            } finally {
+              if (mounted) {
+                setState(() {
+                  _isEndingTournament = false;
+                });
+              }
+            }
           }
         }
+
+        if (!mounted) return;
 
         if (result.data['prizeGrantSkipped'] != true) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -297,31 +335,6 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
     return true;
   }
   
-  Future<void> _endTournament() async {
-    try {
-      final callable = _functions.httpsCallable('endTournament');
-      final result = await callable.call({
-        'tournamentId': widget.tournamentId,
-        'endType': 'normal',
-      });
-      
-      if (result.data['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('トーナメントを終了しました')),
-        );
-        Navigator.of(context).pop();
-      } else {
-        setState(() {
-          _errorMessage = result.data['error'] ?? 'トーナメントの終了に失敗しました';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'エラーが発生しました: $e';
-      });
-    }
-  }
-  
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -351,7 +364,12 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
     
     final prizeReceiverCount = _mainViewData?['prizeReceiverCount'] as int? ?? 0;
     
-    return Scaffold(
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isEndingTournament,
+      child: Stack(
+        children: [
+          Scaffold(
       appBar: AppBar(
         title: const Text('順位確定'),
         backgroundColor: Colors.green,
@@ -506,7 +524,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _confirmRanking,
+                onPressed: _isEndingTournament ? null : _confirmRanking,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
@@ -520,6 +538,22 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
             ),
           ],
         ),
+      ),
+          ),
+          if (_isEndingTournament)
+            Positioned(
+              left: 0,
+              top: 0,
+              width: size.width,
+              height: size.height,
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
