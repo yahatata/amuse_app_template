@@ -3,9 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_home.dart';
-import 'package:amuse_app_template/Home/terminalHomePage.dart';
+import 'package:amuse_app_template/Home/app_home_navigation.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
+import 'package:amuse_app_template/tournament/active/utils/active_tournament_table_usage.dart';
 import 'package:amuse_app_template/utils/store_strong_warning_ui.dart';
 
 class SideGameTableListPage extends StatefulWidget {
@@ -75,16 +76,10 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
       ),
       body: StoreStrongWarningWrapper(
         onCloseStore: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const terminalHomePage()),
-            (route) => false,
-          );
+          navigateToAppHome(context, adminInitialTerminalMode: true);
         },
         onBusinessContinue: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const terminalHomePage()),
-            (route) => false,
-          );
+          navigateToAppHome(context, adminInitialTerminalMode: true);
         },
         child: _isLoadingPermissions
           ? const Center(child: CircularProgressIndicator())
@@ -134,39 +129,130 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
     );
   }
 
+  String _tablesUsageLookupKey(List<QueryDocumentSnapshot> tables) {
+    return tables
+        .map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final status = data['status'] as String? ?? 'open';
+          return '${doc.id}:$status';
+        })
+        .join(',');
+  }
+
   Widget _buildTableGrid(List<QueryDocumentSnapshot> tables) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: GridView.builder(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 5,
-          childAspectRatio: 0.8,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-        ),
-        itemCount: tables.length,
-        itemBuilder: (context, index) {
-          final table = tables[index];
-          final data = table.data() as Map<String, dynamic>;
-          return _buildTableCard(table.id, data);
-        },
+    final usageLookupKey = _tablesUsageLookupKey(tables);
+
+    return FutureBuilder<Map<String, ActiveTournamentTableUsage>>(
+      key: ValueKey(usageLookupKey),
+      future: findActiveTournamentTableUsageByTableIds(
+        _firestore,
+        tables.map((doc) => doc.id),
       ),
+      builder: (context, usageSnapshot) {
+        if (usageSnapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final usageByTableId =
+            usageSnapshot.data ?? <String, ActiveTournamentTableUsage>{};
+
+        return Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: GridView.builder(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 5,
+              childAspectRatio: 0.8,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+            ),
+            itemCount: tables.length,
+            itemBuilder: (context, index) {
+              final table = tables[index];
+              final data = table.data() as Map<String, dynamic>;
+              final usage =
+                  usageByTableId[table.id] ?? ActiveTournamentTableUsage.empty;
+              return _buildTableCard(table.id, data, usage);
+            },
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildTableCard(String tableId, Map<String, dynamic> data) {
+  ({
+    Color cardColor,
+    Color iconColor,
+    Color titleColor,
+    Color subtitleColor,
+    Color badgeBackground,
+    Color badgeForeground,
+  }) _presentationColors(SideGameTableListPresentationKind kind) {
+    switch (kind) {
+      case SideGameTableListPresentationKind.available:
+      case SideGameTableListPresentationKind.tournamentRegistered:
+        return (
+          cardColor: Colors.white,
+          iconColor: Colors.green,
+          titleColor: Colors.black,
+          subtitleColor: Colors.black87,
+          badgeBackground: Colors.green.shade100,
+          badgeForeground: Colors.green.shade800,
+        );
+      case SideGameTableListPresentationKind.sideGameActive:
+        return (
+          cardColor: Colors.grey.shade300,
+          iconColor: Colors.grey,
+          titleColor: Colors.grey.shade600,
+          subtitleColor: Colors.grey.shade600,
+          badgeBackground: Colors.blue.shade100,
+          badgeForeground: Colors.blue.shade800,
+        );
+      case SideGameTableListPresentationKind.tournamentSeated:
+        return (
+          cardColor: Colors.grey.shade300,
+          iconColor: Colors.red.shade400,
+          titleColor: Colors.grey.shade600,
+          subtitleColor: Colors.grey.shade600,
+          badgeBackground: Colors.red.shade100,
+          badgeForeground: Colors.red.shade800,
+        );
+      case SideGameTableListPresentationKind.otherInUse:
+        return (
+          cardColor: Colors.grey.shade300,
+          iconColor: Colors.grey,
+          titleColor: Colors.grey.shade600,
+          subtitleColor: Colors.grey.shade600,
+          badgeBackground: Colors.orange.shade100,
+          badgeForeground: Colors.orange.shade800,
+        );
+    }
+  }
+
+  Widget _buildTableCard(
+    String tableId,
+    Map<String, dynamic> data,
+    ActiveTournamentTableUsage usage,
+  ) {
     final name = data['name'] as String? ?? tableId;
     final status = data['status'] as String? ?? 'open';
     final maxSeats = data['maxSeats'] as int? ?? 6;
 
-    final isAvailable = status == 'open';
-    final isSideGame = _sideGameTypes.contains(status);
+    final presentation = resolveSideGameTableListPresentation(
+      tablesStatus: status,
+      sideGameTypes: _sideGameTypes,
+      usage: usage,
+    );
+    final colors = _presentationColors(presentation.kind);
 
     return Card(
       elevation: 4,
-      color: isAvailable ? Colors.white : Colors.grey[300],
+      color: colors.cardColor,
       child: InkWell(
-        onTap: () => _handleTableSelection(tableId, status),
+        onTap: () => _handleTableSelection(
+          tableId,
+          status,
+          cachedUsage: usage,
+        ),
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.all(12),
@@ -176,7 +262,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
               Icon(
                 Icons.table_restaurant,
                 size: 40,
-                color: isAvailable ? Colors.green : Colors.grey,
+                color: colors.iconColor,
               ),
               const SizedBox(height: 8),
               Text(
@@ -184,7 +270,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: isAvailable ? Colors.black : Colors.grey[600],
+                  color: colors.titleColor,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -193,31 +279,24 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
                 '$maxSeats席',
                 style: TextStyle(
                   fontSize: 14,
-                  color: isAvailable ? Colors.black87 : Colors.grey[600],
+                  color: colors.subtitleColor,
                 ),
               ),
               const SizedBox(height: 4),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isAvailable
-                      ? Colors.green[100]
-                      : isSideGame
-                          ? Colors.blue[100]
-                          : Colors.orange[100],
+                  color: colors.badgeBackground,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  _getStatusText(status),
+                  presentation.label,
                   style: TextStyle(
                     fontSize: 12,
-                    color: isAvailable
-                        ? Colors.green[800]
-                        : isSideGame
-                            ? Colors.blue[800]
-                            : Colors.orange[800],
+                    color: colors.badgeForeground,
                     fontWeight: FontWeight.w500,
                   ),
+                  textAlign: TextAlign.center,
                 ),
               ),
             ],
@@ -227,41 +306,62 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
     );
   }
 
-  String _getStatusText(String status) {
-    if (status == 'open') {
-      return '使用可能';
-    } else if (_sideGameTypes.contains(status)) {
-      return status;
-    } else {
-      return '$status使用中';
+  void _handleTableSelection(
+    String tableId,
+    String status, {
+    ActiveTournamentTableUsage? cachedUsage,
+  }) async {
+    final usage = cachedUsage ??
+        await findActiveTournamentTableUsage(_firestore, tableId);
+    if (shouldRejectSideGameStartForTournamentUsage(usage)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('トーナメントで着席中のため、この卓でサイドゲームを開始できません'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
     }
-  }
 
-  void _handleTableSelection(String tableId, String status) async {
-    final isAvailable = status == 'open';
-    final isSideGame = _sideGameTypes.contains(status);
-    final isInUse = !isAvailable && !isSideGame;
+    if (_sideGameTypes.contains(status)) {
+      _navigateToTableHome(tableId, status);
+      return;
+    }
 
-    if (isInUse) {
-      // 他のゲームで使用中の場合は確認ダイアログを表示
-      final confirmed = await _showWarningDialog(status);
+    if (shouldShowSideGameOverwriteWarning(
+      tablesStatus: status,
+      sideGameTypes: _sideGameTypes,
+      usage: usage,
+    )) {
+      final presentation = resolveSideGameTableListPresentation(
+        tablesStatus: status,
+        sideGameTypes: _sideGameTypes,
+        usage: usage,
+      );
+      final confirmed = await _showWarningDialog(presentation);
       if (!confirmed) return;
     }
 
-    if (isSideGame) {
-      // サイドゲーム中の場合は直接テーブルホームに遷移
-      _navigateToTableHome(tableId, status);
-    } else {
-      // 使用可能または他のゲーム使用中の場合はゲーム選択ダイアログを表示
-      final selectedGame = await _showGameSelectionDialog();
-      if (selectedGame != null) {
-        await _updateTableStatus(tableId, selectedGame);
+    final selectedGame = await _showGameSelectionDialog();
+    if (selectedGame != null) {
+      final started = await _updateTableStatus(tableId, selectedGame);
+      if (started && mounted) {
         _navigateToTableHome(tableId, selectedGame);
       }
     }
   }
 
-  Future<bool> _showWarningDialog(String currentStatus) async {
+  Future<bool> _showWarningDialog(
+    SideGameTableListPresentation presentation,
+  ) async {
+    final content =
+        presentation.kind == SideGameTableListPresentationKind.tournamentRegistered
+            ? 'トーナメント登録中ですが使用しますか？\n'
+                'サイドゲーム終了後に登録されたトーナメントにて使用可能になります。'
+            : 'この卓は現在他の用途で使用中ですが、サイドゲームを開始しますか？\n\n'
+                '現在の状態: ${presentation.label}';
+
     return await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -271,7 +371,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
           size: 48,
         ),
         title: const Text('確認'),
-        content: Text('他ゲームで使用中となっていますが、上書きを行って問題ないですか？\n\n現在の状態: $currentStatus使用中'),
+        content: Text(content),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -320,19 +420,44 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
     );
   }
 
-  Future<void> _updateTableStatus(String tableId, String gameName) async {
+  Future<bool> _updateTableStatus(String tableId, String gameName) async {
     try {
-      // tablesコレクションのstatusを更新
+      final tableDoc = await _firestore.collection('tables').doc(tableId).get();
+      if (!tableDoc.exists) {
+        throw Exception('テーブル $tableId が見つかりません');
+      }
+      final maxSeats = tableDoc.data()?['maxSeats'] as int? ?? 6;
+
       await _firestore.collection('tables').doc(tableId).update({
         'status': gameName,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // sideGameコレクションのactiveフィールドをtrueに更新
-      await _firestore.collection('sideGame').doc(tableId).update({
-        'active': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final sideGameRef = _firestore.collection('sideGame').doc(tableId);
+      final sideGameDoc = await sideGameRef.get();
+      if (sideGameDoc.exists) {
+        await sideGameRef.update({
+          'active': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        final seats = <String, dynamic>{};
+        for (int i = 1; i <= maxSeats; i++) {
+          final seatNumber = i.toString().padLeft(2, '0');
+          seats['seat${seatNumber}UserId'] = null;
+          seats['seat${seatNumber}PokerName'] = null;
+        }
+        await sideGameRef.set({
+          'tableId': tableId,
+          'name': tableId,
+          'maxSeats': maxSeats,
+          'seats': seats,
+          'active': true,
+          'isEnabled': true,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -342,6 +467,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
           ),
         );
       }
+      return true;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -351,6 +477,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
           ),
         );
       }
+      return false;
     }
   }
 

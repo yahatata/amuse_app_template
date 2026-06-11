@@ -10,6 +10,7 @@ import type { DeviceDoc } from '../../../shared/devices';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { parseSeatKeyToTwoDigitSuffix } from '../lib/parseOkibakeSeatKey';
 import {
   buildOkibakeLinkBillTournamentReflection,
@@ -102,6 +103,18 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
     const db = admin.firestore();
     const opLogRef = db.collection('operationLogs').doc(operationId);
     const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
+    const tournamentSnap = await tournamentRef.get();
+    if (!tournamentSnap.exists) {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントが存在しません',
+        context: { tournamentId, reason: 'tournament_not_found' },
+      });
+    }
+    assertTournamentAllowsMutation({
+      tournamentId,
+      status: tournamentSnap.data()?.status as string | undefined,
+    });
     const entryRef = tournamentRef.collection('okibakeTemporaryEntries').doc(okibakeEntryId);
     const activeStayRef = db.collection('activeStays').doc(userId);
     const billRef = db.collection('bills').doc(billId);

@@ -1,8 +1,8 @@
 /**
- * depositTip
- * 
+ * depositChip
+ *
  * サイドゲームチップの預入処理
- * 
+ *
  * 新スキーマ対応:
  * - getActiveBillByUser で billId を取得
  * - appendSideGameChip で /bills/{billId}/sideGameChips/{chipId} に追加
@@ -18,7 +18,7 @@ import { getActiveBillByUser } from '../../bills/repos/getActiveBillByUser';
 import { appendSideGameChip } from '../../bills/repos/appendSideGameChip';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
-export const depositTip = onCall(async (request) => {
+export const depositChip = onCall(async (request) => {
   // 認証チェック
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
@@ -42,7 +42,7 @@ export const depositTip = onCall(async (request) => {
       throw new HttpsError('permission-denied', 'サイドゲーム操作の権限がありません');
     }
 
-    console.log(`=== depositTip開始 ===`);
+    console.log(`=== depositChip開始 ===`);
     console.log(`userId: ${userId}`);
     console.log(`amount: ${amount}`);
     console.log(`clientNonce: ${clientNonce}`);
@@ -63,9 +63,9 @@ export const depositTip = onCall(async (request) => {
     }
 
     const userData = userDoc.data();
-    const currentTip = userData?.sideGameChip as number || 0;
+    const currentChip = userData?.sideGameChip as number || 0;
 
-    console.log(`現在のTip残高: ${currentTip}`);
+    console.log(`現在のchip残高: ${currentChip}`);
     console.log(`預入予定額（チップ枚数）: ${amount}`);
 
     // 1. getActiveBillByUser で billId を取得
@@ -73,7 +73,7 @@ export const depositTip = onCall(async (request) => {
     billId = active.billId;
 
     // 2. appendSideGameChip ヘルパを呼び出す（deterministic idempotencyKey）
-    const op = 'depositTip';
+    const op = 'depositChip';
     const idempotencyKey = `${billId}:${op}:${clientNonce}`;
     const appendResult = await appendSideGameChip({
       billId,
@@ -89,10 +89,10 @@ export const depositTip = onCall(async (request) => {
     const isReplay = appendResult.diagnostics?.reused === true;
 
     if (!isReplay) {
-      // 3-1. Tipを預入（初回のみ実行）
-      const newTipAmount = currentTip + amount;
+      // 3-1. chipを預入（初回のみ実行）
+      const newChipAmount = currentChip + amount;
       await db.collection('users').doc(userId).update({
-        sideGameChip: newTipAmount,
+        sideGameChip: newChipAmount,
         updatedAt: new Date(),
       });
 
@@ -111,8 +111,8 @@ export const depositTip = onCall(async (request) => {
     const finalBalance = userDocFinal.data()?.sideGameChip as number || 0;
 
     logOpsSuccess({
-      message: 'depositTip 成功',
-      functionEntry: 'depositTip',
+      message: 'depositChip 成功',
+      functionEntry: 'depositChip',
       context: {
         userId,
         billId,
@@ -120,17 +120,17 @@ export const depositTip = onCall(async (request) => {
         reused: isReplay,
         chipId: appendResult.chipId,
         finalBalance,
-        previousBalance: currentTip,
+        previousBalance: currentChip,
       },
     });
 
     return {
       success: true,
-      message: `Tipの預入処理が完了しました`,
+      message: `chipの預入処理が完了しました`,
       data: {
         userId,
         depositAmount: amount,
-        previousBalance: currentTip,
+        previousBalance: currentChip,
         newBalance: finalBalance,
         chipId: appendResult.chipId, // 内部識別子（デバッグ用、クライアントには返さない想定）
         reused: isReplay || false,
@@ -139,8 +139,8 @@ export const depositTip = onCall(async (request) => {
 
   } catch (error) {
     logOpsError({
-      message: 'depositTipエラー:',
-      functionEntry: 'depositTip',
+      message: 'depositChipエラー:',
+      functionEntry: 'depositChip',
       cause: error,
       context: {
         callerUid,
@@ -154,6 +154,6 @@ export const depositTip = onCall(async (request) => {
     if (error instanceof HttpsError) {
       throw error;
     }
-    throw new HttpsError('internal', `Tipの預入に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+    throw new HttpsError('internal', `chipの預入に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
   }
 });

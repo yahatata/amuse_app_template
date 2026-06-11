@@ -74,62 +74,48 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
           ? OkibakeLoginPromptData.fromMap(okibakeLoginPromptRaw)
           : null;
 
-      // スキャンを停止
       await _scannerController.stop();
 
-      // userCheckInPage に遷移してダイアログを表示
-      if (mounted) {
-        final displayMessage = success 
-          ? (pokerName != null ? '$pokerName様のログイン処理が完了しました' : 'ログイン処理が完了しました')
+      if (!mounted) return;
+      final displayMessage = success
+          ? (pokerName != null
+              ? '$pokerName様のログイン処理が完了しました'
+              : 'ログイン処理が完了しました')
           : (message.isNotEmpty ? message : 'ログイン処理に失敗しました');
-        
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => UserCheckInPage(
-              showDialogOnLoad: true,
-              dialogMessage: displayMessage,
-              isSuccess: success,
-              userId: userId,
-              billId: billId,
-              okibakeLoginPrompt: okibakeLoginPrompt,
-            ),
-          ),
-        );
-      }
+
+      Navigator.pop(
+        context,
+        UserCheckInResult(
+          success: success,
+          message: displayMessage,
+          userId: userId,
+          billId: billId,
+          okibakeLoginPrompt: okibakeLoginPrompt,
+        ),
+      );
     } on FirebaseFunctionsException catch (e) {
       final message = e.message ?? 'Cloud Functions 呼び出しに失敗しました';
-      // スキャンを停止
       await _scannerController.stop();
-      
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => UserCheckInPage(
-              showDialogOnLoad: true,
-              dialogMessage: 'ログイン処理に失敗しました: $message',
-              isSuccess: false,
-            ),
-          ),
-        );
-      }
+
+      if (!mounted) return;
+      Navigator.pop(
+        context,
+        UserCheckInResult(
+          success: false,
+          message: 'ログイン処理に失敗しました: $message',
+        ),
+      );
     } catch (e) {
-      // スキャンを停止
       await _scannerController.stop();
-      
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => UserCheckInPage(
-              showDialogOnLoad: true,
-              dialogMessage: 'ログイン処理に失敗しました: $e',
-              isSuccess: false,
-            ),
-          ),
-        );
-      }
+
+      if (!mounted) return;
+      Navigator.pop(
+        context,
+        UserCheckInResult(
+          success: false,
+          message: 'ログイン処理に失敗しました: $e',
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {

@@ -4,6 +4,20 @@ import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { isTournamentStatusCancelled } from '../../../shared/tournament/mapScheduledTournamentForLiff';
+
+const ALLOWED_TOURNAMENT_STATUSES = new Set([
+  'scheduled',
+  'running',
+  'registered',
+  'paused',
+]);
+
+function isTournamentClosedOrInvalid(status: string | undefined): boolean {
+  if (!status) return true;
+  if (status === 'ended' || status === 'force_ended') return true;
+  return isTournamentStatusCancelled(status);
+}
 
 // 入力スキーマ
 const addTableToTournamentSchema = z.object({
@@ -50,10 +64,46 @@ export const addTableToTournament = onCall(async (request) => {
     
     // トランザクション開始
     const result = await db.runTransaction(async (transaction) => {
-      // 1. テーブルの存在確認とステータス更新
+      const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
       const tableRef = db.collection('tables').doc(tableId);
-      const tableDoc = await transaction.get(tableRef);
-      
+      const tournamentTableRef = db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId);
+
+      // 1. すべての読み取りを先に実行
+      const [tournamentDoc, tableDoc, tournamentTableDoc] = await Promise.all([
+        transaction.get(tournamentRef),
+        transaction.get(tableRef),
+        transaction.get(tournamentTableRef),
+      ]);
+
+      if (!tournamentDoc.exists) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントが存在しません',
+          context: { tournamentId, tableId, reason: 'tournament_doc_missing' },
+        });
+      }
+
+      const tournamentStatus = tournamentDoc.data()?.status as string | undefined;
+      if (
+        isTournamentClosedOrInvalid(tournamentStatus) ||
+        !ALLOWED_TOURNAMENT_STATUSES.has(tournamentStatus ?? '')
+      ) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'このトーナメントには卓を追加できません',
+          context: {
+            tournamentId,
+            tableId,
+            status: tournamentStatus,
+            reason: 'tournament_status_not_allowed',
+          },
+        });
+      }
+
       if (!tableDoc.exists) {
         throw new FunctionCustomError({
           errorKey: 'TOURNAMENT_INVALID_STATE',
@@ -70,19 +120,20 @@ export const addTableToTournament = onCall(async (request) => {
           context: { tournamentId, tableId, status: tableData.status, reason: 'table_not_open' },
         });
       }
-      
+
+      if (tournamentTableDoc.exists) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_TABLE_ALREADY_EXISTS',
+          message: 'この卓は既にトーナメントに登録されています',
+          context: { tournamentId, tableId, reason: 'tables_seat_already_exists' },
+        });
+      }
+
       // 2. テーブルステータスをtournamentに変更
       transaction.update(tableRef, {
         status: 'tournament',
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
-      // 3. scheduledTournamentのtablesSeatサブコレクションにドキュメント作成
-      const tournamentTableRef = db
-        .collection('scheduledTournaments')
-        .doc(tournamentId)
-        .collection('tablesSeat')
-        .doc(tableId);
       
       // シート情報を動的に生成（新しい構造）
       const seats: { [key: string]: string | null } = {};

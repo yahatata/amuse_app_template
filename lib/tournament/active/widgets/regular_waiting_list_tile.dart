@@ -15,6 +15,7 @@ class RegularWaitingListTile extends StatefulWidget {
     required this.resolvedAddonLimit,
     required this.addonLimitLoading,
     required this.service,
+    this.readOnly = false,
     required this.onAssignSeat,
   });
 
@@ -24,6 +25,7 @@ class RegularWaitingListTile extends StatefulWidget {
   final int resolvedAddonLimit;
   final bool addonLimitLoading;
   final TournamentService service;
+  final bool readOnly;
   final VoidCallback onAssignSeat;
 
   @override
@@ -199,7 +201,7 @@ class _RegularWaitingListTileState extends State<RegularWaitingListTile> {
         clipBehavior: Clip.none,
         children: [
           InkWell(
-            onTap: _busy ? null : _onCardTap,
+            onTap: widget.readOnly || _busy ? null : _onCardTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Row(

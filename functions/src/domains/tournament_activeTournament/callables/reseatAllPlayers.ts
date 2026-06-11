@@ -14,6 +14,7 @@ import {
   slimOkibakeEntryForReseatLog,
   type OkibakeReseatTarget,
 } from '../lib/slimOkibakeEntryForReseatLog';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 
 const playerAssignmentSchema = z.object({
   userId: z.string().optional(),
@@ -110,6 +111,18 @@ export const reseatAllPlayers = onCall(async (request) => {
     console.log(`playerAssignments:`, playerAssignments);
 
     const db = admin.firestore();
+    const tournamentDoc = await db.collection('scheduledTournaments').doc(tournamentId).get();
+    if (!tournamentDoc.exists) {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントが存在しません',
+        context: { tournamentId, reason: 'tournament_not_found' },
+      });
+    }
+    assertTournamentAllowsMutation({
+      tournamentId,
+      status: tournamentDoc.data()?.status as string | undefined,
+    });
     const normalAssignments = playerAssignments.filter((a) => a.userId);
     const okibakeAssignments = playerAssignments.filter((a) => a.okibakeEntryId);
 

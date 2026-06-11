@@ -10,6 +10,7 @@ import * as crypto from 'crypto';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { resolveAddonLimitPerPlayer } from '../../../shared/tournament/resolveAddonLimitPerPlayer';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 
 const addonSchema = z.object({
   operationId: z.string().min(1, 'operationId は必須です'),
@@ -97,6 +98,10 @@ export const addon = onCall(async (request) => {
     }
 
     const tournamentData = tournamentDoc.data();
+    assertTournamentAllowsMutation({
+      tournamentId,
+      status: tournamentData?.status as string | undefined,
+    });
     const templateId = tournamentData?.templateId;
     const snapshot = tournamentData?.snapshot || {};
     const addonLimit = resolveAddonLimitPerPlayer({

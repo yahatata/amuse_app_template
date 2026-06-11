@@ -13,14 +13,25 @@ import 'package:amuse_app_template/payroll/payroll_calc_page.dart';
 import 'package:amuse_app_template/payroll/widgets/notification_list.dart';
 
 class AdminHomePage extends StatefulWidget {
-  const AdminHomePage({super.key});
+  final bool initialTerminalMode;
+
+  const AdminHomePage({
+    super.key,
+    this.initialTerminalMode = false,
+  });
 
   @override
   State<AdminHomePage> createState() => _AdminHomePageState();
 }
 
 class _AdminHomePageState extends State<AdminHomePage> {
-  bool _isTerminalMode = false;
+  late bool _isTerminalMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _isTerminalMode = widget.initialTerminalMode;
+  }
 
   void _toggleMode() {
     setState(() {

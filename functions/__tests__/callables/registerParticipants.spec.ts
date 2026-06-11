@@ -252,4 +252,32 @@ describe('registerParticipants (Phase6 conflict guard)', () => {
     expect(result.summary.success).toBe(1);
     expect(result.summary.failure).toBe(0);
   });
+
+  it.each(['ended', 'force_ended'])(
+    'status=%s の TN では参加者登録を拒否する',
+    async (status) => {
+      const tournamentId = `tournament_register_participants_${status}`;
+      await db.collection('scheduledTournaments').doc(tournamentId).set({
+        templateId: 'tpl_ended_guard',
+        status,
+        startAt: admin.firestore.Timestamp.fromDate(new Date('2025-11-20T10:00:00Z')),
+        snapshot: {
+          name: '終了済みガード',
+          entryFee: 1000,
+          reentryFee: 500,
+          addonFee: 300,
+        },
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      const result = await (registerParticipants as any).run({
+        auth: { uid: 'device-operator' },
+        data: { tournamentId, userIds: ['user_ended_guard'] },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/終了/);
+    },
+  );
 });

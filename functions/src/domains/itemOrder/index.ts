@@ -7,3 +7,4 @@ export { placeOrder } from "./callables/placeOrder";
 export { placeOrderByUser } from "./callables/placeOrderByUser";
 export { getUserOrderHistory } from "./callables/getUserOrderHistory";
 export { cancelOrder } from "./callables/cancelOrder";
+export { updateOrderQuantity } from "./callables/updateOrderQuantity";

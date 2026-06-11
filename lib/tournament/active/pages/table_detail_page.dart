@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/Home/terminalHomePage.dart';
+import 'package:amuse_app_template/Home/app_home_navigation.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
 import 'package:amuse_app_template/utils/store_strong_warning_ui.dart';
@@ -14,6 +14,7 @@ import 'package:amuse_app_template/tournament/active/models/scheduled_tournament
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/assign_seat_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_seat_action_dialog.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_read_only.dart';
 
 class TableDetailPage extends StatefulWidget {
   final String tournamentId;
@@ -175,12 +176,25 @@ class _TableDetailPageState extends State<TableDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('scheduledTournaments')
+          .doc(widget.tournamentId)
+          .snapshots(),
+      builder: (context, tourStatusSnap) {
+        final tourStatus = tourStatusSnap.data?.data() != null
+            ? (tourStatusSnap.data!.data() as Map<String, dynamic>)['status']
+                as String?
+            : null;
+        final isReadOnly = isTournamentReadOnlyStatus(tourStatus);
+
+        return Scaffold(
       appBar: AppBar(
         title: Text('卓 ${widget.tableId}'),
         centerTitle: true,
         actions: [
           _buildStoreStatusAction(context),
+          if (!isReadOnly)
           Container(
             margin: const EdgeInsets.only(right: 8),
             child: ElevatedButton.icon(
@@ -235,18 +249,25 @@ class _TableDetailPageState extends State<TableDetailPage> {
       body: StoreStrongWarningWrapper(
         suppressStrongWarning: widget.suppressStoreStrongWarning,
         onCloseStore: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const terminalHomePage()),
-            (route) => false,
-          );
+          navigateToAppHome(context, adminInitialTerminalMode: true);
         },
         onBusinessContinue: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const terminalHomePage()),
-            (route) => false,
-          );
+          navigateToAppHome(context, adminInitialTerminalMode: true);
         },
-        child: StreamBuilder<DocumentSnapshot>(
+        child: Column(
+          children: [
+            if (isReadOnly) TournamentReadOnlyBanner(status: tourStatus),
+            Expanded(child: _buildTableDetailBody(isReadOnly: isReadOnly)),
+          ],
+        ),
+      ),
+    );
+      },
+    );
+  }
+
+  Widget _buildTableDetailBody({required bool isReadOnly}) {
+    return StreamBuilder<DocumentSnapshot>(
         stream: _getTableDataStream(),
         builder: (context, tableSnapshot) {
           return StreamBuilder<DocumentSnapshot>(
@@ -301,16 +322,14 @@ class _TableDetailPageState extends State<TableDetailPage> {
               _tableData = tableSnapshot.data!.data() as Map<String, dynamic>?;
               _mainViewData = mainSnapshot.data?.data() as Map<String, dynamic>?;
               
-              return _buildTableContent();
+              return _buildTableContent(isReadOnly: isReadOnly);
             },
           );
         },
-      ),
-      ),
     );
   }
 
-  Widget _buildTableContent() {
+  Widget _buildTableContent({required bool isReadOnly}) {
     final seats = _tableData?['seats'] as Map<String, dynamic>? ?? {};
     final safeMaxSeats =
         ScheduledTournamentSeatMap.resolvedTableMaxSeats(
@@ -330,7 +349,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
         // 中央: ポーカーテーブル
         Expanded(
           flex: 4,
-          child: _buildPokerTable(seats, safeMaxSeats),
+          child: _buildPokerTable(seats, safeMaxSeats, isReadOnly: isReadOnly),
         ),
       ],
     );
@@ -341,103 +360,91 @@ class _TableDetailPageState extends State<TableDetailPage> {
     final entryCount = _mainViewData?['entries'] as int? ?? 0;
     final reEntryCount = _mainViewData?['reentries'] as int? ?? 0;
     final totalEntries = entryCount + reEntryCount; // 総エントリー数
-    
-    final screenSize = MediaQuery.of(context).size;
-    final appBarHeight = kToolbarHeight;
-    final padding = screenSize.height * 0.04 * 2; // 上下のpadding
-    final dividerHeight = 1.0; // dividerの高さ
-    final dividerMargin = 8.0 * 2; // dividerの上下マージン
-    
-    // 利用可能な高さを計算（画面高さ - AppBar - padding）
-    final availableHeight = screenSize.height - MediaQuery.of(context).padding.top - appBarHeight - padding;
-    
-    // 5つの要素 + 4つのdivider（各要素の間に1つずつ）
-    const itemCount = 5;
-    const dividerCount = 4;
-    final totalDividerHeight = dividerCount * (dividerHeight + dividerMargin);
-    
-    // 各要素に割り当てる高さを計算
-    final itemHeight = (availableHeight - totalDividerHeight) / itemCount;
-    
-    // 各要素内のサイズを計算（アイコン、ラベル、値のサイズを動的に決定）
-    // 安全なマージンを確保するため、要素高さの70%を実際のコンテンツに使用
-    final contentHeight = itemHeight * 0.7;
-    final iconSize = contentHeight * 0.35; // コンテンツ高さの35%
-    final labelFontSize = contentHeight * 0.18; // コンテンツ高さの18%
-    final valueFontSize = contentHeight * 0.28; // コンテンツ高さの28%
-    final spacing = contentHeight * 0.1; // コンテンツ高さの10%をスペーシングに
-    
-    return Container(
-      padding: EdgeInsets.all(screenSize.height * 0.04),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 一番上に総エントリー数を表示
-          SizedBox(
-            height: itemHeight,
-            child: _buildTournamentInfoItem(
-              Icons.emoji_events, 
-              '総エントリー数', 
-              totalEntries.toString(),
-              iconSize: iconSize,
-              labelFontSize: labelFontSize,
-              valueFontSize: valueFontSize,
-              spacing: spacing,
-            ),
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxHeight = constraints.maxHeight;
+        final verticalPadding = (maxHeight * 0.04).clamp(8.0, 24.0);
+        const horizontalPadding = 16.0;
+        const itemCount = 5;
+        const dividerCount = 4;
+        const dividerTotalHeight = dividerCount * (1.0 + 16.0);
+
+        final contentAreaHeight =
+            (maxHeight - verticalPadding * 2 - dividerTotalHeight).clamp(0.0, maxHeight);
+        final itemHeight = itemCount > 0 ? contentAreaHeight / itemCount : 0.0;
+
+        final contentHeight = itemHeight * 0.7;
+        final iconSize = (contentHeight * 0.35).clamp(16.0, 48.0);
+        final labelFontSize = (contentHeight * 0.18).clamp(10.0, 16.0);
+        final valueFontSize = (contentHeight * 0.28).clamp(12.0, 24.0);
+        final spacing = (contentHeight * 0.1).clamp(2.0, 8.0);
+
+        return Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: horizontalPadding,
+            vertical: verticalPadding,
           ),
-          _buildDivider(),
-          
-          SizedBox(
-            height: itemHeight,
-            child: _buildTournamentInfoItem(
-              Icons.replay, 
-              'リエントリー数', 
-              reEntryCount.toString(),
-              iconSize: iconSize,
-              labelFontSize: labelFontSize,
-              valueFontSize: valueFontSize,
-              spacing: spacing,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _buildTournamentInfoItem(
+                  Icons.emoji_events,
+                  '総エントリー数',
+                  totalEntries.toString(),
+                  iconSize: iconSize,
+                  labelFontSize: labelFontSize,
+                  valueFontSize: valueFontSize,
+                  spacing: spacing,
+                ),
+              ),
+              _buildDivider(),
+              Expanded(
+                child: _buildTournamentInfoItem(
+                  Icons.replay,
+                  'リエントリー数',
+                  reEntryCount.toString(),
+                  iconSize: iconSize,
+                  labelFontSize: labelFontSize,
+                  valueFontSize: valueFontSize,
+                  spacing: spacing,
+                ),
+              ),
+              _buildDivider(),
+              Expanded(
+                child: _buildTournamentInfoItem(
+                  Icons.add_circle,
+                  'アドオン数',
+                  (_mainViewData?['addons'] as int? ?? 0).toString(),
+                  iconSize: iconSize,
+                  labelFontSize: labelFontSize,
+                  valueFontSize: valueFontSize,
+                  spacing: spacing,
+                ),
+              ),
+              _buildDivider(),
+              Expanded(
+                child: _buildSeatedCountItem(
+                  iconSize: iconSize,
+                  labelFontSize: labelFontSize,
+                  valueFontSize: valueFontSize,
+                  spacing: spacing,
+                ),
+              ),
+              _buildDivider(),
+              Expanded(
+                child: _buildWaitingPlayerItem(
+                  iconSize: iconSize,
+                  labelFontSize: labelFontSize,
+                  valueFontSize: valueFontSize,
+                  spacing: spacing,
+                ),
+              ),
+            ],
           ),
-          _buildDivider(),
-          
-          SizedBox(
-            height: itemHeight,
-            child: _buildTournamentInfoItem(
-              Icons.add_circle, 
-              'アドオン数', 
-              (_mainViewData?['addons'] as int? ?? 0).toString(),
-              iconSize: iconSize,
-              labelFontSize: labelFontSize,
-              valueFontSize: valueFontSize,
-              spacing: spacing,
-            ),
-          ),
-          _buildDivider(),
-          
-          SizedBox(
-            height: itemHeight,
-            child: _buildSeatedCountItem(
-              iconSize: iconSize,
-              labelFontSize: labelFontSize,
-              valueFontSize: valueFontSize,
-              spacing: spacing,
-            ),
-          ),
-          _buildDivider(),
-          
-          // 一番下にWaiting Playerを表示
-          SizedBox(
-            height: itemHeight,
-            child: _buildWaitingPlayerItem(
-              iconSize: iconSize,
-              labelFontSize: labelFontSize,
-              valueFontSize: valueFontSize,
-              spacing: spacing,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -614,7 +621,11 @@ class _TableDetailPageState extends State<TableDetailPage> {
     );
   }
 
-  Widget _buildPokerTable(Map<String, dynamic> seats, int maxSeats) {
+  Widget _buildPokerTable(
+    Map<String, dynamic> seats,
+    int maxSeats, {
+    required bool isReadOnly,
+  }) {
     return Container(
       padding: const EdgeInsets.all(20),
       child: Container(
@@ -684,7 +695,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
             ),
             
             // 座席配置（テーブル周囲）
-            ..._buildSeatPositions(seats, maxSeats),
+            ..._buildSeatPositions(seats, maxSeats, isReadOnly: isReadOnly),
           ],
         ),
       ),
@@ -741,7 +752,11 @@ class _TableDetailPageState extends State<TableDetailPage> {
     );
   }
 
-  List<Widget> _buildSeatPositions(Map<String, dynamic> seats, int maxSeats) {
+  List<Widget> _buildSeatPositions(
+    Map<String, dynamic> seats,
+    int maxSeats, {
+    required bool isReadOnly,
+  }) {
     final widgets = <Widget>[];
     
     // デバッグログ（まとめてAddonと比較用）
@@ -784,7 +799,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
         Positioned(
           left: x - 60, // 120pxの座席サイズの半分（横幅が2倍になったため）
           top: y - 30,  // 60pxの座席サイズの半分（縦幅は変わらない）
-          child: _buildSeatWidget(i, seatData),
+          child: _buildSeatWidget(i, seatData, isReadOnly: isReadOnly),
         ),
       );
     }
@@ -792,19 +807,28 @@ class _TableDetailPageState extends State<TableDetailPage> {
     return widgets;
   }
 
-  Widget _buildSeatWidget(int seatNo, SeatData seat) {
+  Widget _buildSeatWidget(int seatNo, SeatData seat, {required bool isReadOnly}) {
     final isOccupied = seat.isOccupied;
     VoidCallback? onTap;
-    if (seat.isOkibakeSeat) {
-      onTap = () => _showOkibakeSeatActionDialog(seat);
+    if (!isReadOnly) {
+      if (seat.isOkibakeSeat) {
+        onTap = () => _showOkibakeSeatActionDialog(seat);
+      } else if (isOccupied &&
+          seat.userId != null &&
+          seat.userId!.isNotEmpty) {
+        final uid = seat.userId!;
+        final name = seat.pokerName ?? '';
+        onTap = () => _showPlayerInfo(uid, name, seatNo);
+      } else if (!isOccupied) {
+        onTap = () => _showSeatAssignmentDialog(seatNo);
+      }
     } else if (isOccupied &&
         seat.userId != null &&
-        seat.userId!.isNotEmpty) {
+        seat.userId!.isNotEmpty &&
+        !seat.isOkibakeSeat) {
       final uid = seat.userId!;
       final name = seat.pokerName ?? '';
       onTap = () => _showPlayerInfo(uid, name, seatNo);
-    } else if (!isOccupied) {
-      onTap = () => _showSeatAssignmentDialog(seatNo);
     }
 
     return GestureDetector(

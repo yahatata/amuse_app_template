@@ -6,7 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class OrderCard extends StatelessWidget {
   final Map<String, dynamic> order;
   final Function(String orderId, String newStatus) onStatusChanged;
-  final Function(String orderId, String? billId) onEdit;
+  final Function(String orderId, String? billId, String? orderDocId) onEdit;
   final String? localStatus;
   final bool isActiveTab; // 準備中・提供中タブかどうか
 
@@ -159,7 +159,11 @@ class OrderCard extends StatelessWidget {
               IconButton(
                 onPressed: isMarkingServed
                     ? null
-                    : () => onEdit(order['id'], order['billId'] as String?),
+                    : () => onEdit(
+                          order['id'],
+                          order['billId'] as String?,
+                          order['date'] as String?,
+                        ),
                 icon: const Icon(Icons.edit, color: Colors.blue),
               ),
             ],

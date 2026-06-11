@@ -9,6 +9,7 @@ import {
   type DeviceDoc,
 } from '../../../shared/devices';
 import { logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { getCurrentBusinessDateKeyOrThrow } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
 import {
   buildDraftAccountingInput,
@@ -93,6 +94,14 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
   const db = admin.firestore();
   const opRef = db.collection('operationLogs').doc(operationId);
   const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
+  const tournamentSnap = await tournamentRef.get();
+  if (!tournamentSnap.exists) {
+    throw new HttpsError('not-found', 'トーナメントが存在しません');
+  }
+  assertTournamentAllowsMutation({
+    tournamentId,
+    status: tournamentSnap.data()?.status as string | undefined,
+  });
   const entryRef = tournamentRef.collection('okibakeTemporaryEntries').doc(okibakeEntryId);
   const billRef = db.collection('bills').doc();
   const cycleRef = billRef

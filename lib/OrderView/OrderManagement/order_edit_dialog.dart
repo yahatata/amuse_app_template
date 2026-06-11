@@ -1,17 +1,21 @@
 import 'dart:async';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class OrderEditDialog extends StatefulWidget {
   final String orderId;
   final String? billId;
+  /// orders/{orderDocId}/_TodaysOrders 用（yyyyMMdd）。bill 更新時の投影同期に使用。
+  final String? orderDocId;
   final VoidCallback onOrderUpdated;
 
   const OrderEditDialog({
     super.key,
     required this.orderId,
     this.billId,
+    this.orderDocId,
     required this.onOrderUpdated,
   });
 
@@ -21,6 +25,7 @@ class OrderEditDialog extends StatefulWidget {
 
 class _OrderEditDialogState extends State<OrderEditDialog> {
   List<Map<String, dynamic>> _items = [];
+  final List<TextEditingController> _quantityControllers = [];
   bool _isLoading = true;
   bool _isUpdating = false;
 
@@ -28,6 +33,53 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
   void initState() {
     super.initState();
     _loadOrderData();
+  }
+
+  @override
+  void dispose() {
+    _disposeQuantityControllers();
+    super.dispose();
+  }
+
+  void _disposeQuantityControllers() {
+    for (final controller in _quantityControllers) {
+      controller.dispose();
+    }
+    _quantityControllers.clear();
+  }
+
+  void _syncQuantityControllers() {
+    _disposeQuantityControllers();
+    for (final item in _items) {
+      _quantityControllers.add(
+        TextEditingController(text: (item['quantity'] ?? 1).toString()),
+      );
+    }
+  }
+
+  int? _readQuantityAt(int index) {
+    if (index < 0 || index >= _quantityControllers.length) return null;
+    final raw = _quantityControllers[index].text.trim();
+    if (raw.isEmpty) return null;
+    final quantity = int.tryParse(raw);
+    if (quantity == null || quantity <= 0) return null;
+    return quantity;
+  }
+
+  bool _applyQuantitiesFromControllers({required bool showError}) {
+    for (var i = 0; i < _items.length; i++) {
+      final quantity = _readQuantityAt(i);
+      if (quantity == null) {
+        if (showError && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('数量は1以上の整数で入力してください')),
+          );
+        }
+        return false;
+      }
+      _items[i]['quantity'] = quantity;
+    }
+    return true;
   }
 
   @override
@@ -46,7 +98,7 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
                 title: const Text('注文編集'),
                 content: SizedBox(
                   width: double.maxFinite,
-                  child: _isLoading
+                  child: _isLoading || _quantityControllers.length != _items.length
                       ? const Center(child: CircularProgressIndicator())
                       : Column(
                           mainAxisSize: MainAxisSize.min,
@@ -96,9 +148,7 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
 
   /// アイテムエディターを構築
   Widget _buildItemEditor(int index, Map<String, dynamic> item) {
-    final quantityController = TextEditingController(
-      text: (item['quantity'] ?? 1).toString(),
-    );
+    final quantityController = _quantityControllers[index];
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -144,18 +194,11 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
                   child: TextField(
                     controller: quantityController,
                     keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     decoration: const InputDecoration(
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     ),
-                    onChanged: (value) {
-                      final quantity = int.tryParse(value) ?? 1;
-                      if (quantity > 0) {
-                        setState(() {
-                          _items[index]['quantity'] = quantity;
-                        });
-                      }
-                    },
                   ),
                 ),
                 const Spacer(),
@@ -204,6 +247,7 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
   void _removeItem(int index) {
     setState(() {
       _items.removeAt(index);
+      _syncQuantityControllers();
     });
   }
 
@@ -231,6 +275,7 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
               'totalPriceIncl': data['totalPriceIncl'] ?? 0,
             }];
             _isLoading = false;
+            _syncQuantityControllers();
           });
         } else {
           setState(() {
@@ -265,6 +310,7 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
               'quantity': data['quantity'] ?? 1,
             }];
             _isLoading = false;
+            _syncQuantityControllers();
           });
         } else {
           setState(() {
@@ -320,38 +366,38 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
 
     if (confirmed != true) return;
 
+    if (!_applyQuantitiesFromControllers(showError: true)) return;
+
     setState(() {
       _isUpdating = true;
     });
 
     try {
-      // billId がある場合は /bills/{billId}/items/{orderId} を更新
-      // ない場合は /orders/{date}/_TodaysOrders/{orderId} を更新（後方互換性）
+      final quantity = _items.first['quantity'] as int;
+      final functions = FunctionsClient.instance;
+      final callable = functions.httpsCallable('updateOrderQuantity');
+
+      final payload = <String, dynamic>{
+        'orderId': widget.orderId,
+        'quantity': quantity,
+      };
       if (widget.billId != null && widget.billId!.isNotEmpty) {
-        final item = _items.first;
-        await FirebaseFirestore.instance
-            .collection('bills')
-            .doc(widget.billId)
-            .collection('items')
-            .doc(widget.orderId)
-            .update({
-          'quantity': item['quantity'] ?? 1,
-          'totalPriceIncl': (item['unitPriceIncl'] ?? 0) * (item['quantity'] ?? 1),
-        });
-      } else {
-        // 後方互換性: _TodaysOrders を更新
-        final today = DateTime.now();
-        final dateString = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
-        
-        await FirebaseFirestore.instance
-            .collection('orders')
-            .doc(dateString)
-            .collection('_TodaysOrders')
-            .doc(widget.orderId)
-            .update({
-          'quantity': _items.first['quantity'] ?? 1,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+        payload['billId'] = widget.billId;
+      }
+      if (widget.orderDocId != null && widget.orderDocId!.isNotEmpty) {
+        payload['orderDocId'] = widget.orderDocId;
+      }
+
+      final result = await callable.call(payload).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました');
+        },
+      );
+
+      final data = result.data as Map<String, dynamic>? ?? {};
+      if (data['success'] != true) {
+        throw Exception(data['error'] ?? '注文数量の更新に失敗しました');
       }
 
       if (mounted) {

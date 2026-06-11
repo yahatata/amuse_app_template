@@ -9,7 +9,9 @@ import { z } from 'zod';
 import type { DeviceDoc } from '../../../shared/devices';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { buildOkibakeTemporaryDisplayName } from '../lib/okibakeTemporaryDisplayName';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import type { OkibakeAddonIntent } from '../types/okibake';
 
 const createOkibakeSchema = z.object({
@@ -81,6 +83,15 @@ export const createOkibakeTemporaryEntry = onCall(async (request) => {
     }
 
     const db = admin.firestore();
+
+    const preTournamentDoc = await db.collection('scheduledTournaments').doc(tournamentId).get();
+    if (!preTournamentDoc.exists) {
+      throw new HttpsError('not-found', 'トーナメントが存在しません');
+    }
+    assertTournamentAllowsMutation({
+      tournamentId,
+      status: preTournamentDoc.data()?.status as string | undefined,
+    });
 
     const opLogRef = db.collection('operationLogs').doc(operationId);
 
@@ -310,6 +321,10 @@ export const createOkibakeTemporaryEntry = onCall(async (request) => {
         cause: error,
       });
       throw error;
+    }
+
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
     }
 
     logOpsError({

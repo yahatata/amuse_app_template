@@ -69,7 +69,7 @@
 | `debugSideGame` | `side_game` | 開発・検証用。**`エラーログ_重要度判定要件定義.md` §4** に従い、本番運用向け重要度判定の十分性評価の**主対象外**（実装サマリ 業務本体 280 件のうち除外する 2 件の一方） |
 | `deletePayrollDemoData` | `payroll` | `demo_data`（給与デモ削除） |
 | `deleteTournamentRecurrence` | `tournament_schedule` | |
-| `depositTip` | `side_game` | |
+| `depositChip` | `side_game` | |
 | `endBreak` | `attendance` | |
 | `endTournament` | `tournament` | |
 | `enqueueTournamentTasks` | `tournament_schedule` | |
@@ -186,7 +186,7 @@
 | `verifyQRCode` | `user` | |
 | `verifyUnclockedAttendanceEditPassword` | `store` | |
 | `weeklyPlanner` | `store` | |
-| `withdrawTip` | `side_game` | |
+| `withdrawChip` | `side_game` | |
 
 ---
 
@@ -257,7 +257,7 @@
 - **payroll**: `cancelPayrollRun`, `confirmPayrollRun`, `deletePayrollDemoData`, `executeMonthlyPayroll`, `finalizePayrollRun`, `getPayrollCandidates`, `getPayrollData`, `monthlyPayrollTrigger`, `payrollNotificationScheduler`, `processPayrollNotifications`, `processStaffPayroll`, `registerPaymentStatus`, `retryFailedStaffTasks`, `seedAttendancesDemo`, `seedPayrollDemoData`
 - **scheduler**: `schedulerSupervisor`（同一 service の export 外分は §「export 外の functionEntry 対応表」）
 - **shift**: `calculateInsufficientDays`, `createRecruitments`, `finalizeDay`, `finalizeMonth`, `initShiftDaysForMonth`, `interimConfirmRequests`, `sendRecruitmentNotification`, `setSufficientOverride`, `updateDayAssignments`
-- **side_game**: `debugSideGame`（**重要度十分性の主対象外**・§4）、`depositTip`, `leaveSeat`, `registerForSideGame`, `withdrawTip`
+- **side_game**: `debugSideGame`（**重要度十分性の主対象外**・§4）、`depositChip`, `leaveSeat`, `registerForSideGame`, `withdrawChip`
 - **staff**: `confirmShiftRequest`, `createMultipleShifts`, `createStaffAccount`, `createStaffByApp`, `getShifts`, `scheduledCleanup`, `updateShiftRequest`, `updateStaffBankInfo`, `updateStaffHourlyWage`
 - **store**: `applyCloseSnapshot`, `cleanupActiveStaysOnClose`, `closeAssessmentTask`, `closeStore`, `closeStoreTerminal`, `continueBusinessTerminal`, `createInitialStateDocCallable`, `finalizeUnsettledBillAfterAccounting`, `getCloseIntegrityData`, `getUnclockedStaffForClose`, `getUnclosedTournamentsForClose`, `getUnsettledBillsForClose`, `initializeStoreConfigCallable`, `openAssessmentTask`, `openStore`, `openStoreTerminal`, `resetAllSideGames`, `resetAllTables`, `temporaryUnlockAlreadyRunningDifferentDateTerminal`, `updateUnclockedAttendanceWithAuth`, `verifyUnclockedAttendanceEditPassword`, `weeklyPlanner`
 - **tournament**: `addTableToTournament`, `addon`, `applyOkibakeAddon`, `assignOkibakeTemporaryEntryToSeat`, `assignSeatToPlayer`, `bulkAddon`, `bustAndExit`, `bustAndReentry`, `bustOkibakeTemporaryEntry`, `createOkibakeTemporaryEntry`, `createTemporaryTable`, `endTournament`, `getAvailableTables`, `getPrizeData`, `getRankingData`, `getTodayTournaments`, `getUpcomingTournaments`, `linkOkibakeTemporaryEntryToBill`, `pauseTournament`, `registerForTournament`, `registerParticipants`, `removeTableFromTournament`, `resumeTournament`, `reseatAllPlayers`, `setPrizeData`, `setRankingData`, `updateOkibakeTemporaryEntryLinkedUser`, `validateEndTournament`

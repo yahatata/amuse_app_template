@@ -24,6 +24,35 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
   bool _isLoading = false;
   final FirebaseFunctions _functions = FunctionsClient.instance;
 
+  Future<void> _showManualCheckInErrorDialog(String message) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.error, color: Colors.red),
+            SizedBox(width: 8),
+            Text(
+              'ログイン失敗',
+              style: TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   // When: 手動チェックイン処理時
   // Where: UserManualCheckInPage
   // What: Cloud Functionsを呼び出してログイン処理を実行
@@ -57,61 +86,30 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
               ? OkibakeLoginPromptData.fromMap(okibakeLoginPromptRaw)
               : null;
 
-          // ユーザーUIDを保存
           await _saveUserUID(uid);
 
+          if (!mounted) return;
           setState(() => _isLoading = false);
-          
-          // userCheckInPage に遷移してダイアログを表示
-          if (mounted) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => UserCheckInPage(
-                  showDialogOnLoad: true,
-                  dialogMessage: message,
-                  isSuccess: true,
-                  userId: uid?.toString(),
-                  billId: billId,
-                  okibakeLoginPrompt: okibakeLoginPrompt,
-                ),
-              ),
-            );
-          }
-        } else {
-          final error = response['error'] ?? 'ログイン処理に失敗しました';
-          setState(() => _isLoading = false);
-          
-          // userCheckInPage に遷移してダイアログを表示
-          if (mounted) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => UserCheckInPage(
-                  showDialogOnLoad: true,
-                  dialogMessage: error,
-                  isSuccess: false,
-                ),
-              ),
-            );
-          }
-        }
-      } catch (e) {
-        setState(() => _isLoading = false);
-        
-        // userCheckInPage に遷移してダイアログを表示
-        if (mounted) {
-          Navigator.pushReplacement(
+          Navigator.pop(
             context,
-            MaterialPageRoute(
-              builder: (_) => UserCheckInPage(
-                showDialogOnLoad: true,
-                dialogMessage: 'ログイン処理に失敗しました: $e',
-                isSuccess: false,
-              ),
+            UserCheckInResult(
+              success: true,
+              message: message,
+              userId: uid?.toString(),
+              billId: billId,
+              okibakeLoginPrompt: okibakeLoginPrompt,
             ),
           );
+        } else {
+          final error = response['error'] ?? 'ログイン処理に失敗しました';
+          if (!mounted) return;
+          setState(() => _isLoading = false);
+          await _showManualCheckInErrorDialog(error);
         }
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        await _showManualCheckInErrorDialog('ログイン処理に失敗しました: $e');
       }
     }
   }

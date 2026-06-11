@@ -33,12 +33,20 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   String? _error;
   /// 現在操作しているデバイスID（この画面を開いている端末）
   String? _currentDeviceId;
+  late final ScrollController _deviceListScrollController;
 
   @override
   void initState() {
     super.initState();
+    _deviceListScrollController = ScrollController();
     _loadCurrentDeviceId();
     _loadDevices();
+  }
+
+  @override
+  void dispose() {
+    _deviceListScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadCurrentDeviceId() async {
@@ -208,10 +216,13 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
 
     // 卓一覧のキャッシュ
     final Map<String, List<_TableItem>> tableCache = {};
+    final optionsScrollController = ScrollController();
 
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
+    bool? result;
+    try {
+      result = await showDialog<bool>(
+        context: context,
+        builder: (context) => StatefulBuilder(
         builder: (context, setState) {
           // 排他制御: 選択時に排他グループの他のオプションをOFFにする
           void handleOptionChange(String key, bool? value) {
@@ -238,8 +249,14 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
 
           return AlertDialog(
             title: Text('オプション編集: ${device.name}'),
-            content: SingleChildScrollView(
-              child: Column(
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Scrollbar(
+                controller: optionsScrollController,
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  controller: optionsScrollController,
+                  child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
@@ -334,6 +351,8 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                   }),
                   const SizedBox(height: 12),
                 ],
+                  ),
+                ),
               ),
             ),
             actions: [
@@ -350,6 +369,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
         },
       ),
     );
+    } finally {
+      optionsScrollController.dispose();
+    }
 
     if (result == true) {
       setState(() => _isSavingOptions = true);
@@ -542,10 +564,14 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _devices.length,
-      itemBuilder: (context, index) {
+    return Scrollbar(
+      controller: _deviceListScrollController,
+      thumbVisibility: true,
+      child: ListView.builder(
+        controller: _deviceListScrollController,
+        padding: const EdgeInsets.all(16),
+        itemCount: _devices.length,
+        itemBuilder: (context, index) {
         final device = _devices[index];
         final isCurrentDevice = _currentDeviceId != null && device.id == _currentDeviceId;
         return Card(
@@ -763,6 +789,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
           ),
         );
       },
+      ),
     );
   }
 }
