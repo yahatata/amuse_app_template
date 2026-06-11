@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
-import 'package:amuse_app_template/Home/terminalHomePage.dart';
+import 'package:amuse_app_template/Home/app_home_navigation.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
 import 'package:amuse_app_template/utils/store_strong_warning_ui.dart';
@@ -265,16 +265,10 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
       ),
       body: StoreStrongWarningWrapper(
         onCloseStore: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const terminalHomePage()),
-            (route) => false,
-          );
+          navigateToAppHome(context, adminInitialTerminalMode: true);
         },
         onBusinessContinue: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const terminalHomePage()),
-            (route) => false,
-          );
+          navigateToAppHome(context, adminInitialTerminalMode: true);
         },
         child: Column(
         children: [
@@ -437,8 +431,8 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
           onStatusChanged: (orderId, newStatus) {
             _updateOrderStatus(orderId, newStatus);
           },
-          onEdit: (orderId, billId) {
-            _showEditDialog(orderId, billId);
+          onEdit: (orderId, billId, orderDocId) {
+            _showEditDialog(orderId, billId, orderDocId);
           },
           localStatus: _localOrderStatus[order['id']?.toString()],
           isActiveTab: _selectedTabIndex == 0,
@@ -515,13 +509,14 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   }
 
   /// 編集ダイアログを表示
-  void _showEditDialog(String orderId, String? billId) {
+  void _showEditDialog(String orderId, String? billId, String? orderDocId) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => OrderEditDialog(
         orderId: orderId,
         billId: billId,
+        orderDocId: orderDocId,
         onOrderUpdated: () {
           // 注文更新後の処理
           ScaffoldMessenger.of(context).showSnackBar(

@@ -251,15 +251,31 @@ class TournamentDataService {
     }
   }
 
-  /// 利用可能なテーブル（status: 'open'）を取得（Firestore スナップショットで取得）
-  Future<List<Map<String, dynamic>>> getAvailableTables() async {
+  /// 利用可能なテーブル（status: 'open'）を取得。
+  /// [tournamentId] の tablesSeat に既登録済みの卓は除外する。
+  Future<List<Map<String, dynamic>>> getAvailableTables(
+    String tournamentId,
+  ) async {
     try {
       final snapshot = await _firestore
           .collection('tables')
           .where('status', isEqualTo: 'open')
           .get();
 
-      final tables = snapshot.docs.map((doc) {
+      final tablesSeatSnap = await _firestore
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('tablesSeat')
+          .get();
+
+      final registeredTableIds = tablesSeatSnap.docs
+          .map((doc) => doc.id)
+          .where((id) => id != 'waiting' && id != 'busted')
+          .toSet();
+
+      final tables = snapshot.docs
+          .where((doc) => !registeredTableIds.contains(doc.id))
+          .map((doc) {
         final data = doc.data();
         return <String, dynamic>{
           'tableId': doc.id,

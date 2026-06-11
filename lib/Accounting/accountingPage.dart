@@ -1400,209 +1400,274 @@ class _AccountingPageState extends State<AccountingPage> {
     ];
 
     final totalAmount = categoryAmounts.total;
+    final paymentOptionsScrollController = ScrollController();
 
-    return showDialog<Map<String, dynamic>>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
+    try {
+      return await showDialog<Map<String, dynamic>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+        final maxDialogHeight =
+            MediaQuery.sizeOf(dialogContext).height * 0.85;
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return Dialog(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 540),
+                constraints: BoxConstraints(
+                  maxWidth: 540,
+                  maxHeight: maxDialogHeight,
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(24),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.payment,
-                              color: Colors.blue,
-                              size: 28,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '${pokerName}様',
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          '決済方法を選択してください',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: baseMethodOptions.map((option) {
-                            final isSelected =
-                                selectedBaseMethod == option['key'];
-                            return ChoiceChip(
-                              selected: isSelected,
-                              onSelected: (_) {
-                                setDialogState(() {
-                                  selectedBaseMethod = option['key'] as String;
-                                });
-                              },
-                              label: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(option['icon'] as IconData),
-                                  const SizedBox(width: 6),
-                                  Text(option['label'] as String),
-                                ],
-                              ),
-                              selectedColor: Colors.blue.shade100,
-                              backgroundColor: Colors.grey.shade200,
-                              labelStyle: TextStyle(
-                                color: isSelected
-                                    ? Colors.blue.shade900
-                                    : Colors.grey.shade800,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              Navigator.of(dialogContext).pop({
-                                'action': 'auto',
-                                'baseMethod': selectedBaseMethod,
-                              });
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange.shade600,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                            ),
-                            child: const Text(
-                              'ポイント + 選択した決済方法で支払う',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton(
-                            onPressed: () {
-                              Navigator.of(
-                                dialogContext,
-                              ).pop({'action': 'custom'});
-                            },
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                            ),
-                            child: const Text(
-                              'カスタム支払い',
-                              style: TextStyle(fontSize: 16),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        Divider(color: Colors.grey.shade300),
-                        const SizedBox(height: 12),
-                        Text(
-                          '合計: ${_formatCurrency(totalAmount)}',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          '内訳',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ...categoryAmounts.displayValues.entries.map((entry) {
-                          final category = entry.key;
-                          final value = entry.value;
-                          String amountText;
-                          if (category == 'sideGameChip') {
-                            final yenValue =
-                                sideGameChipSummary.amountInclTotal;
-                            final chipQty = sideGameChipSummary.chipQtyTotal;
-                            amountText =
-                                'チップ$chipQty枚 (${_formatCurrency(yenValue)})';
-                          } else {
-                            amountText = _formatCurrency(value);
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: Scrollbar(
+                          controller: paymentOptionsScrollController,
+                          thumbVisibility: true,
+                          child: SingleChildScrollView(
+                            controller: paymentOptionsScrollController,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  _getCategoryName(category),
-                                  style: const TextStyle(fontSize: 14),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.payment,
+                                      color: Colors.blue,
+                                      size: 28,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '${pokerName}様',
+                                      style: const TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                Text(
-                                  amountText,
-                                  style: const TextStyle(fontSize: 14),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  '決済方法を選択してください',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: baseMethodOptions.asMap().entries.map((
+                                    entry,
+                                  ) {
+                                    final index = entry.key;
+                                    final option = entry.value;
+                                    final isSelected =
+                                        selectedBaseMethod == option['key'];
+                                    return Expanded(
+                                      child: Padding(
+                                        padding: EdgeInsets.only(
+                                          left: index == 0 ? 0 : 4,
+                                          right: index ==
+                                                  baseMethodOptions.length - 1
+                                              ? 0
+                                              : 4,
+                                        ),
+                                        child: ChoiceChip(
+                                          selected: isSelected,
+                                          onSelected: (_) {
+                                            setDialogState(() {
+                                              selectedBaseMethod =
+                                                  option['key'] as String;
+                                            });
+                                          },
+                                          label: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  option['icon'] as IconData,
+                                                  size: 18,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(option['label'] as String),
+                                              ],
+                                            ),
+                                          ),
+                                          selectedColor: Colors.blue.shade100,
+                                          backgroundColor: Colors.grey.shade200,
+                                          labelStyle: TextStyle(
+                                            color: isSelected
+                                                ? Colors.blue.shade900
+                                                : Colors.grey.shade800,
+                                            fontWeight: isSelected
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 10,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              const SizedBox(height: 24),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: () {
+                                    Navigator.of(dialogContext).pop({
+                                      'action': 'auto',
+                                      'baseMethod': selectedBaseMethod,
+                                    });
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.orange.shade600,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'ポイント + 選択した決済方法で支払う',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton(
+                                  onPressed: () {
+                                    Navigator.of(dialogContext).pop({
+                                      'action': 'custom',
+                                    });
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'カスタム支払い',
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              Padding(
+                                padding: const EdgeInsets.only(right: 20),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Divider(color: Colors.grey.shade300),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      '合計: ${_formatCurrency(totalAmount)}',
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    const Text(
+                                      '内訳',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    ...categoryAmounts.displayValues.entries.map((
+                                      entry,
+                                    ) {
+                                      final category = entry.key;
+                                      final value = entry.value;
+                                      String amountText;
+                                      if (category == 'sideGameChip') {
+                                        final yenValue =
+                                            sideGameChipSummary.amountInclTotal;
+                                        final chipQty =
+                                            sideGameChipSummary.chipQtyTotal;
+                                        amountText =
+                                            'チップ$chipQty枚 (${_formatCurrency(yenValue)})';
+                                      } else {
+                                        amountText = _formatCurrency(value);
+                                      }
+                                      return Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 4,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                _getCategoryName(category),
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              amountText,
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }),
+                                    const SizedBox(height: 16),
+                                    const Text(
+                                      'ポイント残高',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    _buildBalanceRow(
+                                      'ポイントA',
+                                      _formatCurrency(
+                                        userBalances['pointA'] ?? 0,
+                                      ),
+                                    ),
+                                    _buildBalanceRow(
+                                      'ポイントB',
+                                      _formatCurrency(
+                                        userBalances['pointB'] ?? 0,
+                                      ),
+                                    ),
+                                    _buildBalanceRow(
+                                      'サイドゲームチップ',
+                                      '${userBalances['sideGameChip'] ?? 0}枚 (${_formatCurrency(((userBalances['sideGameChip'] ?? 0) * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt())})',
+                                    ),
+                                  ],
+                                ),
+                              ),
                               ],
                             ),
-                          );
-                        }),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'ポイント残高',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        _buildBalanceRow(
-                          'ポイントA',
-                          _formatCurrency(userBalances['pointA'] ?? 0),
+                      ),
+                      const SizedBox(height: 16),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          child: const Text('キャンセル'),
                         ),
-                        _buildBalanceRow(
-                          'ポイントB',
-                          _formatCurrency(userBalances['pointB'] ?? 0),
-                        ),
-                        _buildBalanceRow(
-                          'サイドゲームチップ',
-                          '${userBalances['sideGameChip'] ?? 0}枚 (${_formatCurrency(((userBalances['sideGameChip'] ?? 0) * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt())})',
-                        ),
-                        const SizedBox(height: 24),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () => Navigator.of(dialogContext).pop(),
-                            child: const Text('キャンセル'),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1610,16 +1675,21 @@ class _AccountingPageState extends State<AccountingPage> {
           },
         );
       },
-    );
+      );
+    } finally {
+      paymentOptionsScrollController.dispose();
+    }
   }
 
   Widget _buildBalanceRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 14)),
+          Expanded(
+            child: Text(label, style: const TextStyle(fontSize: 14)),
+          ),
+          const SizedBox(width: 8),
           Text(value, style: const TextStyle(fontSize: 14)),
         ],
       ),
@@ -1851,6 +1921,7 @@ class _AccountingPageState extends State<AccountingPage> {
 
         if (cashLikeAmount <= 0) {
           if (mounted) {
+            Navigator.of(context).pop();
             ScaffoldMessenger.of(
               context,
             ).showSnackBar(const SnackBar(content: Text('ポイントのみでの支払いはできません。')));
@@ -2023,6 +2094,13 @@ class _AccountingPageState extends State<AccountingPage> {
 
     // ローディングダイアログを表示
     if (!mounted) return;
+    var startAccountingLoadingOpen = false;
+    void closeStartAccountingLoading() {
+      if (!mounted || !startAccountingLoadingOpen) return;
+      Navigator.of(context).pop();
+      startAccountingLoadingOpen = false;
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -2042,23 +2120,18 @@ class _AccountingPageState extends State<AccountingPage> {
         ),
       ),
     );
+    startAccountingLoadingOpen = true;
 
     try {
       final categoryAmounts = await _fetchCategoryAmountsFromServer(billId);
       if (categoryAmounts == null) {
-        if (mounted) {
-          Navigator.of(context).pop(); // ローディングダイアログを閉じる
-        }
         return;
       }
 
       // 0円会計のチェック
       final totalAmount = categoryAmounts.total;
       if (totalAmount == 0) {
-        // ローディングダイアログを閉じる
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
+        closeStartAccountingLoading();
 
         // 0円会計の確認ダイアログを表示
         final pokerName = bill['pokerName'] ?? '不明';
@@ -2107,17 +2180,14 @@ class _AccountingPageState extends State<AccountingPage> {
         billId,
       );
 
+      closeStartAccountingLoading();
+
       final startOptions = await _showPaymentStartOptionsDialog(
         bill,
         categoryAmounts,
         userBalances,
         sideGameChipSummary,
       );
-
-      // ローディングダイアログを閉じる
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
 
       if (startOptions == null) return;
 
@@ -2245,26 +2315,13 @@ class _AccountingPageState extends State<AccountingPage> {
         paymentMethodsByCategory: paymentMethodsByCategory,
       );
     } catch (e) {
-      // エラー時もローディングダイアログを閉じる
       if (mounted) {
-        try {
-          Navigator.of(context).pop(); // ローディングダイアログを閉じる
-        } catch (_) {
-          // ダイアログが既に閉じられている場合は無視
-        }
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('会計開始処理中にエラーが発生しました: $e')));
       }
     } finally {
-      // 念のため、確実にローディングダイアログを閉じる
-      if (mounted) {
-        try {
-          Navigator.of(context).pop();
-        } catch (_) {
-          // ダイアログが既に閉じられている場合は無視
-        }
-      }
+      closeStartAccountingLoading();
     }
   }
 

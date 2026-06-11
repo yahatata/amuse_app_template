@@ -9,6 +9,7 @@ import { updatePlace } from '../../bills/repos/updatePlace';
 import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operationLog';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 
 // 入力スキーマ
 const assignSeatToPlayerSchema = z.object({
@@ -53,6 +54,20 @@ export const assignSeatToPlayer = onCall(async (request) => {
     
     // トランザクション開始（scheduledTournamentsの更新）
     const transactionResult = await db.runTransaction(async (transaction) => {
+      const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
+      const tournamentDoc = await transaction.get(tournamentRef);
+      if (!tournamentDoc.exists) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントが存在しません',
+          context: { tournamentId, reason: 'tournament_not_found' },
+        });
+      }
+      assertTournamentAllowsMutation({
+        tournamentId,
+        status: tournamentDoc.data()?.status as string | undefined,
+      });
+
       // 1. トーナメントのtablesSeatサブコレクションから対象テーブルを取得
       const tableSeatRef = db
         .collection('scheduledTournaments')

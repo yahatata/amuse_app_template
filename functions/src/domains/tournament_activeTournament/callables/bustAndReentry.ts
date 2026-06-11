@@ -13,6 +13,7 @@ import {
   isLinkedOkibakeActiveForNormalBustSync,
   syncLinkedOkibakeOnNormalBustInTx,
 } from '../lib/syncLinkedOkibakeOnNormalBust';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 
 // 入力スキーマ
 const bustAndReentrySchema = z.object({
@@ -68,6 +69,11 @@ export const bustAndReentry = onCall(async (request) => {
           context: { tournamentId, reason: 'tournament_not_found' },
         });
       }
+
+      assertTournamentAllowsMutation({
+        tournamentId,
+        status: tournamentDoc.data()?.status as string | undefined,
+      });
 
       const tournamentData = tournamentDoc.data()!;
       const templateId = tournamentData.templateId;

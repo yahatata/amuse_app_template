@@ -2,13 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// SideGame用Tip預入ポップアップ
-Future<void> showSideGameTipDepositDialog({
+/// SideGame用chip引き出しポップアップ
+Future<void> showSideGameChipWithdrawDialog({
   required BuildContext context,
   required String userId,
   required String pokerName,
-  String? tableId,
-  int? seatNumber,
 }) async {
   // 外側（ページ側）のコンテキストを退避。以降のUI操作は必ずこれを使う
   final outerCtx = context;
@@ -25,37 +23,30 @@ Future<void> showSideGameTipDepositDialog({
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
-    builder: (ctx) => _SideGameTipDepositDialog(
-      userId: userId,
-      pokerName: pokerName,
-      tableId: tableId,
-      seatNumber: seatNumber,
-    ),
+    builder: (ctx) =>
+        _SideGameChipWithdrawDialog(userId: userId, pokerName: pokerName),
   );
 }
 
-class _SideGameTipDepositDialog extends StatefulWidget {
+class _SideGameChipWithdrawDialog extends StatefulWidget {
   final String userId;
   final String pokerName;
-  final String? tableId;
-  final int? seatNumber;
 
-  const _SideGameTipDepositDialog({
+  const _SideGameChipWithdrawDialog({
     required this.userId,
     required this.pokerName,
-    this.tableId,
-    this.seatNumber,
   });
 
   @override
-  State<_SideGameTipDepositDialog> createState() =>
-      _SideGameTipDepositDialogState();
+  State<_SideGameChipWithdrawDialog> createState() =>
+      _SideGameChipWithdrawDialogState();
 }
 
-class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
+class _SideGameChipWithdrawDialogState
+    extends State<_SideGameChipWithdrawDialog> {
   final TextEditingController _amountController = TextEditingController();
   bool _isLoading = false;
-  num _currentTip = 0;
+  num _currentChip = 0;
   // ✅ ダイアログが開いている間は固定の clientNonce（画面セッションで固定）
   late final String _clientNonce;
 
@@ -63,7 +54,7 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
   void initState() {
     super.initState();
     // ダイアログが開いた時点で生成し、閉じるまで同じ値を使い回す
-    _clientNonce = 'deposit_${DateTime.now().millisecondsSinceEpoch}_${widget.userId.substring(0, 8)}';
+    _clientNonce = 'withdraw_${DateTime.now().millisecondsSinceEpoch}_${widget.userId.substring(0, 8)}';
   }
 
   @override
@@ -77,9 +68,9 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
     return AlertDialog(
       title: Row(
         children: [
-          const Icon(Icons.account_balance, color: Colors.green),
+          const Icon(Icons.account_balance_wallet, color: Colors.red),
           const SizedBox(width: 8),
-          const Text('Tip預入'),
+          const Text('chip引き出し'),
         ],
       ),
       content: SizedBox(
@@ -127,7 +118,7 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
                 }
 
                 final userData = snapshot.data!.data() as Map<String, dynamic>;
-                _currentTip = userData['sideGameChip'] as num? ?? 0;
+                _currentChip = userData['sideGameChip'] as num? ?? 0;
 
                 return Container(
                   width: double.infinity,
@@ -151,7 +142,7 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '現在の残高: ${_currentTip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Tip',
+                        '現在の残高: ${_currentChip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chip',
                         style: const TextStyle(
                           fontSize: 14,
                           color: Colors.grey,
@@ -164,15 +155,15 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
             ),
             const SizedBox(height: 20),
 
-            // 預入額入力（StreamBuilderの外に移動）
+            // 引き出し額入力（StreamBuilderの外に移動）
             TextField(
               controller: _amountController,
               keyboardType: TextInputType.number,
               enabled: !_isLoading,
               decoration: const InputDecoration(
-                labelText: '預入額',
-                hintText: '預入するTip額を入力',
-                suffixText: 'Tip',
+                labelText: '引き出し額',
+                hintText: '引き出しするchip額を入力',
+                suffixText: 'chip',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.money),
               ),
@@ -191,45 +182,33 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
         ElevatedButton(
           onPressed: _isLoading
               ? null
-              : _canDeposit()
-              ? () => _showConfirmDialog(false)
+              : _canWithdraw()
+              ? _showConfirmDialog
               : null,
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green,
+            backgroundColor: Colors.red,
             foregroundColor: Colors.white,
           ),
-          child: const Text('預入のみ'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading
-              ? null
-              : _canDeposit()
-              ? () => _showConfirmDialog(true)
-              : null,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.orange,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('預入と退席'),
+          child: const Text('引き出し確定'),
         ),
       ],
     );
   }
 
-  bool _canDeposit() {
+  bool _canWithdraw() {
     final amount = int.tryParse(_amountController.text);
     return amount != null && amount > 0;
   }
 
-  Future<void> _showConfirmDialog(bool shouldLeaveSeat) async {
+  Future<void> _showConfirmDialog() async {
     final amount = int.parse(_amountController.text);
 
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('預入確認'),
+        title: const Text('引き出し確認'),
         content: Text(
-          '${widget.pokerName}様の${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Tipの預入${shouldLeaveSeat ? 'と退席' : ''}で確定してよろしいですか？',
+          '${widget.pokerName}様の${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chipの引き出し処理を開始してよろしいですか？',
         ),
         actions: [
           TextButton(
@@ -239,20 +218,20 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
           ElevatedButton(
             onPressed: () {
               Navigator.of(ctx).pop();
-              _processDeposit(amount, shouldLeaveSeat);
+              _processWithdraw(amount);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: shouldLeaveSeat ? Colors.orange : Colors.green,
+              backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            child: Text(shouldLeaveSeat ? '預入と退席' : '預入のみ'),
+            child: const Text('確定'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _processDeposit(int amount, bool shouldLeaveSeat) async {
+  Future<void> _processWithdraw(int amount) async {
     setState(() {
       _isLoading = true;
     });
@@ -261,13 +240,13 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => const AlertDialog(
         content: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(),
-            const SizedBox(width: 16),
-            Text(shouldLeaveSeat ? '預入と退席処理中...' : '預入処理中...'),
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('引き出し処理中...'),
           ],
         ),
       ),
@@ -275,50 +254,29 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
 
     try {
       final functions = FunctionsClient.instance;
-      final callable = functions.httpsCallable('depositTip');
+      final callable = functions.httpsCallable('withdrawChip');
 
-      // 1. Tip預入処理
-      await callable.call({
+      final result = await callable.call({
         'userId': widget.userId,
         'amount': amount,
         'clientNonce': _clientNonce, // ✅ トップレベルに追加（ダイアログが開いている間は固定）
       });
 
-      // 2. 退席処理が必要な場合
-      if (shouldLeaveSeat) {
-        if (widget.tableId != null && widget.seatNumber != null) {
-          final leaveSeatCallable = functions.httpsCallable('leaveSeat');
-          await leaveSeatCallable.call({
-            'tableId': widget.tableId,
-            'seatNumber': widget.seatNumber,
-            'userId': widget.userId,
-          });
-        } else {
-          throw Exception('退席処理に必要な情報が不足しています（tableId, seatNumber）');
-        }
-      }
-
       // 処理中ダイアログを閉じる
       Navigator.of(context).pop();
 
       if (mounted) {
-        // 預入ポップアップを閉じる
+        // 引き出しポップアップを閉じる
         Navigator.of(context).pop();
 
         // 成功メッセージを表示
-        await showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('処理完了'),
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content: Text(
-              '${widget.pokerName}様の${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Tipの預入処理${shouldLeaveSeat ? 'と退席処理' : ''}が完了しました。',
+              '引き出し処理が完了しました${widget.pokerName}様に${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}のchipをお渡しください。',
             ),
-            actions: [
-              ElevatedButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('OK'),
-              ),
-            ],
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -329,7 +287,7 @@ class _SideGameTipDepositDialogState extends State<_SideGameTipDepositDialog> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('預入処理に失敗しました: $e'),
+            content: Text('引き出し処理に失敗しました: $e'),
             backgroundColor: Colors.red,
           ),
         );

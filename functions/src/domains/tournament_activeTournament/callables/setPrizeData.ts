@@ -3,6 +3,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 
 const setPrizeDataSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId is required'),
@@ -44,6 +46,11 @@ export const setPrizeData = onCall(async (request) => {
     if (!tournamentDoc.exists) {
       throw new HttpsError('not-found', 'Tournament not found');
     }
+
+    assertTournamentAllowsMutation({
+      tournamentId,
+      status: tournamentDoc.data()?.status as string | undefined,
+    });
     
     // mainビューデータを更新
     const mainViewRef = db
@@ -89,6 +96,10 @@ export const setPrizeData = onCall(async (request) => {
     
     if (error instanceof HttpsError) {
       throw error;
+    }
+
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
     }
     
     throw new HttpsError('internal', 'Internal server error');

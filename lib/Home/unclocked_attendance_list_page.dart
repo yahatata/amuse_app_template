@@ -18,7 +18,7 @@ enum _QueryTestMode {
 /// Phase4 03 拡張: 未退勤 attendances 一覧
 ///
 /// Firestore snapshot でリアルタイム取得。日付バー＋カード形式で表示。
-/// タップでパスワード入力→修正ダイアログ→退勤打刻。
+/// タップでパスワード確認→修正ダイアログ→退勤打刻。
 ///
 /// [embedded] true のとき Scaffold なしで body のみ返す（タブ内埋め込み用）
 class UnclockedAttendanceListPage extends StatefulWidget {
@@ -177,53 +177,75 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
     _showPasswordDialog(item);
   }
 
+  Future<void> _waitForRouteTransition() async {
+    await Future<void>.delayed(Duration.zero);
+  }
+
   void _showPasswordDialog(Map<String, dynamic> item) {
-    final controller = TextEditingController();
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('パスワード入力'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '${item['staffName'] ?? '—'} の修正を行うにはパスワードを入力してください。',
-              style: const TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'パスワード',
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (_) => _onPasswordSubmitted(ctx, item, controller.text),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => _onPasswordSubmitted(ctx, item, controller.text),
-            child: const Text('修正画面を開く'),
-          ),
-        ],
+      builder: (ctx) => _UnclockedAttendancePasswordDialog(
+        staffName: item['staffName'] as String? ?? '—',
+        onSubmit: (password) => _verifyPasswordAndOpenEdit(item, password),
       ),
     );
   }
 
-  void _onPasswordSubmitted(
-    BuildContext dialogContext,
+  Future<void> _verifyPasswordAndOpenEdit(
     Map<String, dynamic> item,
     String password,
-  ) {
-    Navigator.of(dialogContext).pop();
-    _showEditDialog(item, password);
+  ) async {
+    if (!mounted) return;
+    await _waitForRouteTransition();
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('確認中...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final callable = FunctionsClient.instance
+          .httpsCallable('verifyUnclockedAttendanceEditPassword');
+      await callable.call({'password': password});
+
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      await _waitForRouteTransition();
+      if (!mounted) return;
+      _showEditDialog(item, password);
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      await _waitForRouteTransition();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message ?? 'パスワードが一致しません'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      await _waitForRouteTransition();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('パスワードが一致しません'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _showEditDialog(Map<String, dynamic> item, String password) {
@@ -697,6 +719,83 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
           ),
         ),
       ),
+    );
+  }
+}
+
+class _UnclockedAttendancePasswordDialog extends StatefulWidget {
+  final String staffName;
+  final Future<void> Function(String password) onSubmit;
+
+  const _UnclockedAttendancePasswordDialog({
+    required this.staffName,
+    required this.onSubmit,
+  });
+
+  @override
+  State<_UnclockedAttendancePasswordDialog> createState() =>
+      _UnclockedAttendancePasswordDialogState();
+}
+
+class _UnclockedAttendancePasswordDialogState
+    extends State<_UnclockedAttendancePasswordDialog> {
+  late final TextEditingController _controller = TextEditingController();
+  bool _isSubmitting = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_isSubmitting) return;
+    final password = _controller.text.trim();
+    if (password.isEmpty) return;
+
+    setState(() => _isSubmitting = true);
+    final passwordCopy = _controller.text.trim();
+    Navigator.of(context).pop();
+    await widget.onSubmit(passwordCopy);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canSubmit = !_isSubmitting && _controller.text.trim().isNotEmpty;
+    return AlertDialog(
+      title: const Text('パスワード入力'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '${widget.staffName} の修正を行うにはパスワードを入力してください。',
+            style: const TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            obscureText: true,
+            enabled: !_isSubmitting,
+            decoration: const InputDecoration(
+              labelText: 'パスワード',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => setState(() {}),
+            onSubmitted: canSubmit ? (_) => _submit() : null,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('キャンセル'),
+        ),
+        ElevatedButton(
+          onPressed: canSubmit ? _submit : null,
+          child: const Text('修正画面を開く'),
+        ),
+      ],
     );
   }
 }

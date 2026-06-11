@@ -8,6 +8,7 @@ import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operatio
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { findOkibakeLinkedUserConflictInTx } from '../lib/okibakeLinkedUserConflict';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 
 // 入力スキーマ
 const registerParticipantsSchema = z.object({
@@ -80,6 +81,10 @@ export const registerParticipants = onCall(async (request) => {
     }
 
     const tournamentData = tournamentDoc.data()!;
+    assertTournamentAllowsMutation({
+      tournamentId,
+      status: tournamentData.status as string | undefined,
+    });
     const templateId = tournamentData.templateId;
     const startAt = tournamentData.startAt;
     const snapshot = tournamentData.snapshot;

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// SideGame用Tip参照ポップアップ
-Future<void> showSideGameTipViewDialog({
+/// SideGame用chip参照ポップアップ
+Future<void> showSideGameChipViewDialog({
   required BuildContext context,
   required String userId,
   required String pokerName,
@@ -23,15 +23,15 @@ Future<void> showSideGameTipViewDialog({
     context: context,
     barrierDismissible: true,
     builder: (ctx) =>
-        _SideGameTipViewDialog(userId: userId, pokerName: pokerName),
+        _SideGameChipViewDialog(userId: userId, pokerName: pokerName),
   );
 }
 
-class _SideGameTipViewDialog extends StatelessWidget {
+class _SideGameChipViewDialog extends StatelessWidget {
   final String userId;
   final String pokerName;
 
-  const _SideGameTipViewDialog({required this.userId, required this.pokerName});
+  const _SideGameChipViewDialog({required this.userId, required this.pokerName});
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +40,7 @@ class _SideGameTipViewDialog extends StatelessWidget {
         children: [
           const Icon(Icons.account_balance_wallet, color: Colors.orange),
           const SizedBox(width: 8),
-          const Text('Tip残高'),
+          const Text('chip残高'),
         ],
       ),
       content: StreamBuilder<DocumentSnapshot>(
@@ -130,7 +130,7 @@ class _SideGameTipViewDialog extends StatelessWidget {
               ),
               const SizedBox(height: 20),
 
-              // Tip残高表示
+              // chip残高表示
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(
@@ -151,7 +151,7 @@ class _SideGameTipViewDialog extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      '現在のTip残高',
+                      '現在のchip残高',
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.grey,
@@ -168,7 +168,7 @@ class _SideGameTipViewDialog extends StatelessWidget {
                       ),
                     ),
                     const Text(
-                      'Tip',
+                      'chip',
                       style: TextStyle(
                         fontSize: 16,
                         color: Colors.orange,

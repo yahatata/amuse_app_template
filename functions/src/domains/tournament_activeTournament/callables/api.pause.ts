@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 
 // 入力スキーマの定義
 const pauseTournamentSchema = z.object({
@@ -57,6 +58,10 @@ export const pauseTournament = onCall(async (request) => {
       }
 
       const tournamentData = tournamentDoc.data()!;
+      assertTournamentAllowsMutation({
+        tournamentId,
+        status: tournamentData.status as string | undefined,
+      });
       const runtimeData = runtimeDoc.data()!;
 
       // 現在のステータスをチェック

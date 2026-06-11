@@ -12,7 +12,6 @@ import '../services/store_config_service.dart';
 Future<void> showOrderFromUserDialog({
   required BuildContext pageContext,
   required Map<String, dynamic> user,
-  VoidCallback? onBackToUserActionHome,
 }) async {
   final String billId = (user['billId'] ?? '').toString();
   if (billId.isEmpty) {
@@ -80,12 +79,7 @@ Future<void> showOrderFromUserDialog({
                         // 左上「戻る」
                         IconButton(
                           icon: const Icon(Icons.arrow_back),
-                          onPressed: () {
-                            Navigator.of(ctx).pop();
-                            if (onBackToUserActionHome != null) {
-                              Future.microtask(onBackToUserActionHome);
-                            }
-                          },
+                          onPressed: () => Navigator.of(ctx).pop(),
                         ),
                         const SizedBox(width: 4),
                         const Icon(Icons.shopping_bag_outlined, size: 20),

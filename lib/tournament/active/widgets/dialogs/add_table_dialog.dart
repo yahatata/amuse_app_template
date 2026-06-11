@@ -222,7 +222,8 @@ class _AddTableDialogState extends State<AddTableDialog> {
   Future<void> _loadAvailableTables() async {
     try {
       print('=== 卓追加ダイアログ: テーブル読み込み開始 ===');
-      final tables = await _dataService.getAvailableTables();
+      final tables =
+          await _dataService.getAvailableTables(widget.tournamentId);
       print('取得したテーブル数: ${tables.length}');
       print('テーブル詳細: $tables');
       

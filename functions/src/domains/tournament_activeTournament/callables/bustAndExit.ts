@@ -12,6 +12,7 @@ import {
   loadLinkedOkibakeEntryIdsForUser,
   syncLinkedOkibakeOnNormalBustInTx,
 } from '../lib/syncLinkedOkibakeOnNormalBust';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 
 // 入力データの検証スキーマ
 const bustAndExitSchema = z.object({
@@ -56,6 +57,19 @@ export const bustAndExit = onCall(async (request) => {
     console.log(`userId: ${userId}`);
 
     const db = admin.firestore();
+
+    const tournamentDoc = await db.collection('scheduledTournaments').doc(tournamentId).get();
+    if (!tournamentDoc.exists) {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: 'トーナメントが存在しません',
+        context: { tournamentId, reason: 'tournament_not_found' },
+      });
+    }
+    assertTournamentAllowsMutation({
+      tournamentId,
+      status: tournamentDoc.data()?.status as string | undefined,
+    });
 
     // 必要なドキュメントを事前に読み取り
     const tableSeatRef = db

@@ -130,38 +130,12 @@
         idToken,
         user: auth.currentUser
       };
-      
-      // デバッグ表示を更新
-      updateDebugDisplay();
     } catch (e) {
       if (window._debugLog) window._debugLog('2-ERR. 認証エラー: ' + (e?.message || e), true);
       console.error("LIFF認証エラー:", e);
       throw e; // 呼び出し側でshowErrorWithRetry・再試行を処理するため再スロー
     }
   };
-  
-  // デバッグ表示更新関数
-  function updateDebugDisplay() {
-    const config = window.__CONFIG__;
-    if (config) {
-      document.getElementById('debug-liff-id').textContent = config.liffId;
-      document.getElementById('debug-project-id').textContent = config.firebaseConfig.projectId;
-      document.getElementById('debug-store-name').textContent = config.storeInfo.name;
-    }
-  }
-  
-  // 長押しでデバッグ表示切り替え（スマホ用）
-  let longPressTimer;
-  document.addEventListener('touchstart', function(e) {
-    longPressTimer = setTimeout(() => {
-      const debugEl = document.getElementById('debug-config');
-      debugEl.style.display = debugEl.style.display === 'none' ? 'block' : 'none';
-    }, 3000); // 3秒長押し
-  });
-  
-  document.addEventListener('touchend', function() {
-    clearTimeout(longPressTimer);
-  });
     </script>
     <link rel="stylesheet" href="../css/common.css?v=20260603-register-green">
     <link rel="stylesheet" href="../css/user.css?v=20260603-register-green">
@@ -285,13 +259,6 @@
 <!-- ========== DEBUG OVERLAY END ========== -->
 
     <div class="container">
-      <!-- デバッグ表示（設定確認用） -->
-      <div id="debug-config" style="display:none; position:fixed; top:10px; right:10px; background:rgba(0,0,0,0.8); color:white; padding:10px; border-radius:5px; font-size:12px; z-index:9999;">
-        <div>LIFF ID: <span id="debug-liff-id"></span></div>
-        <div>Project ID: <span id="debug-project-id"></span></div>
-        <div>Store: <span id="debug-store-name"></span></div>
-      </div>
-      
       <!-- ローディング画面 -->
       <div id="loading" class="loading">
         <p class="loading-text">読み込み中...</p>
@@ -442,9 +409,9 @@
         <h1>注文メニュー</h1>
         
         <div class="menu-categories">
-          <button class="category-btn active" onclick="showCategory('food')">食事</button>
-          <button class="category-btn" onclick="showCategory('drink')">ドリンク</button>
-          <button class="category-btn" onclick="showCategory('dessert')">デザート</button>
+          <button class="category-btn active" onclick="showCategory('フード')">フード</button>
+          <button class="category-btn" onclick="showCategory('ノンアルコール')">ノンアルコール</button>
+          <button class="category-btn" onclick="showCategory('アルコール')">アルコール</button>
           </div>
         <div id="menu-items" class="menu-items">
           <div class="spinner"></div>
@@ -1252,6 +1219,26 @@
 
       // 注文メニュー関連関数
 
+      /** LIFF 注文タブの表示順（店舗 config の menuCategories に合わせる） */
+      const MENU_CATEGORY_TAB_ORDER = ['フード', 'ノンアルコール', 'アルコール', 'その他'];
+      /** 旧データ向け英語キー（固定順の末尾） */
+      const LEGACY_MENU_CATEGORY_TAB_ORDER = ['food', 'drink', 'dessert', 'alcohol', 'snack'];
+
+      function sortMenuCategoriesForTabs(categorySet) {
+        const ordered = [];
+        for (const cat of [...MENU_CATEGORY_TAB_ORDER, ...LEGACY_MENU_CATEGORY_TAB_ORDER]) {
+          if (categorySet.has(cat)) {
+            ordered.push(cat);
+          }
+        }
+        for (const cat of categorySet) {
+          if (cat && cat !== 'Chip' && !ordered.includes(cat)) {
+            ordered.push(cat);
+          }
+        }
+        return ordered;
+      }
+
       // カテゴリー情報とメニューデータを動的に取得・表示
       async function loadCategoriesAndMenuData() {
         try {
@@ -1268,14 +1255,17 @@
 
           const allMenuItems = result.data.data || [];
           
-          // ユニークなカテゴリーを抽出（Chipカテゴリーは除外）
-          const categories = [...new Set(allMenuItems.map(item => item.category))].filter(cat => cat && cat !== 'Chip');
+          // 表示対象カテゴリを固定順で並べる（商品取得順に依存しない）
+          const availableCategories = new Set(
+            allMenuItems.map((item) => item.category).filter((cat) => cat && cat !== 'Chip'),
+          );
+          const categories = sortMenuCategoriesForTabs(availableCategories);
           
           // カテゴリーボタンを動的に生成
           const categoryContainer = document.querySelector('.menu-categories');
           if (categoryContainer) {
             categoryContainer.innerHTML = categories.map((category, index) => `
-              <button class="category-btn ${index === 0 ? 'active' : ''}" onclick="showCategory('${category}', this)">
+              <button class="category-btn ${index === 0 ? 'active' : ''}" onclick='showCategory(${JSON.stringify(category)}, this)'>
                 ${getCategoryDisplayName(category)}
               </button>
             `).join('');
@@ -1295,17 +1285,20 @@
 
       // カテゴリー表示名を取得
       function getCategoryDisplayName(category) {
-        // Chipカテゴリーは非表示にする
-        if (category === 'Chip') {
+        if (!category || category === 'Chip') {
           return null;
         }
-        
+
         const categoryNames = {
-          'food': '食事',
-          'drink': 'ドリンク',
-          'dessert': 'デザート',
-          'alcohol': 'アルコール',
-          'snack': 'スナック'
+          'フード': 'フード',
+          'ノンアルコール': 'ノンアルコール',
+          'アルコール': 'アルコール',
+          'その他': 'その他',
+          food: 'フード',
+          drink: 'ドリンク',
+          dessert: 'デザート',
+          alcohol: 'アルコール',
+          snack: 'スナック',
         };
         return categoryNames[category] || category;
       }

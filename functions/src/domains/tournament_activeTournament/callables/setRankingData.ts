@@ -4,6 +4,8 @@ import * as crypto from 'crypto';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { writeSingleOperationLog } from '../../logs/lib/operationLog';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 
 export interface RankingEntryForRollback {
   playerUid: string;
@@ -56,6 +58,15 @@ export const setRankingData = onCall(async (request) => {
     }
 
     const db = getFirestore();
+    const tournamentDoc = await db.collection('scheduledTournaments').doc(tournamentId).get();
+    if (!tournamentDoc.exists) {
+      throw new HttpsError('not-found', 'Tournament not found');
+    }
+    assertTournamentAllowsMutation({
+      tournamentId,
+      status: tournamentDoc.data()?.status as string | undefined,
+    });
+
     const mainViewRef = db
       .collection('scheduledTournaments')
       .doc(tournamentId)
@@ -169,6 +180,10 @@ export const setRankingData = onCall(async (request) => {
 
     if (error instanceof HttpsError) {
       throw error;
+    }
+
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
     }
     
     throw new HttpsError('internal', 'Internal server error');

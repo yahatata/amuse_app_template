@@ -6,9 +6,9 @@ import 'order_from_user_action_popup.dart';
 import 'bust_and_reentry_popup.dart';
 import 'bust_and_exit_popup.dart';
 import 'addon_popup.dart';
-import 'side_game_tip_view_popup.dart';
-import 'side_game_tip_withdraw_popup.dart';
-import 'side_game_tip_deposit_popup.dart';
+import 'side_game_chip_view_popup.dart';
+import 'side_game_chip_withdraw_popup.dart';
+import 'side_game_chip_deposit_popup.dart';
 import 'side_game_chip_purchase_popup.dart';
 import 'add_extra_popup.dart';
 import 'chip_point_view_popup.dart';
@@ -34,12 +34,10 @@ Future<void> showUserActionHome({
   final actions = _buildActionsForSource(sourcePage: sourcePage, user: user);
 
   final size = MediaQuery.of(context).size;
-  // 次のポップを開くために親コンテキストを退避
-  final BuildContext rootContext = context;
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
-    builder: (ctx) {
+    builder: (dialogContext) {
       const double scale = 1.2; // ポップの縦横スケール
       // 画面からはみ出さない最大高さ（スクロールさせない想定のため広めに確保）
       final double maxHeight = size.height - 48;
@@ -75,7 +73,7 @@ Future<void> showUserActionHome({
                       ),
                       IconButton(
                         icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(ctx).pop(),
+                        onPressed: () => Navigator.of(dialogContext).pop(),
                       ),
                     ],
                   ),
@@ -109,12 +107,8 @@ Future<void> showUserActionHome({
                         iconData: a.icon,
                         color: a.color,
                         onTap: () {
-                          // 先にこのダイアログを閉じる
-                          Navigator.of(ctx).pop();
-                          // 閉じた直後に安全な親コンテキストで次の処理を起動
-                          Future.microtask(() {
-                            a.onSelected?.call(rootContext, user);
-                          });
+                          // 親メニューは開いたまま子ダイアログを重ねる（キャンセルで戻れる）
+                          a.onSelected?.call(dialogContext, user);
                         },
                       );
                     },
@@ -188,9 +182,6 @@ _UserActionItem _buildBlockA(Map<String, dynamic> user) => _UserActionItem(
         showOrderFromUserDialog(
           pageContext: ctx,
           user: u,
-          onBackToUserActionHome: () {
-            showUserActionHome(context: ctx, sourcePage: 'StayingUsersListPage', user: u);
-          },
         );
       },
     );
@@ -423,16 +414,13 @@ _UserActionItem _buildBlockL(Map<String, dynamic> user) => _UserActionItem(
         showOrderFromUserDialog(
           pageContext: ctx,
           user: u,
-          onBackToUserActionHome: () {
-            showUserActionHome(context: ctx, sourcePage: 'sideGameTableHome', user: u);
-          },
         );
       },
     );
 
-// 塊M: Tipの参照
+// 塊M: chipの参照
 _UserActionItem _buildBlockM(Map<String, dynamic> user) => _UserActionItem(
-      label: 'Tipの参照',
+      label: 'chipの参照',
       icon: Icons.visibility,
       color: Colors.orange,
       onSelected: (ctx, u) {
@@ -446,7 +434,7 @@ _UserActionItem _buildBlockM(Map<String, dynamic> user) => _UserActionItem(
           return;
         }
         
-        showSideGameTipViewDialog(
+        showSideGameChipViewDialog(
           context: ctx,
           userId: userId,
           pokerName: pokerName,
@@ -454,9 +442,9 @@ _UserActionItem _buildBlockM(Map<String, dynamic> user) => _UserActionItem(
       },
     );
 
-// 塊N: Tipの引き出し
+// 塊N: chipの引き出し
 _UserActionItem _buildBlockN(Map<String, dynamic> user) => _UserActionItem(
-      label: 'Tipの引き出し',
+      label: 'chipの引き出し',
       icon: Icons.account_balance_wallet,
       color: Colors.red,
       onSelected: (ctx, u) {
@@ -470,7 +458,7 @@ _UserActionItem _buildBlockN(Map<String, dynamic> user) => _UserActionItem(
           return;
         }
         
-        showSideGameTipWithdrawDialog(
+        showSideGameChipWithdrawDialog(
           context: ctx,
           userId: userId,
           pokerName: pokerName,
@@ -478,9 +466,9 @@ _UserActionItem _buildBlockN(Map<String, dynamic> user) => _UserActionItem(
       },
     );
 
-// 塊O: Tipの預入と退席
+// 塊O: chipの預入と退席
 _UserActionItem _buildBlockO(Map<String, dynamic> user) => _UserActionItem(
-      label: 'Tipの預入と退席',
+      label: 'chipの預入と退席',
       icon: Icons.account_balance,
       color: Colors.green,
       onSelected: (ctx, u) {
@@ -496,7 +484,7 @@ _UserActionItem _buildBlockO(Map<String, dynamic> user) => _UserActionItem(
           return;
         }
         
-        showSideGameTipDepositDialog(
+        showSideGameChipDepositDialog(
           context: ctx,
           userId: userId,
           pokerName: pokerName,
@@ -644,9 +632,9 @@ final Map<String, UserActionBuilder> _blockRegistry = <String, UserActionBuilder
   'J': _buildBlockJ, // Bust&退席
   'K': _buildBlockK, // Addon
   'L': _buildBlockL, // SideGame注文
-  'M': _buildBlockM, // Tipの参照
-  'N': _buildBlockN, // Tipの引き出し
-  'O': _buildBlockO, // Tipの預入と退席
+  'M': _buildBlockM, // chipの参照
+  'N': _buildBlockN, // chipの引き出し
+  'O': _buildBlockO, // chipの預入と退席
   'P': _buildBlockP, // Chipの購入
   'Q': _buildBlockQ, // 退席
 };

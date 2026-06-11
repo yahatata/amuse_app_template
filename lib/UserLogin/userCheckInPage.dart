@@ -89,23 +89,25 @@ class OkibakeLoginPromptData {
   }
 }
 
-class UserCheckInPage extends StatefulWidget {
-  final bool showDialogOnLoad;
-  final String? dialogMessage;
-  final bool? isSuccess;
-  final String? userId;
-  final String? billId;
-  final OkibakeLoginPromptData? okibakeLoginPrompt;
-
-  const UserCheckInPage({
-    super.key,
-    this.showDialogOnLoad = false,
-    this.dialogMessage,
-    this.isSuccess,
+/// 手動/QR チェックイン画面から親 [UserCheckInPage] へ返す結果。
+class UserCheckInResult {
+  const UserCheckInResult({
+    required this.success,
+    required this.message,
     this.userId,
     this.billId,
     this.okibakeLoginPrompt,
   });
+
+  final bool success;
+  final String message;
+  final String? userId;
+  final String? billId;
+  final OkibakeLoginPromptData? okibakeLoginPrompt;
+}
+
+class UserCheckInPage extends StatefulWidget {
+  const UserCheckInPage({super.key});
 
   @override
   State<UserCheckInPage> createState() => _UserCheckInPageState();
@@ -115,23 +117,30 @@ class _UserCheckInPageState extends State<UserCheckInPage> {
   bool _linking = false;
   final TournamentService _tournamentService = TournamentServiceImpl();
 
-  @override
-  void initState() {
-    super.initState();
-    // ダイアログを表示する必要がある場合、画面構築後に表示
-    if (widget.showDialogOnLoad && widget.dialogMessage != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showResultDialog();
-      });
-    }
+  Future<void> _openManualCheckIn() async {
+    final result = await Navigator.push<UserCheckInResult>(
+      context,
+      MaterialPageRoute(builder: (_) => const UserManualCheckInPage()),
+    );
+    if (!mounted || result == null) return;
+    _showCheckInResultDialog(result);
   }
 
-  void _showResultDialog() {
+  Future<void> _openQRCheckIn() async {
+    final result = await Navigator.push<UserCheckInResult>(
+      context,
+      MaterialPageRoute(builder: (_) => const UserQRCheckInPage()),
+    );
+    if (!mounted || result == null) return;
+    _showCheckInResultDialog(result);
+  }
+
+  void _showCheckInResultDialog(UserCheckInResult result) {
     if (!mounted) return;
 
-    final prompt = widget.okibakeLoginPrompt;
+    final prompt = result.okibakeLoginPrompt;
     final shouldNotice =
-        widget.isSuccess == true && prompt != null && prompt.hasTargets && !prompt.isNone;
+        result.success && prompt != null && prompt.hasTargets && !prompt.isNone;
 
     showDialog(
       context: context,
@@ -140,20 +149,20 @@ class _UserCheckInPageState extends State<UserCheckInPage> {
         title: Row(
           children: [
             Icon(
-              widget.isSuccess == true ? Icons.check_circle : Icons.error,
-              color: widget.isSuccess == true ? Colors.green : Colors.red,
+              result.success ? Icons.check_circle : Icons.error,
+              color: result.success ? Colors.green : Colors.red,
             ),
             const SizedBox(width: 8),
             Text(
-              widget.isSuccess == true ? 'ログイン成功' : 'ログイン失敗',
+              result.success ? 'ログイン成功' : 'ログイン失敗',
               style: TextStyle(
-                color: widget.isSuccess == true ? Colors.green : Colors.red,
+                color: result.success ? Colors.green : Colors.red,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ],
         ),
-        content: Text(_buildResultMessage(widget.dialogMessage ?? '', prompt, shouldNotice)),
+        content: Text(_buildResultMessage(result.message, prompt, shouldNotice)),
         actions: [
           if (shouldNotice && prompt.isLinkPrompt && prompt.entries.isNotEmpty)
             TextButton(
@@ -161,7 +170,11 @@ class _UserCheckInPageState extends State<UserCheckInPage> {
                   ? null
                   : () async {
                       Navigator.of(context).pop();
-                      await _showLinkPromptDialog(prompt);
+                      await _showLinkPromptDialog(
+                        prompt,
+                        userId: result.userId,
+                        billId: result.billId,
+                      );
                     },
               child: const Text('伝票紐付け'),
             ),
@@ -211,10 +224,12 @@ class _UserCheckInPageState extends State<UserCheckInPage> {
     return '$base\n\n${lines.join('\n')}';
   }
 
-  Future<void> _showLinkPromptDialog(OkibakeLoginPromptData prompt) async {
+  Future<void> _showLinkPromptDialog(
+    OkibakeLoginPromptData prompt, {
+    required String? userId,
+    required String? billId,
+  }) async {
     if (!mounted) return;
-    final userId = widget.userId;
-    final billId = widget.billId;
     if (userId == null || userId.isEmpty || billId == null || billId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('伝票情報が不足しているため紐付けできません')),
@@ -342,12 +357,7 @@ class _UserCheckInPageState extends State<UserCheckInPage> {
                   minimumSize: const Size(double.infinity, 50),
                   textStyle: const TextStyle(fontSize: 18),
                 ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const UserQRCheckInPage()),
-                  );
-                },
+                onPressed: _openQRCheckIn,
               ),
               const SizedBox(height: 20),
               ElevatedButton.icon(
@@ -357,12 +367,7 @@ class _UserCheckInPageState extends State<UserCheckInPage> {
                   minimumSize: const Size(double.infinity, 50),
                   textStyle: const TextStyle(fontSize: 18),
                 ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const UserManualCheckInPage()),
-                  );
-                },
+                onPressed: _openManualCheckIn,
               ),
             ],
           ),

@@ -8,6 +8,7 @@ import 'package:amuse_app_template/user_actions/user_action_home.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
+import 'package:amuse_app_template/tournament/active/utils/active_tournament_table_usage.dart';
 import 'package:intl/intl.dart';
 
 class SideGameTableHomePage extends StatefulWidget {
@@ -583,9 +584,12 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // tablesコレクションのstatusを'open'に変更
+      final usage =
+          await findActiveTournamentTableUsage(_firestore, widget.tableId);
+      final restoredStatus = resolveTableStatusAfterSideGameEnd(usage);
+
       await _firestore.collection('tables').doc(widget.tableId).update({
-        'status': 'open',
+        'status': restoredStatus,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
@@ -727,169 +731,231 @@ class _ParticipantRegistrationDialog extends StatefulWidget {
 }
 
 class _ParticipantRegistrationDialogState extends State<_ParticipantRegistrationDialog> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   String? _selectedUserId;
+  bool _isRegistering = false;
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('座席${widget.seatNumber} 参加者登録'),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: 400,
-        child: StreamBuilder<QuerySnapshot>(
-          stream: ActiveStaysService.instance.stream,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Center(
-                child: Text(
-                  '参加者リストの読み込みに失敗しました: ${snapshot.error}',
-                  style: const TextStyle(color: Colors.red),
-                ),
-              );
-            }
-
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            final activeStays = snapshot.data?.docs ?? [];
-            final availableParticipants = <Map<String, dynamic>>[];
-
-            for (final doc in activeStays) {
-              final data = doc.data() as Map<String, dynamic>?;
-              if (data == null) continue;
-
-              final uid = doc.id; // activeStays のドキュメントID = uid
-              final pokerName = data['pokerName'] as String?;
-
-              if (pokerName != null && uid.isNotEmpty) {
-                availableParticipants.add({
-                  'userId': uid,
-                  'pokerName': pokerName,
-                });
-              }
-            }
-
-            if (availableParticipants.isEmpty) {
-              return const Center(
-                child: Text('利用可能な参加者がいません'),
-              );
-            }
-
-            return ListView.builder(
-              itemCount: availableParticipants.length,
-              itemBuilder: (context, index) {
-                final participant = availableParticipants[index];
-                final isSelected = _selectedUserId == participant['userId'];
-
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: isSelected ? Colors.blue : Colors.grey,
-                    child: Text(
-                      participant['pokerName'].toString().substring(0, 1).toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isRegistering,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Center(
+              child: AlertDialog(
+                title: Text('座席${widget.seatNumber} 参加者登録'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  height: 400,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        '登録する参加者を選択してください',
+                        style: TextStyle(fontSize: 16),
                       ),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: StreamBuilder<QuerySnapshot>(
+                          stream: ActiveStaysService.instance.stream,
+                          builder: (context, snapshot) {
+                            if (snapshot.hasError) {
+                              return Center(
+                                child: Text(
+                                  '参加者リストの読み込みに失敗しました: ${snapshot.error}',
+                                  style: const TextStyle(color: Colors.red),
+                                ),
+                              );
+                            }
+
+                            if (snapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
+                            }
+
+                            final activeStays = snapshot.data?.docs ?? [];
+                            final availableParticipants =
+                                <Map<String, dynamic>>[];
+
+                            for (final doc in activeStays) {
+                              final data =
+                                  doc.data() as Map<String, dynamic>?;
+                              if (data == null) continue;
+
+                              final uid = doc.id;
+                              final pokerName = data['pokerName'] as String?;
+
+                              if (pokerName != null && uid.isNotEmpty) {
+                                availableParticipants.add({
+                                  'userId': uid,
+                                  'pokerName': pokerName,
+                                });
+                              }
+                            }
+
+                            if (availableParticipants.isEmpty) {
+                              return Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.people_outline,
+                                      color: Colors.grey,
+                                      size: 48,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      '利用可能な参加者がいません',
+                                      style: TextStyle(color: Colors.grey[600]),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+
+                            return ListView.builder(
+                              itemCount: availableParticipants.length,
+                              itemBuilder: (context, index) {
+                                final participant =
+                                    availableParticipants[index];
+                                final userId =
+                                    participant['userId'] as String;
+                                final pokerName =
+                                    participant['pokerName'] as String;
+                                final isSelected = _selectedUserId == userId;
+
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  child: CheckboxListTile(
+                                    value: isSelected,
+                                    onChanged: _isRegistering
+                                        ? null
+                                        : (bool? value) {
+                                            setState(() {
+                                              if (value == true) {
+                                                _selectedUserId = userId;
+                                              } else if (_selectedUserId ==
+                                                  userId) {
+                                                _selectedUserId = null;
+                                              }
+                                            });
+                                          },
+                                    title: Text(
+                                      pokerName,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: isSelected
+                                            ? Colors.green[700]
+                                            : null,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      'User ID: $userId',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    secondary: Icon(
+                                      Icons.person,
+                                      color: isSelected
+                                          ? Colors.green[700]
+                                          : Colors.grey,
+                                    ),
+                                    activeColor: Colors.green[700],
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: _isRegistering
+                        ? null
+                        : () => Navigator.of(context).pop(),
+                    child: const Text('キャンセル'),
+                  ),
+                  ElevatedButton(
+                    onPressed: _isRegistering || _selectedUserId == null
+                        ? null
+                        : _registerParticipant,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[700],
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('登録'),
+                  ),
+                ],
+              ),
+            ),
+            if (_isRegistering)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
                     ),
                   ),
-                  title: Text(participant['pokerName']),
-                  subtitle: Text('ID: ${participant['userId']}'),
-                  selected: isSelected,
-                  onTap: () {
-                    setState(() {
-                      _selectedUserId = participant['userId'];
-                    });
-                  },
-                );
-              },
-            );
-          },
+                ),
+              ),
+          ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _selectedUserId != null ? _registerParticipant : null,
-          child: const Text('登録'),
-        ),
-      ],
     );
   }
 
   Future<void> _registerParticipant() async {
     if (_selectedUserId == null) return;
 
-    // 処理中ダイアログを表示
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        content: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(width: 16),
-            const Text('登録処理中...'),
-          ],
-        ),
-      ),
-    );
+    setState(() {
+      _isRegistering = true;
+    });
 
     try {
-      print('=== 参加登録開始 ===');
-      print('tableId: ${widget.tableId}');
-      print('seatNumber: ${widget.seatNumber}');
-      print('userId: $_selectedUserId');
-
       final functions = FunctionsClient.instance;
       final callable = functions.httpsCallable('registerForSideGame');
-      
+
       final result = await callable.call({
         'tableId': widget.tableId,
         'seatNumber': widget.seatNumber,
         'userId': _selectedUserId,
       });
 
-      print('=== 参加登録結果 ===');
-      print('success: ${result.data['success']}');
-      print('message: ${result.data['message']}');
-      print('data: ${result.data['data']}');
+      if (!mounted) return;
 
-      // 処理中ダイアログを閉じる
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-
-      if (mounted) {
-        // 参加登録ダイアログを閉じる
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${result.data['data']['pokerName']}さんを座席${widget.seatNumber}に登録しました'),
-            backgroundColor: Colors.green,
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${result.data['data']['pokerName']}さんを座席${widget.seatNumber}に登録しました',
           ),
-        );
-        widget.onParticipantRegistered();
-      }
+          backgroundColor: Colors.green,
+        ),
+      );
+      widget.onParticipantRegistered();
     } catch (e) {
-      print('=== 参加登録エラー ===');
-      print('エラー: $e');
-      print('エラータイプ: ${e.runtimeType}');
-      
-      // 処理中ダイアログを閉じる
       if (mounted) {
-        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('登録に失敗しました: $e'),
             backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRegistering = false;
+        });
       }
     }
   }

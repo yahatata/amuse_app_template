@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// SideGame用Tip引き出しポップアップ
-Future<void> showSideGameTipWithdrawDialog({
+/// SideGame用chip預入ポップアップ
+Future<void> showSideGameChipDepositDialog({
   required BuildContext context,
   required String userId,
   required String pokerName,
+  String? tableId,
+  int? seatNumber,
 }) async {
   // 外側（ページ側）のコンテキストを退避。以降のUI操作は必ずこれを使う
   final outerCtx = context;
@@ -23,30 +25,37 @@ Future<void> showSideGameTipWithdrawDialog({
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
-    builder: (ctx) =>
-        _SideGameTipWithdrawDialog(userId: userId, pokerName: pokerName),
+    builder: (ctx) => _SideGameChipDepositDialog(
+      userId: userId,
+      pokerName: pokerName,
+      tableId: tableId,
+      seatNumber: seatNumber,
+    ),
   );
 }
 
-class _SideGameTipWithdrawDialog extends StatefulWidget {
+class _SideGameChipDepositDialog extends StatefulWidget {
   final String userId;
   final String pokerName;
+  final String? tableId;
+  final int? seatNumber;
 
-  const _SideGameTipWithdrawDialog({
+  const _SideGameChipDepositDialog({
     required this.userId,
     required this.pokerName,
+    this.tableId,
+    this.seatNumber,
   });
 
   @override
-  State<_SideGameTipWithdrawDialog> createState() =>
-      _SideGameTipWithdrawDialogState();
+  State<_SideGameChipDepositDialog> createState() =>
+      _SideGameChipDepositDialogState();
 }
 
-class _SideGameTipWithdrawDialogState
-    extends State<_SideGameTipWithdrawDialog> {
+class _SideGameChipDepositDialogState extends State<_SideGameChipDepositDialog> {
   final TextEditingController _amountController = TextEditingController();
   bool _isLoading = false;
-  num _currentTip = 0;
+  num _currentChip = 0;
   // ✅ ダイアログが開いている間は固定の clientNonce（画面セッションで固定）
   late final String _clientNonce;
 
@@ -54,7 +63,7 @@ class _SideGameTipWithdrawDialogState
   void initState() {
     super.initState();
     // ダイアログが開いた時点で生成し、閉じるまで同じ値を使い回す
-    _clientNonce = 'withdraw_${DateTime.now().millisecondsSinceEpoch}_${widget.userId.substring(0, 8)}';
+    _clientNonce = 'deposit_${DateTime.now().millisecondsSinceEpoch}_${widget.userId.substring(0, 8)}';
   }
 
   @override
@@ -68,9 +77,9 @@ class _SideGameTipWithdrawDialogState
     return AlertDialog(
       title: Row(
         children: [
-          const Icon(Icons.account_balance_wallet, color: Colors.red),
+          const Icon(Icons.account_balance, color: Colors.green),
           const SizedBox(width: 8),
-          const Text('Tip引き出し'),
+          const Text('chip預入'),
         ],
       ),
       content: SizedBox(
@@ -118,7 +127,7 @@ class _SideGameTipWithdrawDialogState
                 }
 
                 final userData = snapshot.data!.data() as Map<String, dynamic>;
-                _currentTip = userData['sideGameChip'] as num? ?? 0;
+                _currentChip = userData['sideGameChip'] as num? ?? 0;
 
                 return Container(
                   width: double.infinity,
@@ -142,7 +151,7 @@ class _SideGameTipWithdrawDialogState
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '現在の残高: ${_currentTip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Tip',
+                        '現在の残高: ${_currentChip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chip',
                         style: const TextStyle(
                           fontSize: 14,
                           color: Colors.grey,
@@ -155,15 +164,15 @@ class _SideGameTipWithdrawDialogState
             ),
             const SizedBox(height: 20),
 
-            // 引き出し額入力（StreamBuilderの外に移動）
+            // 預入額入力（StreamBuilderの外に移動）
             TextField(
               controller: _amountController,
               keyboardType: TextInputType.number,
               enabled: !_isLoading,
               decoration: const InputDecoration(
-                labelText: '引き出し額',
-                hintText: '引き出しするTip額を入力',
-                suffixText: 'Tip',
+                labelText: '預入額',
+                hintText: '預入するchip額を入力',
+                suffixText: 'chip',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.money),
               ),
@@ -182,33 +191,45 @@ class _SideGameTipWithdrawDialogState
         ElevatedButton(
           onPressed: _isLoading
               ? null
-              : _canWithdraw()
-              ? _showConfirmDialog
+              : _canDeposit()
+              ? () => _showConfirmDialog(false)
               : null,
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red,
+            backgroundColor: Colors.green,
             foregroundColor: Colors.white,
           ),
-          child: const Text('引き出し確定'),
+          child: const Text('預入のみ'),
+        ),
+        ElevatedButton(
+          onPressed: _isLoading
+              ? null
+              : _canDeposit()
+              ? () => _showConfirmDialog(true)
+              : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.orange,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('預入と退席'),
         ),
       ],
     );
   }
 
-  bool _canWithdraw() {
+  bool _canDeposit() {
     final amount = int.tryParse(_amountController.text);
     return amount != null && amount > 0;
   }
 
-  Future<void> _showConfirmDialog() async {
+  Future<void> _showConfirmDialog(bool shouldLeaveSeat) async {
     final amount = int.parse(_amountController.text);
 
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('引き出し確認'),
+        title: const Text('預入確認'),
         content: Text(
-          '${widget.pokerName}様の${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Tipの引き出し処理を開始してよろしいですか？',
+          '${widget.pokerName}様の${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chipの預入${shouldLeaveSeat ? 'と退席' : ''}で確定してよろしいですか？',
         ),
         actions: [
           TextButton(
@@ -218,20 +239,20 @@ class _SideGameTipWithdrawDialogState
           ElevatedButton(
             onPressed: () {
               Navigator.of(ctx).pop();
-              _processWithdraw(amount);
+              _processDeposit(amount, shouldLeaveSeat);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: shouldLeaveSeat ? Colors.orange : Colors.green,
               foregroundColor: Colors.white,
             ),
-            child: const Text('確定'),
+            child: Text(shouldLeaveSeat ? '預入と退席' : '預入のみ'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _processWithdraw(int amount) async {
+  Future<void> _processDeposit(int amount, bool shouldLeaveSeat) async {
     setState(() {
       _isLoading = true;
     });
@@ -240,13 +261,13 @@ class _SideGameTipWithdrawDialogState
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => const AlertDialog(
+      builder: (ctx) => AlertDialog(
         content: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('引き出し処理中...'),
+            const CircularProgressIndicator(),
+            const SizedBox(width: 16),
+            Text(shouldLeaveSeat ? '預入と退席処理中...' : '預入処理中...'),
           ],
         ),
       ),
@@ -254,29 +275,50 @@ class _SideGameTipWithdrawDialogState
 
     try {
       final functions = FunctionsClient.instance;
-      final callable = functions.httpsCallable('withdrawTip');
+      final callable = functions.httpsCallable('depositChip');
 
-      final result = await callable.call({
+      // 1. chip預入処理
+      await callable.call({
         'userId': widget.userId,
         'amount': amount,
         'clientNonce': _clientNonce, // ✅ トップレベルに追加（ダイアログが開いている間は固定）
       });
 
+      // 2. 退席処理が必要な場合
+      if (shouldLeaveSeat) {
+        if (widget.tableId != null && widget.seatNumber != null) {
+          final leaveSeatCallable = functions.httpsCallable('leaveSeat');
+          await leaveSeatCallable.call({
+            'tableId': widget.tableId,
+            'seatNumber': widget.seatNumber,
+            'userId': widget.userId,
+          });
+        } else {
+          throw Exception('退席処理に必要な情報が不足しています（tableId, seatNumber）');
+        }
+      }
+
       // 処理中ダイアログを閉じる
       Navigator.of(context).pop();
 
       if (mounted) {
-        // 引き出しポップアップを閉じる
+        // 預入ポップアップを閉じる
         Navigator.of(context).pop();
 
         // 成功メッセージを表示
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('処理完了'),
             content: Text(
-              '引き出し処理が完了しました${widget.pokerName}様に${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}のTipをお渡しください。',
+              '${widget.pokerName}様の${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chipの預入処理${shouldLeaveSeat ? 'と退席処理' : ''}が完了しました。',
             ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 5),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
       }
@@ -287,7 +329,7 @@ class _SideGameTipWithdrawDialogState
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('引き出し処理に失敗しました: $e'),
+            content: Text('預入処理に失敗しました: $e'),
             backgroundColor: Colors.red,
           ),
         );

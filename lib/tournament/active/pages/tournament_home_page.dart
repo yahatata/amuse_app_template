@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:amuse_app_template/Home/terminalHomePage.dart';
+import 'package:amuse_app_template/Home/app_home_navigation.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
 import 'package:amuse_app_template/utils/store_strong_warning_ui.dart';
@@ -24,9 +24,11 @@ import 'package:amuse_app_template/tournament/active/models/okibake_temporary_en
 import 'package:amuse_app_template/tournament/active/services/tournament_data_service.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/ActionHistory/tournamentActionsHistoryPage.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_read_only.dart';
 import 'table_detail_page.dart';
 import 'prize_setup_page.dart';
 import 'ranking_setup_page.dart';
+import 'tournament_result_page.dart';
 import 'blind_timer_page.dart';
 
 class TournamentHomePage extends StatefulWidget {
@@ -897,7 +899,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   }
 
   /// 下部アクションバーを構築
-  Widget _buildBottomActionBar() {
+  Widget _buildBottomActionBar({required bool isReadOnly}) {
     return ExpansionTile(
       title: const Text(
         'トーナメント操作',
@@ -1129,115 +1131,155 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           ),
           
           const SizedBox(width: 16),
-          
-          // 右側: アクションボタン（2列縦並びレイアウト）
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 左列: 参加者登録、全員リシート、プライズ確定、操作履歴
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: () => _registerParticipant(),
-                    icon: const Icon(Icons.person_add),
-                    label: const Text('参加者登録'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _reseatAllPlayers(),
-                    icon: const Icon(Icons.shuffle),
-                    label: const Text('全員リシート'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _confirmPrizes(),
-                    icon: const Icon(Icons.emoji_events),
-                    label: const Text('プライズ確定'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _showActionHistory(),
-                    icon: const Icon(Icons.history),
-                    label: const Text('操作履歴'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
-                    ),
-                  ),
-                ],
+
+          // 右側: アクションボタン
+          if (isReadOnly)
+            Expanded(
+              child: Center(
+                child: _buildReadOnlyActionButtons(context),
               ),
-              const SizedBox(width: 16),
-              // 右列: 順位確定、置きバケ登録、終了処理（§11.6: 置きバケは順位の次・終了の前）
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: () => _confirmRankings(),
-                    icon: const Icon(Icons.leaderboard),
-                    label: const Text('順位確定'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.indigo,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+            )
+          else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 左列: 参加者登録、全員リシート、プライズ確定、操作履歴
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => _registerParticipant(),
+                      icon: const Icon(Icons.person_add),
+                      label: const Text('参加者登録'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        minimumSize: _bottomActionButtonSize(context),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _showOkibakeRegisterDialog(),
-                    icon: const Icon(Icons.person_add_alt_1),
-                    label: const Text('置きバケ登録'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal.shade700,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () => _reseatAllPlayers(),
+                      icon: const Icon(Icons.shuffle),
+                      label: const Text('全員リシート'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                        minimumSize: _bottomActionButtonSize(context),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  // Phase 4 補完 §12.8: 「置きバケ登録」と「終了処理」の間に配置。
-                  ElevatedButton.icon(
-                    onPressed: () => _showOkibakeListDialog(),
-                    icon: const Icon(Icons.list_alt),
-                    label: const Text('置きバケ一覧'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.amber.shade800,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () => _confirmPrizes(),
+                      icon: const Icon(Icons.emoji_events),
+                      label: const Text('プライズ確定'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                        minimumSize: _bottomActionButtonSize(context),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: _isEndingTournament ? null : () => _endTournament(),
-                    icon: const Icon(Icons.stop),
-                    label: const Text('終了処理'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(MediaQuery.of(context).size.width * 0.11, 40),
+                    const SizedBox(height: 8),
+                    _buildActionHistoryButton(context),
+                  ],
+                ),
+                const SizedBox(width: 16),
+                // 右列: 順位確定、置きバケ登録、終了処理（§11.6: 置きバケは順位の次・終了の前）
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => _confirmRankings(),
+                      icon: const Icon(Icons.leaderboard),
+                      label: const Text('順位確定'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.indigo,
+                        foregroundColor: Colors.white,
+                        minimumSize: _bottomActionButtonSize(context),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () => _showOkibakeRegisterDialog(),
+                      icon: const Icon(Icons.person_add_alt_1),
+                      label: const Text('置きバケ登録'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.teal.shade700,
+                        foregroundColor: Colors.white,
+                        minimumSize: _bottomActionButtonSize(context),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Phase 4 補完 §12.8: 「置きバケ登録」と「終了処理」の間に配置。
+                    ElevatedButton.icon(
+                      onPressed: () => _showOkibakeListDialog(),
+                      icon: const Icon(Icons.list_alt),
+                      label: const Text('置きバケ一覧'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber.shade800,
+                        foregroundColor: Colors.white,
+                        minimumSize: _bottomActionButtonSize(context),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: _isEndingTournament ? null : () => _endTournament(),
+                      icon: const Icon(Icons.stop),
+                      label: const Text('終了処理'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        minimumSize: _bottomActionButtonSize(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
         ],
         ),
+      ],
+    );
+  }
+
+  Size _bottomActionButtonSize(BuildContext context) {
+    return Size(MediaQuery.of(context).size.width * 0.11, 40);
+  }
+
+  Widget _buildActionHistoryButton(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: () => _showActionHistory(),
+      icon: const Icon(Icons.history),
+      label: const Text('操作履歴'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.grey,
+        foregroundColor: Colors.white,
+        minimumSize: _bottomActionButtonSize(context),
+      ),
+    );
+  }
+
+  Widget _buildTournamentResultButton(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: () => _showTournamentResult(),
+      icon: const Icon(Icons.emoji_events),
+      label: const Text('結果確認'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+        minimumSize: _bottomActionButtonSize(context),
+      ),
+    );
+  }
+
+  Widget _buildReadOnlyActionButtons(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _buildActionHistoryButton(context),
+        const SizedBox(height: 8),
+        _buildTournamentResultButton(context),
       ],
     );
   }
@@ -1247,6 +1289,17 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
       MaterialPageRoute(
         builder: (context) => TournamentActionsHistoryPage(
           tournamentId: widget.tournamentId,
+        ),
+      ),
+    );
+  }
+
+  void _showTournamentResult() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => TournamentResultPage(
+          tournamentId: widget.tournamentId,
+          tournamentName: widget.tournamentName,
         ),
       ),
     );
@@ -1396,16 +1449,10 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
       body: StoreStrongWarningWrapper(
         suppressStrongWarning: widget.suppressStoreStrongWarning,
         onCloseStore: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const terminalHomePage()),
-            (route) => false,
-          );
+          navigateToAppHome(context, adminInitialTerminalMode: true);
         },
         onBusinessContinue: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const terminalHomePage()),
-            (route) => false,
-          );
+          navigateToAppHome(context, adminInitialTerminalMode: true);
         },
         child: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance
@@ -1477,8 +1524,21 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           debugPrint('=== views/main データ取得成功 ===');
           debugPrint('データ: $data');
 
-          return Column(
+          return StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('scheduledTournaments')
+                .doc(widget.tournamentId)
+                .snapshots(),
+            builder: (context, tourStatusSnap) {
+              final tourStatus = tourStatusSnap.data?.data() != null
+                  ? (tourStatusSnap.data!.data() as Map<String, dynamic>)['status']
+                      as String?
+                  : null;
+              final isReadOnly = isTournamentReadOnlyStatus(tourStatus);
+
+              return Column(
             children: [
+              if (isReadOnly) TournamentReadOnlyBanner(status: tourStatus),
               // メインコンテンツ
               Expanded(
                 child: Row(
@@ -1700,6 +1760,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                                                     resolvedAddonLimit: resolvedAddonLimit,
                                                                     addonLimitLoading: addonLimitLoading,
                                                                     service: _service,
+                                                                    readOnly: isReadOnly,
                                                                     onAssignSeat: () => _offerAssignSeat(player),
                                                                   );
                                                                 }
@@ -1710,6 +1771,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                                                   resolvedAddonLimit: resolvedAddonLimit,
                                                                   addonLimitLoading: addonLimitLoading,
                                                                   service: _service,
+                                                                  readOnly: isReadOnly,
                                                                   onAssignSeat: () => _offerAssignSeat(player),
                                                                 );
                                                               },
@@ -1765,6 +1827,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                     ),
                                   ),
                                   const Spacer(),
+                                  if (!isReadOnly) ...[
                                   ElevatedButton.icon(
                                     onPressed: () => _addTable(),
                                     icon: const Icon(Icons.add, size: 16),
@@ -1789,6 +1852,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
+                                  ],
                                   StreamBuilder<QuerySnapshot>(
                                     stream: FirebaseFirestore.instance
                                         .collection('scheduledTournaments')
@@ -1971,8 +2035,10 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
               ),
               
               // 下部: アクションバー
-              _buildBottomActionBar(),
+              _buildBottomActionBar(isReadOnly: isReadOnly),
             ],
+          );
+            },
           );
         },
       ),

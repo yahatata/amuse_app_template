@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 
 // 入力スキーマ
 const removeTableFromTournamentSchema = z.object({
@@ -45,6 +46,20 @@ export const removeTableFromTournament = onCall(async (request) => {
     
     // トランザクション開始（Firestore: 全読み取り → 全書き込みの順で実行すること）
     await db.runTransaction(async (transaction) => {
+      const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
+      const tournamentDoc = await transaction.get(tournamentRef);
+      if (!tournamentDoc.exists) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントが存在しません',
+          context: { tournamentId, reason: 'tournament_not_found' },
+        });
+      }
+      assertTournamentAllowsMutation({
+        tournamentId,
+        status: tournamentDoc.data()?.status as string | undefined,
+      });
+
       const tournamentTableRef = db
         .collection('scheduledTournaments')
         .doc(tournamentId)

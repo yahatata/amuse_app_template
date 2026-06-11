@@ -27,101 +27,125 @@ class _TableSelectPageState extends State<TableSelectPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final DeviceService _deviceService = DeviceService();
 
-  bool _isLoading = true;
-  List<Map<String, dynamic>> _tables = [];
+  bool _isLoadingDeviceFilters = true;
   String? _myTableId;
   Set<String> _excludedTableIds = {};
 
   @override
   void initState() {
     super.initState();
-    _loadTables();
+    _loadDeviceFilters();
   }
 
-  Future<void> _loadTables() async {
-    try {
-      // 1. 現在のデバイス情報を取得
-      final device = await _deviceService.getCurrentDevice();
-      _myTableId = device?.getTableIdForOption(DeviceOptionKeys.tournamentTable);
+  Stream<QuerySnapshot<Map<String, dynamic>>> _tablesSeatStream() {
+    return _firestore
+        .collection('scheduledTournaments')
+        .doc(widget.tournamentId)
+        .collection('tablesSeat')
+        .snapshots();
+  }
 
-      // 2. 他デバイスでside_game用に指定された卓を除外リストに追加
+  Future<void> _loadDeviceFilters() async {
+    try {
+      final device = await _deviceService.getCurrentDevice();
+      final myTableId =
+          device?.getTableIdForOption(DeviceOptionKeys.tournamentTable);
+
       final devicesSnap = await _firestore.collection('devices').get();
       final excluded = <String>{};
       for (final doc in devicesSnap.docs) {
-        if (doc.id == device?.id) continue; // 自分自身は除外対象外
+        if (doc.id == device?.id) continue;
         final params = doc.data()['optionParams'] as Map<String, dynamic>?;
-        final tableId = params?[DeviceOptionKeys.sideGame]?['tableId'] as String?;
+        final tableId =
+            params?[DeviceOptionKeys.sideGame]?['tableId'] as String?;
         if (tableId != null) {
           excluded.add(tableId);
         }
       }
-      _excludedTableIds = excluded;
 
-      // 3. トーナメントの卓一覧を取得（tablesSeatサブコレクション）
-      final tablesSnap = await _firestore
-          .collection('scheduledTournaments')
-          .doc(widget.tournamentId)
-          .collection('tablesSeat')
-          .get();
-
-      final tables = <Map<String, dynamic>>[];
-      for (final doc in tablesSnap.docs) {
-        // waiting, busted は卓ではないのでスキップ
-        if (doc.id == 'waiting' || doc.id == 'busted') continue;
-
-        final data = doc.data();
-        final tableId = doc.id;
-
-        // 自分に卓番付与がある場合はその卓のみ
-        if (_myTableId != null && tableId != _myTableId) continue;
-
-        // 他デバイスでside_game用に指定された卓は除外
-        if (_excludedTableIds.contains(tableId)) continue;
-
-        tables.add({
-          'id': tableId,
-          'name': data['name'] as String? ?? tableId,
-          ...data,
-        });
-      }
-
-      // 卓名でソート
-      tables.sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
-
+      if (!mounted) return;
       setState(() {
-        _tables = tables;
-        _isLoading = false;
+        _myTableId = myTableId;
+        _excludedTableIds = excluded;
+        _isLoadingDeviceFilters = false;
       });
     } catch (e) {
-      debugPrint('卓一覧取得エラー: $e');
+      debugPrint('卓選択フィルタ取得エラー: $e');
+      if (!mounted) return;
       setState(() {
-        _isLoading = false;
+        _isLoadingDeviceFilters = false;
       });
     }
+  }
+
+  List<Map<String, dynamic>> _buildTableList(
+    QuerySnapshot<Map<String, dynamic>> tablesSnap,
+  ) {
+    final tables = <Map<String, dynamic>>[];
+    for (final doc in tablesSnap.docs) {
+      if (doc.id == 'waiting' || doc.id == 'busted') continue;
+
+      final data = doc.data();
+      final tableId = doc.id;
+
+      if (_myTableId != null && tableId != _myTableId) continue;
+      if (_excludedTableIds.contains(tableId)) continue;
+
+      tables.add({
+        'id': tableId,
+        'name': data['name'] as String? ?? tableId,
+        ...data,
+      });
+    }
+
+    tables.sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+    return tables;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('卓を選択\n${widget.tournamentName}', style: const TextStyle(fontSize: 16)),
+        title: Text(
+          '卓を選択\n${widget.tournamentName}',
+          style: const TextStyle(fontSize: 16),
+        ),
       ),
-      body: _isLoading
+      body: _isLoadingDeviceFilters
           ? const Center(child: CircularProgressIndicator())
-          : _tables.isEmpty
-              ? Center(
-                  child: Text(
-                    _myTableId != null
-                        ? '指定された卓がこのトーナメントに存在しません'
-                        : '卓がありません',
-                    style: const TextStyle(color: Colors.grey),
-                    textAlign: TextAlign.center,
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: _tables.length,
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _tablesSeatStream(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      '卓一覧の取得に失敗しました: ${snapshot.error}',
+                      style: const TextStyle(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final tables = _buildTableList(snapshot.data!);
+                if (tables.isEmpty) {
+                  return Center(
+                    child: Text(
+                      _myTableId != null
+                          ? '指定された卓がこのトーナメントに存在しません'
+                          : '卓がありません',
+                      style: const TextStyle(color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  itemCount: tables.length,
                   itemBuilder: (context, index) {
-                    final table = _tables[index];
+                    final table = tables[index];
                     final name = table['name'] as String;
                     final seats = table['seats'] as Map<String, dynamic>? ?? {};
                     final maxSeatsResolved =
@@ -144,8 +168,9 @@ class _TableSelectPageState extends State<TableSelectPage> {
                       },
                     );
                   },
-                ),
+                );
+              },
+            ),
     );
   }
 }
-
