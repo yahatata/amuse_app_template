@@ -22,7 +22,7 @@ class DeviceService {
   Device? _cachedDevice;
 
 
-  /// デバイスが登録済みかチェック
+  /// デバイスが登録済みかチェック（archived / retired は未登録扱い）
   Future<bool> isDeviceRegistered() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -32,9 +32,18 @@ class DeviceService {
         return false;
       }
 
-      // Firestore でデバイスが存在するかチェック
       final doc = await _firestore.collection('devices').doc(deviceId).get();
-      return doc.exists;
+      if (!doc.exists) {
+        return false;
+      }
+
+      final data = doc.data();
+      final status = DeviceStatus.fromString(data?['status'] as String? ?? 'active');
+      if (status.isRemovedFromService) {
+        await clearLocalCache();
+        return false;
+      }
+      return true;
     } catch (e) {
       print('デバイス登録チェックエラー: $e');
       return false;
@@ -160,7 +169,7 @@ class DeviceService {
     }
   }
 
-  /// デバイス一覧を取得（管理者用）
+  /// デバイス一覧を取得（管理者用。archived / retired は除外）
   Future<List<Device>> getDevices() async {
     try {
       final snapshot = await _firestore
@@ -168,24 +177,32 @@ class DeviceService {
           .orderBy('createdAt', descending: true)
           .get();
 
-      return snapshot.docs.map((doc) => Device.fromFirestore(doc)).toList();
+      return snapshot.docs
+          .map((doc) => Device.fromFirestore(doc))
+          .where((device) =>
+              DeviceStatus.fromString(device.status).isVisibleInManagementList)
+          .toList();
     } catch (e) {
       print('デバイス一覧取得エラー: $e');
       return [];
     }
   }
 
-  /// デバイスのステータスを更新（管理者用）
+  /// デバイスのステータスを更新（管理者用・Cloud Function 経由）
   Future<void> updateDeviceStatus(String deviceId, String status) async {
     try {
-      await _firestore.collection('devices').doc(deviceId).update({
+      final callable = _functions.httpsCallable('updateDeviceStatus');
+      await callable.call(<String, dynamic>{
+        'deviceId': deviceId,
         'status': status,
-        'updatedAt': FieldValue.serverTimestamp(),
       });
-      // キャッシュ更新
-      final refreshed = await _firestore.collection('devices').doc(deviceId).get();
-      if (refreshed.exists) {
-        _cachedDevice = Device.fromFirestore(refreshed);
+      final prefs = await SharedPreferences.getInstance();
+      final myId = prefs.getString(_deviceIdKey);
+      if (myId == deviceId) {
+        final refreshed = await _firestore.collection('devices').doc(deviceId).get();
+        if (refreshed.exists) {
+          _cachedDevice = Device.fromFirestore(refreshed);
+        }
       }
     } catch (e) {
       print('デバイスステータス更新エラー: $e');
@@ -220,11 +237,19 @@ class DeviceService {
     }
   }
 
-  /// デバイスを削除（管理者用）
-  Future<void> deleteDevice(String deviceId) async {
+  /// デバイスをアーカイブ（管理者用・店舗UI上の「削除」）
+  Future<void> archiveDevice(String deviceId) async {
     try {
-      await _firestore.collection('devices').doc(deviceId).delete();
-      _cachedDevice = null;
+      final callable = _functions.httpsCallable('archiveDevice');
+      await callable.call(<String, dynamic>{
+        'deviceId': deviceId,
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final myId = prefs.getString(_deviceIdKey);
+      if (myId == deviceId) {
+        await clearLocalCache();
+        _cachedDevice = null;
+      }
     } catch (e) {
       print('デバイス削除エラー: $e');
       rethrow;
@@ -341,11 +366,16 @@ class DeviceService {
     return _cachedDevice?.getTableIdForOption(optionKey);
   }
 
-  /// 全デバイスのoptionParamsを取得（卓除外用）
+  /// 全デバイスのoptionParamsを取得（卓除外用。archived / retired は除外）
   Future<List<Map<String, dynamic>>> getAllDeviceOptionParams() async {
     try {
       final snapshot = await _firestore.collection('devices').get();
-      return snapshot.docs.map((doc) {
+      return snapshot.docs
+          .where((doc) {
+            final status = doc.data()['status'] as String? ?? 'active';
+            return DeviceStatus.fromString(status).isVisibleInManagementList;
+          })
+          .map((doc) {
         final data = doc.data();
         return {
           'deviceId': doc.id,
@@ -384,7 +414,8 @@ class DeviceService {
   Future<bool> isActive() async {
     try {
       final device = await getCurrentDevice();
-      return device?.status == 'active';
+      return DeviceStatus.fromString(device?.status ?? 'active') ==
+          DeviceStatus.active;
     } catch (e) {
       print('アクティブチェックエラー: $e');
       return false;

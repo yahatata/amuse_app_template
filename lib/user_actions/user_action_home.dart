@@ -138,7 +138,12 @@ List<_UserActionItem> _buildActionsForSource({
 
   // tableHomeInScheduledTournament からの呼び出し時は 4 ブロックを表示
   if (sourcePage == 'tableHomeInScheduledTournament') {
-    return _buildActionsFromBlocks(blockIds: const ['A', 'I', 'J', 'K'], user: user);
+    return [
+      _buildBlockA(user),
+      _buildBlockI(user, closeUserActionMenuOnSuccess: true),
+      _buildBlockJ(user, closeUserActionMenuOnSuccess: true),
+      _buildBlockK(user, closeUserActionMenuOnSuccess: true),
+    ];
   }
 
   // sideGameTableHome からの呼び出し時は 6 ブロックを表示
@@ -322,7 +327,11 @@ _UserActionItem _buildBlockH(Map<String, dynamic> user) => _UserActionItem(
     );
 
 // 塊I: Bust＆リエントリー
-_UserActionItem _buildBlockI(Map<String, dynamic> user) => _UserActionItem(
+_UserActionItem _buildBlockI(
+  Map<String, dynamic> user, {
+  bool closeUserActionMenuOnSuccess = false,
+}) =>
+    _UserActionItem(
       label: 'Bust＆リエントリー',
       icon: Icons.refresh,
       color: Colors.orange,
@@ -345,12 +354,17 @@ _UserActionItem _buildBlockI(Map<String, dynamic> user) => _UserActionItem(
           tournamentId: tournamentId,
           tableId: tableId,
           seatNumber: seatNumber,
+          closeUserActionMenuOnSuccess: closeUserActionMenuOnSuccess,
         );
       },
     );
 
 // 塊J: Bust&退席
-_UserActionItem _buildBlockJ(Map<String, dynamic> user) => _UserActionItem(
+_UserActionItem _buildBlockJ(
+  Map<String, dynamic> user, {
+  bool closeUserActionMenuOnSuccess = false,
+}) =>
+    _UserActionItem(
       label: 'Bust&退席',
       icon: Icons.exit_to_app,
       color: Colors.red,
@@ -373,12 +387,17 @@ _UserActionItem _buildBlockJ(Map<String, dynamic> user) => _UserActionItem(
           tournamentId: tournamentId,
           tableId: tableId,
           seatNumber: seatNumber,
+          closeUserActionMenuOnSuccess: closeUserActionMenuOnSuccess,
         );
       },
     );
 
 // 塊K: Addon
-_UserActionItem _buildBlockK(Map<String, dynamic> user) => _UserActionItem(
+_UserActionItem _buildBlockK(
+  Map<String, dynamic> user, {
+  bool closeUserActionMenuOnSuccess = false,
+}) =>
+    _UserActionItem(
       label: 'Addon',
       icon: Icons.add_circle_outline,
       color: Colors.green,
@@ -397,6 +416,7 @@ _UserActionItem _buildBlockK(Map<String, dynamic> user) => _UserActionItem(
           context: ctx,
           user: u,
           tournamentId: tournamentId,
+          closeUserActionMenuOnSuccess: closeUserActionMenuOnSuccess,
         );
       },
     );

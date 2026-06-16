@@ -123,7 +123,7 @@ class _ProfileDialog extends StatelessWidget {
                   final birthMonthDay = userData['birthMonthDay'] as String? ?? '';
                   final email = userData['email'] as String? ?? '';
                   final createdAt = userData['createdAt'] as Timestamp?;
-                  final lastLogin = userData['lastLogin'] as Timestamp?;
+                  final lastCheckInAt = userData['lastCheckInAt'] as Timestamp?;
 
                   String formatDate(Timestamp? timestamp) {
                     if (timestamp == null) return '未設定';
@@ -150,7 +150,7 @@ class _ProfileDialog extends StatelessWidget {
                         const SizedBox(height: 12),
                         _buildInfoRow('アカウント作成日', formatDate(createdAt)),
                         const SizedBox(height: 12),
-                        _buildInfoRow('最終ログイン', formatDate(lastLogin)),
+                        _buildInfoRow('最終入店', formatDate(lastCheckInAt)),
                       ],
                     ),
                   );

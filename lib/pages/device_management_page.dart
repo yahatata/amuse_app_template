@@ -3,7 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/device_service.dart';
 import '../models/device.dart';
 import '../services/device_options.dart';
-
 /// 卓情報の簡易モデル
 class _TableItem {
   final String id;
@@ -30,6 +29,8 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   bool _isLoading = true;
   /// オプション編集の保存〜一覧再取得まで（changeSpec 型の全体ロック）
   bool _isSavingOptions = false;
+  /// ブロック / 復帰 / 削除（アーカイブ）の CF 実行〜一覧再取得まで
+  bool _isMutatingDevice = false;
   String? _error;
   /// 現在操作しているデバイスID（この画面を開いている端末）
   String? _currentDeviceId;
@@ -79,28 +80,38 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     }
   }
 
+  bool get _isPageLocked => _isSavingOptions || _isMutatingDevice;
+
   Future<void> _updateDeviceStatus(Device device, String status) async {
+    setState(() => _isMutatingDevice = true);
+    String? successMessage;
+    String? errorMessage;
     try {
       await _deviceService.updateDeviceStatus(device.id, status);
-      await _loadDevices(); // リストを再読み込み
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('デバイス「${device.name}」のステータスを更新しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      await _loadDevices();
+      successMessage = 'デバイス「${device.name}」のステータスを更新しました';
     } catch (e) {
+      errorMessage = 'エラー: $e';
+    } finally {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラー: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        setState(() => _isMutatingDevice = false);
       }
+    }
+    if (!mounted) return;
+    if (successMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(successMessage),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else if (errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -125,27 +136,35 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     );
 
     if (confirmed == true) {
+      setState(() => _isMutatingDevice = true);
+      String? successMessage;
+      String? errorMessage;
       try {
-        await _deviceService.deleteDevice(device.id);
-        await _loadDevices(); // リストを再読み込み
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('デバイス「${device.name}」を削除しました'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
+        await _deviceService.archiveDevice(device.id);
+        await _loadDevices();
+        successMessage = 'デバイス「${device.name}」を削除しました';
       } catch (e) {
+        errorMessage = 'エラー: $e';
+      } finally {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('エラー: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          setState(() => _isMutatingDevice = false);
         }
+      }
+      if (!mounted) return;
+      if (successMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(successMessage),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (errorMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -172,6 +191,10 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
           : DeviceOptionKeys.tournamentTable;
 
       for (final doc in devicesSnap.docs) {
+        final status = doc.data()['status'] as String? ?? 'active';
+        if (!DeviceStatus.fromString(status).isVisibleInManagementList) {
+          continue;
+        }
         // 自分自身は除外対象外
         if (doc.id == currentDeviceId) continue;
         final params = doc.data()['optionParams'] as Map<String, dynamic>?;
@@ -424,6 +447,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
         return Colors.green;
       case 'blocked':
         return Colors.red;
+      case 'archived':
       case 'retired':
         return Colors.grey;
       default:
@@ -437,8 +461,10 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
         return 'アクティブ';
       case 'blocked':
         return 'ブロック';
+      case 'archived':
+        return '削除済み';
       case 'retired':
-        return '退役';
+        return '削除済み';
       default:
         return status;
     }
@@ -458,7 +484,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: !_isSavingOptions,
+      canPop: !_isPageLocked,
       child: Stack(
         children: [
           Scaffold(
@@ -469,14 +495,14 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
               actions: [
                 IconButton(
                   icon: const Icon(Icons.refresh),
-                  onPressed: _isSavingOptions ? null : _loadDevices,
+                  onPressed: _isPageLocked ? null : _loadDevices,
                   tooltip: '更新',
                 ),
               ],
             ),
             body: _buildBody(),
           ),
-          if (_isSavingOptions)
+          if (_isPageLocked)
             Positioned.fill(
               child: AbsorbPointer(
                 child: ColoredBox(
@@ -716,7 +742,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                 // アクションボタン
                 Row(
                   children: [
-                    if (device.status == 'active') ...[
+                    if (device.status == 'active' && !isCurrentDevice) ...[
                       ElevatedButton(
                         onPressed: () => _updateDeviceStatus(device, 'blocked'),
                         style: ElevatedButton.styleFrom(
@@ -727,7 +753,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                       ),
                       const SizedBox(width: 8),
                     ],
-                    if (device.status == 'blocked') ...[
+                    if (device.status == 'blocked' && !isCurrentDevice) ...[
                       ElevatedButton(
                         onPressed: () => _updateDeviceStatus(device, 'active'),
                         style: ElevatedButton.styleFrom(
@@ -738,26 +764,18 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                       ),
                       const SizedBox(width: 8),
                     ],
-                    ElevatedButton(
-                      onPressed: () => _updateDeviceStatus(device, 'retired'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey,
-                        foregroundColor: Colors.white,
+                    if (!isCurrentDevice)
+                      IconButton(
+                        onPressed: () => _deleteDevice(device),
+                        icon: const Icon(Icons.delete),
+                        color: Colors.red,
+                        tooltip: '削除',
                       ),
-                      child: const Text('退役'),
-                    ),
                     const Spacer(),
                     OutlinedButton.icon(
                       onPressed: () => _editOptions(device),
                       icon: const Icon(Icons.tune),
                       label: const Text('オプション編集'),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      onPressed: () => _deleteDevice(device),
-                      icon: const Icon(Icons.delete),
-                      color: Colors.red,
-                      tooltip: '削除',
                     ),
                   ],
                 ),
