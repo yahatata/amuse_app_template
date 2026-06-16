@@ -927,15 +927,35 @@ class _TableDetailPageState extends State<TableDetailPage> {
   }
 
   /// プレイヤー情報を表示
-  void _showPlayerInfo(String userId, String pokerName, int seatNumber) {
-    final user = {
+  Future<void> _showPlayerInfo(
+    String userId,
+    String pokerName,
+    int seatNumber,
+  ) async {
+    String? billId;
+    try {
+      final activeStayDoc = await FirebaseFirestore.instance
+          .collection('activeStays')
+          .doc(userId)
+          .get();
+      if (activeStayDoc.exists) {
+        billId = activeStayDoc.data()?['billId'] as String?;
+      }
+    } catch (e) {
+      debugPrint('activeStaysからのbillId取得に失敗: $e');
+    }
+
+    if (!mounted) return;
+
+    final user = <String, dynamic>{
       'userId': userId,
       'pokerName': pokerName,
       'tournamentId': widget.tournamentId,
       'tableId': widget.tableId,
       'seatNumber': seatNumber,
+      if (billId != null && billId.isNotEmpty) 'billId': billId,
     };
-    
+
     showUserActionHome(
       context: context,
       sourcePage: 'tableHomeInScheduledTournament',

@@ -26,17 +26,14 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   bool _isOrdersLoading = false;
 
   String? _subscribedBusinessDateKey;
-  bool _todayLoaded = false;
-  bool _yesterdayLoaded = false;
+  bool _ordersLoaded = false;
   List<Map<String, dynamic>> _todayOrders = [];
-  List<Map<String, dynamic>> _yesterdayOrders = [];
 
   /// 提供済みマーク処理中の注文 ID（changeSpec 103）
   String? _servingOrderId;
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _businessDaySub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _todayOrdersSub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _yesterdayOrdersSub;
 
   @override
   void initState() {
@@ -48,7 +45,6 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   void dispose() {
     _businessDaySub?.cancel();
     _todayOrdersSub?.cancel();
-    _yesterdayOrdersSub?.cancel();
     super.dispose();
   }
 
@@ -92,21 +88,16 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   void _cancelOrderSubscriptions({required bool clearData}) {
     _todayOrdersSub?.cancel();
     _todayOrdersSub = null;
-    _yesterdayOrdersSub?.cancel();
-    _yesterdayOrdersSub = null;
     _subscribedBusinessDateKey = null;
-    _todayLoaded = false;
-    _yesterdayLoaded = false;
+    _ordersLoaded = false;
     if (clearData) {
       _todayOrders = [];
-      _yesterdayOrders = [];
     }
   }
 
   void _ensureOrderSubscriptions(String businessDateKey) {
     if (_subscribedBusinessDateKey == businessDateKey &&
-        _todayOrdersSub != null &&
-        _yesterdayOrdersSub != null) {
+        _todayOrdersSub != null) {
       return;
     }
 
@@ -116,8 +107,6 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
     _isOrdersLoading = true;
 
     final today = businessDateKey.replaceAll('-', '');
-    final yesterday = DateFormat('yyyyMMdd')
-        .format(DateTime.parse(businessDateKey).subtract(const Duration(days: 1)));
 
     _todayOrdersSub = FirebaseFirestore.instance
         .collection('orders')
@@ -132,34 +121,11 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
           data['date'] = today;
           return data;
         }).toList();
-        _todayLoaded = true;
+        _ordersLoaded = true;
         _updateOrdersLoadingState();
       },
       onError: (error) {
-        _todayLoaded = true;
-        _ordersError = error;
-        _updateOrdersLoadingState();
-      },
-    );
-
-    _yesterdayOrdersSub = FirebaseFirestore.instance
-        .collection('orders')
-        .doc(yesterday)
-        .collection('_TodaysOrders')
-        .snapshots()
-        .listen(
-      (snapshot) {
-        _yesterdayOrders = snapshot.docs.map((doc) {
-          final data = Map<String, dynamic>.from(doc.data());
-          data['id'] = doc.id;
-          data['date'] = yesterday;
-          return data;
-        }).toList();
-        _yesterdayLoaded = true;
-        _updateOrdersLoadingState();
-      },
-      onError: (error) {
-        _yesterdayLoaded = true;
+        _ordersLoaded = true;
         _ordersError = error;
         _updateOrdersLoadingState();
       },
@@ -169,7 +135,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   void _updateOrdersLoadingState() {
     if (!mounted) return;
     setState(() {
-      _isOrdersLoading = !(_todayLoaded && _yesterdayLoaded);
+      _isOrdersLoading = !_ordersLoaded;
     });
   }
 
@@ -394,10 +360,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final orders = _processOrders([
-      ..._todayOrders,
-      ..._yesterdayOrders,
-    ]);
+    final orders = _processOrders(_todayOrders);
     if (orders.isEmpty) {
       return Center(
         child: Column(

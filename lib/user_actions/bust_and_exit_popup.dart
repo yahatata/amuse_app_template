@@ -12,13 +12,15 @@ Future<void> showBustAndExitDialog({
   required String tournamentId,
   required String tableId,
   required int seatNumber,
+  bool closeUserActionMenuOnSuccess = false,
 }) async {
+  final menuContext = context;
   final pokerName = user['pokerName'] as String? ?? 'Unknown';
-  
+
   return showDialog<void>(
-    context: context,
+    context: menuContext,
     barrierDismissible: false,
-    builder: (BuildContext context) {
+    builder: (dialogCtx) {
       return AlertDialog(
         title: Row(
           children: [
@@ -52,18 +54,19 @@ Future<void> showBustAndExitDialog({
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogCtx).pop(),
             child: const Text('キャンセル'),
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.of(context).pop();
+              Navigator.of(dialogCtx).pop();
               await _executeBustAndExit(
-                context: context,
+                context: menuContext,
                 user: user,
                 tournamentId: tournamentId,
                 tableId: tableId,
                 seatNumber: seatNumber,
+                closeUserActionMenuOnSuccess: closeUserActionMenuOnSuccess,
               );
             },
             style: ElevatedButton.styleFrom(
@@ -85,17 +88,31 @@ Future<void> _executeBustAndExit({
   required String tournamentId,
   required String tableId,
   required int seatNumber,
+  bool closeUserActionMenuOnSuccess = false,
 }) async {
-  // Overlayを使用したローディング表示
+  if (!context.mounted) return;
+
+  final overlayState = Overlay.maybeOf(context, rootOverlay: true);
   OverlayEntry? loadingOverlay;
-  
+  bool loadingShown = false;
+
+  void hideLoading() {
+    if (loadingShown) {
+      try {
+        loadingOverlay?.remove();
+      } catch (_) {
+        // noop
+      }
+      loadingOverlay = null;
+      loadingShown = false;
+    }
+  }
+
   try {
-    // ローディング表示
     print('=== ローディングダイアログ表示開始 ===');
-    
-    // Overlayを使用してローディングを表示
+
     loadingOverlay = OverlayEntry(
-      builder: (context) => Material(
+      builder: (_) => Material(
         color: Colors.black54,
         child: Center(
           child: Container(
@@ -120,9 +137,11 @@ Future<void> _executeBustAndExit({
         ),
       ),
     );
-    
-    // Overlayに追加
-    Overlay.of(context).insert(loadingOverlay);
+
+    if (overlayState != null) {
+      overlayState.insert(loadingOverlay!);
+      loadingShown = true;
+    }
     print('=== ローディングダイアログ表示完了 ===');
 
     // Cloud Function呼び出し（タイムアウト付き）
@@ -168,12 +187,19 @@ Future<void> _executeBustAndExit({
     print('response: $data');
     print('success: ${data['success']}');
     
+    if (!context.mounted) {
+      hideLoading();
+      return;
+    }
+
+    hideLoading();
+
     if (data['success'] == true) {
       // 成功メッセージを表示
       if (context.mounted) {
-        showDialog(
+        await showDialog<void>(
           context: context,
-          builder: (BuildContext context) {
+          builder: (successCtx) {
             return AlertDialog(
               title: Row(
                 children: [
@@ -185,13 +211,16 @@ Future<void> _executeBustAndExit({
               content: Text('${user['pokerName']}様のBust&退席処理が完了しました'),
               actions: [
                 ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: () => Navigator.of(successCtx).pop(),
                   child: const Text('OK'),
                 ),
               ],
             );
           },
         );
+        if (closeUserActionMenuOnSuccess && context.mounted) {
+          Navigator.of(context).pop();
+        }
       }
     } else {
       // エラーメッセージを表示
@@ -205,9 +234,10 @@ Future<void> _executeBustAndExit({
       }
     }
   } catch (e) {
+    hideLoading();
     print('=== Bust&退席処理エラー ===');
     print('error: $e');
-    
+
     // エラーメッセージを表示
     if (context.mounted) {
       String errorMessage = 'Bust&退席に失敗しました';
@@ -242,9 +272,6 @@ Future<void> _executeBustAndExit({
       );
     }
   } finally {
-    // ローディングを確実に閉じる
-    if (loadingOverlay != null) {
-      loadingOverlay.remove();
-    }
+    hideLoading();
   }
 }

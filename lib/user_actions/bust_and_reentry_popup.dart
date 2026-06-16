@@ -14,7 +14,9 @@ Future<void> showBustAndReentryDialog({
   required String tournamentId,
   required String tableId,
   required int seatNumber,
+  bool closeUserActionMenuOnSuccess = false,
 }) async {
+  final menuContext = context;
   final String userId = (user['userId'] ?? '').toString();
   final String pokerName = (user['pokerName'] ?? '').toString();
   
@@ -89,9 +91,9 @@ Future<void> showBustAndReentryDialog({
   }
 
   await showDialog<void>(
-    context: context,
+    context: menuContext,
     barrierDismissible: false,
-    builder: (BuildContext context) {
+    builder: (dialogCtx) {
       return AlertDialog(
         title: const Text('Bust＆リエントリー確認'),
         content: isLoading
@@ -127,7 +129,7 @@ Future<void> showBustAndReentryDialog({
               ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogCtx).pop(),
             child: const Text('キャンセル'),
           ),
           if (tournamentData?['snapshot']?['maxReentriesPerPlayer'] == null ||
@@ -135,17 +137,18 @@ Future<void> showBustAndReentryDialog({
             ElevatedButton(
               onPressed: () async {
                 // 先に確認ダイアログを閉じる
-                Navigator.of(context).pop();
-                
+                Navigator.of(dialogCtx).pop();
+
                 // Cloud Functionを実行
                 await _executeBustAndReentry(
-                  context: context,
+                  context: menuContext,
                   userId: userId,
                   pokerName: pokerName,
                   tournamentId: tournamentId,
                   tableId: tableId,
                   seatNumber: seatNumber,
                   tournamentData: tournamentData!,
+                  closeUserActionMenuOnSuccess: closeUserActionMenuOnSuccess,
                 );
               },
               style: ElevatedButton.styleFrom(
@@ -169,14 +172,29 @@ Future<void> _executeBustAndReentry({
   required String tableId,
   required int seatNumber,
   required Map<String, dynamic> tournamentData,
+  bool closeUserActionMenuOnSuccess = false,
 }) async {
-  // Overlayを使用したローディング表示
+  if (!context.mounted) return;
+
+  final overlayState = Overlay.maybeOf(context, rootOverlay: true);
   OverlayEntry? loadingOverlay;
-  
+  bool loadingShown = false;
+
+  void hideLoading() {
+    if (loadingShown) {
+      try {
+        loadingOverlay?.remove();
+      } catch (_) {
+        // noop
+      }
+      loadingOverlay = null;
+      loadingShown = false;
+    }
+  }
+
   try {
-    // ローディング表示
     loadingOverlay = OverlayEntry(
-      builder: (context) => Material(
+      builder: (_) => Material(
         color: Colors.black54,
         child: Center(
           child: Container(
@@ -201,9 +219,11 @@ Future<void> _executeBustAndReentry({
         ),
       ),
     );
-    
-    // Overlayに追加
-    Overlay.of(context).insert(loadingOverlay);
+
+    if (overlayState != null) {
+      overlayState.insert(loadingOverlay!);
+      loadingShown = true;
+    }
     
     print('=== Bust＆リエントリー処理開始 ===');
     print('userId: $userId');
@@ -247,12 +267,19 @@ Future<void> _executeBustAndReentry({
     print('response: $data');
     print('success: ${data['success']}');
     
+    if (!context.mounted) {
+      hideLoading();
+      return;
+    }
+
+    hideLoading();
+
     if (data['success'] == true) {
       // 成功メッセージを表示
       if (context.mounted) {
-        showDialog(
+        await showDialog<void>(
           context: context,
-          builder: (BuildContext context) {
+          builder: (successCtx) {
             return AlertDialog(
               title: Row(
                 children: [
@@ -264,13 +291,16 @@ Future<void> _executeBustAndReentry({
               content: Text('$pokerName様のリエントリー処理が完了しました'),
               actions: [
                 ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: () => Navigator.of(successCtx).pop(),
                   child: const Text('OK'),
                 ),
               ],
             );
           },
         );
+        if (closeUserActionMenuOnSuccess && context.mounted) {
+          Navigator.of(context).pop();
+        }
       }
     } else {
       // エラーメッセージを表示
@@ -284,9 +314,10 @@ Future<void> _executeBustAndReentry({
       }
     }
   } catch (e) {
+    hideLoading();
     print('=== Bust＆リエントリー処理エラー ===');
     print('error: $e');
-    
+
     // エラーメッセージを表示
     if (context.mounted) {
       String errorMessage = 'リエントリー処理に失敗しました';
@@ -321,9 +352,6 @@ Future<void> _executeBustAndReentry({
       );
     }
   } finally {
-    // ローディングを確実に閉じる
-    if (loadingOverlay != null) {
-      loadingOverlay.remove();
-    }
+    hideLoading();
   }
 }

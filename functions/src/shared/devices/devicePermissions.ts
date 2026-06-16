@@ -1,5 +1,6 @@
 import { getFirestore } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
+import { normalizeDeviceStatus } from "./deviceStatus";
 
 const db = getFirestore();
 
@@ -13,9 +14,14 @@ export type DeviceDoc = {
 };
 
 export async function getCallerDeviceByUid(uid: string): Promise<DeviceDoc | null> {
-  const snap = await db.collection("devices").where("uid", "==", uid).limit(1).get();
+  const snap = await db.collection("devices").where("uid", "==", uid).get();
   if (snap.empty) return null;
-  const doc = snap.docs[0];
+
+  const activeDoc = snap.docs.find(
+    (doc) =>
+      normalizeDeviceStatus(doc.data().status as string | undefined) === "active"
+  );
+  const doc = activeDoc ?? snap.docs[0];
   const data = doc.data() as Record<string, unknown> | undefined;
   const name = typeof data?.name === "string" && data.name.length > 0 ? data.name : undefined;
   if (!name) {
@@ -37,9 +43,6 @@ export function hasRequiredOption(options: Record<string, boolean> | undefined, 
 
 /**
  * Phase6.5: 営業管理可能かどうか（権限のみ。有効性 status は呼び出し元で isActive を参照すること）。
- * - role === 'admin' のとき options を参照せず true
- * - role === 'terminal' かつ options.store_management === true のとき true
- * - 上記以外は false
  */
 export function hasStoreManagementPermission(device: DeviceDoc): boolean {
   if (device.role === "admin") return true;
@@ -47,6 +50,4 @@ export function hasStoreManagementPermission(device: DeviceDoc): boolean {
   return false;
 }
 
-export function isActive(status?: string): boolean {
-  return (status ?? "active") === "active";
-}
+export { isActive } from "./deviceStatus";

@@ -51,7 +51,6 @@ export const createUserByApp = onCall(async (request) => {
     pointA: 0, // globalConstant.dart の pointTypes[0] フィールド
     pointB: 0, // globalConstant.dart の pointTypes[1] フィールド
     sideGameChip: 0, // globalConstant.dart の pointTypes[2] フィールド
-    lastLogin: admin.firestore.FieldValue.serverTimestamp(),
     currentTable: null,
     currentSeat: null,
     qrCodeUrl: "",
