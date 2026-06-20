@@ -2,6 +2,13 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { logOpsError, logOpsSuccess } from "../../logging/logOpsError";
+import {
+  DEVICE_STATUS_ACTIVE,
+  DEVICE_STATUS_BLOCKED,
+  isArchivedStatus,
+  isOperationalStatus,
+  normalizeDeviceStatus,
+} from "../deviceStatus";
 
 const db = getFirestore();
 
@@ -15,35 +22,84 @@ const registerDeviceSchema = z.object({
 });
 
 /**
- * デバイス登録（同一 uid に対して冪等: 1回目は作成、2回目以降は更新して同じ deviceId を返す）
+ * レガシー: archived / retired に uid が残っている場合、再登録前に uid を退避して削除する
+ */
+async function clearUidOnLegacyArchivedDocs(
+  docs: FirebaseFirestore.QueryDocumentSnapshot[]
+): Promise<void> {
+  const batch = db.batch();
+  let pending = 0;
+
+  for (const doc of docs) {
+    const data = doc.data();
+    const rawStatus = data.status as string | undefined;
+    if (!isArchivedStatus(rawStatus)) {
+      continue;
+    }
+    const uid = data.uid;
+    if (typeof uid !== "string" || uid.length === 0) {
+      continue;
+    }
+    batch.update(doc.ref, {
+      uid: FieldValue.delete(),
+      previousUid: data.previousUid ?? uid,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    pending += 1;
+  }
+
+  if (pending > 0) {
+    await batch.commit();
+  }
+}
+
+/**
+ * デバイス登録
+ * - active 既存 doc: 更新して同じ deviceId を返す
+ * - blocked 既存 doc: 登録拒否
+ * - archived / retired: active に戻さず新規 doc を作成
  */
 export const registerDevice = onCall(async (request) => {
   try {
-    // 認証チェック
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "認証が必要です");
     }
 
-    // バリデーション
     const validatedData = registerDeviceSchema.parse(request.data);
-
     const { name, role, uid, installationId, platform } = validatedData;
 
-    // 呼び出し元のUIDと一致するかチェック
     if (request.auth.uid !== uid) {
       throw new HttpsError("permission-denied", "UIDが一致しません");
     }
 
-    // 既存のデバイスをチェック（同じUIDまたはinstallationId）
     const existingDevices = await db
       .collection("devices")
       .where("uid", "==", uid)
       .get();
 
-    if (!existingDevices.empty) {
-      // 既存のデバイスがある場合は更新
-      const existingDevice = existingDevices.docs[0];
-      await existingDevice.ref.update({
+    const operationalDocs = existingDevices.docs.filter((doc) =>
+      isOperationalStatus(doc.data().status as string | undefined)
+    );
+
+    const blockedDoc = operationalDocs.find(
+      (doc) =>
+        normalizeDeviceStatus(doc.data().status as string | undefined) ===
+        DEVICE_STATUS_BLOCKED
+    );
+    if (blockedDoc) {
+      throw new HttpsError(
+        "failed-precondition",
+        "この端末はブロックされています。管理者に連絡してください"
+      );
+    }
+
+    const activeDoc = operationalDocs.find(
+      (doc) =>
+        normalizeDeviceStatus(doc.data().status as string | undefined) ===
+        DEVICE_STATUS_ACTIVE
+    );
+    if (activeDoc) {
+      await activeDoc.ref.update({
         name,
         role,
         installationId,
@@ -58,7 +114,7 @@ export const registerDevice = onCall(async (request) => {
               optionParams: {},
             }),
         updatedAt: FieldValue.serverTimestamp(),
-        status: "active",
+        status: DEVICE_STATUS_ACTIVE,
       });
 
       logOpsSuccess({
@@ -66,7 +122,7 @@ export const registerDevice = onCall(async (request) => {
         functionEntry: "registerDevice",
         context: {
           uid,
-          deviceId: existingDevice.id,
+          deviceId: activeDoc.id,
           outcome: "updated",
           role,
           installationId,
@@ -75,12 +131,13 @@ export const registerDevice = onCall(async (request) => {
 
       return {
         success: true,
-        deviceId: existingDevice.id,
+        deviceId: activeDoc.id,
         message: "デバイス情報を更新しました",
       };
     }
 
-    // 新しいデバイスを作成
+    await clearUidOnLegacyArchivedDocs(existingDevices.docs);
+
     const deviceRef = await db.collection("devices").add({
       name,
       role,
@@ -95,7 +152,7 @@ export const registerDevice = onCall(async (request) => {
           }),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
-      status: "active",
+      status: DEVICE_STATUS_ACTIVE,
     });
 
     logOpsSuccess({
@@ -126,8 +183,8 @@ export const registerDevice = onCall(async (request) => {
       : { inputParseFailed: true as const };
 
     logOpsError({
-      message: 'デバイス登録エラー:',
-      functionEntry: 'registerDevice',
+      message: "デバイス登録エラー:",
+      functionEntry: "registerDevice",
       cause: error,
       context: errContext,
     });

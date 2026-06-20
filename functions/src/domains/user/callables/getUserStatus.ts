@@ -60,7 +60,6 @@ export const getUserStatus = onCall(async (request) => {
         pokerName: userData.pokerName || "",
         isStaying, // activeStays.isActive から取得
         lastCheckInAt: userData.lastCheckInAt,   // 最後の入店時刻
-        lastLogin: userData.lastLogin,           // 最後のログイン時刻
       }
     };
     

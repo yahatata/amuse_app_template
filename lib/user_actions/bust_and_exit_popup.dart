@@ -13,6 +13,7 @@ Future<void> showBustAndExitDialog({
   required String tournamentId,
   required String tableId,
   required int seatNumber,
+  bool closeUserActionMenuOnSuccess = false,
 }) async {
   final outerCtx = context;
   final pokerName = user['pokerName'] as String? ?? 'Unknown';
@@ -66,6 +67,7 @@ Future<void> showBustAndExitDialog({
                 tournamentId: tournamentId,
                 tableId: tableId,
                 seatNumber: seatNumber,
+                closeUserActionMenuOnSuccess: closeUserActionMenuOnSuccess,
               );
             },
             style: ElevatedButton.styleFrom(
@@ -87,6 +89,7 @@ Future<void> _executeBustAndExit({
   required String tournamentId,
   required String tableId,
   required int seatNumber,
+  bool closeUserActionMenuOnSuccess = false,
 }) async {
   final feedback = ActionProgressDialogController(context);
 
@@ -149,6 +152,9 @@ Future<void> _executeBustAndExit({
           context,
           message: '${user['pokerName']}様のBust&退席処理が完了しました',
         );
+        if (closeUserActionMenuOnSuccess && context.mounted) {
+          Navigator.of(context).pop();
+        }
       }
     } else {
       if (context.mounted) {
@@ -163,7 +169,6 @@ Future<void> _executeBustAndExit({
     debugPrint('error: $e');
 
     feedback.hideLoading();
-
     if (context.mounted) {
       await showActionErrorDialog(
         context,

@@ -200,7 +200,7 @@ enum DeviceRole {
 enum DeviceStatus {
   active('active'),
   blocked('blocked'),
-  retired('retired');
+  archived('archived');
 
   const DeviceStatus(this.value);
   final String value;
@@ -211,10 +211,21 @@ enum DeviceStatus {
         return DeviceStatus.active;
       case 'blocked':
         return DeviceStatus.blocked;
+      case 'archived':
+        return DeviceStatus.archived;
+      // 既存 DB 互換: retired は archived 相当
       case 'retired':
-        return DeviceStatus.retired;
+        return DeviceStatus.archived;
       default:
         return DeviceStatus.active;
     }
   }
+
+  /// 管理画面の通常一覧に表示するか
+  bool get isVisibleInManagementList =>
+      this == DeviceStatus.active || this == DeviceStatus.blocked;
+
+  /// 削除済み（再登録可能）か
+  bool get isRemovedFromService =>
+      this == DeviceStatus.archived;
 }

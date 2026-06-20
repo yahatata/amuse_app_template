@@ -12,6 +12,7 @@ Future<void> showAddonDialog({
   required BuildContext context,
   required Map<String, dynamic> user,
   required String tournamentId,
+  bool closeUserActionMenuOnSuccess = false,
 }) async {
   // 外側（ページ側）のコンテキストを退避。以降のUI操作は必ずこれを使う
   final outerCtx = context;
@@ -233,6 +234,7 @@ Future<void> showAddonDialog({
                 pokerName: pokerName,
                 tournamentId: tournamentId,
                 tableId: user['tableId'] as String?,
+                closeUserActionMenuOnSuccess: closeUserActionMenuOnSuccess,
               );
             },
             style: ElevatedButton.styleFrom(
@@ -254,6 +256,7 @@ Future<void> _executeAddon({
   required String pokerName,
   required String tournamentId,
   String? tableId,
+  bool closeUserActionMenuOnSuccess = false,
 }) async {
   if (!context.mounted) return;
 
@@ -302,6 +305,9 @@ Future<void> _executeAddon({
         context,
         message: '$pokerName様のAddon処理が完了しました',
       );
+      if (closeUserActionMenuOnSuccess && context.mounted) {
+        Navigator.of(context).pop();
+      }
     } else {
       final err = data['error'] ?? '不明なエラー';
       await showActionErrorDialog(context, message: 'Addon登録に失敗しました: $err');

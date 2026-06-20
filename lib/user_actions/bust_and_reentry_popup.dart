@@ -15,6 +15,7 @@ Future<void> showBustAndReentryDialog({
   required String tournamentId,
   required String tableId,
   required int seatNumber,
+  bool closeUserActionMenuOnSuccess = false,
 }) async {
   final outerCtx = context;
   final String userId = (user['userId'] ?? '').toString();
@@ -157,6 +158,7 @@ Future<void> showBustAndReentryDialog({
                   tableId: tableId,
                   seatNumber: seatNumber,
                   tournamentData: tournamentData!,
+                  closeUserActionMenuOnSuccess: closeUserActionMenuOnSuccess,
                 );
               },
               style: ElevatedButton.styleFrom(
@@ -180,6 +182,7 @@ Future<void> _executeBustAndReentry({
   required String tableId,
   required int seatNumber,
   required Map<String, dynamic> tournamentData,
+  bool closeUserActionMenuOnSuccess = false,
 }) async {
   final feedback = ActionProgressDialogController(context);
 
@@ -192,7 +195,6 @@ Future<void> _executeBustAndReentry({
     debugPrint('tournamentId: $tournamentId');
     debugPrint('tableId: $tableId');
     debugPrint('seatNumber: $seatNumber');
-
     final operationId =
         '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
     final device = await DeviceService().getCurrentDevice();
@@ -239,6 +241,9 @@ Future<void> _executeBustAndReentry({
           context,
           message: '$pokerName様のリエントリー処理が完了しました',
         );
+        if (closeUserActionMenuOnSuccess && context.mounted) {
+          Navigator.of(context).pop();
+        }
       }
     } else {
       if (context.mounted) {
@@ -253,7 +258,6 @@ Future<void> _executeBustAndReentry({
     debugPrint('error: $e');
 
     feedback.hideLoading();
-
     if (context.mounted) {
       await showActionErrorDialog(
         context,

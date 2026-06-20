@@ -156,17 +156,27 @@ class _TableDetailPageState extends State<TableDetailPage> {
                       ? Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.warning_amber_rounded, size: 18, color: Colors.orange),
+                            Icon(
+                              Icons.warning_amber_rounded,
+                              size: 18,
+                              color: Colors.orange,
+                            ),
                             const SizedBox(width: 4),
                             Flexible(
                               child: Text(
                                 warningLabel,
-                                style: const TextStyle(fontSize: 11, color: Colors.orange),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.orange,
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             const SizedBox(width: 6),
-                            Text(formatted, style: const TextStyle(fontSize: 14)),
+                            Text(
+                              formatted,
+                              style: const TextStyle(fontSize: 14),
+                            ),
                           ],
                         )
                       : Text(formatted, style: const TextStyle(fontSize: 14)),
@@ -178,9 +188,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
         if (data.isClosed) {
           return const Padding(
             padding: EdgeInsets.symmetric(horizontal: 8),
-            child: Center(
-              child: Text('閉店中', style: TextStyle(fontSize: 14)),
-            ),
+            child: Center(child: Text('閉店中', style: TextStyle(fontSize: 14))),
           );
         }
         if (data.isError) {
@@ -204,88 +212,91 @@ class _TableDetailPageState extends State<TableDetailPage> {
       builder: (context, tourStatusSnap) {
         final tourStatus = tourStatusSnap.data?.data() != null
             ? (tourStatusSnap.data!.data() as Map<String, dynamic>)['status']
-                as String?
+                  as String?
             : null;
         final isReadOnly = isTournamentReadOnlyStatus(tourStatus);
 
         final scaffold = Scaffold(
-      drawer: widget.drawer,
-      appBar: AppBar(
-        automaticallyImplyLeading: widget.automaticallyImplyLeading,
-        leading: widget.drawer != null
-            ? Builder(
-                builder: (context) => IconButton(
-                  icon: const Icon(Icons.menu),
-                  onPressed: () => Scaffold.of(context).openDrawer(),
+          drawer: widget.drawer,
+          appBar: AppBar(
+            automaticallyImplyLeading: widget.automaticallyImplyLeading,
+            leading: widget.drawer != null
+                ? Builder(
+                    builder: (context) => IconButton(
+                      icon: const Icon(Icons.menu),
+                      onPressed: () => Scaffold.of(context).openDrawer(),
+                    ),
+                  )
+                : null,
+            title: Text('卓 ${widget.tableId}'),
+            centerTitle: true,
+            actions: [
+              _buildStoreStatusAction(context),
+              if (!isReadOnly)
+                Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      showBulkAddonDialog(
+                        context: context,
+                        tournamentId: widget.tournamentId,
+                        tableId: widget.tableId,
+                      );
+                    },
+                    icon: const Icon(Icons.group_add, size: 18),
+                    label: const Text(
+                      'まとめてAddon',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue.shade50,
+                      foregroundColor: Colors.blue.shade700,
+                      elevation: 1,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide(color: Colors.blue.shade200),
+                      ),
+                    ),
+                  ),
                 ),
-              )
-            : null,
-        title: Text('卓 ${widget.tableId}'),
-        centerTitle: true,
-        actions: [
-          _buildStoreStatusAction(context),
-          if (!isReadOnly)
-          Container(
-            margin: const EdgeInsets.only(right: 8),
-            child: ElevatedButton.icon(
-              onPressed: () {
-                showBulkAddonDialog(
-                  context: context,
-                  tournamentId: widget.tournamentId,
-                  tableId: widget.tableId,
-                );
-              },
-              icon: const Icon(Icons.group_add, size: 18),
-              label: const Text('まとめてAddon', style: TextStyle(fontSize: 12)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade50,
-                foregroundColor: Colors.blue.shade700,
-                elevation: 1,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  side: BorderSide(color: Colors.blue.shade200),
-                ),
+              _buildActionHistoryAction(),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _loadTableData,
+                tooltip: '更新',
               ),
+            ],
+          ),
+          body: StoreStrongWarningWrapper(
+            suppressStrongWarning: widget.suppressStoreStrongWarning,
+            onCloseStore: () {
+              if (widget.onNavigateHomeFromStrongWarning != null) {
+                widget.onNavigateHomeFromStrongWarning!.call();
+                return;
+              }
+              navigateToAppHome(context, adminInitialTerminalMode: true);
+            },
+            onBusinessContinue: () {
+              if (widget.onNavigateHomeFromStrongWarning != null) {
+                widget.onNavigateHomeFromStrongWarning!.call();
+                return;
+              }
+              navigateToAppHome(context, adminInitialTerminalMode: true);
+            },
+            child: Column(
+              children: [
+                if (isReadOnly) TournamentReadOnlyBanner(status: tourStatus),
+                Expanded(child: _buildTableDetailBody(isReadOnly: isReadOnly)),
+              ],
             ),
           ),
-          _buildActionHistoryAction(),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadTableData,
-            tooltip: '更新',
-          ),
-        ],
-      ),
-      body: StoreStrongWarningWrapper(
-        suppressStrongWarning: widget.suppressStoreStrongWarning,
-        onCloseStore: () {
-          if (widget.onNavigateHomeFromStrongWarning != null) {
-            widget.onNavigateHomeFromStrongWarning!.call();
-            return;
-          }
-          navigateToAppHome(context, adminInitialTerminalMode: true);
-        },
-        onBusinessContinue: () {
-          if (widget.onNavigateHomeFromStrongWarning != null) {
-            widget.onNavigateHomeFromStrongWarning!.call();
-            return;
-          }
-          navigateToAppHome(context, adminInitialTerminalMode: true);
-        },
-        child: Column(
-          children: [
-            if (isReadOnly) TournamentReadOnlyBanner(status: tourStatus),
-            Expanded(child: _buildTableDetailBody(isReadOnly: isReadOnly)),
-          ],
-        ),
-      ),
-    );
+        );
         if (widget.disableBackNavigation) {
-          return PopScope(
-            canPop: false,
-            child: scaffold,
-          );
+          return PopScope(canPop: false, child: scaffold);
         }
         return scaffold;
       },
@@ -294,71 +305,77 @@ class _TableDetailPageState extends State<TableDetailPage> {
 
   Widget _buildTableDetailBody({required bool isReadOnly}) {
     return StreamBuilder<DocumentSnapshot>(
-        stream: _getTableDataStream(),
-        builder: (context, tableSnapshot) {
-          return StreamBuilder<DocumentSnapshot>(
-            stream: _getMainViewDataStream(),
-            builder: (context, mainSnapshot) {
-              // エラーハンドリング
-              if (tableSnapshot.hasError || mainSnapshot.hasError) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.error, color: Colors.red, size: 48),
-                      const SizedBox(height: 16),
-                      Text('エラー: ${tableSnapshot.hasError ? tableSnapshot.error : mainSnapshot.error}', 
-                           style: const TextStyle(color: Colors.red)),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadTableData,
-                        child: const Text('再試行'),
-                      ),
-                    ],
-                  ),
-                );
-              }
+      stream: _getTableDataStream(),
+      builder: (context, tableSnapshot) {
+        return StreamBuilder<DocumentSnapshot>(
+          stream: _getMainViewDataStream(),
+          builder: (context, mainSnapshot) {
+            // エラーハンドリング
+            if (tableSnapshot.hasError || mainSnapshot.hasError) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.error, color: Colors.red, size: 48),
+                    const SizedBox(height: 16),
+                    Text(
+                      'エラー: ${tableSnapshot.hasError ? tableSnapshot.error : mainSnapshot.error}',
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _loadTableData,
+                      child: const Text('再試行'),
+                    ),
+                  ],
+                ),
+              );
+            }
 
-              // ローディング状態
-              if ((tableSnapshot.connectionState == ConnectionState.waiting && _tableData == null) ||
-                  (mainSnapshot.connectionState == ConnectionState.waiting && _mainViewData == null)) {
-                return const Center(child: CircularProgressIndicator());
-              }
+            // ローディング状態
+            if ((tableSnapshot.connectionState == ConnectionState.waiting &&
+                    _tableData == null) ||
+                (mainSnapshot.connectionState == ConnectionState.waiting &&
+                    _mainViewData == null)) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-              // データ存在チェック
-              if (!tableSnapshot.hasData || !tableSnapshot.data!.exists) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.error, color: Colors.red, size: 48),
-                      const SizedBox(height: 16),
-                      const Text('テーブルが見つかりません', style: TextStyle(color: Colors.red)),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadTableData,
-                        child: const Text('再試行'),
-                      ),
-                    ],
-                  ),
-                );
-              }
+            // データ存在チェック
+            if (!tableSnapshot.hasData || !tableSnapshot.data!.exists) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.error, color: Colors.red, size: 48),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'テーブルが見つかりません',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _loadTableData,
+                      child: const Text('再試行'),
+                    ),
+                  ],
+                ),
+              );
+            }
 
-              // リアルタイムデータを更新
-              _tableData = tableSnapshot.data!.data() as Map<String, dynamic>?;
-              _mainViewData = mainSnapshot.data?.data() as Map<String, dynamic>?;
-              
-              return _buildTableContent(isReadOnly: isReadOnly);
-            },
-          );
-        },
+            // リアルタイムデータを更新
+            _tableData = tableSnapshot.data!.data() as Map<String, dynamic>?;
+            _mainViewData = mainSnapshot.data?.data() as Map<String, dynamic>?;
+
+            return _buildTableContent(isReadOnly: isReadOnly);
+          },
+        );
+      },
     );
   }
 
   Widget _buildTableContent({required bool isReadOnly}) {
     final seats = _tableData?['seats'] as Map<String, dynamic>? ?? {};
-    final safeMaxSeats =
-        ScheduledTournamentSeatMap.resolvedTableMaxSeats(
+    final safeMaxSeats = ScheduledTournamentSeatMap.resolvedTableMaxSeats(
       _tableData?['maxSeats'],
       seats,
       fallbackWhenUnresolved: 10,
@@ -367,11 +384,8 @@ class _TableDetailPageState extends State<TableDetailPage> {
     return Row(
       children: [
         // 左側: トーナメント情報
-        Expanded(
-          flex: 1,
-          child: _buildTournamentInfoPanel(),
-        ),
-        
+        Expanded(flex: 1, child: _buildTournamentInfoPanel()),
+
         // 中央: ポーカーテーブル
         Expanded(
           flex: 4,
@@ -397,7 +411,10 @@ class _TableDetailPageState extends State<TableDetailPage> {
         const dividerTotalHeight = dividerCount * (1.0 + 16.0);
 
         final contentAreaHeight =
-            (maxHeight - verticalPadding * 2 - dividerTotalHeight).clamp(0.0, maxHeight);
+            (maxHeight - verticalPadding * 2 - dividerTotalHeight).clamp(
+              0.0,
+              maxHeight,
+            );
         final itemHeight = itemCount > 0 ? contentAreaHeight / itemCount : 0.0;
 
         final contentHeight = itemHeight * 0.7;
@@ -475,8 +492,8 @@ class _TableDetailPageState extends State<TableDetailPage> {
   }
 
   Widget _buildTournamentInfoItem(
-    IconData icon, 
-    String label, 
+    IconData icon,
+    String label,
     String value, {
     required double iconSize,
     required double labelFontSize,
@@ -493,11 +510,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: Colors.blue.shade700,
-              size: iconSize,
-            ),
+            Icon(icon, color: Colors.blue.shade700, size: iconSize),
             SizedBox(height: spacing),
             Text(
               label,
@@ -540,8 +553,8 @@ class _TableDetailPageState extends State<TableDetailPage> {
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return _buildTournamentInfoItem(
-            Icons.event_seat, 
-            '着席中人数', 
+            Icons.event_seat,
+            '着席中人数',
             'エラー',
             iconSize: iconSize,
             labelFontSize: labelFontSize,
@@ -552,8 +565,8 @@ class _TableDetailPageState extends State<TableDetailPage> {
 
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildTournamentInfoItem(
-            Icons.event_seat, 
-            '着席中人数', 
+            Icons.event_seat,
+            '着席中人数',
             '...',
             iconSize: iconSize,
             labelFontSize: labelFontSize,
@@ -573,21 +586,22 @@ class _TableDetailPageState extends State<TableDetailPage> {
           if (data == null) continue;
 
           final seats = data['seats'] as Map<String, dynamic>? ?? {};
-          final safeMax =
-              ScheduledTournamentSeatMap.resolvedTableMaxSeats(
+          final safeMax = ScheduledTournamentSeatMap.resolvedTableMaxSeats(
             data['maxSeats'],
             seats,
             fallbackWhenUnresolved: 6,
           );
           totalSeats += safeMax;
-          occupiedSeats +=
-              ScheduledTournamentSeatMap.occupiedCount(seats, safeMax);
+          occupiedSeats += ScheduledTournamentSeatMap.occupiedCount(
+            seats,
+            safeMax,
+          );
         }
 
         final displayText = '$occupiedSeats/$totalSeats';
         return _buildTournamentInfoItem(
-          Icons.event_seat, 
-          '着席中人数', 
+          Icons.event_seat,
+          '着席中人数',
           displayText,
           iconSize: iconSize,
           labelFontSize: labelFontSize,
@@ -609,8 +623,8 @@ class _TableDetailPageState extends State<TableDetailPage> {
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return _buildTournamentInfoItem(
-            Icons.people_outline, 
-            'Waiting Player', 
+            Icons.people_outline,
+            'Waiting Player',
             'エラー',
             iconSize: iconSize,
             labelFontSize: labelFontSize,
@@ -621,8 +635,8 @@ class _TableDetailPageState extends State<TableDetailPage> {
 
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildTournamentInfoItem(
-            Icons.people_outline, 
-            'Waiting Player', 
+            Icons.people_outline,
+            'Waiting Player',
             '...',
             iconSize: iconSize,
             labelFontSize: labelFontSize,
@@ -633,10 +647,10 @@ class _TableDetailPageState extends State<TableDetailPage> {
 
         final data = snapshot.data?.data() as Map<String, dynamic>?;
         final waitingCount = data?['count'] as int? ?? 0;
-        
+
         return _buildTournamentInfoItem(
-          Icons.people_outline, 
-          'Waiting Player', 
+          Icons.people_outline,
+          'Waiting Player',
           waitingCount.toString(),
           iconSize: iconSize,
           labelFontSize: labelFontSize,
@@ -668,9 +682,13 @@ class _TableDetailPageState extends State<TableDetailPage> {
               child: Center(
                 child: Container(
                   width: MediaQuery.of(context).size.width * 0.6, // 画面幅の60%
-                  height: MediaQuery.of(context).size.width * 0.4, // 画面幅の40%（3:2の比率）
+                  height:
+                      MediaQuery.of(context).size.width *
+                      0.4, // 画面幅の40%（3:2の比率）
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(MediaQuery.of(context).size.width * 0.2), // 楕円形（画面幅の20%）
+                    borderRadius: BorderRadius.circular(
+                      MediaQuery.of(context).size.width * 0.2,
+                    ), // 楕円形（画面幅の20%）
                     color: Colors.green.shade800,
                     border: Border.all(color: Colors.green.shade900, width: 3),
                     boxShadow: [
@@ -684,10 +702,8 @@ class _TableDetailPageState extends State<TableDetailPage> {
                   child: Stack(
                     children: [
                       // ブラインド情報（テーブル内中央）
-                      Center(
-                        child: _buildBlindInfo(),
-                      ),
-                      
+                      Center(child: _buildBlindInfo()),
+
                       // ディーラーポジション（中央下部）
                       Positioned(
                         bottom: 20,
@@ -719,7 +735,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
                 ),
               ),
             ),
-            
+
             // 座席配置（テーブル周囲）
             ..._buildSeatPositions(seats, maxSeats, isReadOnly: isReadOnly),
           ],
@@ -742,7 +758,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
           ),
         ),
         const SizedBox(height: 8),
-        
+
         // 現在のレベル（文字サイズ2倍）
         Text(
           'Level 1', // TODO: 後ほど実装
@@ -753,7 +769,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
           ),
         ),
         const SizedBox(height: 8),
-        
+
         // SB/BB/BBA（文字サイズ3倍）
         Text(
           '25/50/50', // TODO: 後ほど実装
@@ -764,7 +780,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
           ),
         ),
         const SizedBox(height: 8),
-        
+
         // 次のレベル
         Text(
           'Next Level : 50/100/100', // TODO: 後ほど実装
@@ -784,64 +800,69 @@ class _TableDetailPageState extends State<TableDetailPage> {
     required bool isReadOnly,
   }) {
     final widgets = <Widget>[];
-    
+
     // デバッグログ（まとめてAddonと比較用）
     print('=== tableHomeInScheduledTournament 着席者判定デバッグ ===');
     print('seats: $seats');
     print('maxSeats: $maxSeats');
-    
+
     // テーブルの中心位置を修正
     // 画面全体の幅を5分割し、左側1/5がトーナメント情報、残り4/5の中央にテーブル配置
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
     final availableWidth = screenWidth * 0.8; // 右側4/5のスペース
-    final tableCenterX = screenWidth * 0.1 + availableWidth * 0.5 - screenWidth * 0.115; // 左にずらす
+    final tableCenterX =
+        screenWidth * 0.1 + availableWidth * 0.5 - screenWidth * 0.115; // 左にずらす
     final tableCenterY = screenHeight * 0.5 - screenHeight * 0.07; // 上にずらす
-    
+
     // 座席数 + 1（ディーラーポジション含む）で等間隔配置
     final totalPositions = maxSeats + 1;
-    
+
     for (int i = 1; i <= maxSeats; i++) {
       final seatData = ScheduledTournamentSeatMap.seatDataAt(seats, i);
 
       print('席番号 $i:');
       print('  seatData: $seatData');
       print('  isOccupied: ${seatData.isOccupied}');
-      
+
       // 座席の位置を計算（左右反転）
       // 左右反転: -cos(angle) を使用
-      final angle = i * (2 * 3.14159 / totalPositions) - (3.14159 / 2); // 12時方向から開始
-      
+      final angle =
+          i * (2 * 3.14159 / totalPositions) - (3.14159 / 2); // 12時方向から開始
+
       // 楕円の配置（画面サイズに応じた楕円周上に配置）
       final ellipseWidth = MediaQuery.of(context).size.width * 0.64; // 画面幅の75%
-      final ellipseHeight = MediaQuery.of(context).size.width * 0.44; // 画面幅の50%（3:2の比率）
+      final ellipseHeight =
+          MediaQuery.of(context).size.width * 0.44; // 画面幅の50%（3:2の比率）
       final a = ellipseWidth / 2; // 楕円の横半径
       final b = ellipseHeight / 2; // 楕円の縦半径
-      
+
       final x = tableCenterX - a * cos(angle); // 左右反転
       final y = tableCenterY - b * sin(angle); // 上下反転
-      
+
       widgets.add(
         Positioned(
           left: x - 60, // 120pxの座席サイズの半分（横幅が2倍になったため）
-          top: y - 30,  // 60pxの座席サイズの半分（縦幅は変わらない）
+          top: y - 30, // 60pxの座席サイズの半分（縦幅は変わらない）
           child: _buildSeatWidget(i, seatData, isReadOnly: isReadOnly),
         ),
       );
     }
-    
+
     return widgets;
   }
 
-  Widget _buildSeatWidget(int seatNo, SeatData seat, {required bool isReadOnly}) {
+  Widget _buildSeatWidget(
+    int seatNo,
+    SeatData seat, {
+    required bool isReadOnly,
+  }) {
     final isOccupied = seat.isOccupied;
     VoidCallback? onTap;
     if (!isReadOnly) {
       if (seat.isOkibakeSeat) {
         onTap = () => _showOkibakeSeatActionDialog(seat);
-      } else if (isOccupied &&
-          seat.userId != null &&
-          seat.userId!.isNotEmpty) {
+      } else if (isOccupied && seat.userId != null && seat.userId!.isNotEmpty) {
         final uid = seat.userId!;
         final name = seat.pokerName ?? '';
         onTap = () => _showPlayerInfo(uid, name, seatNo);
@@ -871,52 +892,54 @@ class _TableDetailPageState extends State<TableDetailPage> {
                 : (isOccupied ? Colors.blue : Colors.grey.shade400),
             width: 2,
           ),
-          boxShadow: isOccupied ? [
-            BoxShadow(
-              color: (seat.isOkibakeSeat ? Colors.amber : Colors.blue)
-                  .withValues(alpha: 0.3),
-              blurRadius: 5,
-              offset: const Offset(0, 2),
-            ),
-          ] : null,
+          boxShadow: isOccupied
+              ? [
+                  BoxShadow(
+                    color: (seat.isOkibakeSeat ? Colors.amber : Colors.blue)
+                        .withValues(alpha: 0.3),
+                    blurRadius: 5,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
         ),
         child: Center(
           child: isOccupied
               ? Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                                         Icon(
-                       seat.isOkibakeSeat
-                           ? Icons.face_retouching_natural
-                           : Icons.person,
-                       size: 20,
-                       color: seat.isOkibakeSeat
-                           ? Colors.amber.shade800
-                           : Colors.blue.shade700,
-                     ),
-                                         Text(
-                       seat.pokerName ?? 'Unknown',
-                       style: TextStyle(
-                         fontSize: 10,
-                         color: seat.isOkibakeSeat
-                             ? Colors.amber.shade800
-                             : Colors.blue.shade700,
-                         fontWeight: FontWeight.bold,
-                       ),
-                       textAlign: TextAlign.center,
-                       maxLines: 1,
-                       overflow: TextOverflow.ellipsis,
-                       ),
+                    Icon(
+                      seat.isOkibakeSeat
+                          ? Icons.face_retouching_natural
+                          : Icons.person,
+                      size: 20,
+                      color: seat.isOkibakeSeat
+                          ? Colors.amber.shade800
+                          : Colors.blue.shade700,
+                    ),
+                    Text(
+                      seat.pokerName ?? 'Unknown',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: seat.isOkibakeSeat
+                            ? Colors.amber.shade800
+                            : Colors.blue.shade700,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 )
-              :                    Text(
-                     seatNo.toString(),
-                     style: TextStyle(
-                       fontSize: 14,
-                       color: Colors.grey.shade600,
-                       fontWeight: FontWeight.bold,
-                     ),
-                   ),
+              : Text(
+                  seatNo.toString(),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
         ),
       ),
     );
@@ -965,35 +988,23 @@ class _TableDetailPageState extends State<TableDetailPage> {
           .doc(userId)
           .get();
       if (activeStayDoc.exists) {
-        final data = activeStayDoc.data();
-        billId = data?['billId'] as String?;
+        billId = activeStayDoc.data()?['billId'] as String?;
       }
-    } catch (_) {
-      billId = null;
+    } catch (e) {
+      debugPrint('activeStaysからのbillId取得に失敗: $e');
     }
 
-    if (billId == null || billId.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('伝票IDが見つかりません'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
+    if (!mounted) return;
 
-    final user = {
+    final user = <String, dynamic>{
       'userId': userId,
       'pokerName': pokerName,
-      'billId': billId,
       'tournamentId': widget.tournamentId,
       'tableId': widget.tableId,
       'seatNumber': seatNumber,
+      if (billId != null && billId.isNotEmpty) 'billId': billId,
     };
 
-    if (!mounted) return;
-    
     showUserActionHome(
       context: context,
       sourcePage: 'tableHomeInScheduledTournament',
@@ -1005,7 +1016,8 @@ class _TableDetailPageState extends State<TableDetailPage> {
     return StreamBuilder<StoreConfigData>(
       stream: StoreConfigService.instance.stream,
       initialData:
-          StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults(),
+          StoreConfigService.instance.latestData ??
+          StoreConfigData.fromDefaults(),
       builder: (context, snapshot) {
         final config = snapshot.data ?? StoreConfigData.fromDefaults();
         final canViewHistory =
@@ -1117,9 +1129,9 @@ class _TableDetailPageState extends State<TableDetailPage> {
           prelockedSeatNumber: seatNumber,
           onSeatAssigned: () {
             if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('着席操作が完了しました')),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('着席操作が完了しました')));
             _loadTableData();
           },
         );

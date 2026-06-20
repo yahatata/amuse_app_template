@@ -1,5 +1,6 @@
 import 'package:amuse_app_template/Home/adminHomePage.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
+import 'package:amuse_app_template/models/device.dart';
 import 'package:amuse_app_template/pages/device_registration_page.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/payroll_config_service.dart';
@@ -91,11 +92,21 @@ class _AppInitializerState extends State<AppInitializer> {
       if (!mounted) return;
 
       if (isRegistered) {
-        // 登録済みの場合、デバイス情報を取得して適切な画面に遷移
         final device = await _deviceService.getCurrentDevice();
-        
-        if (device != null && device.status == 'active') {
-          // デバイスがアクティブな場合、役割に応じて画面を選択
+
+        if (!mounted) return;
+
+        if (device == null) {
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (context) => const DeviceRegistrationPage()),
+            );
+          }
+          return;
+        }
+
+        final status = DeviceStatus.fromString(device.status);
+        if (status == DeviceStatus.active) {
           if (device.role == 'admin') {
             if (mounted) {
               Navigator.of(context).pushReplacement(
@@ -117,8 +128,19 @@ class _AppInitializerState extends State<AppInitializer> {
               );
             }
           }
+        } else if (status == DeviceStatus.blocked) {
+          setState(() {
+            _error = 'このデバイスはブロックされています。管理者にお問い合わせください。';
+            _isLoading = false;
+          });
+        } else if (status.isRemovedFromService) {
+          await _deviceService.clearLocalCache();
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (context) => const DeviceRegistrationPage()),
+            );
+          }
         } else {
-          // デバイスがブロックまたは退役している場合
           setState(() {
             _error = 'このデバイスは使用できません。管理者にお問い合わせください。';
             _isLoading = false;
