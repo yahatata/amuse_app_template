@@ -179,7 +179,7 @@ class _TournamentSelectPageState extends State<TournamentSelectPage>
           .doc(_myTableId)
           .get();
 
-      if (tableDoc.exists) {
+      if (tableDoc.exists && tableDoc.data()?['isEnabled'] != false) {
         result.add(doc);
       }
     }

@@ -4,6 +4,7 @@ import 'package:amuse_app_template/pages/device_registration_page.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/payroll_config_service.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
+import 'package:amuse_app_template/tableDevice/pages/table_device_home_page.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -99,6 +100,14 @@ class _AppInitializerState extends State<AppInitializer> {
             if (mounted) {
               Navigator.of(context).pushReplacement(
                 MaterialPageRoute(builder: (context) => const AdminHomePage()),
+              );
+            }
+          } else if (device.role == 'table') {
+            if (mounted) {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder: (context) => const TableDedicatedHomePage(),
+                ),
               );
             }
           } else {

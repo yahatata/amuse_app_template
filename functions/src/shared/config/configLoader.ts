@@ -66,6 +66,13 @@ import {
   DEFAULT_TEMPLATE_BUSINESSDATE_CHECK,
   DEFAULT_SETTLEMENT_AGGREGATOR_ENABLED,
   DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED,
+  DEFAULT_TABLE_DEVICE_FORCE_CLEAR_PASSCODE,
+  DEFAULT_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED,
+  INITIAL_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED,
+  DEFAULT_TABLE_DEVICE_ACTION_HISTORY_VIEW_ENABLED,
+  DEFAULT_TABLE_DEVICE_ACTION_HISTORY_ROLLBACK_ENABLED,
+  INITIAL_TABLE_DEVICE_ACTION_HISTORY_VIEW_ENABLED,
+  INITIAL_TABLE_DEVICE_ACTION_HISTORY_ROLLBACK_ENABLED,
   DEFAULT_CREATE_ATTENDANCE_BY_MANUAL,
   DEFAULT_REPORTING_AGGREGATOR_ENABLED,
   DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_ENABLED,
@@ -164,6 +171,15 @@ export function buildFromDefaults(): StoreConfig {
       createAttendanceByManual: DEFAULT_CREATE_ATTENDANCE_BY_MANUAL,
       reportingAggregatorEnabled: DEFAULT_REPORTING_AGGREGATOR_ENABLED,
     },
+    tableDevice: {
+      forceClearPasscode: DEFAULT_TABLE_DEVICE_FORCE_CLEAR_PASSCODE,
+      tournamentSeatAssignmentEnabled:
+        DEFAULT_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED,
+      actionHistoryViewEnabled:
+        DEFAULT_TABLE_DEVICE_ACTION_HISTORY_VIEW_ENABLED,
+      actionHistoryRollbackEnabled:
+        DEFAULT_TABLE_DEVICE_ACTION_HISTORY_ROLLBACK_ENABLED,
+    },
     attendanceTimeAdjustment: {
       enabled: DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_ENABLED,
       maxFutureMinutes: DEFAULT_ATTENDANCE_TIME_ADJUSTMENT_MAX_FUTURE_MINUTES,
@@ -228,6 +244,20 @@ export function buildFromDefaults(): StoreConfig {
   };
 }
 
+export function buildConfigForInitialization(): StoreConfig {
+  const config = buildFromDefaults();
+  config.tableDevice = {
+    ...config.tableDevice,
+    tournamentSeatAssignmentEnabled:
+      INITIAL_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED,
+    actionHistoryViewEnabled:
+      INITIAL_TABLE_DEVICE_ACTION_HISTORY_VIEW_ENABLED,
+    actionHistoryRollbackEnabled:
+      INITIAL_TABLE_DEVICE_ACTION_HISTORY_ROLLBACK_ENABLED,
+  };
+  return config;
+}
+
 /**
  * Firestore の生ドキュメント断片と defaults をマージする内部処理。
  *
@@ -278,6 +308,75 @@ export function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
     } else fb('features.reportingAggregatorEnabled', 'field_missing', result.features!.reportingAggregatorEnabled);
   } else {
     fb('features', 'field_missing', result.features);
+  }
+
+  // tableDevice
+  const tableDevice = raw.tableDevice as Record<string, unknown> | undefined;
+  if (tableDevice && typeof tableDevice === 'object') {
+    if (
+      typeof tableDevice.forceClearPasscode === 'string' &&
+      /^\d{4}$/.test(tableDevice.forceClearPasscode)
+    ) {
+      result.tableDevice!.forceClearPasscode = tableDevice.forceClearPasscode;
+      fromConfig.push('tableDevice.forceClearPasscode');
+    } else {
+      const hasField = Object.prototype.hasOwnProperty.call(
+        tableDevice,
+        'forceClearPasscode'
+      );
+      fb(
+        'tableDevice.forceClearPasscode',
+        hasField ? 'invalid_value' : 'field_missing',
+        result.tableDevice!.forceClearPasscode
+      );
+    }
+    if (typeof tableDevice.tournamentSeatAssignmentEnabled === 'boolean') {
+      result.tableDevice!.tournamentSeatAssignmentEnabled =
+        tableDevice.tournamentSeatAssignmentEnabled;
+      fromConfig.push('tableDevice.tournamentSeatAssignmentEnabled');
+    } else {
+      const hasField = Object.prototype.hasOwnProperty.call(
+        tableDevice,
+        'tournamentSeatAssignmentEnabled'
+      );
+      fb(
+        'tableDevice.tournamentSeatAssignmentEnabled',
+        hasField ? 'invalid_value' : 'field_missing',
+        result.tableDevice!.tournamentSeatAssignmentEnabled
+      );
+    }
+    if (typeof tableDevice.actionHistoryViewEnabled === 'boolean') {
+      result.tableDevice!.actionHistoryViewEnabled =
+        tableDevice.actionHistoryViewEnabled;
+      fromConfig.push('tableDevice.actionHistoryViewEnabled');
+    } else {
+      const hasField = Object.prototype.hasOwnProperty.call(
+        tableDevice,
+        'actionHistoryViewEnabled'
+      );
+      fb(
+        'tableDevice.actionHistoryViewEnabled',
+        hasField ? 'invalid_value' : 'field_missing',
+        result.tableDevice!.actionHistoryViewEnabled
+      );
+    }
+    if (typeof tableDevice.actionHistoryRollbackEnabled === 'boolean') {
+      result.tableDevice!.actionHistoryRollbackEnabled =
+        tableDevice.actionHistoryRollbackEnabled;
+      fromConfig.push('tableDevice.actionHistoryRollbackEnabled');
+    } else {
+      const hasField = Object.prototype.hasOwnProperty.call(
+        tableDevice,
+        'actionHistoryRollbackEnabled'
+      );
+      fb(
+        'tableDevice.actionHistoryRollbackEnabled',
+        hasField ? 'invalid_value' : 'field_missing',
+        result.tableDevice!.actionHistoryRollbackEnabled
+      );
+    }
+  } else {
+    fb('tableDevice', 'field_missing', result.tableDevice);
   }
 
   // attendanceTimeAdjustment
@@ -615,6 +714,29 @@ export function mergeConfigForUpsert(
     tableDeviceRegistrationEnabled: typeof featEx?.tableDeviceRegistrationEnabled === 'boolean' ? featEx.tableDeviceRegistrationEnabled : featDef.tableDeviceRegistrationEnabled,
     createAttendanceByManual: typeof featEx?.createAttendanceByManual === 'boolean' ? featEx.createAttendanceByManual : featDef.createAttendanceByManual,
     reportingAggregatorEnabled: typeof featEx?.reportingAggregatorEnabled === 'boolean' ? featEx.reportingAggregatorEnabled : featDef.reportingAggregatorEnabled,
+  };
+
+  // tableDevice
+  const tdDef = defaults.tableDevice!;
+  const tdEx = ex.tableDevice as Record<string, unknown> | undefined;
+  out.tableDevice = {
+    forceClearPasscode:
+      typeof tdEx?.forceClearPasscode === 'string' &&
+      /^\d{4}$/.test(tdEx.forceClearPasscode)
+        ? tdEx.forceClearPasscode
+        : tdDef.forceClearPasscode,
+    tournamentSeatAssignmentEnabled:
+      typeof tdEx?.tournamentSeatAssignmentEnabled === 'boolean'
+        ? tdEx.tournamentSeatAssignmentEnabled
+        : tdDef.tournamentSeatAssignmentEnabled,
+    actionHistoryViewEnabled:
+      typeof tdEx?.actionHistoryViewEnabled === 'boolean'
+        ? tdEx.actionHistoryViewEnabled
+        : tdDef.actionHistoryViewEnabled,
+    actionHistoryRollbackEnabled:
+      typeof tdEx?.actionHistoryRollbackEnabled === 'boolean'
+        ? tdEx.actionHistoryRollbackEnabled
+        : tdDef.actionHistoryRollbackEnabled,
   };
 
   // attendanceTimeAdjustment

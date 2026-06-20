@@ -59,6 +59,31 @@ describe('endTournament pending review block details', () => {
     });
   }
 
+  async function seedTournamentTable(tournamentId: string, tableId: string) {
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('tablesSeat')
+      .doc(tableId)
+      .set({
+        isEnabled: true,
+        seats: {
+          seat01UserId: null,
+          seat01PokerName: null,
+        },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    await db.collection('tables').doc(tableId).set({
+      status: 'tournament',
+      tournamentDetail: {
+        tournamentId,
+        tournamentName: 'TN-end',
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
   async function seedOkibakeEntry(
     tournamentId: string,
     entryId: string,
@@ -161,5 +186,21 @@ describe('endTournament pending review block details', () => {
       .get();
     expect(linkedDoc.data()?.billLinkStatus).toBe('linked');
   });
-});
 
+  it('終了時に tables.tournamentDetail をクリアし、status を open に戻す', async () => {
+    const uid = 'u-end-cleanup';
+    const tid = 't-end-cleanup';
+    const tableId = 'TableCleanup';
+
+    await seedDevice(uid);
+    await seedTournament(tid);
+    await seedTournamentTable(tid, tableId);
+
+    const res = await runEnd(uid, tid);
+    expect(res.success).toBe(true);
+
+    const tableDoc = await db.collection('tables').doc(tableId).get();
+    expect(tableDoc.data()?.status).toBe('open');
+    expect(tableDoc.data()?.tournamentDetail).toBeUndefined();
+  });
+});

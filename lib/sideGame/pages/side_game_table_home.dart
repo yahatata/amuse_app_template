@@ -14,11 +14,25 @@ import 'package:intl/intl.dart';
 class SideGameTableHomePage extends StatefulWidget {
   final String tableId;
   final String gameName;
+  final Widget? drawer;
+  final bool disableBackNavigation;
+  final bool automaticallyImplyLeading;
+  final bool showDebugActions;
+  final bool allowGameNameChange;
+  final bool showEndGameButton;
+  final VoidCallback? onGameEnded;
 
   const SideGameTableHomePage({
     super.key,
     required this.tableId,
     required this.gameName,
+    this.drawer,
+    this.disableBackNavigation = false,
+    this.automaticallyImplyLeading = true,
+    this.showDebugActions = true,
+    this.allowGameNameChange = true,
+    this.showEndGameButton = true,
+    this.onGameEnded,
   });
 
   @override
@@ -121,8 +135,18 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final scaffold = Scaffold(
+      drawer: widget.drawer,
       appBar: AppBar(
+        automaticallyImplyLeading: widget.automaticallyImplyLeading,
+        leading: widget.drawer != null
+            ? Builder(
+                builder: (context) => IconButton(
+                  icon: const Icon(Icons.menu),
+                  onPressed: () => Scaffold.of(context).openDrawer(),
+                ),
+              )
+            : null,
         title: Text(widget.tableId),
         centerTitle: true,
         backgroundColor: Colors.grey,
@@ -130,7 +154,8 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
         actions: [
           _buildStoreStatusAction(context),
           // ゲーム名表示と変更ボタン
-          PopupMenuButton<String>(
+          if (widget.allowGameNameChange)
+            PopupMenuButton<String>(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
@@ -193,20 +218,22 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
                   Text('エラー: ${snapshot.error}'),
                   const SizedBox(height: 8),
                   Text('テーブルID: ${widget.tableId}'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () {
-                      _createSideGameDocument();
-                    },
-                    child: const Text('ドキュメントを作成'),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
-                    onPressed: () {
-                      _debugSideGame();
-                    },
-                    child: const Text('デバッグ実行'),
-                  ),
+                  if (widget.showDebugActions) ...[
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () {
+                        _createSideGameDocument();
+                      },
+                      child: const Text('ドキュメントを作成'),
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: () {
+                        _debugSideGame();
+                      },
+                      child: const Text('デバッグ実行'),
+                    ),
+                  ],
                 ],
               ),
             );
@@ -229,13 +256,15 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
                   ),
                   const SizedBox(height: 8),
                   Text('テーブルID: ${widget.tableId}'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () {
-                      _createSideGameDocument();
-                    },
-                    child: const Text('ドキュメントを作成'),
-                  ),
+                  if (widget.showDebugActions) ...[
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () {
+                        _createSideGameDocument();
+                      },
+                      child: const Text('ドキュメントを作成'),
+                    ),
+                  ],
                 ],
               ),
             );
@@ -252,27 +281,36 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
                 child: _buildTableDisplay(maxSeats, seats),
               ),
               
-              // 終了処理ボタン
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Align(
-                  alignment: Alignment.bottomRight,
-                  child: ElevatedButton.icon(
-                    onPressed: _showEndGameDialog,
-                    icon: const Icon(Icons.stop),
-                    label: const Text('終了処理'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
+              if (widget.showEndGameButton)
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Align(
+                    alignment: Alignment.bottomRight,
+                    child: ElevatedButton.icon(
+                      onPressed: _showEndGameDialog,
+                      icon: const Icon(Icons.stop),
+                      label: const Text('終了処理'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      ),
                     ),
                   ),
                 ),
-              ),
             ],
           );
         },
       ),
     );
+
+    if (widget.disableBackNavigation) {
+      return PopScope(
+        canPop: false,
+        child: scaffold,
+      );
+    }
+
+    return scaffold;
   }
 
   Widget _buildTableDisplay(int maxSeats, Map<String, dynamic> seats) {
@@ -600,7 +638,11 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.of(context).pop();
+        if (widget.onGameEnded != null) {
+          widget.onGameEnded!.call();
+        } else {
+          Navigator.of(context).pop();
+        }
       }
     } catch (e) {
       if (mounted) {

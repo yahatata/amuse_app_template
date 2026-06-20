@@ -16,6 +16,12 @@ const payloadSchema = z.object({
   optionParams: z.record(optionParamsEntrySchema).optional(),
 });
 
+const ALLOWED_OPTION_PARAM_KEYS = new Set([
+  "tournament_table",
+  "side_game",
+  "table_device_table",
+]);
+
 // 排他グループ: 同時にtrueにできないオプションのグループ
 const EXCLUSIVE_GROUPS: string[][] = [
   ["tournament", "tournament_table"],
@@ -67,6 +73,37 @@ export const updateDeviceOptions = onCall(async (request) => {
     if (!targetDoc.exists) {
       throw new HttpsError("not-found", "対象デバイスが存在しません");
     }
+    const targetRole = targetDoc.data()?.role as string | undefined;
+
+    if (optionParams !== undefined) {
+      for (const key of Object.keys(optionParams)) {
+        if (!ALLOWED_OPTION_PARAM_KEYS.has(key)) {
+          throw new HttpsError(
+            "invalid-argument",
+            `optionParams のキー ${key} は許可されていません`
+          );
+        }
+      }
+    }
+
+    if (targetRole === "table") {
+      const enabledOptions = Object.entries(options).filter(([, value]) => value);
+      if (enabledOptions.length > 0) {
+        throw new HttpsError(
+          "invalid-argument",
+          "role: table では options を有効化できません"
+        );
+      }
+      if (
+        optionParams !== undefined &&
+        Object.keys(optionParams).some((key) => key !== "table_device_table")
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "role: table では table_device_table 以外の optionParams を設定できません"
+        );
+      }
+    }
 
     // 更新データを構築
     const updateData: Record<string, unknown> = {
@@ -86,6 +123,7 @@ export const updateDeviceOptions = onCall(async (request) => {
       operation: "updateDeviceOptionsCatch",
       context: {
         targetDeviceId: deviceId,
+        targetRole,
         callerDeviceId: callerSnap.docs[0].id,
         callerUid,
       },

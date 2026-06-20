@@ -176,7 +176,8 @@ class Device {
 /// デバイスの役割
 enum DeviceRole {
   admin('admin'),
-  terminal('terminal');
+  terminal('terminal'),
+  table('table');
 
   const DeviceRole(this.value);
   final String value;
@@ -187,6 +188,8 @@ enum DeviceRole {
         return DeviceRole.admin;
       case 'terminal':
         return DeviceRole.terminal;
+      case 'table':
+        return DeviceRole.table;
       default:
         return DeviceRole.terminal;
     }

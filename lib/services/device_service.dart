@@ -341,6 +341,11 @@ class DeviceService {
     return _cachedDevice?.getTableIdForOption(optionKey);
   }
 
+  /// 卓専用デバイスに紐づく卓IDを取得
+  String? getTableIdForTableDevice() {
+    return getTableIdForOption(DeviceOptionKeys.tableDeviceTable);
+  }
+
   /// 全デバイスのoptionParamsを取得（卓除外用）
   Future<List<Map<String, dynamic>>> getAllDeviceOptionParams() async {
     try {
@@ -376,6 +381,17 @@ class DeviceService {
       return device?.role == 'terminal';
     } catch (e) {
       print('ターミナルチェックエラー: $e');
+      return false;
+    }
+  }
+
+  /// デバイスが卓専用かチェック
+  Future<bool> isTableDevice() async {
+    try {
+      final device = await getCurrentDevice();
+      return device?.role == 'table';
+    } catch (e) {
+      print('卓専用チェックエラー: $e');
       return false;
     }
   }

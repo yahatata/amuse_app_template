@@ -10,6 +10,10 @@ import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operatio
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import {
+  assertTableDeviceTournamentSeatAssignmentEnabled,
+  extractBoundTableId,
+} from '../../../table_device/lib/shared';
 
 // 入力スキーマ
 const assignSeatToPlayerSchema = z.object({
@@ -35,22 +39,37 @@ export const assignSeatToPlayer = onCall(async (request) => {
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
-    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
-    if (!hasPermission) {
-      throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
-    }
 
     const startedAt = FieldValue.serverTimestamp();
     const { data } = request;
     const { operationId, tournamentId, userId, tableId, seatNumber, deviceName } = assignSeatToPlayerSchema.parse(data);
+    const db = admin.firestore();
+
+    if (device.role === 'table') {
+      await assertTableDeviceTournamentSeatAssignmentEnabled(db, device);
+      const boundTableId = extractBoundTableId(device);
+      if (boundTableId == null) {
+        throw new HttpsError(
+          'failed-precondition',
+          '卓の紐付けが未設定です。管理者に連絡してください。',
+        );
+      }
+      if (boundTableId !== tableId) {
+        throw new HttpsError('permission-denied', 'この卓を操作する権限がありません');
+      }
+    } else {
+      const hasPermission =
+        device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+      if (!hasPermission) {
+        throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+      }
+    }
     
     console.log(`=== 待機者着席開始 ===`);
     console.log(`tournamentId: ${tournamentId}`);
     console.log(`userId: ${userId}`);
     console.log(`tableId: ${tableId}`);
     console.log(`seatNumber: ${seatNumber}`);
-    
-    const db = admin.firestore();
     
     // トランザクション開始（scheduledTournamentsの更新）
     const transactionResult = await db.runTransaction(async (transaction) => {

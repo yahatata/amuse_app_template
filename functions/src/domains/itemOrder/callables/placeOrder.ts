@@ -18,6 +18,7 @@ import { addLogEntry } from "../../user/services/logUtils";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
+import { assertTableDeviceCanAccessTable } from "../../../table_device/lib/shared";
 
 export const placeOrder = onCall(async (request) => {
   const db = getFirestore();
@@ -36,7 +37,10 @@ export const placeOrder = onCall(async (request) => {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
 
-    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'order');
+    const hasPermission =
+      device.role === 'admin' ||
+      device.role === 'table' ||
+      hasRequiredOption(device.options, 'order');
     if (!hasPermission) {
       throw new HttpsError('permission-denied', '注文操作の権限がありません');
     }
@@ -75,10 +79,24 @@ export const placeOrder = onCall(async (request) => {
     
     const billData = billSnap.data()!;
     const status = billData.status as string;
+    const currentTable = (billData.place?.table as string) || '';
     
     // status チェック: open/in_progress のみ許可
     if (status !== 'open' && status !== 'in_progress') {
       throw new HttpsError('failed-precondition', `注文できない伝票の状態です: ${status}`);
+    }
+
+    if (device.role === 'table') {
+      if (!currentTable) {
+        throw new HttpsError(
+          'failed-precondition',
+          'この伝票は卓に紐付いていないため、卓端末から注文できません',
+        );
+      }
+      assertTableDeviceCanAccessTable({
+        device,
+        requestedTableId: currentTable,
+      });
     }
     
     const userId = (billData.party?.userId as string) || '';
@@ -168,7 +186,7 @@ export const placeOrder = onCall(async (request) => {
       const idempotencyKey = `appendItem:${billId}:${clientNonce}`;
       const businessDate = billData.businessDate as string;
       const userName = (billData.party?.pokerName as string) || '';
-      const currentTable = (billData.place?.table as string) || null;
+      const currentTableOrNull = currentTable || null;
       const currentSeat = (billData.place?.seat as number) || null;
 
       const appendResult = await appendItemWithOrderProjection({
@@ -182,7 +200,7 @@ export const placeOrder = onCall(async (request) => {
         businessDate,
         userId,
         userName,
-        currentTable,
+        currentTable: currentTableOrNull,
         currentSeat,
       });
 

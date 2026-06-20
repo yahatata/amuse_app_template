@@ -88,6 +88,12 @@ export const addTableToTournament = onCall(async (request) => {
       }
 
       const tournamentStatus = tournamentDoc.data()?.status as string | undefined;
+      const tournamentData = tournamentDoc.data() ?? {};
+      const tournamentName =
+        (tournamentData.snapshot as Record<string, unknown> | undefined)?.[
+          'name'
+        ] ?? '';
+      const startAt = tournamentData.startAt ?? null;
       if (
         isTournamentClosedOrInvalid(tournamentStatus) ||
         !ALLOWED_TOURNAMENT_STATUSES.has(tournamentStatus ?? '')
@@ -121,7 +127,7 @@ export const addTableToTournament = onCall(async (request) => {
         });
       }
 
-      if (tournamentTableDoc.exists) {
+      if (tournamentTableDoc.exists && tournamentTableDoc.data()?.isEnabled !== false) {
         throw new FunctionCustomError({
           errorKey: 'TOURNAMENT_TABLE_ALREADY_EXISTS',
           message: 'この卓は既にトーナメントに登録されています',
@@ -132,6 +138,11 @@ export const addTableToTournament = onCall(async (request) => {
       // 2. テーブルステータスをtournamentに変更
       transaction.update(tableRef, {
         status: 'tournament',
+        tournamentDetail: {
+          tournamentId,
+          tournamentName,
+          startAt,
+        },
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       
@@ -143,13 +154,22 @@ export const addTableToTournament = onCall(async (request) => {
         seats[`seat${seatNumber}PokerName`] = null;
       }
       
-      transaction.set(tournamentTableRef, {
-        maxSeats: maxSeats,
-        seats: seats,
-        isEnabled: true,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      if (tournamentTableDoc.exists) {
+        transaction.update(tournamentTableRef, {
+          maxSeats: maxSeats,
+          seats: seats,
+          isEnabled: true,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        transaction.set(tournamentTableRef, {
+          maxSeats: maxSeats,
+          seats: seats,
+          isEnabled: true,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
       
       // 4. eventsサブコレクションに記録（ロールバック用）
       // TODO: 今後実装予定 - eventsサブコレクションへの記録

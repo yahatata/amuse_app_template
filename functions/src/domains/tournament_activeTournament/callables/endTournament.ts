@@ -1,5 +1,5 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import * as crypto from 'crypto';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { writeSingleOperationLog } from '../../logs/lib/operationLog';
@@ -110,7 +110,11 @@ export const endTournament = onCall(async (request) => {
       for (const tableName of tableNames) {
         if (beforeTableStatuses[tableName] !== undefined) {
           const tableRef = db.collection('tables').doc(tableName);
-          transaction.update(tableRef, { status: 'open' });
+          transaction.update(tableRef, {
+            status: 'open',
+            tournamentDetail: FieldValue.delete(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
         }
       }
 

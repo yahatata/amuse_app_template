@@ -1,34 +1,41 @@
 # テーブルデバイス
 
-## このタスクの要点
+## このディレクトリの位置づけ
 
-`table device` は、既存 docs 上ではかなり詳しい ToBe 仕様があります。  
-しかし現行コードを見る限り、実装はまだほぼ始まっていません。
+このディレクトリは、`tableDevice` 機能の残タスク整理用です。  
+**仕様の正本は [docs/table_device/tobe_spec.md](/Users/yahatayuusei/Documents/GitHub/amuse_app_template/docs/table_device/tobe_spec.md:1) とし、本ディレクトリ配下はその仕様を前提に実装を分解・整理するために使います。**
 
-## 現状整理
+## 現在の前提
 
-- `docs/table_device/tobe_spec.md` は詳細です。
-- ただし Flutter には `lib/tableDevice/` がありません。
-- Functions にも専用ドメインがありません。
-- `main.dart` に `table` role のルーティングがありません。
-- device role 更新 callable は `admin` / `terminal` しか受けません。
+- `tableDevice` は**顧客端末ではなく、店舗従業員（ディーラー）が操作する卓専用端末**として扱う
+- `role: table` を独立 role として追加する
+- `tables/{tableId}` を卓状態の単一参照先とし、`tournamentDetail` を採用する
+- サイドゲーム中の `tables.status` は固定値 `sideGame` ではなく、**ゲーム名**を保持する
+- `tableDevice` はデバイス登録画面でも登録できる
+- 同一卓に複数の `tableDevice` を紐付けることを許容する
+- `TABLE_DEVICE_REGISTRATION_ENABLED` と `FORCE_CLEAR_PASSCODE` は `dart-define` ではなく `storeMeta/config` で扱う
+- `FORCE_CLEAR_PASSCODE` は強い秘匿情報ではなく、**誤操作防止用**として扱う
 
-## いま言える状態評価
+## 現在の状態評価
 
-- 仕様書: かなりある
-- 実装: ほぼ未着手
-- 判断の主戦場: 実装方法ではなく、今の spec をそのまま採用するか
+- 仕様: `tobe_spec` を正として着手可能な状態まで整理済み
+- 実装: まだほぼ未着手
+- 主戦場: 仕様検討ではなく、**実装計画の分解と Phase ごとの実装**へ移っている
 
 ## このタスクの本質
 
 単に「卓に置く端末を作る」だけではありません。  
-実際には次をどう切り分けるかの設計タスクです。
+実際には、次を一貫した設計で実装するタスクです。
 
-- terminal と table device を別 role にするか
-- どの操作を卓専用に許すか
-- トーナメント卓とサイドゲーム卓を同じ考え方で扱うか
+- `role: table` の追加
+- 卓専用 Home / Drawer / 詳細画面の実装
+- トーナメント / サイドゲームの卓状態管理
+- `storeMeta/config` を使った卓デバイス設定管理
+- 既存の tournament / sideGame 実装との差分吸収
+- 論理削除や権限制御の整合
 
 ## 関連が強いタスク
 
+- `06_config整理とデフォルト方針`
 - `05_LIFFトーナメント参加導線`
 - `10_UI綺麗化と権限別HOME再設計`

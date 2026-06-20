@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/device_service.dart';
 import '../Home/adminHomePage.dart';
 import '../Home/terminalHomePage.dart';
+import '../tableDevice/pages/table_device_home_page.dart';
 
 /// デバイス登録画面
 class DeviceRegistrationPage extends StatefulWidget {
@@ -49,6 +50,12 @@ class _DeviceRegistrationPageState extends State<DeviceRegistrationPage> {
           if (device.role == 'admin') {
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(builder: (context) => const AdminHomePage()),
+            );
+          } else if (device.role == 'table') {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (context) => const TableDedicatedHomePage(),
+              ),
             );
           } else {
             Navigator.of(context).pushReplacement(
@@ -197,6 +204,20 @@ class _DeviceRegistrationPageState extends State<DeviceRegistrationPage> {
                         title: const Text('ターミナル'),
                         subtitle: const Text('基本的な操作のみ'),
                         value: 'terminal',
+                        groupValue: _selectedRole,
+                        onChanged: _isLoading
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  _selectedRole = value!;
+                                });
+                              },
+                        activeColor: Colors.blue[700],
+                      ),
+                      RadioListTile<String>(
+                        title: const Text('卓専用端末'),
+                        subtitle: const Text('卓運用に必要な導線のみを表示'),
+                        value: 'table',
                         groupValue: _selectedRole,
                         onChanged: _isLoading
                             ? null

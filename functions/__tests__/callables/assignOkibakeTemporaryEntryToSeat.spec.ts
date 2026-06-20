@@ -49,6 +49,23 @@ describe('assignOkibakeTemporaryEntryToSeat', () => {
     });
   }
 
+  async function seedTableDevice(uid: string, tableId: string) {
+    await db.collection('devices').doc(`table_${uid}`).set({
+      uid,
+      role: 'table',
+      status: 'active',
+      name: 'Table Okibake Assign',
+      options: {},
+      optionParams: {
+        table_device_table: {
+          tableId,
+        },
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
   function baseOkibakeEntry(entryId: string, tournamentId: string, overrides: Record<string, unknown> = {}) {
     const nowTs = admin.firestore.FieldValue.serverTimestamp();
     return {
@@ -84,6 +101,7 @@ describe('assignOkibakeTemporaryEntryToSeat', () => {
 
   async function seedTournamentViews(tournamentId: string, waitingCount: number, seatedCount = 5) {
     await db.collection('scheduledTournaments').doc(tournamentId).set({
+      status: 'running',
       okibakeNextDisplayNumber: 1,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -188,6 +206,54 @@ describe('assignOkibakeTemporaryEntryToSeat', () => {
     const opPayload = op.data()!.payload as Record<string, unknown>;
     expect(opPayload.playerName).toBe('オキハッピー');
     expect(opPayload.seatNumber).toBe(1);
+  });
+
+  it('table role は設定有効時に紐付いた卓へ置きバケ待機者を着席できる', async () => {
+    const uid = 'u-table-okibake-1';
+    const tournamentId = 't-table-okibake-1';
+    const entryId = 'okibake-entry-table-1';
+    const tableId = 'tbl-table-okibake-1';
+
+    await db.collection('storeMeta').doc('config').set({
+      tableDevice: {
+        tournamentSeatAssignmentEnabled: true,
+      },
+    });
+    await seedTableDevice(uid, tableId);
+    await seedTournamentViews(tournamentId, 2, 10);
+    await seedTable(tournamentId, tableId, {
+      seat01UserId: null,
+      seat01PokerName: null,
+      seat02UserId: null,
+      seat02PokerName: null,
+    });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('okibakeTemporaryEntries')
+      .doc(entryId)
+      .set(baseOkibakeEntry(entryId, tournamentId));
+
+    const result = await assignOkibakeTemporaryEntryToSeat.run({
+      data: {
+        operationId: 'op-table-okibake-1',
+        tournamentId,
+        okibakeEntryId: entryId,
+        tableId,
+        seatKey: 'seat01',
+      },
+      auth: { uid },
+    } as any);
+
+    expect(result.success).toBe(true);
+
+    const tableDoc = await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('tablesSeat')
+      .doc(tableId)
+      .get();
+    expect((tableDoc.data()!.seats as Record<string, unknown>).seat01OkibakeEntryId).toBe(entryId);
   });
 
   it('linkedUserPokerName が優先される', async () => {

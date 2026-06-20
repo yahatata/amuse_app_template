@@ -15,6 +15,8 @@ import 'package:amuse_app_template/tournament/active/widgets/dialogs/assign_seat
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_seat_action_dialog.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_read_only.dart';
+import 'package:amuse_app_template/services/device_service.dart';
+import 'package:amuse_app_template/services/store_config_service.dart';
 
 class TableDetailPage extends StatefulWidget {
   final String tournamentId;
@@ -22,12 +24,20 @@ class TableDetailPage extends StatefulWidget {
 
   /// [TournamentHomePage.suppressStoreStrongWarning] から引き継ぐ。
   final bool suppressStoreStrongWarning;
+  final Widget? drawer;
+  final bool disableBackNavigation;
+  final bool automaticallyImplyLeading;
+  final VoidCallback? onNavigateHomeFromStrongWarning;
 
   const TableDetailPage({
     super.key,
     required this.tournamentId,
     required this.tableId,
     this.suppressStoreStrongWarning = false,
+    this.drawer,
+    this.disableBackNavigation = false,
+    this.automaticallyImplyLeading = true,
+    this.onNavigateHomeFromStrongWarning,
   });
 
   @override
@@ -38,11 +48,21 @@ class _TableDetailPageState extends State<TableDetailPage> {
   Map<String, dynamic>? _tableData;
   Map<String, dynamic>? _mainViewData;
   final TournamentService _tournamentService = TournamentServiceImpl();
+  bool _isTableDevice = false;
 
   @override
   void initState() {
     super.initState();
     _loadTableData();
+    _loadCurrentDevice();
+  }
+
+  Future<void> _loadCurrentDevice() async {
+    final device = await DeviceService().getCurrentDevice();
+    if (!mounted) return;
+    setState(() {
+      _isTableDevice = device?.role == 'table';
+    });
   }
 
   Future<void> _loadTableData() async {
@@ -188,8 +208,18 @@ class _TableDetailPageState extends State<TableDetailPage> {
             : null;
         final isReadOnly = isTournamentReadOnlyStatus(tourStatus);
 
-        return Scaffold(
+        final scaffold = Scaffold(
+      drawer: widget.drawer,
       appBar: AppBar(
+        automaticallyImplyLeading: widget.automaticallyImplyLeading,
+        leading: widget.drawer != null
+            ? Builder(
+                builder: (context) => IconButton(
+                  icon: const Icon(Icons.menu),
+                  onPressed: () => Scaffold.of(context).openDrawer(),
+                ),
+              )
+            : null,
         title: Text('卓 ${widget.tableId}'),
         centerTitle: true,
         actions: [
@@ -219,26 +249,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
               ),
             ),
           ),
-          Container(
-            margin: const EdgeInsets.only(right: 8),
-            child: ElevatedButton.icon(
-              onPressed: () {
-                _showActionHistoryDialog();
-              },
-              icon: const Icon(Icons.history, size: 18),
-              label: const Text('操作履歴確認', style: TextStyle(fontSize: 12)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange.shade50,
-                foregroundColor: Colors.orange.shade700,
-                elevation: 1,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  side: BorderSide(color: Colors.orange.shade200),
-                ),
-              ),
-            ),
-          ),
+          _buildActionHistoryAction(),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadTableData,
@@ -249,9 +260,17 @@ class _TableDetailPageState extends State<TableDetailPage> {
       body: StoreStrongWarningWrapper(
         suppressStrongWarning: widget.suppressStoreStrongWarning,
         onCloseStore: () {
+          if (widget.onNavigateHomeFromStrongWarning != null) {
+            widget.onNavigateHomeFromStrongWarning!.call();
+            return;
+          }
           navigateToAppHome(context, adminInitialTerminalMode: true);
         },
         onBusinessContinue: () {
+          if (widget.onNavigateHomeFromStrongWarning != null) {
+            widget.onNavigateHomeFromStrongWarning!.call();
+            return;
+          }
           navigateToAppHome(context, adminInitialTerminalMode: true);
         },
         child: Column(
@@ -262,6 +281,13 @@ class _TableDetailPageState extends State<TableDetailPage> {
         ),
       ),
     );
+        if (widget.disableBackNavigation) {
+          return PopScope(
+            canPop: false,
+            child: scaffold,
+          );
+        }
+        return scaffold;
       },
     );
   }
@@ -927,19 +953,86 @@ class _TableDetailPageState extends State<TableDetailPage> {
   }
 
   /// プレイヤー情報を表示
-  void _showPlayerInfo(String userId, String pokerName, int seatNumber) {
+  Future<void> _showPlayerInfo(
+    String userId,
+    String pokerName,
+    int seatNumber,
+  ) async {
+    String? billId;
+    try {
+      final activeStayDoc = await FirebaseFirestore.instance
+          .collection('activeStays')
+          .doc(userId)
+          .get();
+      if (activeStayDoc.exists) {
+        final data = activeStayDoc.data();
+        billId = data?['billId'] as String?;
+      }
+    } catch (_) {
+      billId = null;
+    }
+
+    if (billId == null || billId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('伝票IDが見つかりません'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final user = {
       'userId': userId,
       'pokerName': pokerName,
+      'billId': billId,
       'tournamentId': widget.tournamentId,
       'tableId': widget.tableId,
       'seatNumber': seatNumber,
     };
+
+    if (!mounted) return;
     
     showUserActionHome(
       context: context,
       sourcePage: 'tableHomeInScheduledTournament',
       user: user,
+    );
+  }
+
+  Widget _buildActionHistoryAction() {
+    return StreamBuilder<StoreConfigData>(
+      stream: StoreConfigService.instance.stream,
+      initialData:
+          StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults(),
+      builder: (context, snapshot) {
+        final config = snapshot.data ?? StoreConfigData.fromDefaults();
+        final canViewHistory =
+            !_isTableDevice || config.tableDeviceActionHistoryViewEnabled;
+        if (!canViewHistory) {
+          return const SizedBox.shrink();
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(right: 8),
+          child: ElevatedButton.icon(
+            onPressed: _showActionHistoryDialog,
+            icon: const Icon(Icons.history, size: 18),
+            label: const Text('操作履歴確認', style: TextStyle(fontSize: 12)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade50,
+              foregroundColor: Colors.orange.shade700,
+              elevation: 1,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: BorderSide(color: Colors.orange.shade200),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

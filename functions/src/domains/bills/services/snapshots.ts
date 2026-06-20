@@ -494,6 +494,11 @@ export interface CalculatePaymentTotalsParams {
 
 export type PaymentTotals = Record<string, number>;
 
+export interface PaymentsSummary {
+  paidTotalIncl: number;
+  balanceDueIncl: number;
+}
+
 export function calculatePaymentTotals(params: CalculatePaymentTotalsParams): PaymentTotals {
   const { paymentsDocs, metaPaymentMethodsByCategory, metaPaymentMethodsByAmount, categoryBreakdown, sideGameChipExchangeRate = DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } = params;
 
@@ -566,6 +571,21 @@ export function calculatePaymentTotals(params: CalculatePaymentTotalsParams): Pa
 
   // どちらも存在しない場合は空オブジェクトを返す
   return {};
+}
+
+export function calculatePaymentsSummary(params: {
+  paymentTotals: PaymentTotals;
+  grandTotalRounded: number;
+}): PaymentsSummary {
+  const paidTotalIncl = Object.values(params.paymentTotals).reduce(
+    (sum, value) => sum + value,
+    0
+  );
+
+  return {
+    paidTotalIncl,
+    balanceDueIncl: params.grandTotalRounded - paidTotalIncl,
+  };
 }
 
 /**

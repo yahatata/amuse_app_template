@@ -14,14 +14,39 @@ void main() {
       final config = StoreConfigData.fromDefaults();
       expect(config.entranceFee, kDefaultEntranceFee);
       expect(config.entranceFeeDescription, kDefaultEntranceFeeDescription);
-      expect(config.chargeEntranceFeeOnReentry, kDefaultChargeEntranceFeeOnReentry);
+      expect(
+        config.chargeEntranceFeeOnReentry,
+        kDefaultChargeEntranceFeeOnReentry,
+      );
       expect(config.autoOpenCloseEnabled, kDefaultAutoOpenCloseEnabled);
       expect(config.linePlan, kDefaultLinePlan);
       expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
       expect(config.payrollStartDay, kDefaultPayrollStartDay);
       expect(config.payrollEndDay, kDefaultPayrollEndDay);
-      expect(config.tournamentLiffRegistrationEnabled, kDefaultTournamentLiffRegistrationEnabled);
-      expect(config.tournamentLiffCalendarEnabled, kDefaultTournamentLiffCalendarEnabled);
+      expect(
+        config.tournamentLiffRegistrationEnabled,
+        kDefaultTournamentLiffRegistrationEnabled,
+      );
+      expect(
+        config.tournamentLiffCalendarEnabled,
+        kDefaultTournamentLiffCalendarEnabled,
+      );
+      expect(
+        config.tableDeviceForceClearPasscode,
+        kDefaultTableDeviceForceClearPasscode,
+      );
+      expect(
+        config.tableDeviceTournamentSeatAssignmentEnabled,
+        kDefaultTableDeviceTournamentSeatAssignmentEnabled,
+      );
+      expect(
+        config.tableDeviceActionHistoryViewEnabled,
+        kDefaultTableDeviceActionHistoryViewEnabled,
+      );
+      expect(
+        config.tableDeviceActionHistoryRollbackEnabled,
+        kDefaultTableDeviceActionHistoryRollbackEnabled,
+      );
     });
 
     test('fromMap(null) でデフォルトを返す', () {
@@ -94,6 +119,31 @@ void main() {
       });
       expect(config.tournamentLiffRegistrationEnabled, false);
       expect(config.tournamentLiffCalendarEnabled, false);
+    });
+
+    test('fromMap で tableDevice.forceClearPasscode をパースする', () {
+      final config = StoreConfigData.fromMap({
+        'tableDevice': {'forceClearPasscode': '2468'},
+      });
+      expect(config.tableDeviceForceClearPasscode, '2468');
+    });
+
+    test('fromMap で tableDevice.tournamentSeatAssignmentEnabled をパースする', () {
+      final config = StoreConfigData.fromMap({
+        'tableDevice': {'tournamentSeatAssignmentEnabled': true},
+      });
+      expect(config.tableDeviceTournamentSeatAssignmentEnabled, true);
+    });
+
+    test('fromMap で tableDevice.actionHistory 設定をパースする', () {
+      final config = StoreConfigData.fromMap({
+        'tableDevice': {
+          'actionHistoryViewEnabled': false,
+          'actionHistoryRollbackEnabled': true,
+        },
+      });
+      expect(config.tableDeviceActionHistoryViewEnabled, false);
+      expect(config.tableDeviceActionHistoryRollbackEnabled, true);
     });
   });
 }

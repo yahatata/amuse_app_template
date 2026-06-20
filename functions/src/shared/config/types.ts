@@ -24,6 +24,13 @@ export interface OkibakeConfig {
   loginPromptMode: OkibakeLoginPromptMode;
 }
 
+export interface TableDeviceConfig {
+  forceClearPasscode?: string;
+  tournamentSeatAssignmentEnabled?: boolean;
+  actionHistoryViewEnabled?: boolean;
+  actionHistoryRollbackEnabled?: boolean;
+}
+
 export interface StoreConfig {
   features?: {
     dualWriteEnabled?: boolean;
@@ -82,6 +89,7 @@ export interface StoreConfig {
   sideGameTypes?: string[];
   tournament?: TournamentConfig;
   okibake?: OkibakeConfig;
+  tableDevice?: TableDeviceConfig;
 }
 
 /** B-04: トーナメント設定（賞金・プライズ） */

@@ -198,6 +198,132 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     }
   }
 
+  Future<List<_TableItem>> _getEnabledTables() async {
+    try {
+      final tablesSnap = await _firestore
+          .collection('tables')
+          .where('isEnabled', isEqualTo: true)
+          .get();
+      return tablesSnap.docs
+          .map((doc) {
+            final data = doc.data();
+            return _TableItem(
+              id: doc.id,
+              name: data['name'] as String? ?? doc.id,
+            );
+          })
+          .toList();
+    } catch (e) {
+      debugPrint('卓一覧取得エラー(table): $e');
+      return [];
+    }
+  }
+
+  Future<void> _editTableDeviceBinding(Device device) async {
+    String? selectedTableId =
+        device.getTableIdForOption(DeviceOptionKeys.tableDeviceTable);
+    final tables = await _getEnabledTables();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: Text('卓紐付け: ${device.name}'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'role: table の端末に対して担当卓を設定します。',
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String?>(
+                  value: selectedTableId,
+                  decoration: const InputDecoration(
+                    labelText: '卓',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('未設定'),
+                    ),
+                    ...tables.map(
+                      (table) => DropdownMenuItem<String?>(
+                        value: table.id,
+                        child: Text(table.name),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setState(() {
+                      selectedTableId = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '同一卓に複数の table 端末を紐付けることを許容します。',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('キャンセル'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (result != true) return;
+
+    setState(() => _isSavingOptions = true);
+    try {
+      await _deviceService.updateDeviceOptions(
+        targetDeviceId: device.id,
+        options: const <String, bool>{},
+        optionParams: selectedTableId == null
+            ? const <String, Map<String, dynamic>>{}
+            : <String, Map<String, dynamic>>{
+                DeviceOptionKeys.tableDeviceTable: {
+                  'tableId': selectedTableId,
+                },
+              },
+      );
+      await _loadDevices();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('卓紐付けを更新しました'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラー: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingOptions = false);
+      }
+    }
+  }
+
   Future<void> _editOptions(Device device) async {
     final presetKeys = DeviceOptionKeys.all;
     // 現在のオプションを編集用にコピー
@@ -450,8 +576,36 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
         return Colors.purple;
       case 'terminal':
         return Colors.blue;
+      case 'table':
+        return Colors.teal;
       default:
         return Colors.grey;
+    }
+  }
+
+  IconData _getRoleIcon(String role) {
+    switch (role) {
+      case 'admin':
+        return Icons.admin_panel_settings;
+      case 'terminal':
+        return Icons.terminal;
+      case 'table':
+        return Icons.table_restaurant;
+      default:
+        return Icons.devices_other;
+    }
+  }
+
+  String _getRoleText(String role) {
+    switch (role) {
+      case 'admin':
+        return '管理者';
+      case 'terminal':
+        return 'ターミナル';
+      case 'table':
+        return '卓専用端末';
+      default:
+        return role;
     }
   }
 
@@ -642,13 +796,13 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                 Row(
                   children: [
                     Icon(
-                      device.role == 'admin' ? Icons.admin_panel_settings : Icons.terminal,
+                      _getRoleIcon(device.role),
                       size: 16,
                       color: _getRoleColor(device.role),
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      device.role == 'admin' ? '管理者' : 'ターミナル',
+                      _getRoleText(device.role),
                       style: TextStyle(
                         color: _getRoleColor(device.role),
                         fontWeight: FontWeight.bold,
@@ -665,6 +819,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                       items: const [
                         DropdownMenuItem(value: 'admin', child: Text('admin')),
                         DropdownMenuItem(value: 'terminal', child: Text('terminal')),
+                        DropdownMenuItem(value: 'table', child: Text('table')),
                       ],
                       onChanged: (String? newRole) async {
                         if (newRole == null || newRole == device.role) return;
@@ -748,9 +903,15 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                     ),
                     const Spacer(),
                     OutlinedButton.icon(
-                      onPressed: () => _editOptions(device),
-                      icon: const Icon(Icons.tune),
-                      label: const Text('オプション編集'),
+                      onPressed: () => device.role == 'table'
+                          ? _editTableDeviceBinding(device)
+                          : _editOptions(device),
+                      icon: Icon(
+                        device.role == 'table' ? Icons.link : Icons.tune,
+                      ),
+                      label: Text(
+                        device.role == 'table' ? '卓紐付け編集' : 'オプション編集',
+                      ),
                     ),
                     const SizedBox(width: 8),
                     IconButton(
@@ -782,6 +943,26 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                       return Chip(label: Text(label));
                     })
                         .toList(),
+                  ),
+                ],
+                if (device.role == 'table') ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    '卓紐付け',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    device.getTableIdForOption(DeviceOptionKeys.tableDeviceTable) ??
+                        '未設定',
+                    style: TextStyle(
+                      color: device.getTableIdForOption(
+                                DeviceOptionKeys.tableDeviceTable,
+                              ) !=
+                              null
+                          ? Colors.black87
+                          : Colors.orange.shade700,
+                    ),
                   ),
                 ],
               ],

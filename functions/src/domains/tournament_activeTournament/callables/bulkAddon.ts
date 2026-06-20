@@ -9,6 +9,7 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { resolveAddonLimitPerPlayer } from '../../../shared/tournament/resolveAddonLimitPerPlayer';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import { assertTableDeviceCanAccessTable } from '../../../table_device/lib/shared';
 
 const bulkAddonSchema = z.object({
   tournamentId: z.string(),
@@ -72,7 +73,10 @@ export const bulkAddon = onCall(async (request) => {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
 
-    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+    const hasPermission =
+      device.role === 'admin' ||
+      device.role === 'table' ||
+      hasRequiredOption(device.options, 'tournament');
     if (!hasPermission) {
       throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
     }
@@ -109,6 +113,15 @@ export const bulkAddon = onCall(async (request) => {
     const normalUsers = payloadNormalUsers ?? legacyUsers ?? [];
     const okibakeEntries = payloadOkibakeEntries ?? [];
     const operationId = clientOperationId ?? crypto.randomUUID();
+    if (device.role === 'table') {
+      if (tableId == null || tableId.trim() === '') {
+        throw new HttpsError(
+          'invalid-argument',
+          '卓端末からのまとめてAddonでは tableId が必須です',
+        );
+      }
+      assertTableDeviceCanAccessTable({ device, requestedTableId: tableId });
+    }
 
     if (normalUsers.length === 0 && okibakeEntries.length === 0) {
       throw new HttpsError('invalid-argument', '処理対象が指定されていません');
@@ -186,6 +199,40 @@ export const bulkAddon = onCall(async (request) => {
     const viewsMainData = viewsMainDoc.data();
     const currentAddons = viewsMainData?.addons || 0;
 
+    let tableSeatUserIds = new Set<string>();
+    if (tableId != null && tableId.length > 0) {
+      const tableSeatDoc = await admin
+        .firestore()
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .get();
+      if (!tableSeatDoc.exists) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'テーブルシート情報が存在しません',
+          context: {
+            tournamentId,
+            tableId,
+            reason: 'table_seat_missing_for_bulk_addon',
+          },
+        });
+      }
+
+      const seats = (tableSeatDoc.data()?.seats ?? {}) as Record<string, unknown>;
+      tableSeatUserIds = new Set(
+        Object.entries(seats)
+          .filter(
+            ([key, value]) =>
+              key.endsWith('UserId') &&
+              typeof value === 'string' &&
+              value.trim().length > 0,
+          )
+          .map(([, value]) => String(value)),
+      );
+    }
+
     // 通常参加者: activeStays/bills を確認
     const activeStayRefs = normalUsers.map((user) =>
       admin.firestore().collection('activeStays').doc(user.userId)
@@ -197,6 +244,12 @@ export const bulkAddon = onCall(async (request) => {
 
     for (let i = 0; i < normalUsers.length; i++) {
       const user = normalUsers[i];
+      if (tableId != null && tableId.length > 0 && !tableSeatUserIds.has(user.userId)) {
+        throw new HttpsError(
+          'permission-denied',
+          `指定ユーザー ${user.pokerName} はこの卓に着席していません`,
+        );
+      }
       const activeStayDoc = activeStayDocs[i];
       if (!activeStayDoc.exists) {
         missingUsers.push(user.pokerName);
@@ -257,6 +310,12 @@ export const bulkAddon = onCall(async (request) => {
       const billLinkStatus = typeof entryData.billLinkStatus === 'string' ? entryData.billLinkStatus : '';
       const assignedTableId =
         typeof entryData.assignedTableId === 'string' ? entryData.assignedTableId : '';
+      if (tableId != null && tableId.length > 0 && assignedTableId !== tableId) {
+        throw new HttpsError(
+          'permission-denied',
+          `置きバケ ${okibakeEntryId} はこの卓に着席していません`,
+        );
+      }
       const prevCount =
         typeof entryData.okibakeAddonCount === 'number' ? entryData.okibakeAddonCount : 0;
 

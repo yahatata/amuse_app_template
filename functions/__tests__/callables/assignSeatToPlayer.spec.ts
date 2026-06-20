@@ -17,18 +17,34 @@
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { assignSeatToPlayer } from '../../src/domains/tournament_activeTournament/callables/assignSeatToPlayer';
-import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 
 describe('assignSeatToPlayer', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
+  let assignSeatToPlayer: {
+    run: (req: unknown) => Promise<Record<string, unknown>>;
+  };
+  let createBillWithActiveStay: (
+    req: import('../../src/domains/bills/repos/createBillWithActiveStay').CreateBillWithActiveStayRequest
+  ) => Promise<import('../../src/domains/bills/repos/createBillWithActiveStay').CreateBillWithActiveStayResponse>;
   const projectId = 'test-default';
 
   beforeAll(async () => {
     process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
     testEnv = await initializeTestEnvironment({ projectId });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map((a) => a?.delete()).filter(Boolean));
+    }
+    admin.initializeApp({ projectId });
     db = getFirestore();
+    const callableMod = await import(
+      '../../src/domains/tournament_activeTournament/callables/assignSeatToPlayer'
+    );
+    assignSeatToPlayer = callableMod.assignSeatToPlayer as typeof assignSeatToPlayer;
+    const billsMod = await import(
+      '../../src/domains/bills/repos/createBillWithActiveStay'
+    );
+    createBillWithActiveStay = billsMod.createBillWithActiveStay;
   });
 
   afterAll(async () => {
@@ -52,8 +68,30 @@ describe('assignSeatToPlayer', () => {
     });
   }
 
+  async function createTableDevice(uid: string, tableId: string) {
+    await db.collection('devices').doc(`table_${uid}`).set({
+      uid,
+      role: 'table',
+      status: 'active',
+      name: 'Test Table Device',
+      options: {},
+      optionParams: {
+        table_device_table: {
+          tableId,
+        },
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
   // テスト用のヘルパ関数: scheduledTournaments のセットアップ
   async function setupTournament(tournamentId: string, tableId: string) {
+    await db.collection('scheduledTournaments').doc(tournamentId).set({
+      status: 'running',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
     const tablesSeatRef = db
       .collection('scheduledTournaments')
       .doc(tournamentId)
@@ -259,6 +297,67 @@ describe('assignSeatToPlayer', () => {
       const tableSeatData = tableSeatDoc.data()!;
       expect(tableSeatData.seats.seat02PokerName).toBe(`Player_${userId}`);
     });
+
+    it('table role は設定有効時に紐付いた卓への着席操作を実行できる', async () => {
+      const tournamentId = 'tournament_test_table_role_001';
+      const userId = 'user_test_table_role_001';
+      const billId = 'bill_test_table_role_001';
+      const tableId = 'table_table_role_001';
+
+      await db.collection('storeMeta').doc('config').set({
+        tableDevice: {
+          tournamentSeatAssignmentEnabled: true,
+        },
+      });
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: '卓端末太郎',
+        idempotencyKey: 'idem_test_table_role_001',
+      });
+
+      await setupTournament(tournamentId, tableId);
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc('waiting')
+        .update({
+          waiting: { [userId]: true },
+          count: 1,
+        });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .update({ waitingCount: 1 });
+
+      const tableUid = 'table_uid_assign_001';
+      await createTableDevice(tableUid, tableId);
+
+      const result = await (assignSeatToPlayer as any).run({
+        auth: { uid: tableUid },
+        data: {
+          operationId: `op_assign_${tournamentId}`,
+          tournamentId,
+          userId,
+          tableId,
+          seatNumber: 1,
+        },
+      } as any);
+
+      expect(result.success).toBe(true);
+
+      const tableSeatDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId)
+        .get();
+      expect(tableSeatDoc.data()!.seats.seat01UserId).toBe(userId);
+    });
   });
 
   describe('エラーハンドリング', () => {
@@ -334,6 +433,11 @@ describe('assignSeatToPlayer', () => {
         userId,
         pokerName,
         idempotencyKey: 'idem_test_error_003',
+      });
+
+      await db.collection('scheduledTournaments').doc(tournamentId).set({
+        status: 'running',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
       // isEnabled: false のテーブルを作成
@@ -417,6 +521,11 @@ describe('assignSeatToPlayer', () => {
         userId,
         pokerName,
         idempotencyKey: 'idem_test_error_004',
+      });
+
+      await db.collection('scheduledTournaments').doc(tournamentId).set({
+        status: 'running',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
       // 対象 seat に別ユーザーが座っている状態でテーブルを作成
@@ -570,6 +679,11 @@ describe('assignSeatToPlayer', () => {
         userId,
         pokerName,
         idempotencyKey: 'idem_test_waiting_missing_001',
+      });
+
+      await db.collection('scheduledTournaments').doc(tournamentId).set({
+        status: 'running',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
       // テーブルを作成（waiting ドキュメントは作成しない）

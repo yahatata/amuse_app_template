@@ -42,6 +42,8 @@ describe('addTableToTournament', () => {
   ) {
     await db.collection('scheduledTournaments').doc(tournamentId).set({
       status,
+      snapshot: { name: `TN-${tournamentId}` },
+      startAt: admin.firestore.Timestamp.fromDate(new Date('2026-06-18T10:00:00Z')),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -130,9 +132,13 @@ describe('addTableToTournament', () => {
 
     const tableDoc = await db.collection('tables').doc(tableId).get();
     expect(tableDoc.data()?.status).toBe('tournament');
+    expect(tableDoc.data()?.tournamentDetail?.tournamentId).toBe(tournamentId);
+    expect(tableDoc.data()?.tournamentDetail?.tournamentName).toBe(
+      `TN-${tournamentId}`,
+    );
   });
 
-  it('removeTableFromTournament で tablesSeat doc 削除後は再追加できること', async () => {
+  it('removeTableFromTournament で論理削除後は再追加できること', async () => {
     const tournamentId = 'tournament_add_table_readd_001';
     const tableId = 'table_add_readd_001';
     const adminId = 'admin_add_table_readd_001';
@@ -157,6 +163,10 @@ describe('addTableToTournament', () => {
       });
     await db.collection('tables').doc(tableId).set({
       status: 'tournament',
+      tournamentDetail: {
+        tournamentId,
+        tournamentName: `TN-${tournamentId}`,
+      },
       maxSeats: 6,
       isEnabled: true,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -173,9 +183,8 @@ describe('addTableToTournament', () => {
       .collection('tablesSeat')
       .doc(tableId)
       .get();
-    expect(deletedDoc.exists).toBe(false);
-
-    await db.collection('tables').doc(tableId).update({ status: 'open' });
+    expect(deletedDoc.exists).toBe(true);
+    expect(deletedDoc.data()?.isEnabled).toBe(false);
 
     const result = await (addTableToTournament as any).run({
       auth: { uid: adminId },
@@ -191,7 +200,12 @@ describe('addTableToTournament', () => {
       .doc(tableId)
       .get();
     expect(tableSeatDoc.exists).toBe(true);
+    expect(tableSeatDoc.data()?.isEnabled).toBe(true);
     expect(tableSeatDoc.data()?.seats?.seat01UserId).toBeNull();
+
+    const tableDoc = await db.collection('tables').doc(tableId).get();
+    expect(tableDoc.data()?.status).toBe('tournament');
+    expect(tableDoc.data()?.tournamentDetail?.tournamentId).toBe(tournamentId);
   });
 
   it.each([
