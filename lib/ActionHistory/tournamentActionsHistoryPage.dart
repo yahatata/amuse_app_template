@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import '../../services/device_service.dart';
+import '../../services/store_config_service.dart';
 import 'bust_undo_fallback_seat_dialog.dart';
 import 'bust_undo_seat_selection_error.dart';
 
@@ -45,8 +46,16 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
   String? _currentDeviceId;
   String? _currentDeviceName;
   int _currentTabIndex = 0;
+  bool _isCurrentTableDevice = false;
+  bool _tableDeviceHistoryViewEnabled = true;
+  bool _tableDeviceHistoryRollbackEnabled = false;
 
   bool get _isTableScope => widget.tableId != null && widget.tableId!.isNotEmpty;
+  bool get _canViewHistory =>
+      !_isCurrentTableDevice || _tableDeviceHistoryViewEnabled;
+  bool get _canRollbackHistory =>
+      !_isCurrentTableDevice ||
+      (_tableDeviceHistoryViewEnabled && _tableDeviceHistoryRollbackEnabled);
 
   @override
   void initState() {
@@ -62,8 +71,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
         }
       });
     }
-    _initializeDeviceInfo();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadActionLogs());
+    _initializePageState();
   }
 
   @override
@@ -72,23 +80,35 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
     super.dispose();
   }
 
-  Future<void> _initializeDeviceInfo() async {
+  Future<void> _initializePageState() async {
     try {
       final deviceService = DeviceService();
       final device = await deviceService.getCurrentDevice();
+      final config =
+          StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults();
       if (device != null) {
         setState(() {
           _currentDeviceId = device.id;
           _currentDeviceName = device.name;
+          _isCurrentTableDevice = device.role == 'table';
+          _tableDeviceHistoryViewEnabled =
+              config.tableDeviceActionHistoryViewEnabled;
+          _tableDeviceHistoryRollbackEnabled =
+              config.tableDeviceActionHistoryRollbackEnabled;
         });
       }
     } catch (e) {
       print('デバイス情報の取得に失敗: $e');
     }
+
+    if (!_canViewHistory || !mounted) {
+      return;
+    }
+    await _loadActionLogs();
   }
 
   Future<void> _loadActionLogs() async {
-    if (_isLoading) return;
+    if (_isLoading || !_canViewHistory) return;
 
     setState(() {
       _isLoading = true;
@@ -532,6 +552,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
 
   bool _canRollback(Map<String, dynamic> log) {
     if (log['isRollBack'] == true) return false;
+    if (!_canRollbackHistory) return false;
     final action = log['action']?.toString() ?? '';
     return _rollbackEnabledActions.contains(action);
   }
@@ -667,6 +688,24 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
 
   @override
   Widget build(BuildContext context) {
+    if (!_canViewHistory) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('操作履歴'),
+          centerTitle: true,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'この卓端末では操作履歴の参照が無効です。\n管理者に設定を確認してください。',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Stack(
       children: [
         Scaffold(

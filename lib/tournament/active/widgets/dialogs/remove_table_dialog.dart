@@ -136,6 +136,7 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
         if (doc.id == 'waiting' || doc.id == 'busted') continue;
 
         final data = doc.data() as Map<String, dynamic>;
+        if (data['isEnabled'] == false) continue;
         final seats = data['seats'] as Map<String, dynamic>? ?? {};
 
         // 着席しているユーザーがいるかチェック
@@ -223,4 +224,3 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
     }
   }
 }
-

@@ -4,6 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import '../Utils/menuItemsManager.dart';
 import '../services/store_config_defaults.dart';
 import '../services/store_config_service.dart';
+import 'action_feedback_dialogs.dart';
 
 /// When: 「注文」ブロックから注文フローを開始したい時
 /// Where: userActionHome（別ダイアログ）
@@ -15,12 +16,12 @@ Future<void> showOrderFromUserDialog({
 }) async {
   final String billId = (user['billId'] ?? '').toString();
   if (billId.isEmpty) {
-    ScaffoldMessenger.of(pageContext).showSnackBar(
-      const SnackBar(content: Text('伝票IDが見つかりません')),
-    );
+    ScaffoldMessenger.of(
+      pageContext,
+    ).showSnackBar(const SnackBar(content: Text('伝票IDが見つかりません')));
     return;
   }
-  
+
   // userId は表示用に保持（billId が主要）
   final String userId = (user['userId'] ?? '').toString();
 
@@ -41,10 +42,14 @@ Future<void> showOrderFromUserDialog({
 
   if (loadError != null) {
     if (pageContext.mounted) {
-      ScaffoldMessenger.of(pageContext).showSnackBar(
-        SnackBar(content: Text(loadError!)),
-      );
+      ScaffoldMessenger.of(
+        pageContext,
+      ).showSnackBar(SnackBar(content: Text(loadError)));
     }
+    return;
+  }
+
+  if (!pageContext.mounted) {
     return;
   }
 
@@ -55,18 +60,24 @@ Future<void> showOrderFromUserDialog({
     builder: (ctx) {
       return StatefulBuilder(
         builder: (ctx, setState) {
-          debugPrint('[OrderPop] build stateful dialog selectedCategory=$selectedCategory');
+          debugPrint(
+            '[OrderPop] build stateful dialog selectedCategory=$selectedCategory',
+          );
           // 表示対象メニューの抽出
           final items = selectedCategory == 'All'
               ? MenuItemsManager.getDisplayableMenuItems()
-              : MenuItemsManager
-                  .getDisplayableMenuItems()
-                  .where((e) => e.category == selectedCategory)
-                  .toList();
+              : MenuItemsManager.getDisplayableMenuItems()
+                    .where((e) => e.category == selectedCategory)
+                    .toList();
 
           return Dialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
               child: Padding(
@@ -107,17 +118,26 @@ Future<void> showOrderFromUserDialog({
                           ChoiceChip(
                             label: const Text('All'),
                             selected: selectedCategory == 'All',
-                            onSelected: (_) => setState(() => selectedCategory = 'All'),
+                            onSelected: (_) =>
+                                setState(() => selectedCategory = 'All'),
                           ),
                           const SizedBox(width: 8),
-                          ...(StoreConfigService.instance.latestData?.menuCategories ?? kDefaultMenuCategories).map((c) => Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: ChoiceChip(
-                                  label: Text(c),
-                                  selected: selectedCategory == c,
-                                  onSelected: (_) => setState(() => selectedCategory = c),
+                          ...(StoreConfigService
+                                      .instance
+                                      .latestData
+                                      ?.menuCategories ??
+                                  kDefaultMenuCategories)
+                              .map(
+                                (c) => Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ChoiceChip(
+                                    label: Text(c),
+                                    selected: selectedCategory == c,
+                                    onSelected: (_) =>
+                                        setState(() => selectedCategory = c),
+                                  ),
                                 ),
-                              )),
+                              ),
                           const SizedBox(width: 8),
                         ],
                       ),
@@ -127,43 +147,60 @@ Future<void> showOrderFromUserDialog({
                       child: loading
                           ? const Center(child: CircularProgressIndicator())
                           : items.isEmpty
-                              ? const Center(child: Text('メニューがありません'))
-                              : ListView.builder(
-                                  itemCount: items.length,
-                                  itemBuilder: (context, index) {
-                                    final item = items[index];
-                                    return Card(
-                                      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                                      child: ListTile(
-                                        leading: SizedBox(
-                                          width: 56,
-                                          height: 56,
-                                          child: item.imageUrl.isNotEmpty
-                                              ? ClipRRect(
-                                                  borderRadius: BorderRadius.circular(8),
-                                                  child: Image.network(
-                                                    item.imageUrl,
-                                                    fit: BoxFit.cover,
-                                                  ),
-                                                )
-                                              : const Icon(Icons.image_not_supported, color: Colors.grey),
-                                        ),
-                                        title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                        subtitle: Text('¥${item.price} • ${item.category}'),
-                                        onTap: () async {
-                                          debugPrint('[OrderPop] tap item id=${item.id} name=${item.name}');
-                                          // 一覧ポップは閉じず、その上に数量ポップを重ねて表示
-                                          await _showQuantityAndConfirm(
-                                            pageContext: pageContext,
-                                            billId: billId,
-                                            userId: userId,
-                                            item: item,
-                                          );
-                                        },
+                          ? const Center(child: Text('メニューがありません'))
+                          : ListView.builder(
+                              itemCount: items.length,
+                              itemBuilder: (context, index) {
+                                final item = items[index];
+                                return Card(
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 4,
+                                  ),
+                                  child: ListTile(
+                                    leading: SizedBox(
+                                      width: 56,
+                                      height: 56,
+                                      child: item.imageUrl.isNotEmpty
+                                          ? ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              child: Image.network(
+                                                item.imageUrl,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.image_not_supported,
+                                              color: Colors.grey,
+                                            ),
+                                    ),
+                                    title: Text(
+                                      item.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
                                       ),
-                                    );
-                                  },
-                                ),
+                                    ),
+                                    subtitle: Text(
+                                      '¥${item.price} • ${item.category}',
+                                    ),
+                                    onTap: () async {
+                                      debugPrint(
+                                        '[OrderPop] tap item id=${item.id} name=${item.name}',
+                                      );
+                                      // 一覧ポップは閉じず、その上に数量ポップを重ねて表示
+                                      await _showQuantityAndConfirm(
+                                        pageContext: pageContext,
+                                        orderDialogContext: ctx,
+                                        billId: billId,
+                                        userId: userId,
+                                        item: item,
+                                      );
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
                     ),
                   ],
                 ),
@@ -182,16 +219,18 @@ Future<void> showOrderFromUserDialog({
 /// How: showDialog + TextField/Step 後に httpsCallable('placeOrder') を実行
 Future<void> _showQuantityAndConfirm({
   required BuildContext pageContext,
+  required BuildContext orderDialogContext,
   required String billId,
   required String userId,
   required MenuItem item,
 }) async {
   int quantity = 1;
   // ✅ ダイアログが開いている間は固定の clientNonce（画面セッションで固定）
-  final String clientNonce = 'order_${DateTime.now().millisecondsSinceEpoch}_${userId.substring(0, 8)}';
+  final String clientNonce =
+      'order_${DateTime.now().millisecondsSinceEpoch}_${userId.substring(0, 8)}';
   bool isSubmitting = false; // 二重タップ対策フラグ
 
-  await showDialog<void>(
+  final selectedQuantity = await showDialog<int>(
     context: pageContext,
     barrierDismissible: false,
     builder: (ctx) {
@@ -217,23 +256,36 @@ Future<void> _showQuantityAndConfirm({
                             onPressed: isSubmitting
                                 ? null
                                 : quantity > 1
-                                    ? () => setState(() => quantity -= 1)
-                                    : null,
+                                ? () => setState(() => quantity -= 1)
+                                : null,
                           ),
-                          Text('$quantity', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          Text(
+                            '$quantity',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                           IconButton(
                             icon: const Icon(Icons.add_circle_outline),
-                            onPressed: isSubmitting ? null : () => setState(() => quantity += 1),
+                            onPressed: isSubmitting
+                                ? null
+                                : () => setState(() => quantity += 1),
                           ),
                           const Spacer(),
-                          Text('合計: ¥$totalPrice', style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text(
+                            '合計: ¥$totalPrice',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                         ],
                       ),
                     ],
                   ),
                   actions: [
                     TextButton(
-                      onPressed: isSubmitting ? null : () => Navigator.of(ctx).pop(),
+                      onPressed: isSubmitting
+                          ? null
+                          : () => Navigator.of(ctx).pop(),
                       child: const Text('キャンセル'),
                     ),
                     ElevatedButton(
@@ -243,57 +295,7 @@ Future<void> _showQuantityAndConfirm({
                               setState(() {
                                 isSubmitting = true;
                               });
-
-                              debugPrint('[OrderPop] confirm order for item=${item.id} qty=$quantity billId=$billId clientNonce=$clientNonce');
-                              try {
-                                final functions = FunctionsClient.instance;
-                                final callable = functions.httpsCallable('placeOrder');
-                                final resp = await callable.call({
-                                  'billId': billId,
-                                  'item': {
-                                    'menuItemId': item.id,
-                                    'quantity': quantity,
-                                  },
-                                  'clientNonce': clientNonce,
-                                });
-
-                                final data = resp.data;
-                                if (data is Map && data['success'] == true) {
-                                  if (pageContext.mounted) {
-                                    ScaffoldMessenger.of(pageContext).showSnackBar(
-                                      const SnackBar(content: Text('注文を送信しました')),
-                                    );
-                                  }
-                                  Navigator.of(ctx).pop();
-                                  Navigator.of(pageContext).pop();
-                                } else {
-                                  final err = (data is Map ? data['error'] : null) ?? '注文に失敗しました';
-                                  if (pageContext.mounted) {
-                                    ScaffoldMessenger.of(pageContext).showSnackBar(
-                                      SnackBar(content: Text(err)),
-                                    );
-                                  }
-                                  setState(() {
-                                    isSubmitting = false;
-                                  });
-                                }
-                              } catch (e) {
-                                if (pageContext.mounted) {
-                                  debugPrint('[OrderPop] ERROR: ${e.toString()}');
-                                  debugPrint('[OrderPop] ERROR Type: ${e.runtimeType}');
-                                  if (e is FirebaseFunctionsException) {
-                                    debugPrint('[OrderPop] Functions Error Code: ${e.code}');
-                                    debugPrint('[OrderPop] Functions Error Message: ${e.message}');
-                                    debugPrint('[OrderPop] Functions Error Details: ${e.details}');
-                                  }
-                                  ScaffoldMessenger.of(pageContext).showSnackBar(
-                                    SnackBar(content: Text('注文に失敗しました: $e')),
-                                  );
-                                }
-                                setState(() {
-                                  isSubmitting = false;
-                                });
-                              }
+                              Navigator.of(ctx).pop(quantity);
                             },
                       child: const Text('注文確定'),
                     ),
@@ -304,9 +306,7 @@ Future<void> _showQuantityAndConfirm({
                     child: AbsorbPointer(
                       child: ColoredBox(
                         color: Colors.black.withValues(alpha: 0.35),
-                        child: const Center(
-                          child: CircularProgressIndicator(),
-                        ),
+                        child: const Center(child: CircularProgressIndicator()),
                       ),
                     ),
                   ),
@@ -317,6 +317,62 @@ Future<void> _showQuantityAndConfirm({
       );
     },
   );
+
+  if (selectedQuantity == null || !pageContext.mounted) {
+    return;
+  }
+
+  final feedback = ActionProgressDialogController(pageContext);
+  try {
+    debugPrint(
+      '[OrderPop] confirm order for item=${item.id} qty=$selectedQuantity billId=$billId clientNonce=$clientNonce',
+    );
+    await feedback.showLoading(message: '注文処理中...');
+
+    final functions = FunctionsClient.instance;
+    final callable = functions.httpsCallable('placeOrder');
+    final resp = await callable.call({
+      'billId': billId,
+      'item': {'menuItemId': item.id, 'quantity': selectedQuantity},
+      'clientNonce': clientNonce,
+    });
+
+    final data = resp.data;
+    feedback.hideLoading();
+
+    if (data is Map && data['success'] == true) {
+      if (orderDialogContext.mounted) {
+        Navigator.of(orderDialogContext).pop();
+      }
+      if (pageContext.mounted) {
+        await showActionSuccessDialog(
+          pageContext,
+          message: '${item.name} の注文を送信しました',
+        );
+      }
+      return;
+    }
+
+    final err = (data is Map ? data['error'] : null) ?? '注文に失敗しました';
+    if (pageContext.mounted) {
+      await showActionErrorDialog(pageContext, message: err.toString());
+    }
+  } catch (e) {
+    feedback.hideLoading();
+    debugPrint('[OrderPop] ERROR: ${e.toString()}');
+    debugPrint('[OrderPop] ERROR Type: ${e.runtimeType}');
+    if (e is FirebaseFunctionsException) {
+      debugPrint('[OrderPop] Functions Error Code: ${e.code}');
+      debugPrint('[OrderPop] Functions Error Message: ${e.message}');
+      debugPrint('[OrderPop] Functions Error Details: ${e.details}');
+    }
+    if (pageContext.mounted) {
+      await showActionErrorDialog(
+        pageContext,
+        message: buildAsyncActionErrorMessage(e, defaultMessage: '注文に失敗しました'),
+      );
+    }
+  } finally {
+    feedback.hideLoading();
+  }
 }
-
-

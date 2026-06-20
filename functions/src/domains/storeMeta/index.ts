@@ -10,6 +10,7 @@ export { closeStoreTerminal } from './callables/closeStoreTerminal';
 export { continueBusinessTerminal } from './callables/continueBusinessTerminal';
 export { createInitialStateDocCallable } from './callables/createInitialStateDocCallable';
 export { initializeStoreConfigCallable } from './callables/initializeStoreConfigCallable';
+export { updateTableDeviceConfigCallable } from './callables/updateTableDeviceConfigCallable';
 export { closeAssessmentTask } from './callables/closeAssessmentTask';
 export { openAssessmentTask } from './callables/openAssessmentTask';
 export { temporaryUnlockAlreadyRunningDifferentDateTerminal } from './callables/temporaryUnlockAlreadyRunningDifferentDateTerminal';

@@ -9,6 +9,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/services/store_config_defaults.dart';
 
 class AdminDetailSettingsPage extends StatefulWidget {
   const AdminDetailSettingsPage({super.key});
@@ -22,6 +23,9 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
   bool _isProcessing = false;
   bool? _reportingEnabled;
   bool _loadingReportingFlag = true;
+  bool? _tableDeviceActionHistoryViewEnabled;
+  bool? _tableDeviceActionHistoryRollbackEnabled;
+  bool _loadingTableDeviceSettings = true;
 
   // 整合性チェック用
   String? _checkTargetDate;
@@ -55,6 +59,7 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
   void initState() {
     super.initState();
     _loadReportingFlag();
+    _loadTableDeviceSettings();
   }
 
   Future<void> _loadReportingFlag() async {
@@ -107,6 +112,72 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
         'reportingAggregatorEnabled を ${newValue ? 'ON' : 'OFF'} にしました',
         Colors.green,
       );
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('エラー: $e', Colors.red);
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _loadTableDeviceSettings() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('storeMeta')
+          .doc('config')
+          .get();
+      final tableDevice = doc.data()?['tableDevice'] as Map<String, dynamic>?;
+      final viewEnabled = tableDevice?['actionHistoryViewEnabled'];
+      final rollbackEnabled = tableDevice?['actionHistoryRollbackEnabled'];
+      if (mounted) {
+        setState(() {
+          _tableDeviceActionHistoryViewEnabled = viewEnabled is bool
+              ? viewEnabled
+              : kDefaultTableDeviceActionHistoryViewEnabled;
+          _tableDeviceActionHistoryRollbackEnabled = rollbackEnabled is bool
+              ? rollbackEnabled
+              : kDefaultTableDeviceActionHistoryRollbackEnabled;
+          _loadingTableDeviceSettings = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _tableDeviceActionHistoryViewEnabled =
+              kDefaultTableDeviceActionHistoryViewEnabled;
+          _tableDeviceActionHistoryRollbackEnabled =
+              kDefaultTableDeviceActionHistoryRollbackEnabled;
+          _loadingTableDeviceSettings = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _updateTableDeviceHistorySettings({
+    required bool viewEnabled,
+    required bool rollbackEnabled,
+  }) async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+
+    try {
+      final auth = FirebaseAuth.instance;
+      if (auth.currentUser == null) {
+        await auth.signInAnonymously();
+      }
+
+      final callable = _functions.httpsCallable('updateTableDeviceConfigCallable');
+      await callable.call({
+        'actionHistoryViewEnabled': viewEnabled,
+        'actionHistoryRollbackEnabled': rollbackEnabled,
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _tableDeviceActionHistoryViewEnabled = viewEnabled;
+        _tableDeviceActionHistoryRollbackEnabled = rollbackEnabled;
+      });
+      _showSnackBar('卓端末の操作履歴設定を更新しました', Colors.green);
     } catch (e) {
       if (!mounted) return;
       _showSnackBar('エラー: $e', Colors.red);
@@ -274,6 +345,71 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
                           'currentBusinessDay',
                         ),
               ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              '卓端末設定',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: _loadingTableDeviceSettings
+                  ? const ListTile(
+                      leading: Icon(Icons.table_restaurant, color: Colors.teal),
+                      title: Text('卓端末の操作履歴設定'),
+                      trailing: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : Column(
+                      children: [
+                        SwitchListTile(
+                          secondary: const Icon(
+                            Icons.history,
+                            color: Colors.teal,
+                          ),
+                          title: const Text('操作履歴の参照を許可'),
+                          subtitle: const Text(
+                            'OFF にすると、role:table の端末では操作履歴画面自体を開けません。',
+                          ),
+                          value: _tableDeviceActionHistoryViewEnabled ?? true,
+                          onChanged: _isProcessing
+                              ? null
+                              : (value) => _updateTableDeviceHistorySettings(
+                                    viewEnabled: value,
+                                    rollbackEnabled: value
+                                        ? (_tableDeviceActionHistoryRollbackEnabled ??
+                                            false)
+                                        : false,
+                                  ),
+                        ),
+                        const Divider(height: 1),
+                        SwitchListTile(
+                          secondary: const Icon(
+                            Icons.undo,
+                            color: Colors.orange,
+                          ),
+                          title: const Text('操作履歴の取り消しを許可'),
+                          subtitle: const Text(
+                            'role:table の端末で履歴から取り消しボタンを表示します。参照が OFF のときは有効化できません。',
+                          ),
+                          value:
+                              _tableDeviceActionHistoryRollbackEnabled ?? false,
+                          onChanged: _isProcessing ||
+                                  (_tableDeviceActionHistoryViewEnabled != true)
+                              ? null
+                              : (value) => _updateTableDeviceHistorySettings(
+                                    viewEnabled: true,
+                                    rollbackEnabled: value,
+                                  ),
+                        ),
+                      ],
+                    ),
             ),
             const SizedBox(height: 24),
             const Text(

@@ -34,12 +34,20 @@ describe('removeTableFromTournament', () => {
     });
   }
 
+  async function seedTournament(tournamentId: string) {
+    await db.collection('scheduledTournaments').doc(tournamentId).set({
+      status: 'running',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
   it('seatXXOkibakeEntryId がある seat は occupied と判定して卓削除を拒否すること', async () => {
     const tournamentId = 'tournament_remove_table_okibake_001';
     const tableId = 'table_remove_okibake_001';
     const adminId = 'admin_remove_table_okibake_001';
 
     await createAdminDevice(adminId);
+    await seedTournament(tournamentId);
 
     await db
       .collection('scheduledTournaments')
@@ -79,5 +87,56 @@ describe('removeTableFromTournament', () => {
 
     const tableDoc = await db.collection('tables').doc(tableId).get();
     expect(tableDoc.data()!.status).toBe('in_use');
+  });
+
+  it('卓削除時は tablesSeat を論理削除し、tables.tournamentDetail をクリアすること', async () => {
+    const tournamentId = 'tournament_remove_table_success_001';
+    const tableId = 'table_remove_success_001';
+    const adminId = 'admin_remove_table_success_001';
+
+    await createAdminDevice(adminId);
+    await seedTournament(tournamentId);
+
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('tablesSeat')
+      .doc(tableId)
+      .set({
+        isEnabled: true,
+        seats: {
+          seat01UserId: null,
+          seat01PokerName: null,
+          seat01OkibakeEntryId: null,
+        },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    await db.collection('tables').doc(tableId).set({
+      status: 'tournament',
+      tournamentDetail: {
+        tournamentId,
+        tournamentName: 'TN-remove',
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await (removeTableFromTournament as any).run({
+      auth: { uid: adminId },
+      data: { tournamentId, tableId },
+    } as any);
+
+    const tableSeatDoc = await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('tablesSeat')
+      .doc(tableId)
+      .get();
+    expect(tableSeatDoc.exists).toBe(true);
+    expect(tableSeatDoc.data()?.isEnabled).toBe(false);
+
+    const tableDoc = await db.collection('tables').doc(tableId).get();
+    expect(tableDoc.data()?.status).toBe('open');
+    expect(tableDoc.data()?.tournamentDetail).toBeUndefined();
   });
 });

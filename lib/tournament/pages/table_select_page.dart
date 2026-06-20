@@ -88,6 +88,7 @@ class _TableSelectPageState extends State<TableSelectPage> {
       final data = doc.data();
       final tableId = doc.id;
 
+      if (data['isEnabled'] == false) continue;
       if (_myTableId != null && tableId != _myTableId) continue;
       if (_excludedTableIds.contains(tableId)) continue;
 

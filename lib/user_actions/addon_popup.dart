@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
+import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
 
 /// Addon確認ダイアログ
 Future<void> showAddonDialog({
@@ -21,9 +22,9 @@ Future<void> showAddonDialog({
 
   if (userId.isEmpty) {
     if (outerCtx.mounted) {
-      ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('ユーザー識別子が見つかりません')),
-      );
+      ScaffoldMessenger.of(
+        outerCtx,
+      ).showSnackBar(const SnackBar(content: Text('ユーザー識別子が見つかりません')));
     }
     return;
   }
@@ -52,18 +53,16 @@ Future<void> showAddonDialog({
 
   if (errorMessage != null) {
     if (outerCtx.mounted) {
-      ScaffoldMessenger.of(outerCtx).showSnackBar(
-        SnackBar(content: Text('エラー: $errorMessage')),
-      );
+      ScaffoldMessenger.of(
+        outerCtx,
+      ).showSnackBar(SnackBar(content: Text('エラー: $errorMessage')));
     }
     return;
   }
 
   final td = tournamentData!;
   final snapshot = td['snapshot'] as Map<String, dynamic>? ?? {};
-  final templateIdStr =
-      (td['templateId'] as String?) ??
-      '';
+  final templateIdStr = (td['templateId'] as String?) ?? '';
 
   final addonLimit = resolveAddonLimitPerPlayerUi(
     isAddon: snapshot['isAddon'] as bool? ?? false,
@@ -99,9 +98,7 @@ Future<void> showAddonDialog({
   if (templateIdStr.isEmpty) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(
-          content: Text('トーナメントの templateId が取得できません。'),
-        ),
+        const SnackBar(content: Text('トーナメントの templateId が取得できません。')),
       );
     }
     return;
@@ -128,8 +125,9 @@ Future<void> showAddonDialog({
 
         if (billTournamentDoc.exists) {
           final bd = billTournamentDoc.data()!;
-          addonCount =
-              bd['addonCount'] is int ? bd['addonCount'] as int : ((bd['addonCount'] as num?)?.toInt() ?? 0);
+          addonCount = bd['addonCount'] is int
+              ? bd['addonCount'] as int
+              : ((bd['addonCount'] as num?)?.toInt() ?? 0);
         }
       }
     }
@@ -186,35 +184,39 @@ Future<void> showAddonDialog({
         content: isLoading
             ? const Center(child: CircularProgressIndicator())
             : Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('対象ユーザー: $pokerName'),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(addonSummaryLine),
-                  const SizedBox(height: 8),
-                  Text('Addonフィー: ¥${tournamentData?['snapshot']?['addonFee'] ?? 0}'),
-                  const SizedBox(height: 8),
-                  Text('Addonスタック: ${tournamentData?['snapshot']?['addonStack'] ?? 0}'),
+                  Text('対象ユーザー: $pokerName'),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(addonSummaryLine),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Addonフィー: ¥${tournamentData?['snapshot']?['addonFee'] ?? 0}',
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Addonスタック: ${tournamentData?['snapshot']?['addonStack'] ?? 0}',
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'この操作により、ユーザーのAddonが記録され、トーナメント統計が更新されます。',
+                    style: TextStyle(color: Colors.blue.shade700),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'この操作により、ユーザーのAddonが記録され、トーナメント統計が更新されます。',
-              style: TextStyle(color: Colors.blue.shade700),
-            ),
-          ],
-        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogCtx).pop(),
@@ -258,56 +260,10 @@ Future<void> _executeAddon({
 }) async {
   if (!context.mounted) return;
 
-  // Overlayを安全に取得（nullならSnackbarのみでフォールバック）
-  final overlayState = Overlay.maybeOf(context, rootOverlay: true);
-  OverlayEntry? loadingOverlay;
-  bool loadingShown = false;
-
-  // ローディングを閉じるユーティリティ（二重remove防止）
-  void hideLoading() {
-    if (loadingShown) {
-      try {
-        loadingOverlay?.remove();
-      } catch (_) {
-        // noop
-      }
-      loadingOverlay = null;
-      loadingShown = false;
-    }
-  }
+  final feedback = ActionProgressDialogController(context);
 
   try {
-    // ローディング表示（可能な場合のみ）
-    loadingOverlay = OverlayEntry(
-      builder: (_) => Material(
-        color: Colors.black54,
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                SizedBox(width: 16),
-                Text('Addon処理中...'),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    if (overlayState != null) {
-      overlayState.insert(loadingOverlay!);
-      loadingShown = true;
-    }
+    await feedback.showLoading(message: 'Addon処理中...');
 
     // 操作記録用の operationId（1 試行 1 ドキュメント）
     final operationId =
@@ -318,106 +274,56 @@ Future<void> _executeAddon({
     final functions = FunctionsClient.instance;
     final callable = functions.httpsCallable('addon');
 
-    final result = await callable.call({
-      'operationId': operationId,
-      'tournamentId': tournamentId,
-      'userId': userId,
-      'pokerName': pokerName,
-      if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
-      if (tableId != null && tableId.isNotEmpty) 'tableId': tableId,
-    }).timeout(
-      const Duration(seconds: 30),
-      onTimeout: () => throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました'),
-    );
+    final result = await callable
+        .call({
+          'operationId': operationId,
+          'tournamentId': tournamentId,
+          'userId': userId,
+          'pokerName': pokerName,
+          if (deviceName != null && deviceName.isNotEmpty)
+            'deviceName': deviceName,
+          if (tableId != null && tableId.isNotEmpty) 'tableId': tableId,
+        })
+        .timeout(
+          const Duration(seconds: 30),
+          onTimeout: () =>
+              throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました'),
+        );
 
     if (!context.mounted) {
-      hideLoading();
+      feedback.hideLoading();
       return;
     }
 
     final data = result.data as Map<String, dynamic>? ?? {};
     final bool ok = data['success'] == true;
 
-    // ✅ 成功/失敗UIを出す前にローディングを閉じる
-    hideLoading();
+    feedback.hideLoading();
 
     if (ok) {
-      // 成功メッセージを標準ダイアログで表示
-      await showDialog(
-        context: context,
-        builder: (dCtx) => AlertDialog(
-          title: Row(
-            children: const [
-              Icon(Icons.check_circle, color: Colors.green),
-              SizedBox(width: 8),
-              Text('完了'),
-            ],
-          ),
-          content: Text('$pokerName様のAddon処理が完了しました'),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.of(dCtx).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
+      await showActionSuccessDialog(
+        context,
+        message: '$pokerName様のAddon処理が完了しました',
       );
       if (closeUserActionMenuOnSuccess && context.mounted) {
         Navigator.of(context).pop();
       }
     } else {
       final err = data['error'] ?? '不明なエラー';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Addon登録に失敗しました: $err'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  } on TimeoutException {
-    hideLoading(); // 先に閉じる
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('処理がタイムアウトしました。しばらく待ってから再試行してください。'),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 5),
-        ),
-      );
+      await showActionErrorDialog(context, message: 'Addon登録に失敗しました: $err');
     }
   } catch (e) {
-    hideLoading(); // 先に閉じる
+    feedback.hideLoading();
     if (context.mounted) {
-      final msg = e.toString();
-      String ui = 'Addon登録に失敗しました';
-      if (msg.contains('network')) {
-        ui = 'ネットワークエラーが発生しました。接続を確認してください。';
-      } else if (msg.contains('permission')) {
-        ui = '権限が不足しています。管理者に連絡してください。';
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(ui),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: '詳細',
-            textColor: Colors.white,
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('詳細エラー: $e'),
-                  backgroundColor: Colors.red.shade800,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            },
-          ),
+      await showActionErrorDialog(
+        context,
+        message: buildAsyncActionErrorMessage(
+          e,
+          defaultMessage: 'Addon登録に失敗しました',
         ),
       );
     }
   } finally {
-    // 念のため（既に閉じていれば何もしない）
-    hideLoading();
+    feedback.hideLoading();
   }
 }

@@ -1,4 +1,5 @@
 class DeviceOptionKeys {
+  static const String tableDeviceTable = 'table_device_table';
   static const String order = 'order';
   static const String userEntryExit = 'user_entry_exit';
   static const String staffEntryExit = 'staff_entry_exit';
@@ -33,6 +34,7 @@ class DeviceOptionKeys {
   ];
 
   static const Map<String, String> labels = <String, String>{
+    tableDeviceTable: '卓専用端末の卓紐付け',
     order: '注文操作',
     userEntryExit: 'お客様入退店操作',
     staffEntryExit: 'スタッフ出退勤操作',
@@ -49,6 +51,8 @@ class DeviceOptionKeys {
   }
 
   static const Map<String, String> descriptions = <String, String>{
+    tableDeviceTable:
+        'role: table の端末に対して、どの卓を担当するかを設定します。同一卓に複数端末を紐付けることもできます。',
     order: '注文の作成・カート操作・注文確定・注文履歴の閲覧など、売上に関わる一連の注文操作を行えます。',
     userEntryExit: '来店・退店の受付（ユーザー側）に関する操作が可能になります。QRの受付や入店管理等を含みます。',
     staffEntryExit: 'スタッフの出勤・退勤打刻や、その受付に関する操作が可能になります。',
@@ -79,5 +83,4 @@ class DeviceOptionKeys {
     return tableBindableOptions.contains(key);
   }
 }
-
 

@@ -10,6 +10,7 @@ export type DeviceDoc = {
   /** デバイス表示名。operationLogs の実行者表示に使用 */
   name?: string;
   options?: Record<string, boolean>;
+  optionParams?: Record<string, Record<string, unknown>>;
   status?: string;
 };
 
@@ -32,6 +33,8 @@ export async function getCallerDeviceByUid(uid: string): Promise<DeviceDoc | nul
     role: (data?.role as string) ?? "terminal",
     name,
     options: (data?.options as Record<string, boolean>) ?? {},
+    optionParams:
+      (data?.optionParams as Record<string, Record<string, unknown>>) ?? {},
     status: (data?.status as string) ?? "active",
   };
 }

@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/services/device_service.dart';
+import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
 
 /// Bust&退席確認ダイアログ
 Future<void> showBustAndExitDialog({
@@ -14,13 +15,13 @@ Future<void> showBustAndExitDialog({
   required int seatNumber,
   bool closeUserActionMenuOnSuccess = false,
 }) async {
-  final menuContext = context;
+  final outerCtx = context;
   final pokerName = user['pokerName'] as String? ?? 'Unknown';
 
   return showDialog<void>(
-    context: menuContext,
+    context: outerCtx,
     barrierDismissible: false,
-    builder: (dialogCtx) {
+    builder: (BuildContext dialogCtx) {
       return AlertDialog(
         title: Row(
           children: [
@@ -61,7 +62,7 @@ Future<void> showBustAndExitDialog({
             onPressed: () async {
               Navigator.of(dialogCtx).pop();
               await _executeBustAndExit(
-                context: menuContext,
+                context: outerCtx,
                 user: user,
                 tournamentId: tournamentId,
                 tableId: tableId,
@@ -90,188 +91,94 @@ Future<void> _executeBustAndExit({
   required int seatNumber,
   bool closeUserActionMenuOnSuccess = false,
 }) async {
-  if (!context.mounted) return;
-
-  final overlayState = Overlay.maybeOf(context, rootOverlay: true);
-  OverlayEntry? loadingOverlay;
-  bool loadingShown = false;
-
-  void hideLoading() {
-    if (loadingShown) {
-      try {
-        loadingOverlay?.remove();
-      } catch (_) {
-        // noop
-      }
-      loadingOverlay = null;
-      loadingShown = false;
-    }
-  }
+  final feedback = ActionProgressDialogController(context);
 
   try {
-    print('=== ローディングダイアログ表示開始 ===');
-
-    loadingOverlay = OverlayEntry(
-      builder: (_) => Material(
-        color: Colors.black54,
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                SizedBox(width: 16),
-                Text('Bust&退席処理中...'),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    if (overlayState != null) {
-      overlayState.insert(loadingOverlay!);
-      loadingShown = true;
-    }
-    print('=== ローディングダイアログ表示完了 ===');
+    debugPrint('=== ローディングダイアログ表示開始 ===');
+    await feedback.showLoading(message: 'Bust&退席処理中...');
+    debugPrint('=== ローディングダイアログ表示完了 ===');
 
     // Cloud Function呼び出し（タイムアウト付き）
     final functions = FunctionsClient.instance;
     final callable = functions.httpsCallable('bustAndExit');
-    
-    print('=== Bust&退席Cloud Function呼び出し開始 ===');
-    print('tournamentId: $tournamentId');
-    print('tableId: $tableId');
-    print('seatNumber: $seatNumber');
-    print('userId: ${user['userId']}');
-    
+
+    debugPrint('=== Bust&退席Cloud Function呼び出し開始 ===');
+    debugPrint('tournamentId: $tournamentId');
+    debugPrint('tableId: $tableId');
+    debugPrint('seatNumber: $seatNumber');
+    debugPrint('userId: ${user['userId']}');
+
     // 操作記録用の operationId（1 試行 1 ドキュメント）
     final operationId =
         '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
     final device = await DeviceService().getCurrentDevice();
     final deviceName = device?.name;
 
-    print('=== Cloud Function呼び出し実行中 ===');
-    final result = await callable.call({
-      'operationId': operationId,
-      'tournamentId': tournamentId,
-      'tableId': tableId,
-      'seatNumber': seatNumber,
-      'userId': user['userId'],
-      if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
-    }).timeout(
-      const Duration(seconds: 30),
-      onTimeout: () {
-        print('=== タイムアウト発生 ===');
-        throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました');
-      },
-    );
-    print('=== Cloud Function呼び出し完了 ===');
+    debugPrint('=== Cloud Function呼び出し実行中 ===');
+    final result = await callable
+        .call({
+          'operationId': operationId,
+          'tournamentId': tournamentId,
+          'tableId': tableId,
+          'seatNumber': seatNumber,
+          'userId': user['userId'],
+          if (deviceName != null && deviceName.isNotEmpty)
+            'deviceName': deviceName,
+        })
+        .timeout(
+          const Duration(seconds: 30),
+          onTimeout: () {
+            debugPrint('=== タイムアウト発生 ===');
+            throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました');
+          },
+        );
+    debugPrint('=== Cloud Function呼び出し完了 ===');
 
-    print('=== Cloud Function応答 ===');
-    print('result.data: ${result.data}');
+    debugPrint('=== Cloud Function応答 ===');
+    debugPrint('result.data: ${result.data}');
 
     // 結果を確認
     final data = result.data as Map<String, dynamic>;
 
-    print('=== レスポンス解析 ===');
-    print('response: $data');
-    print('success: ${data['success']}');
-    
-    if (!context.mounted) {
-      hideLoading();
-      return;
-    }
+    debugPrint('=== レスポンス解析 ===');
+    debugPrint('response: $data');
+    debugPrint('success: ${data['success']}');
 
-    hideLoading();
+    feedback.hideLoading();
 
     if (data['success'] == true) {
-      // 成功メッセージを表示
       if (context.mounted) {
-        await showDialog<void>(
-          context: context,
-          builder: (successCtx) {
-            return AlertDialog(
-              title: Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.green),
-                  const SizedBox(width: 8),
-                  const Text('完了'),
-                ],
-              ),
-              content: Text('${user['pokerName']}様のBust&退席処理が完了しました'),
-              actions: [
-                ElevatedButton(
-                  onPressed: () => Navigator.of(successCtx).pop(),
-                  child: const Text('OK'),
-                ),
-              ],
-            );
-          },
+        await showActionSuccessDialog(
+          context,
+          message: '${user['pokerName']}様のBust&退席処理が完了しました',
         );
         if (closeUserActionMenuOnSuccess && context.mounted) {
           Navigator.of(context).pop();
         }
       }
     } else {
-      // エラーメッセージを表示
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Bust&退席に失敗しました: ${data['error'] ?? '不明なエラー'}'),
-            backgroundColor: Colors.red,
-          ),
+        await showActionErrorDialog(
+          context,
+          message: 'Bust&退席に失敗しました: ${data['error'] ?? '不明なエラー'}',
         );
       }
     }
   } catch (e) {
-    hideLoading();
-    print('=== Bust&退席処理エラー ===');
-    print('error: $e');
+    debugPrint('=== Bust&退席処理エラー ===');
+    debugPrint('error: $e');
 
-    // エラーメッセージを表示
+    feedback.hideLoading();
     if (context.mounted) {
-      String errorMessage = 'Bust&退席に失敗しました';
-      
-      if (e is TimeoutException) {
-        errorMessage = '処理がタイムアウトしました。しばらく待ってから再試行してください。';
-      } else if (e.toString().contains('network')) {
-        errorMessage = 'ネットワークエラーが発生しました。接続を確認してください。';
-      } else if (e.toString().contains('permission')) {
-        errorMessage = '権限が不足しています。管理者に連絡してください。';
-      }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMessage),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: '詳細',
-            textColor: Colors.white,
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('詳細エラー: $e'),
-                  backgroundColor: Colors.red.shade800,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            },
-          ),
+      await showActionErrorDialog(
+        context,
+        message: buildAsyncActionErrorMessage(
+          e,
+          defaultMessage: 'Bust&退席に失敗しました',
         ),
       );
     }
   } finally {
-    hideLoading();
+    feedback.hideLoading();
   }
 }

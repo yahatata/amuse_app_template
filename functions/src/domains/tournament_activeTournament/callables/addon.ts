@@ -11,6 +11,7 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { resolveAddonLimitPerPlayer } from '../../../shared/tournament/resolveAddonLimitPerPlayer';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import { assertTableDeviceCanAccessTable } from '../../../table_device/lib/shared';
 
 const addonSchema = z.object({
   operationId: z.string().min(1, 'operationId は必須です'),
@@ -50,7 +51,10 @@ export const addon = onCall(async (request) => {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
 
-    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+    const hasPermission =
+      device.role === 'admin' ||
+      device.role === 'table' ||
+      hasRequiredOption(device.options, 'tournament');
     if (!hasPermission) {
       throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
     }
@@ -80,6 +84,18 @@ export const addon = onCall(async (request) => {
     // 入力検証
     const validatedData = addonSchema.parse(data);
     const { operationId, tournamentId, userId, pokerName, deviceName, tableId: tableIdFromRequest } = validatedData;
+    if (device.role === 'table') {
+      if (tableIdFromRequest == null || tableIdFromRequest.trim() === '') {
+        throw new HttpsError(
+          'invalid-argument',
+          '卓端末からの Addon では tableId が必須です',
+        );
+      }
+      assertTableDeviceCanAccessTable({
+        device,
+        requestedTableId: tableIdFromRequest,
+      });
+    }
 
     console.log('tournamentId:', tournamentId);
     console.log('userId:', userId);
@@ -201,6 +217,37 @@ export const addon = onCall(async (request) => {
 
     const viewsMainData = viewsMainDoc.data();
     const currentAddons = viewsMainData?.addons || 0;
+
+    if (tableIdFromRequest != null && tableIdFromRequest.length > 0) {
+      const tableSeatDoc = await admin
+        .firestore()
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableIdFromRequest)
+        .get();
+
+      if (!tableSeatDoc.exists) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'テーブルシート情報が存在しません',
+          context: {
+            tournamentId,
+            tableId: tableIdFromRequest,
+            reason: 'table_seat_missing_for_addon',
+          },
+        });
+      }
+
+      const seats = (tableSeatDoc.data()?.seats ?? {}) as Record<string, unknown>;
+      const seatedSeatNumber = findSeatNumberForUserInSeats(seats, userId);
+      if (seatedSeatNumber == null) {
+        throw new HttpsError(
+          'permission-denied',
+          '指定ユーザーはこの卓に着席していません',
+        );
+      }
+    }
 
     // トランザクションで処理を実行
     const result = await admin.firestore().runTransaction(async (transaction) => {

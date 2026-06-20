@@ -13,6 +13,7 @@ import {
   syncLinkedOkibakeOnNormalBustInTx,
 } from '../lib/syncLinkedOkibakeOnNormalBust';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import { assertTableDeviceCanAccessTable } from '../../../table_device/lib/shared';
 
 // 入力データの検証スキーマ
 const bustAndExitSchema = z.object({
@@ -38,7 +39,10 @@ export const bustAndExit = onCall(async (request) => {
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
-    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+    const hasPermission =
+      device.role === 'admin' ||
+      device.role === 'table' ||
+      hasRequiredOption(device.options, 'tournament');
     if (!hasPermission) {
       throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
     }
@@ -50,6 +54,7 @@ export const bustAndExit = onCall(async (request) => {
 
     // 入力検証
     const { operationId, tournamentId, tableId, seatNumber, userId, deviceName } = bustAndExitSchema.parse(data);
+    assertTableDeviceCanAccessTable({ device, requestedTableId: tableId });
 
     console.log(`tournamentId: ${tournamentId}`);
     console.log(`tableId: ${tableId}`);

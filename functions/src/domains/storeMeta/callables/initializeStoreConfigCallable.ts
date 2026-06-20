@@ -13,7 +13,10 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { buildFromDefaults, mergeConfigForUpsert } from '../../../shared/config/configLoader';
+import {
+  buildConfigForInitialization,
+  mergeConfigForUpsert,
+} from '../../../shared/config/configLoader';
 import {
   buildSchedulerConfigFromDefaults,
   mergeSchedulerConfigForUpsert,
@@ -67,14 +70,14 @@ export const initializeStoreConfigCallable = onCall(
       const updated: string[] = [];
 
       if (!configDoc.exists) {
-        const config = buildFromDefaults();
+        const config = buildConfigForInitialization();
         await configRef.set({
           ...config,
           updatedAt: FieldValue.serverTimestamp(),
         });
         created.push('storeMeta/config');
       } else {
-        const defaults = buildFromDefaults();
+        const defaults = buildConfigForInitialization();
         const merged = mergeConfigForUpsert(configDoc.data() as Record<string, unknown>, defaults);
         await configRef.set(
           { ...merged, updatedAt: FieldValue.serverTimestamp() },

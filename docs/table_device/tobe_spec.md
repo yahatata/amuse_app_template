@@ -28,14 +28,14 @@
 ## 1. 概要・目的
 
 ### 目的
-- 顧客（ユーザー）が操作する卓専用端末を作ることで、不正操作を防ぐ
-- 必要最低限の機能に絞ることでユーザー体験を向上させる
+- 店舗従業員（ディーラー）が操作する卓専用端末を作ることで、卓運用に不要な操作や誤操作を防ぐ
+- 必要最低限の卓操作に絞ることで、卓現場で迷わず使える導線を提供する
 
 ### 基本方針
 - デバイスに `role: 'table'` を追加し、起動時に卓専用ホーム画面へ遷移させる
 - 卓の現在の登録状態は `tables/{tableId}` を単一参照先として管理する
 - 既存の管理デバイス向け画面は変更せず、卓デバイス専用ファイルを別途作成する
-- 卓デバイスからのトーナメント/サイドゲーム登録はオプション機能として実装し、環境変数で制御する
+- 卓デバイスからのトーナメント/サイドゲーム登録はオプション機能として実装し、`storeMeta/config` の設定値で制御する
 
 ---
 
@@ -65,7 +65,7 @@ tables/{tableId}
   ├── isEnabled: boolean             （既存）
   ├── maxSeats: number               （既存）
   ├── name: string                   （既存）
-  ├── status: string                 （既存）  'open' | 'tournament' | 'sideGame'
+  ├── status: string                 （既存）  'open' | 'tournament' | <sideGameTypes のゲーム名>
   ├── updatedAt: Timestamp           （既存）
   └── tournamentDetail: Map | null   （新規追加）
         ├── tournamentId: string       // scheduledTournaments の docId
@@ -74,10 +74,11 @@ tables/{tableId}
 ```
 
 **設計方針:**
-- `tournamentDetail` は `status == 'tournament'` の場合のみ値を持つ。それ以外は `null` またはフィールド未存在
-- サイドゲームは `sideGame/{tableId}.active` で判定するため `sideGameDetail` は不要
-- この 1 ドキュメントを参照することで、卓デバイスがどの画面に遷移すべきか判断できる
-- トーナメント終了時（`endTournament`）には `tournamentDetail` をクリアする
+- `tournamentDetail` は「当該卓が現在もトーナメント登録を保持している場合」に値を持つ
+- `status == 'tournament'` の通常時に加え、トーナメント登録を保持したままサイドゲーム運用中の間も `tournamentDetail` を保持してよい
+- サイドゲームは `tables.status` が `storeMeta/config.sideGameTypes` のいずれかで、かつ `sideGame/{tableId}.active == true` の場合に進行中と判定する
+- `tables/{tableId}` を起点に卓デバイスの遷移先を判断し、必要に応じて `scheduledTournaments` / `sideGame` を補助参照する
+- トーナメント登録が完全に解除された時点で `tournamentDetail` をクリアする
 
 ### 3-2. `tables/{tableId}.status` の状態遷移
 
@@ -85,7 +86,12 @@ tables/{tableId}
 |------|------------|-------------------|
 | 空き | `'open'` | `null` または未存在 |
 | トーナメント登録中 | `'tournament'` | 値あり |
-| サイドゲーム登録中 | `'sideGame'` | `null` または未存在 |
+| サイドゲーム登録中（トーナメント未登録） | `sideGameTypes` のいずれか（例: `'ブラックジャック'`） | `null` または未存在 |
+| サイドゲーム登録中（トーナメント登録保持あり） | `sideGameTypes` のいずれか（例: `'ブラックジャック'`） | 値あり |
+
+**補足:**
+- `status == 'sideGame'` という固定値は使用しない
+- サイドゲーム名の候補は `storeMeta/config.sideGameTypes` を唯一の定義元とする
 
 ### 3-3. `scheduledTournaments/{id}/tablesSeat/{tableId}` の変更
 
@@ -117,6 +123,7 @@ tablesSeat/{tableId}
 - **格納形式**: `optionParams['table_device_table'] = { tableId: "T1" }`
 - **取得**: 既存の `Device.getTableIdForOption(DeviceOptionKeys.tableDeviceTable)` で取得
 - **`lib/services/device_options.dart`**: `tableDeviceTable` 定数を追加し、labels / descriptions に文言を定義
+- 同一卓に複数の `role: 'table'` デバイスを紐付けることを許容する（1卓:多端末を許容）
 
 ### 4-2. Flutter 側変更
 
@@ -127,7 +134,7 @@ tablesSeat/{tableId}
 | `lib/services/device_service.dart` | `isTableDevice()` メソッドを追加（`role == 'table'`）。`getTableIdForTableDevice()` または `getTableIdForOption(DeviceOptionKeys.tableDeviceTable)` で卓 ID 取得 |
 | `lib/services/device_options.dart` | `tableDeviceTable` 定数と labels / descriptions を追加 |
 | `lib/pages/device_management_page.dart` | 4-3 の仕様に従い変更 |
-| `lib/pages/device_registration_page.dart` | `'table'` は登録画面に表示しない（管理画面からのみ設定可） |
+| `lib/pages/device_registration_page.dart` | `role` 選択肢に `'table'` を追加。登録直後は `table` ロール用の遷移判定を行う |
 
 ### 4-3. デバイス管理画面のオプション編集（role 別挙動）
 
@@ -156,6 +163,7 @@ tablesSeat/{tableId}
 3. **保存**
    - 選択した卓 ID を `optionParams[DeviceOptionKeys.tableDeviceTable] = { tableId: selectedTableId }` として保存
    - 既存の `updateDeviceOptions` を呼び出す（Cloud Functions 側で `table_device_table` を許容するよう必要に応じて修正）
+   - 同一卓への複数 `table` デバイス紐付けは許容するため、`table_device_table` については同卓重複チェックを行わない
 
 ### 4-5. Cloud Functions 側変更
 
@@ -163,7 +171,7 @@ tablesSeat/{tableId}
 |----------|----------|
 | `functions/src/shared/devices/callables/registerDevice.ts` | `role` の zod スキーマに `'table'` を追加 |
 | `functions/src/shared/devices/callables/updateDeviceRole.ts` | スキーマに `'table'` を追加。`table` ロール変更時は `options: {}`, `optionParams: {}` で初期化（卓紐づけはオプション編集画面で別途設定） |
-| `functions/.../updateDeviceOptions.ts` | `optionParams` のキーに `table_device_table` を許容（role: table 時の卓紐づけ保存） |
+| `functions/.../updateDeviceOptions.ts` | `optionParams` のキーに `table_device_table` を許容（role: table 時の卓紐づけ保存）。`role: table` 時は `options` 空 + `table_device_table` のみを扱う前提に寄せる |
 
 ---
 
@@ -209,7 +217,8 @@ functions/src/
 AppInitializer（main.dart）
   ↓ device.role == 'table'
   ↓ device.getTableIdForOption(DeviceOptionKeys.tableDeviceTable) で tableId を取得
-  ↓ tableId が null の場合はエラー表示 or 設定促し（要検討）
+  ↓ tableId が null の場合は専用案内を表示
+     「管理者に報告して、adminデバイスからテーブルの紐付けを行う。もしくはroleを変更してください。」
 TableDedicatedHomePage(tableId: tableId) へ遷移
   ↓
 物理戻るボタン: 無効化（WillPopScope / PopScope）
@@ -245,10 +254,10 @@ TableDedicatedHomePage(tableId: tableId) へ遷移
 
 | 状態 | 表示内容 | タップ動作 |
 |------|----------|-----------|
-| **トーナメント進行中**（status: running / registered / paused） | 「トーナメント」アイコン＋トーナメント名＋「進行中」バッジ | `TableDeviceTableDetailPage` へ遷移 |
-| **トーナメント開始前**（status: scheduled、businessDate が当日） | 「トーナメント」アイコン＋トーナメント名＋「開始前」バッジ（グレー） | `TableDeviceTableDetailPage` へ遷移（着席者なしの状態で表示） |
-| **サイドゲーム進行中**（status: sideGame、active: true） | 「サイドゲーム」アイコン＋ゲーム名＋「進行中」バッジ | `TableDeviceSideGamePage` へ遷移 |
-| **異常系: 両方登録**（後述） | 警告アイコン＋「複数ゲームが登録されています」 | 選択ダイアログを表示 |
+| **トーナメント進行中**（`tables.status == 'tournament'` かつ `scheduledTournaments.status == running / registered / paused`） | 「トーナメント」アイコン＋トーナメント名＋「進行中」バッジ | `TableDeviceTableDetailPage` へ遷移 |
+| **トーナメント開始前**（`tables.status == 'tournament'` かつ `scheduledTournaments.status == scheduled`、businessDate が当日） | 「トーナメント」アイコン＋トーナメント名＋「開始前」バッジ（グレー） | `TableDeviceTableDetailPage` へ遷移（着席者なしの状態で表示） |
+| **サイドゲーム進行中**（`tables.status ∈ sideGameTypes`、`sideGame.active == true`） | 「サイドゲーム」アイコン＋ゲーム名＋「進行中」バッジ。`tournamentDetail` がある場合は「終了後に [トーナメント名] へ戻る」を併記 | `TableDeviceSideGamePage` へ遷移 |
+| **異常系: 状態不整合**（後述） | 警告アイコン＋「卓データの整合が取れていません」 | タップで詳細メッセージを表示 |
 | **進行中なし** | 「現在進行中のゲームはありません」（グレーテキスト） | タップ無効 |
 
 ### 6-4. 進行中判定ロジック
@@ -264,37 +273,39 @@ tables/{tableId} を取得:
       - scheduled かつ businessDate == currentBusinessDateKey → 「開始前」
       - ended / cancelled → 異常（tables のクリーンアップ漏れ）→「進行中なし」として扱う
 
-  status == 'sideGame'
+  status ∈ sideGameTypes
     → sideGame/{tableId}.active を確認
       - true  → 「サイドゲーム進行中」
+                 tournamentDetail != null の場合は
+                 「トーナメント登録保持中（終了後に復帰）」として扱う
       - false → 異常（tables のクリーンアップ漏れ）→「進行中なし」として扱う
 
   status == 'open' または undefined
     → 「進行中なし」
 ```
 
-### 6-5. 異常系：トーナメント＋サイドゲーム両方検出
+### 6-5. 異常系：`tables.status` / `tournamentDetail` / `sideGame.active` の不整合
 
 ```
 警告ダイアログ:
-「この卓はトーナメントとサイドゲームの両方に登録されています。
- どちらの画面を開きますか？」
+「卓データの整合が取れていません。管理者に連絡してください。」
 
-  ┌───────────────────┐  ┌────────────────────┐
-  │  [トーナメント名]   │  │  [サイドゲーム名]   │
-  └───────────────────┘  └────────────────────┘
+例:
+- status == 'tournament' なのに tournamentDetail がない
+- status ∈ sideGameTypes なのに sideGame.active != true
+- status == 'open' なのに tournamentDetail が残っている
 ```
 
-### 6-6. 「進行中なし」時の登録ボタン（環境変数制御）
+### 6-6. 「進行中なし」時の登録ボタン（storeMeta/config 制御）
 
-環境変数 `TABLE_DEVICE_REGISTRATION_ENABLED == 'true'` のときのみ表示。
+`storeMeta/config.features.tableDeviceRegistrationEnabled == true` のときのみ表示。
 
 | ボタン | 表示条件 | 動作 |
 |--------|----------|------|
 | 「トーナメントに登録」 | `status == 'open'` | 登録可能なトーナメント一覧を表示（第9節参照） |
 | 「サイドゲームに登録」 | `status == 'open'` | サイドゲーム登録確認ダイアログを表示（第9節参照） |
 
-環境変数が `'false'` の場合はボタンを非表示とする（UI からの操作を完全に無効化）。
+設定値が `false` の場合はボタンを非表示とする（UI からの操作を完全に無効化）。
 
 ---
 
@@ -307,8 +318,8 @@ AppBar 左の「≡」ボタンで開く。
 | メニュー項目 | 表示条件 | 動作 |
 |-------------|----------|------|
 | **卓ホームに戻る** | 常に表示 | `TableDedicatedHomePage` にリセット遷移（スタックを全クリア） |
-| **トーナメントから登録解除** | `status == 'tournament'` のとき表示 | 第8節の登録解除フローへ |
-| **サイドゲームから登録解除** | `status == 'sideGame'` のとき表示 | 第8節の登録解除フローへ |
+| **トーナメントから登録解除** | 現在判定がトーナメント状態のとき表示 | 第8節の登録解除フローへ |
+| **サイドゲームから登録解除** | 現在判定がサイドゲーム状態のとき表示 | 第8節の登録解除フローへ |
 
 ### 7-2. ドロワーの適用範囲
 
@@ -336,7 +347,7 @@ AppBar 左の「≡」ボタンで開く。
    「着席者が {N} 名います。強制的に解除しますか？」
    ├── キャンセル → 処理中断
    └── OK → パスコード入力画面（4桁数字）
-     ├── 正解（環境変数 FORCE_CLEAR_PASSCODE、デフォルト '0000'）→ ステップ4へ
+     ├── 正解（`storeMeta/config.tableDevice.forceClearPasscode`、デフォルト `'0000'`）→ ステップ4へ
      └── 不正解 → 「パスコードが違います」表示、再入力可能
 
 4. [Cloud Function 呼び出し: unregisterTableFromTournament]
@@ -355,7 +366,8 @@ AppBar 左の「≡」ボタンで開く。
 
 ```
 1. [前提チェック]
-   tables/{tableId}.status == 'sideGame' であること
+   tables/{tableId}.status が `sideGameTypes` のいずれかであり、
+   sideGame/{tableId}.active == true であること
 
 2. [着席者チェック]
    sideGame/{tableId}/seats の全 seatXXUserId が null または空文字列
@@ -375,7 +387,10 @@ AppBar 左の「≡」ボタンで開く。
      A. sideGame/{tableId}
         → active: false, 全 seats を null クリア, updatedAt: serverTimestamp()
      B. tables/{tableId}
-        → status: 'open', updatedAt: serverTimestamp()
+        ├── tournamentDetail が存在する場合
+        │   → status: 'tournament', tournamentDetail は保持, updatedAt: serverTimestamp()
+        └── tournamentDetail が存在しない場合
+            → status: 'open', updatedAt: serverTimestamp()
 
 5. [完了]
    TableDedicatedHomePage にリセット遷移
@@ -384,8 +399,9 @@ AppBar 左の「≡」ボタンで開く。
 ### 8-3. 強制クリア パスコード仕様
 
 - 4桁数字
-- 正しいパスコードは環境変数 `FORCE_CLEAR_PASSCODE` で設定（デフォルト: `'0000'`）
-- Flutter の `--dart-define` で埋め込む
+- 正しいパスコードは `storeMeta/config.tableDevice.forceClearPasscode` で設定する（デフォルト: `'0000'`）
+- 本値は**セキュリティの厳密担保ではなく、誤操作防止**を目的とする
+- そのため client から参照可能な `storeMeta/config` に配置する運用を許容する
 - アプリ UI からの変更は不可
 - セキュリティの担保は「従業員のみが卓デバイスを操作できる」という物理的制限による
 - 入力誤りに対して試行回数制限は設けない（ロックアウトなし）
@@ -394,7 +410,7 @@ AppBar 左の「≡」ボタンで開く。
 
 ## 9. 卓デバイスからの登録フロー（オプション機能）
 
-環境変数 `TABLE_DEVICE_REGISTRATION_ENABLED == 'true'` のときのみ有効。
+`storeMeta/config.features.tableDeviceRegistrationEnabled == true` のときのみ有効。
 
 ### 9-1. トーナメント登録
 
@@ -403,9 +419,12 @@ AppBar 左の「≡」ボタンで開く。
 | 条件 | 内容 |
 |------|------|
 | `businessDate` | `storeMeta/currentBusinessDay.currentBusinessDateKey` と一致する |
-| `status` | `'scheduled'` / `'running'` / `'registered'` のいずれか |
+| `status` | `'scheduled'` / `'running'` / `'registered'` / `'paused'` のいずれか |
 | `startAt` | 現在時刻から 1 時間以上前ではない（startAt >= 現在時刻 - 1時間） |
 | 重複登録チェック | 対象トーナメントの `tablesSeat/{tableId}` が `isEnabled: true` で存在する場合は選択不可 |
+
+**前提:**
+- 操作対象の `tableId` は `devices.optionParams.table_device_table.tableId` から取得し、卓デバイス側 UI で他卓を選ばせない
 
 **競合エラーメッセージ:**
 
@@ -417,28 +436,31 @@ AppBar 左の「≡」ボタンで開く。
 **登録フロー（Cloud Function: registerTableToTournament）:**
 
 ```
-引数: { tableId, tournamentId, tournamentName, startAt, maxSeats }
+引数: { tableId, tournamentId }
 
 1. tables/{tableId}.status == 'open' を確認（競合チェック）
    → 'open' でない場合はエラー（上記エラーメッセージを返す）
 
-2. scheduledTournaments/{tournamentId}/tablesSeat/{tableId} の存在確認
+2. tables/{tableId} と scheduledTournaments/{tournamentId} を取得
+   → maxSeats, tournamentName, startAt は server 側で確定する
+
+3. scheduledTournaments/{tournamentId}/tablesSeat/{tableId} の存在確認
    ├── isEnabled: false で存在 → isEnabled: true, seats をリセット, updatedAt 更新（再利用）
    └── 存在しない → 新規作成（isEnabled: true, seats, maxSeats, createdAt, updatedAt）
 
-3. tables/{tableId} を更新
+4. tables/{tableId} を更新
    → status: 'tournament'
    → tournamentDetail: { tournamentId, tournamentName, startAt }
    → updatedAt: serverTimestamp()
 
-4. 成功 → { success: true } を返す
+5. 成功 → { success: true } を返す
 ```
 
 **権限チェック（Cloud Functions）:**
 
 ```
-呼び出し元デバイスの role == 'table' であること
-（既存の tournament オプションは不要。table ロール自体が権限を意味する）
+呼び出し元デバイスの role == 'table' または role == 'admin' であること
+（通常利用は `table` ロール。`admin` は保守・検証用途として許容）
 ```
 
 ### 9-2. サイドゲーム登録
@@ -447,33 +469,51 @@ AppBar 左の「≡」ボタンで開く。
 
 | 条件 | 内容 |
 |------|------|
-| 前提 | `tables/{tableId}.status == 'open'` であること |
+| 空き卓 | `tables/{tableId}.status == 'open'` の場合はそのまま開始可能 |
+| トーナメント登録のみ | `tables/{tableId}.status == 'tournament'` かつ当該卓に着席者がいない場合は、警告表示後に開始可能 |
+| トーナメント着席中 | 当該卓がトーナメントで着席中の場合は開始不可 |
+| サイドゲーム進行中 | `tables.status ∈ sideGameTypes` かつ `sideGame.active == true` の場合は既存ゲーム画面へ遷移 |
+| その他利用中 | `tables.status` が上記以外の使用中状態なら、警告表示後に開始可能 |
 
 **競合エラーメッセージ:**
 
 | ケース | 表示メッセージ |
 |--------|--------------|
-| トーナメントに登録済み | 「既に [XX トーナメント] に登録されています。先に登録解除を行ってください。」 |
-| 他サイドゲームに登録済み | 「既にサイドゲームに登録されています。先に登録解除を行ってください。」 |
+| トーナメント着席中 | 「トーナメントで着席中のため、この卓でサイドゲームを開始できません」 |
+| トーナメント登録のみ | 「トーナメント登録中ですが使用しますか？ サイドゲーム終了後に登録されたトーナメントにて使用可能になります。」 |
+| 他用途で使用中 | 「この卓は現在他の用途で使用中ですが、サイドゲームを開始しますか？」 |
 
 **登録フロー（Cloud Function: registerTableToSideGame）:**
 
 ```
-引数: { tableId }
+引数: { tableId, gameName }
 
-1. tables/{tableId}.status == 'open' を確認
-   → 'open' でない場合はエラー
+1. tables/{tableId} と sideGame/{tableId} を確認
+   ├── トーナメント着席中 → エラー
+   ├── サイドゲーム進行中 → 既存ゲーム画面へ誘導
+   ├── トーナメント登録のみ / 他用途で使用中 → UI で確認済みであれば続行
+   └── 空き卓 → 続行
 
 2. sideGame/{tableId} を upsert
    → active: true
+   → gameName: request.gameName
    → テーブル名、maxSeats を tables/{tableId} から取得してセット
+   → seats は開始時に空状態へリセットする
    → updatedAt: serverTimestamp()
 
 3. tables/{tableId} を更新
-   → status: 'sideGame'
+   → status: gameName
+   → tournamentDetail は、元々保持している場合はそのまま残す
    → updatedAt: serverTimestamp()
 
 4. 成功 → { success: true } を返す
+```
+
+**権限チェック（Cloud Functions）:**
+
+```
+呼び出し元デバイスの role == 'table' または role == 'admin' であること
+（通常利用は `table` ロール。`admin` は保守・検証用途として許容）
 ```
 
 ---
@@ -502,6 +542,7 @@ AppBar 左の「≡」ボタンで開く。
 
 - UI ロジック（座席表示、ストリーム購読、ダイアログ等）は既存ファイルから**コピーして流用**する
 - 意図的な差異（AppBar、遷移先）以外は既存ファイルと同一の実装を維持する
+- `side_game_table_home.dart` に残っているデバッグ用 UI（例: ドキュメント手動作成、デバッグ実行）は卓デバイス版では表示しない
 - 将来的に既存ファイルを改修した場合は、卓デバイス版にも同様の変更を反映する（メンテナンスコストとして許容）
 
 ---
@@ -611,7 +652,17 @@ transaction.update(tableRef, {
 
 ### 11-6. `table_select_page.dart`：論理削除卓の非表示
 
-`TableSelectPage` の `_loadTables` で、`tablesSeat` から卓一覧を取得する際に `data['isEnabled'] == true` のフィルタを追加する。論理削除済みの卓は卓選択リストに表示しない。
+`TableSelectPage` で、`tablesSeat` から卓一覧を取得する際に `data['isEnabled'] == true` のフィルタを追加する。論理削除済みの卓は卓選択リストに表示しない。
+
+### 11-7. `tournament_select_page.dart`：device 卓絞り込み時の論理削除対応
+
+`TournamentSelectPage` が device に紐づいた卓でトーナメントを絞り込む際、`tablesSeat/{tableId}` の doc が**存在するだけ**ではなく `isEnabled == true` であることを確認する。論理削除済みの卓登録を、卓デバイス候補として扱わないため。
+
+### 11-8. `storeMeta/config`：卓デバイス設定の追加整理
+
+- `features.tableDeviceRegistrationEnabled` は既存どおり使用する
+- `tableDevice.forceClearPasscode` を新規追加する
+- `lib/services/store_config_service.dart`、`functions/src/shared/config/types.ts`、`functions/src/shared/config/defaults.ts` に同項目を反映する
 
 ---
 
@@ -644,20 +695,22 @@ transaction.update(tableRef, {
 
 ---
 
-## 13. 環境変数一覧
+## 13. `storeMeta/config` 設定一覧
 
-| 変数名 | Flutter での設定方法 | 説明 | デフォルト値 |
-|--------|---------------------|------|------------|
-| `TABLE_DEVICE_REGISTRATION_ENABLED` | `--dart-define=TABLE_DEVICE_REGISTRATION_ENABLED=true` | 卓デバイスからのトーナメント/SG 登録機能の ON/OFF | `'true'`（テンプレートアプリ） |
-| `FORCE_CLEAR_PASSCODE` | `--dart-define=FORCE_CLEAR_PASSCODE=0000` | 強制クリア時のパスコード（4桁数字） | `'0000'` |
+| パス | 型 | 説明 | デフォルト値 | 備考 |
+|------|----|------|-------------|------|
+| `features.tableDeviceRegistrationEnabled` | `boolean` | 卓デバイスからのトーナメント / サイドゲーム登録 UI の ON/OFF | `true` | 既存スキーマあり |
+| `tableDevice.forceClearPasscode` | `string`（4桁数字） | 強制クリア時のパスコード | `'0000'` | 新規追加。誤操作防止用途 |
 
-**Flutter 側での読み取り方法:**
-```dart
-const bool registrationEnabled =
-  bool.fromEnvironment('TABLE_DEVICE_REGISTRATION_ENABLED', defaultValue: true);
+**Flutter / Functions 側での読み取り方針:**
 
-const String forcePasscode =
-  String.fromEnvironment('FORCE_CLEAR_PASSCODE', defaultValue: '0000');
+```text
+Flutter:
+- registrationEnabled = storeConfig.features.tableDeviceRegistrationEnabled
+- forceClearPasscode = storeConfig.tableDevice.forceClearPasscode
+
+Functions:
+- 同じ storeMeta/config を参照し、必要に応じて整合確認に利用する
 ```
 
 ---
@@ -681,6 +734,14 @@ const String forcePasscode =
 - トーナメント名 + 「開始前」バッジ（グレー）
 - タップで `TableDeviceTableDetailPage` に遷移する（着席者 0 の状態で表示される）
 
+### サイドゲームの「進行中」に含む status
+
+| `tables.status` | 卓での扱い | 条件 |
+|-----------------|-----------|------|
+| `sideGameTypes` のいずれか | サイドゲーム進行中 | `sideGame/{tableId}.active == true` |
+| `sideGameTypes` のいずれか + `tournamentDetail` 値あり | サイドゲーム進行中（終了後にトーナメントへ復帰） | `sideGame/{tableId}.active == true` |
+| `open` | 進行中なし | 無条件 |
+
 ---
 
 ## 15. 実装フェーズ分け
@@ -691,9 +752,11 @@ const String forcePasscode =
 - `scheduledTournaments/tablesSeat` の論理削除対応（`isEnabled: false`）
 - 既存 CF の変更（`addTableToTournament`、`removeTableFromTournament`、`endTournament`）
 - `role: 'table'` の追加（Flutter モデル・CF スキーマ）
+- `device_registration_page.dart` で `table` ロールを選択可能にする
 - デバイス管理画面の role 別オプション編集挙動（4-3, 4-4）
 - `device_options.dart` に `tableDeviceTable` 追加
 - `updateDeviceOptions` で `table_device_table` 許容
+- `storeMeta/config.tableDevice.forceClearPasscode` のスキーマ / defaults / Flutter パース追加
 
 ### Phase 2: 卓専用ホーム画面
 
@@ -711,18 +774,20 @@ const String forcePasscode =
 
 - CF: `registerTableToTournament`、`registerTableToSideGame` の実装
 - Flutter 側の登録 UI 実装
-- 環境変数によるオン/オフ制御の実装
+- `storeMeta/config.features.tableDeviceRegistrationEnabled` によるオン/オフ制御の実装
 
 ---
 
 ## 16. 残タスク（実装時実施）
 
-本機能は現時点で設計・設定の導入（storeMeta/config スキーマ定義）のみ完了している。実装時に以下の作業を実施すること。
+本機能は現時点で設計段階であり、`tableDeviceRegistrationEnabled` のスキーマ定義のみ既存 config に存在する。`forceClearPasscode` を含む卓デバイス固有設定は、実装時に追加すること。
 
 | # | 残タスク | 対象ドキュメント | 内容 |
 |---|----------|------------------|------|
 | 1 | **取得失敗時の挙動設計の記載** | `docs/運用時資料/設定/取得失敗時の挙動設計.md` | `tableDeviceRegistrationEnabled`（B-06）の行を「設定ごとの記載」テーブルに追加する。記載内容: 読めるがフィールド未存在時はデフォルト適用（必須。`true`）、読めない時は A. デフォルトを正とする。他 features フラグと同様。 |
 | 2 | **設定の不具合時の対応の記載** | `docs/運用時資料/設定/設定の不具合時の対応.md` | `tableDeviceRegistrationEnabled` の行を「設定ごとの記載」テーブルに追加する。記載内容: 想定パターン A〜D、対応フローは他 boolean フラグと同様（リトライ→エラーコード→必要時コードデプロイ）。 |
+| 3 | **`forceClearPasscode` の設定詳細追加** | `docs/運用時資料/設定/storeMeta/configによる設定の詳細/` | `tableDevice.forceClearPasscode` の用途、デフォルト値、誤操作防止用途であることを追記する。 |
+| 4 | **`forceClearPasscode` の取得失敗 / 不具合時対応整理** | `docs/運用時資料/設定/取得失敗時の挙動設計.md` / `docs/運用時資料/設定/設定の不具合時の対応.md` | `tableDevice.forceClearPasscode` のデフォルト値 (`'0000'`) と、読めない場合のフォールバック方針を追加する。 |
 
 ※ Phase2 config 移行検証（Z_crossCutting）で検出。B-06 はスキーマ定義のみのため実装時に対応する。
 
@@ -737,11 +802,13 @@ const String forcePasscode =
 | `lib/services/device_service.dart` | デバイスサービス | **変更あり**（isTableDevice() 追加） |
 | `lib/services/device_options.dart` | オプションキー定義 | **変更あり**（tableDeviceTable 追加） |
 | `lib/pages/device_management_page.dart` | デバイス管理画面 | **変更あり**（4-3, 4-4 の仕様に従い role 別挙動を実装） |
-| `lib/pages/device_registration_page.dart` | デバイス登録画面 | **変更なし**（table は表示しない） |
+| `lib/pages/device_registration_page.dart` | デバイス登録画面 | **変更あり**（table を選択可能にする） |
+| `lib/services/store_config_service.dart` | storeMeta/config の Flutter 読み取り | **変更あり**（`tableDevice.forceClearPasscode` 追加） |
 | `lib/tournament/active/pages/tournament_home_page.dart` | トーナメント管理画面 | **変更なし**（論理削除は CF 側で対応済み） |
 | `lib/tournament/active/widgets/dialogs/add_table_dialog.dart` | 卓追加ダイアログ | **変更なし** |
 | `lib/tournament/active/widgets/dialogs/remove_table_dialog.dart` | 卓削除ダイアログ | **変更あり**（`_loadEmptyTables` に `isEnabled` フィルタ追加） |
 | `lib/tournament/pages/table_select_page.dart` | 卓選択ページ | **変更あり**（`_loadTables` に `isEnabled` フィルタ追加） |
+| `lib/tournament/pages/tournament_select_page.dart` | 卓紐付け時のトーナメント絞り込み | **変更あり**（`tablesSeat.isEnabled` を確認） |
 | `lib/tournament/active/pages/table_detail_page.dart` | 卓詳細（管理版） | **変更なし** |
 | `lib/sideGame/pages/side_game_table_home.dart` | SG卓画面（管理版） | **変更なし** |
 | `functions/.../addTableToTournament.ts` | 卓追加 CF | **変更あり** |
@@ -749,3 +816,5 @@ const String forcePasscode =
 | `functions/.../registerDevice.ts` | デバイス登録 CF | **変更あり** |
 | `functions/.../updateDeviceRole.ts` | role 変更 CF | **変更あり** |
 | `functions/.../updateDeviceOptions.ts` | オプション更新 CF | **変更あり**（table_device_table を許容） |
+| `functions/src/shared/config/types.ts` | storeMeta/config 型定義 | **変更あり**（`tableDevice.forceClearPasscode` 追加） |
+| `functions/src/shared/config/defaults.ts` | storeMeta/config デフォルト値 | **変更あり**（`tableDevice.forceClearPasscode` 追加） |

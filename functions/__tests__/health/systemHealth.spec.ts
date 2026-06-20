@@ -52,6 +52,8 @@ import {
   DEFAULT_ENQUEUE_SCHEDULER_ENABLED,
   DEFAULT_TEMPLATE_BUSINESSDATE_CHECK,
   DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED,
+  DEFAULT_TABLE_DEVICE_FORCE_CLEAR_PASSCODE,
+  DEFAULT_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED,
 } from '../../src/shared/config/defaults';
 
 import {
@@ -92,6 +94,11 @@ describe('1. config 基盤', () => {
       expect(config.features?.templateBusinessDateCheck).toBe(DEFAULT_TEMPLATE_BUSINESSDATE_CHECK);
       expect(config.features?.settlementAggregatorEnabled).toBe(DEFAULT_SETTLEMENT_AGGREGATOR_ENABLED);
       expect(config.features?.tableDeviceRegistrationEnabled).toBe(DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED);
+      expect(config.tableDevice?.forceClearPasscode).toBe(DEFAULT_TABLE_DEVICE_FORCE_CLEAR_PASSCODE);
+      expect(config.tableDevice?.tournamentSeatAssignmentEnabled)
+        .toBe(DEFAULT_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED);
+      expect(config.tableDevice?.actionHistoryViewEnabled).toBe(true);
+      expect(config.tableDevice?.actionHistoryRollbackEnabled).toBe(false);
     });
 
     it('autoOpenClose が正しい', () => {

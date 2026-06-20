@@ -47,6 +47,8 @@ import {
   DEFAULT_TEMPLATE_BUSINESSDATE_CHECK,
   DEFAULT_SETTLEMENT_AGGREGATOR_ENABLED,
   DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED,
+  DEFAULT_TABLE_DEVICE_FORCE_CLEAR_PASSCODE,
+  DEFAULT_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED,
 } from '../../src/shared/config/defaults';
 
 if (admin.apps.length > 0) {
@@ -74,6 +76,11 @@ describe('buildFromDefaults: 全フィールド網羅チェック', () => {
     expect(config.features?.templateBusinessDateCheck).toBe(DEFAULT_TEMPLATE_BUSINESSDATE_CHECK);
     expect(config.features?.settlementAggregatorEnabled).toBe(DEFAULT_SETTLEMENT_AGGREGATOR_ENABLED);
     expect(config.features?.tableDeviceRegistrationEnabled).toBe(DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED);
+    expect(config.tableDevice?.forceClearPasscode).toBe(DEFAULT_TABLE_DEVICE_FORCE_CLEAR_PASSCODE);
+    expect(config.tableDevice?.tournamentSeatAssignmentEnabled)
+      .toBe(DEFAULT_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED);
+    expect(config.tableDevice?.actionHistoryViewEnabled).toBe(true);
+    expect(config.tableDevice?.actionHistoryRollbackEnabled).toBe(false);
   });
 
   test('autoOpenClose が defaults と一致', () => {
@@ -202,6 +209,41 @@ describe('getStoreConfig with Firestore (emulator)', () => {
     expect(config.features?.templateBusinessDateCheck).toBe(true);
     expect(config.features?.settlementAggregatorEnabled).toBe(false);
     expect(config.features?.tableDeviceRegistrationEnabled).toBe(false);
+  });
+
+  itWithEmulator('tableDevice.forceClearPasscode を Firestore から上書きできる', async () => {
+    await db.collection('storeMeta').doc('config').set({
+      tableDevice: {
+        forceClearPasscode: '4321',
+      },
+    });
+
+    const config = await getStoreConfig(db);
+    expect(config.tableDevice?.forceClearPasscode).toBe('4321');
+  });
+
+  itWithEmulator('tableDevice.tournamentSeatAssignmentEnabled を Firestore から上書きできる', async () => {
+    await db.collection('storeMeta').doc('config').set({
+      tableDevice: {
+        tournamentSeatAssignmentEnabled: true,
+      },
+    });
+
+    const config = await getStoreConfig(db);
+    expect(config.tableDevice?.tournamentSeatAssignmentEnabled).toBe(true);
+  });
+
+  itWithEmulator('tableDevice.actionHistory 設定を Firestore から上書きできる', async () => {
+    await db.collection('storeMeta').doc('config').set({
+      tableDevice: {
+        actionHistoryViewEnabled: false,
+        actionHistoryRollbackEnabled: true,
+      },
+    });
+
+    const config = await getStoreConfig(db);
+    expect(config.tableDevice?.actionHistoryViewEnabled).toBe(false);
+    expect(config.tableDevice?.actionHistoryRollbackEnabled).toBe(true);
   });
 
   itWithEmulator('autoOpenClose を Firestore から上書きできる', async () => {

@@ -7,12 +7,12 @@ const db = getFirestore();
 
 const payloadSchema = z.object({
   deviceId: z.string().min(1),
-  role: z.enum(["admin", "terminal"]),
+  role: z.enum(["admin", "terminal", "table"]),
 });
 
 /**
  * 管理者用：指定デバイスの role を変更する。
- * terminal の場合は options / optionParams を空で作成、admin の場合は削除する。
+ * terminal / table の場合は options / optionParams を空で作成、admin の場合は削除する。
  */
 export const updateDeviceRole = onCall(async (request) => {
   try {
@@ -48,7 +48,7 @@ export const updateDeviceRole = onCall(async (request) => {
       role,
       updatedAt: FieldValue.serverTimestamp(),
     };
-    if (role === "terminal") {
+    if (role === "terminal" || role === "table") {
       updateData.options = {};
       updateData.optionParams = {};
     } else if (role === "admin") {

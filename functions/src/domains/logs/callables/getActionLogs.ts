@@ -3,6 +3,11 @@ import { getFirestore, Query } from "firebase-admin/firestore";
 import { z } from "zod";
 import { logger } from "firebase-functions";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import {
+  assertTableDeviceActionHistoryViewEnabled,
+  assertTableDeviceCanAccessTable,
+} from "../../../table_device/lib/shared";
 
 const getActionLogsSchema = z.object({
   tournamentId: z.string().min(1, "トーナメントIDは必須です"),
@@ -47,6 +52,35 @@ export const getActionLogs = onCall(async (request) => {
     });
 
     const db = getFirestore();
+
+    if (request.auth?.uid != null) {
+      const callerDevice = await getCallerDeviceByUid(request.auth.uid);
+      if (!callerDevice || !isActive(callerDevice.status)) {
+        throw new HttpsError(
+          'permission-denied',
+          'デバイスが見つからないか、アクティブではありません',
+        );
+      }
+
+      if (callerDevice.role === 'table') {
+        if (tableId == null || tableId.trim() === '') {
+          throw new HttpsError(
+            'invalid-argument',
+            '卓端末からの操作履歴参照では tableId が必須です',
+          );
+        }
+        assertTableDeviceCanAccessTable({
+          device: callerDevice,
+          requestedTableId: tableId,
+        });
+        await assertTableDeviceActionHistoryViewEnabled(db, callerDevice);
+      } else if (
+        callerDevice.role !== 'admin' &&
+        !hasRequiredOption(callerDevice.options, 'tournament')
+      ) {
+        throw new HttpsError('permission-denied', '操作履歴を参照する権限がありません');
+      }
+    }
 
     const toDate = (v: unknown): Date | null => {
       if (!v) return null;

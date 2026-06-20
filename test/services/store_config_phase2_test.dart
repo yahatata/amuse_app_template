@@ -20,9 +20,34 @@ void main() {
     test('features フラグ', () {
       expect(config.dualWriteEnabled, kDefaultDualWriteEnabled);
       expect(config.enqueueSchedulerEnabled, kDefaultEnqueueSchedulerEnabled);
-      expect(config.templateBusinessDateCheck, kDefaultTemplateBusinessDateCheck);
-      expect(config.settlementAggregatorEnabled, kDefaultSettlementAggregatorEnabled);
-      expect(config.tableDeviceRegistrationEnabled, kDefaultTableDeviceRegistrationEnabled);
+      expect(
+        config.templateBusinessDateCheck,
+        kDefaultTemplateBusinessDateCheck,
+      );
+      expect(
+        config.settlementAggregatorEnabled,
+        kDefaultSettlementAggregatorEnabled,
+      );
+      expect(
+        config.tableDeviceRegistrationEnabled,
+        kDefaultTableDeviceRegistrationEnabled,
+      );
+      expect(
+        config.tableDeviceForceClearPasscode,
+        kDefaultTableDeviceForceClearPasscode,
+      );
+      expect(
+        config.tableDeviceTournamentSeatAssignmentEnabled,
+        kDefaultTableDeviceTournamentSeatAssignmentEnabled,
+      );
+      expect(
+        config.tableDeviceActionHistoryViewEnabled,
+        kDefaultTableDeviceActionHistoryViewEnabled,
+      );
+      expect(
+        config.tableDeviceActionHistoryRollbackEnabled,
+        kDefaultTableDeviceActionHistoryRollbackEnabled,
+      );
     });
 
     test('autoOpenClose', () {
@@ -38,7 +63,10 @@ void main() {
     test('billing (R-06)', () {
       expect(config.entranceFee, kDefaultEntranceFee);
       expect(config.entranceFeeDescription, kDefaultEntranceFeeDescription);
-      expect(config.chargeEntranceFeeOnReentry, kDefaultChargeEntranceFeeOnReentry);
+      expect(
+        config.chargeEntranceFeeOnReentry,
+        kDefaultChargeEntranceFeeOnReentry,
+      );
     });
 
     test('billing (R-11/R-12)', () {
@@ -110,7 +138,35 @@ void main() {
       expect(config.dualWriteEnabled, true);
       expect(config.enqueueSchedulerEnabled, true);
       expect(config.settlementAggregatorEnabled, false);
-      expect(config.templateBusinessDateCheck, kDefaultTemplateBusinessDateCheck);
+      expect(
+        config.templateBusinessDateCheck,
+        kDefaultTemplateBusinessDateCheck,
+      );
+    });
+
+    test('tableDevice.forceClearPasscode 上書き', () {
+      final config = StoreConfigData.fromMap({
+        'tableDevice': {'forceClearPasscode': '1357'},
+      });
+      expect(config.tableDeviceForceClearPasscode, '1357');
+    });
+
+    test('tableDevice.tournamentSeatAssignmentEnabled 上書き', () {
+      final config = StoreConfigData.fromMap({
+        'tableDevice': {'tournamentSeatAssignmentEnabled': true},
+      });
+      expect(config.tableDeviceTournamentSeatAssignmentEnabled, true);
+    });
+
+    test('tableDevice.actionHistory 設定上書き', () {
+      final config = StoreConfigData.fromMap({
+        'tableDevice': {
+          'actionHistoryViewEnabled': false,
+          'actionHistoryRollbackEnabled': true,
+        },
+      });
+      expect(config.tableDeviceActionHistoryViewEnabled, false);
+      expect(config.tableDeviceActionHistoryRollbackEnabled, true);
     });
 
     test('autoOpenClose 上書き', () {
@@ -205,7 +261,9 @@ void main() {
     });
 
     test('okibake.loginPromptMode 不正 → notice_only（他項目は既定）', () {
-      final config = StoreConfigData.fromMap({'okibake': {'loginPromptMode': 'bad'}});
+      final config = StoreConfigData.fromMap({
+        'okibake': {'loginPromptMode': 'bad'},
+      });
       expect(config.okibakeLoginPromptMode, kDefaultOkibakeLoginPromptMode);
       expect(config.linePlan, kDefaultLinePlan);
     });
@@ -256,6 +314,16 @@ void main() {
         'billing': {'entranceFee': 'not_a_number'},
       });
       expect(config.entranceFee, kDefaultEntranceFee);
+    });
+
+    test('tableDevice.forceClearPasscode が4桁数字以外 → デフォルト', () {
+      final config = StoreConfigData.fromMap({
+        'tableDevice': {'forceClearPasscode': 'abc'},
+      });
+      expect(
+        config.tableDeviceForceClearPasscode,
+        kDefaultTableDeviceForceClearPasscode,
+      );
     });
 
     test('autoOpenClose.enabled が文字列 → デフォルト', () {

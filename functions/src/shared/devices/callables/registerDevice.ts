@@ -15,7 +15,7 @@ const db = getFirestore();
 // バリデーションスキーマ
 const registerDeviceSchema = z.object({
   name: z.string().min(1).max(50),
-  role: z.enum(["admin", "terminal"]),
+  role: z.enum(["admin", "terminal", "table"]),
   uid: z.string().min(1),
   installationId: z.string().min(1),
   platform: z.string().min(1),
@@ -104,6 +104,15 @@ export const registerDevice = onCall(async (request) => {
         role,
         installationId,
         platform,
+        ...(role === "admin"
+          ? {
+              options: FieldValue.delete(),
+              optionParams: FieldValue.delete(),
+            }
+          : {
+              options: {},
+              optionParams: {},
+            }),
         updatedAt: FieldValue.serverTimestamp(),
         status: DEVICE_STATUS_ACTIVE,
       });
@@ -135,6 +144,12 @@ export const registerDevice = onCall(async (request) => {
       uid,
       installationId,
       platform,
+      ...(role === "admin"
+        ? {}
+        : {
+            options: {},
+            optionParams: {},
+          }),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       status: DEVICE_STATUS_ACTIVE,

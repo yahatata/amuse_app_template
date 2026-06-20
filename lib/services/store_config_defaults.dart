@@ -12,6 +12,10 @@ const bool kDefaultSettlementAggregatorEnabled = true;
 const bool kDefaultTableDeviceRegistrationEnabled = true;
 const bool kDefaultCreateAttendanceByManual = false;
 const bool kDefaultReportingAggregatorEnabled = false;
+const String kDefaultTableDeviceForceClearPasscode = '0000';
+const bool kDefaultTableDeviceTournamentSeatAssignmentEnabled = false;
+const bool kDefaultTableDeviceActionHistoryViewEnabled = true;
+const bool kDefaultTableDeviceActionHistoryRollbackEnabled = false;
 
 // attendance time adjustment
 const bool kDefaultAttendanceTimeAdjustmentEnabled = false;

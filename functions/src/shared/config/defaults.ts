@@ -6,7 +6,8 @@
  *
  * 重要: デフォルト値の定義は本ファイルにのみ行うこと。
  * 新規フィールド追加時は configLoader buildFromDefaults() にもマッピングを追加する。
- * initializeStoreConfigCallable は buildFromDefaults() の出力をそのまま書き込むため変更不要。
+ * initializeStoreConfigCallable は通常 buildConfigForInitialization() を使うため、
+ * runtime fallback と初期書き込み値を分けたい項目は configLoader 側も更新すること。
  *
  * 参照: docs/config_migration/phase0B/STOREMETA_CONFIG_SPEC.md
  *       docs/config_migration/phase1/PHASE1_CONFIG_SCHEMA.md
@@ -31,6 +32,40 @@ export const DEFAULT_SETTLEMENT_AGGREGATOR_ENABLED = true;
 
 /** 卓端末登録機能の有効化。トーナメント/SG 登録を卓デバイスから行えるか */
 export const DEFAULT_TABLE_DEVICE_REGISTRATION_ENABLED = true;
+
+/** 卓端末の強制解除パスコード。誤操作防止用途のため client 参照を許容する */
+export const DEFAULT_TABLE_DEVICE_FORCE_CLEAR_PASSCODE = '0000';
+
+/**
+ * 卓端末からトーナメント待機者を着席させる権限の runtime fallback。
+ * 未設定時は安全側に倒して false を返す。
+ */
+export const DEFAULT_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED = false;
+
+/**
+ * initializeStoreConfigCallable 実行時に Firestore へ書き込む初期値。
+ * 初期導入時は卓端末からの着席操作を利用可能にする。
+ */
+export const INITIAL_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED = true;
+
+/**
+ * 卓端末からの操作履歴参照権限の runtime fallback。
+ * 未設定時でも履歴確認自体は可能にする。
+ */
+export const DEFAULT_TABLE_DEVICE_ACTION_HISTORY_VIEW_ENABLED = true;
+
+/**
+ * 卓端末からの操作履歴取り消し権限の runtime fallback。
+ * 未設定時は安全側に倒して false を返す。
+ */
+export const DEFAULT_TABLE_DEVICE_ACTION_HISTORY_ROLLBACK_ENABLED = false;
+
+/**
+ * initializeStoreConfigCallable 実行時に Firestore へ書き込む初期値。
+ * 初期導入時は卓端末から履歴の参照・取り消しを両方利用可能にする。
+ */
+export const INITIAL_TABLE_DEVICE_ACTION_HISTORY_VIEW_ENABLED = true;
+export const INITIAL_TABLE_DEVICE_ACTION_HISTORY_ROLLBACK_ENABLED = true;
 
 /** 手動打刻（勤怠記録タブの退勤処理 / シフト一覧タブの出勤登録）の有効化 */
 export const DEFAULT_CREATE_ATTENDANCE_BY_MANUAL = false;

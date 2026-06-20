@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
 
 import 'dart:math';
 
@@ -16,22 +17,19 @@ Future<void> showBustAndReentryDialog({
   required int seatNumber,
   bool closeUserActionMenuOnSuccess = false,
 }) async {
-  final menuContext = context;
+  final outerCtx = context;
   final String userId = (user['userId'] ?? '').toString();
   final String pokerName = (user['pokerName'] ?? '').toString();
-  
+
   if (userId.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('ユーザー識別子が見つかりません')),
-    );
+    ScaffoldMessenger.of(
+      outerCtx,
+    ).showSnackBar(const SnackBar(content: Text('ユーザー識別子が見つかりません')));
     return;
   }
-  
-
 
   // トーナメント情報を取得
   Map<String, dynamic>? tournamentData;
-  Map<String, dynamic>? userTournamentData;
   int currentReentryCount = 0;
   bool isLoading = true;
   String? errorMessage;
@@ -42,22 +40,22 @@ Future<void> showBustAndReentryDialog({
         .collection('scheduledTournaments')
         .doc(tournamentId)
         .get();
-    
+
     if (!tournamentDoc.exists) {
       throw Exception('トーナメントが見つかりません');
     }
-    
+
     tournamentData = tournamentDoc.data()!;
-    
+
     // activeStays から billId を取得
     final activeStayDoc = await FirebaseFirestore.instance
         .collection('activeStays')
         .doc(userId)
         .get();
-    
+
     if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
       final billId = activeStayDoc.data()!['billId'] as String?;
-      
+
       if (billId != null) {
         // bills サブコレクションからトーナメント情報を取得
         final tournamentDoc = await FirebaseFirestore.instance
@@ -66,15 +64,14 @@ Future<void> showBustAndReentryDialog({
             .collection('tournaments')
             .doc(tournamentId)
             .get();
-        
+
         if (tournamentDoc.exists) {
           final tournamentData = tournamentDoc.data()!;
           currentReentryCount = tournamentData['reentryCount'] as int? ?? 0;
-          userTournamentData = tournamentData;
         }
       }
     }
-    
+
     isLoading = false;
   } catch (e) {
     isLoading = false;
@@ -82,18 +79,20 @@ Future<void> showBustAndReentryDialog({
   }
 
   if (errorMessage != null) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('エラー: $errorMessage')),
-      );
+    if (outerCtx.mounted) {
+      await showActionErrorDialog(outerCtx, message: 'エラー: $errorMessage');
     }
     return;
   }
 
+  if (!outerCtx.mounted) {
+    return;
+  }
+
   await showDialog<void>(
-    context: menuContext,
+    context: outerCtx,
     barrierDismissible: false,
-    builder: (dialogCtx) {
+    builder: (BuildContext dialogCtx) {
       return AlertDialog(
         title: const Text('Bust＆リエントリー確認'),
         content: isLoading
@@ -105,14 +104,21 @@ Future<void> showBustAndReentryDialog({
                   children: [
                     Text('対象ユーザー: $pokerName'),
                     const SizedBox(height: 16),
-                    Text('リエントリーフィー: ¥${tournamentData?['snapshot']?['reentryFee'] ?? 0}'),
+                    Text(
+                      'リエントリーフィー: ¥${tournamentData?['snapshot']?['reentryFee'] ?? 0}',
+                    ),
                     const SizedBox(height: 8),
                     Text('現在のリエントリー回数: $currentReentryCount回'),
                     const SizedBox(height: 8),
-                    Text('最大リエントリー回数: ${tournamentData?['snapshot']?['maxReentriesPerPlayer'] ?? '無制限'}回'),
+                    Text(
+                      '最大リエントリー回数: ${tournamentData?['snapshot']?['maxReentriesPerPlayer'] ?? '無制限'}回',
+                    ),
                     const SizedBox(height: 16),
-                    if (tournamentData?['snapshot']?['maxReentriesPerPlayer'] != null &&
-                        currentReentryCount >= (tournamentData!['snapshot']['maxReentriesPerPlayer'] as int))
+                    if (tournamentData?['snapshot']?['maxReentriesPerPlayer'] !=
+                            null &&
+                        currentReentryCount >=
+                            (tournamentData!['snapshot']['maxReentriesPerPlayer']
+                                as int))
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -121,7 +127,10 @@ Future<void> showBustAndReentryDialog({
                         ),
                         child: const Text(
                           'リエントリー制限に達しているためリエントリーできません',
-                          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                   ],
@@ -133,7 +142,8 @@ Future<void> showBustAndReentryDialog({
             child: const Text('キャンセル'),
           ),
           if (tournamentData?['snapshot']?['maxReentriesPerPlayer'] == null ||
-              currentReentryCount < (tournamentData!['snapshot']['maxReentriesPerPlayer'] as int))
+              currentReentryCount <
+                  (tournamentData!['snapshot']['maxReentriesPerPlayer'] as int))
             ElevatedButton(
               onPressed: () async {
                 // 先に確認ダイアログを閉じる
@@ -141,7 +151,7 @@ Future<void> showBustAndReentryDialog({
 
                 // Cloud Functionを実行
                 await _executeBustAndReentry(
-                  context: menuContext,
+                  context: outerCtx,
                   userId: userId,
                   pokerName: pokerName,
                   tournamentId: tournamentId,
@@ -174,64 +184,17 @@ Future<void> _executeBustAndReentry({
   required Map<String, dynamic> tournamentData,
   bool closeUserActionMenuOnSuccess = false,
 }) async {
-  if (!context.mounted) return;
-
-  final overlayState = Overlay.maybeOf(context, rootOverlay: true);
-  OverlayEntry? loadingOverlay;
-  bool loadingShown = false;
-
-  void hideLoading() {
-    if (loadingShown) {
-      try {
-        loadingOverlay?.remove();
-      } catch (_) {
-        // noop
-      }
-      loadingOverlay = null;
-      loadingShown = false;
-    }
-  }
+  final feedback = ActionProgressDialogController(context);
 
   try {
-    loadingOverlay = OverlayEntry(
-      builder: (_) => Material(
-        color: Colors.black54,
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                SizedBox(width: 16),
-                Text('Bust＆リエントリー処理中...'),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    await feedback.showLoading(message: 'Bust＆リエントリー処理中...');
 
-    if (overlayState != null) {
-      overlayState.insert(loadingOverlay!);
-      loadingShown = true;
-    }
-    
-    print('=== Bust＆リエントリー処理開始 ===');
-    print('userId: $userId');
-    print('pokerName: $pokerName');
-    print('tournamentId: $tournamentId');
-    print('tableId: $tableId');
-    print('seatNumber: $seatNumber');
-    
+    debugPrint('=== Bust＆リエントリー処理開始 ===');
+    debugPrint('userId: $userId');
+    debugPrint('pokerName: $pokerName');
+    debugPrint('tournamentId: $tournamentId');
+    debugPrint('tableId: $tableId');
+    debugPrint('seatNumber: $seatNumber');
     final operationId =
         '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF).toRadixString(16)}';
     final device = await DeviceService().getCurrentDevice();
@@ -240,118 +203,71 @@ Future<void> _executeBustAndReentry({
     final functions = FunctionsClient.instance;
     final callable = functions.httpsCallable('bustAndReentry');
 
-    print('=== Cloud Function呼び出し実行中 ===');
-    final result = await callable.call({
-      'operationId': operationId,
-      'tournamentId': tournamentId,
-      'userId': userId,
-      'tableId': tableId,
-      'seatNumber': seatNumber,
-      if (deviceName != null && deviceName.isNotEmpty) 'deviceName': deviceName,
-    }).timeout(
-      const Duration(seconds: 30),
-      onTimeout: () {
-        print('=== タイムアウト発生 ===');
-        throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました');
-      },
-    );
-    print('=== Cloud Function呼び出し完了 ===');
+    debugPrint('=== Cloud Function呼び出し実行中 ===');
+    final result = await callable
+        .call({
+          'operationId': operationId,
+          'tournamentId': tournamentId,
+          'userId': userId,
+          'tableId': tableId,
+          'seatNumber': seatNumber,
+          if (deviceName != null && deviceName.isNotEmpty)
+            'deviceName': deviceName,
+        })
+        .timeout(
+          const Duration(seconds: 30),
+          onTimeout: () {
+            debugPrint('=== タイムアウト発生 ===');
+            throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました');
+          },
+        );
+    debugPrint('=== Cloud Function呼び出し完了 ===');
 
-    print('=== Cloud Function応答 ===');
-    print('result.data: ${result.data}');
+    debugPrint('=== Cloud Function応答 ===');
+    debugPrint('result.data: ${result.data}');
 
     // 結果を確認
     final data = result.data as Map<String, dynamic>;
-    
-    print('=== レスポンス解析 ===');
-    print('response: $data');
-    print('success: ${data['success']}');
-    
-    if (!context.mounted) {
-      hideLoading();
-      return;
-    }
 
-    hideLoading();
+    debugPrint('=== レスポンス解析 ===');
+    debugPrint('response: $data');
+    debugPrint('success: ${data['success']}');
+
+    feedback.hideLoading();
 
     if (data['success'] == true) {
-      // 成功メッセージを表示
       if (context.mounted) {
-        await showDialog<void>(
-          context: context,
-          builder: (successCtx) {
-            return AlertDialog(
-              title: Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.green),
-                  const SizedBox(width: 8),
-                  const Text('完了'),
-                ],
-              ),
-              content: Text('$pokerName様のリエントリー処理が完了しました'),
-              actions: [
-                ElevatedButton(
-                  onPressed: () => Navigator.of(successCtx).pop(),
-                  child: const Text('OK'),
-                ),
-              ],
-            );
-          },
+        await showActionSuccessDialog(
+          context,
+          message: '$pokerName様のリエントリー処理が完了しました',
         );
         if (closeUserActionMenuOnSuccess && context.mounted) {
           Navigator.of(context).pop();
         }
       }
     } else {
-      // エラーメッセージを表示
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('リエントリー処理に失敗しました: ${data['error'] ?? '不明なエラー'}'),
-            backgroundColor: Colors.red,
-          ),
+        await showActionErrorDialog(
+          context,
+          message: 'リエントリー処理に失敗しました: ${data['error'] ?? '不明なエラー'}',
         );
       }
     }
   } catch (e) {
-    hideLoading();
-    print('=== Bust＆リエントリー処理エラー ===');
-    print('error: $e');
+    debugPrint('=== Bust＆リエントリー処理エラー ===');
+    debugPrint('error: $e');
 
-    // エラーメッセージを表示
+    feedback.hideLoading();
     if (context.mounted) {
-      String errorMessage = 'リエントリー処理に失敗しました';
-      
-      if (e is TimeoutException) {
-        errorMessage = '処理がタイムアウトしました。しばらく待ってから再試行してください。';
-      } else if (e.toString().contains('network')) {
-        errorMessage = 'ネットワークエラーが発生しました。接続を確認してください。';
-      } else if (e.toString().contains('permission')) {
-        errorMessage = '権限が不足しています。管理者に連絡してください。';
-      }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMessage),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: '詳細',
-            textColor: Colors.white,
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('詳細エラー: $e'),
-                  backgroundColor: Colors.red.shade800,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            },
-          ),
+      await showActionErrorDialog(
+        context,
+        message: buildAsyncActionErrorMessage(
+          e,
+          defaultMessage: 'リエントリー処理に失敗しました',
         ),
       );
     }
   } finally {
-    hideLoading();
+    feedback.hideLoading();
   }
 }

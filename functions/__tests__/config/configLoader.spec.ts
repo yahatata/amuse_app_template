@@ -11,7 +11,13 @@ jest.unmock('../../src/shared/config/configLoader');
 
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getStoreConfig, buildFromDefaults, mergeWithDefaults, mergeConfigForUpsert } from '../../src/shared/config/configLoader';
+import {
+  getStoreConfig,
+  buildFromDefaults,
+  buildConfigForInitialization,
+  mergeWithDefaults,
+  mergeConfigForUpsert,
+} from '../../src/shared/config/configLoader';
 import {
   DEFAULT_AUTO_OPEN_CLOSE_ENABLED,
   DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES,
@@ -24,6 +30,12 @@ import {
   DEFAULT_TOURNAMENT_PRIZE_RECEIVER_PERCENTAGE,
   DEFAULT_TOURNAMENT_PRIZE_ROUNDING_METHOD,
   DEFAULT_TOURNAMENT_PRIZE_ROUNDING_UNIT,
+  DEFAULT_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED,
+  INITIAL_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED,
+  DEFAULT_TABLE_DEVICE_ACTION_HISTORY_VIEW_ENABLED,
+  DEFAULT_TABLE_DEVICE_ACTION_HISTORY_ROLLBACK_ENABLED,
+  INITIAL_TABLE_DEVICE_ACTION_HISTORY_VIEW_ENABLED,
+  INITIAL_TABLE_DEVICE_ACTION_HISTORY_ROLLBACK_ENABLED,
 } from '../../src/shared/config/defaults';
 
 // firebase-admin を初期化（テスト用）
@@ -70,6 +82,24 @@ describe('configLoader', () => {
       expect(config.tournament?.liffRegistrationEnabled).toBe(true);
       expect(config.tournament?.liffCalendarEnabled).toBe(true);
       expect(config.okibake?.loginPromptMode).toBe(DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE);
+      expect(config.tableDevice?.tournamentSeatAssignmentEnabled)
+        .toBe(DEFAULT_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED);
+      expect(config.tableDevice?.actionHistoryViewEnabled)
+        .toBe(DEFAULT_TABLE_DEVICE_ACTION_HISTORY_VIEW_ENABLED);
+      expect(config.tableDevice?.actionHistoryRollbackEnabled)
+        .toBe(DEFAULT_TABLE_DEVICE_ACTION_HISTORY_ROLLBACK_ENABLED);
+    });
+  });
+
+  describe('buildConfigForInitialization', () => {
+    it('卓端末の待機者着席権限は初期化時に true を書き込む', () => {
+      const config = buildConfigForInitialization();
+      expect(config.tableDevice?.tournamentSeatAssignmentEnabled)
+        .toBe(INITIAL_TABLE_DEVICE_TOURNAMENT_SEAT_ASSIGNMENT_ENABLED);
+      expect(config.tableDevice?.actionHistoryViewEnabled)
+        .toBe(INITIAL_TABLE_DEVICE_ACTION_HISTORY_VIEW_ENABLED);
+      expect(config.tableDevice?.actionHistoryRollbackEnabled)
+        .toBe(INITIAL_TABLE_DEVICE_ACTION_HISTORY_ROLLBACK_ENABLED);
     });
   });
 
@@ -137,6 +167,52 @@ describe('configLoader', () => {
       const defs = buildFromDefaults();
       const out = mergeConfigForUpsert({ okibake: { loginPromptMode: mode } }, defs);
       expect(out.okibake).toEqual({ loginPromptMode: mode });
+    });
+  });
+
+  describe('tableDevice.tournamentSeatAssignmentEnabled', () => {
+    it('runtime fallback は false', () => {
+      expect(mergeWithDefaults({}).tableDevice?.tournamentSeatAssignmentEnabled).toBe(false);
+    });
+
+    it('Firestore に true があれば true を返す', () => {
+      expect(
+        mergeWithDefaults({
+          tableDevice: { tournamentSeatAssignmentEnabled: true },
+        } as Record<string, unknown>).tableDevice?.tournamentSeatAssignmentEnabled,
+      ).toBe(true);
+    });
+
+    it('初期化用 defaults を渡した upsert は missing field を true で補完する', () => {
+      const defs = buildConfigForInitialization();
+      const out = mergeConfigForUpsert({ tableDevice: {} }, defs);
+      expect((out.tableDevice as Record<string, unknown>).tournamentSeatAssignmentEnabled).toBe(true);
+    });
+  });
+
+  describe('tableDevice action history settings', () => {
+    it('runtime fallback は view=true / rollback=false', () => {
+      const tableDevice = mergeWithDefaults({}).tableDevice;
+      expect(tableDevice?.actionHistoryViewEnabled).toBe(true);
+      expect(tableDevice?.actionHistoryRollbackEnabled).toBe(false);
+    });
+
+    it('Firestore に設定があればその値を返す', () => {
+      const tableDevice = mergeWithDefaults({
+        tableDevice: {
+          actionHistoryViewEnabled: false,
+          actionHistoryRollbackEnabled: true,
+        },
+      } as Record<string, unknown>).tableDevice;
+      expect(tableDevice?.actionHistoryViewEnabled).toBe(false);
+      expect(tableDevice?.actionHistoryRollbackEnabled).toBe(true);
+    });
+
+    it('初期化用 defaults を渡した upsert は missing field を true で補完する', () => {
+      const defs = buildConfigForInitialization();
+      const out = mergeConfigForUpsert({ tableDevice: {} }, defs);
+      expect((out.tableDevice as Record<string, unknown>).actionHistoryViewEnabled).toBe(true);
+      expect((out.tableDevice as Record<string, unknown>).actionHistoryRollbackEnabled).toBe(true);
     });
   });
 

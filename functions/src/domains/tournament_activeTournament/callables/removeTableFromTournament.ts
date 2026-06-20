@@ -80,6 +80,17 @@ export const removeTableFromTournament = onCall(async (request) => {
           context: { tournamentId, tableId, reason: 'tournament_table_not_found' },
         });
       }
+      if (tournamentTableDoc.data()?.isEnabled === false) {
+        throw new FunctionCustomError({
+          errorKey: 'TOURNAMENT_INVALID_STATE',
+          message: 'トーナメントに該当する卓が見つかりません',
+          context: {
+            tournamentId,
+            tableId,
+            reason: 'tournament_table_disabled',
+          },
+        });
+      }
       const tableData = tournamentTableDoc.data()!;
       const seats = (tableData.seats as { [key: string]: string | null } | undefined) ?? {};
 
@@ -106,9 +117,13 @@ export const removeTableFromTournament = onCall(async (request) => {
       }
 
       // 2. 読み取りの後に書き込み
-      transaction.delete(tournamentTableRef);
+      transaction.update(tournamentTableRef, {
+        isEnabled: false,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
       transaction.update(tableRef, {
         status: 'open',
+        tournamentDetail: admin.firestore.FieldValue.delete(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     });

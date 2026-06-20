@@ -4,6 +4,7 @@ import { z } from "zod";
 import { markOperationLogRolledBack } from "../lib/operationLog";
 import type { OkibakeReseatTarget } from "../../tournament_activeTournament/lib/slimOkibakeEntryForReseatLog";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import {
   undoAddon,
   undoBulkAddon,
@@ -21,6 +22,10 @@ import {
   undoOkibakeAssignSeat,
   undoOkibakeBust,
 } from "../services";
+import {
+  assertTableDeviceActionHistoryRollbackEnabled,
+  assertTableDeviceCanAccessTable,
+} from "../../../table_device/lib/shared";
 
 // 入力スキーマの定義（操作履歴は operationLogs のみ。取り消しは operationId で指定）
 const rollbackActionSchema = z.object({
@@ -67,12 +72,12 @@ const rollbackActionSchema = z.object({
 
 export const rollbackAction = onCall(async (request) => {
   try {
+    const db = getFirestore();
+
     // 入力検証
     const validatedData = rollbackActionSchema.parse(request.data);
     const { tournamentId, operationId, action, rollBackBy, rollBackByDeviceName, fallbackSeat } =
       validatedData;
-
-    const db = getFirestore();
 
     // operationLogs 経由の巻き戻し（操作履歴は operationLogs のみのため、常にこの経路）
     const opLogRef = db.collection('operationLogs').doc(operationId);
@@ -92,6 +97,39 @@ export const rollbackAction = onCall(async (request) => {
     const payload = (opData.payload || {}) as Record<string, unknown>;
     const tId = (opData.tournamentId as string) || (payload.tournamentId as string) || tournamentId;
     const rollBackByDeviceId = rollBackBy;
+    const scopedTableId =
+      (opData.tableId as string | undefined) ??
+      (payload.tableId as string | undefined) ??
+      validatedData.tableId;
+
+    if (request.auth?.uid != null) {
+      const callerDevice = await getCallerDeviceByUid(request.auth.uid);
+      if (!callerDevice || !isActive(callerDevice.status)) {
+        throw new HttpsError(
+          'permission-denied',
+          'デバイスが見つからないか、アクティブではありません',
+        );
+      }
+
+      if (callerDevice.role === 'table') {
+        if (scopedTableId == null || scopedTableId.trim() === '') {
+          throw new HttpsError(
+            'permission-denied',
+            'この操作履歴は卓端末から取り消しできません',
+          );
+        }
+        assertTableDeviceCanAccessTable({
+          device: callerDevice,
+          requestedTableId: scopedTableId,
+        });
+        await assertTableDeviceActionHistoryRollbackEnabled(db, callerDevice);
+      } else if (
+        callerDevice.role !== 'admin' &&
+        !hasRequiredOption(callerDevice.options, 'tournament')
+      ) {
+        throw new HttpsError('permission-denied', '操作履歴を取り消す権限がありません');
+      }
+    }
 
     if (operationName === '一括アドオン') {
       const allPlayerUids = (payload.playerUids as string[] | undefined) ?? [];

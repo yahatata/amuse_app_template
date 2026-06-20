@@ -13,7 +13,7 @@ class DeviceService {
   static const String _deviceIdKey = 'device_id';
   static const String _deviceNameKey = 'device_name';
   static const String _deviceRoleKey = 'device_role';
-  
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseFunctions _functions = FunctionsClient.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -21,13 +21,12 @@ class DeviceService {
   /// 直近取得したデバイスの簡易キャッシュ（任意）
   Device? _cachedDevice;
 
-
   /// デバイスが登録済みかチェック（archived / retired は未登録扱い）
   Future<bool> isDeviceRegistered() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final deviceId = prefs.getString(_deviceIdKey);
-      
+
       if (deviceId == null) {
         return false;
       }
@@ -38,7 +37,9 @@ class DeviceService {
       }
 
       final data = doc.data();
-      final status = DeviceStatus.fromString(data?['status'] as String? ?? 'active');
+      final status = DeviceStatus.fromString(
+        data?['status'] as String? ?? 'active',
+      );
       if (status.isRemovedFromService) {
         await clearLocalCache();
         return false;
@@ -55,7 +56,7 @@ class DeviceService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final deviceId = prefs.getString(_deviceIdKey);
-      
+
       if (deviceId == null) {
         return null;
       }
@@ -83,7 +84,7 @@ class DeviceService {
       // 匿名認証
       final userCredential = await _auth.signInAnonymously();
       final uid = userCredential.user?.uid;
-      
+
       if (uid == null) {
         throw Exception('匿名認証に失敗しました');
       }
@@ -120,25 +121,22 @@ class DeviceService {
       return device;
     } catch (e) {
       print('デバイス登録エラー: $e');
-      
+
       // 匿名認証が無効化されている場合の分かりやすいエラーメッセージ
       if (e.toString().contains('admin-restricted-operation')) {
         throw Exception('匿名認証が無効化されています。Firebase Console で匿名認証を有効化してください。');
       }
-      
+
       rethrow;
     }
   }
 
   /// デバイス情報を更新
-  Future<void> updateDevice({
-    String? name,
-    String? role,
-  }) async {
+  Future<void> updateDevice({String? name, String? role}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final deviceId = prefs.getString(_deviceIdKey);
-      
+
       if (deviceId == null) {
         throw Exception('デバイスIDが見つかりません');
       }
@@ -159,7 +157,10 @@ class DeviceService {
 
       await _firestore.collection('devices').doc(deviceId).update(updateData);
       // 更新後の最新を反映
-      final refreshed = await _firestore.collection('devices').doc(deviceId).get();
+      final refreshed = await _firestore
+          .collection('devices')
+          .doc(deviceId)
+          .get();
       if (refreshed.exists) {
         _cachedDevice = Device.fromFirestore(refreshed);
       }
@@ -179,8 +180,11 @@ class DeviceService {
 
       return snapshot.docs
           .map((doc) => Device.fromFirestore(doc))
-          .where((device) =>
-              DeviceStatus.fromString(device.status).isVisibleInManagementList)
+          .where(
+            (device) => DeviceStatus.fromString(
+              device.status,
+            ).isVisibleInManagementList,
+          )
           .toList();
     } catch (e) {
       print('デバイス一覧取得エラー: $e');
@@ -199,7 +203,10 @@ class DeviceService {
       final prefs = await SharedPreferences.getInstance();
       final myId = prefs.getString(_deviceIdKey);
       if (myId == deviceId) {
-        final refreshed = await _firestore.collection('devices').doc(deviceId).get();
+        final refreshed = await _firestore
+            .collection('devices')
+            .doc(deviceId)
+            .get();
         if (refreshed.exists) {
           _cachedDevice = Device.fromFirestore(refreshed);
         }
@@ -226,7 +233,10 @@ class DeviceService {
       final myId = prefs.getString(_deviceIdKey);
       if (myId == targetDeviceId) {
         await prefs.setString(_deviceRoleKey, role);
-        final refreshed = await _firestore.collection('devices').doc(targetDeviceId).get();
+        final refreshed = await _firestore
+            .collection('devices')
+            .doc(targetDeviceId)
+            .get();
         if (refreshed.exists) {
           _cachedDevice = Device.fromFirestore(refreshed);
         }
@@ -241,9 +251,7 @@ class DeviceService {
   Future<void> archiveDevice(String deviceId) async {
     try {
       final callable = _functions.httpsCallable('archiveDevice');
-      await callable.call(<String, dynamic>{
-        'deviceId': deviceId,
-      });
+      await callable.call(<String, dynamic>{'deviceId': deviceId});
       final prefs = await SharedPreferences.getInstance();
       final myId = prefs.getString(_deviceIdKey);
       if (myId == deviceId) {
@@ -290,8 +298,12 @@ class DeviceService {
   /// 一意のインストールIDを生成
   String _generateInstallationId() {
     final random = Random();
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    return List.generate(22, (index) => chars[random.nextInt(chars.length)]).join();
+    const chars =
+        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    return List.generate(
+      22,
+      (index) => chars[random.nextInt(chars.length)],
+    ).join();
   }
 
   /// 最新デバイス情報を再取得してキャッシュに反映
@@ -366,6 +378,11 @@ class DeviceService {
     return _cachedDevice?.getTableIdForOption(optionKey);
   }
 
+  /// 卓専用デバイスに紐づく卓IDを取得
+  String? getTableIdForTableDevice() {
+    return getTableIdForOption(DeviceOptionKeys.tableDeviceTable);
+  }
+
   /// 全デバイスのoptionParamsを取得（卓除外用。archived / retired は除外）
   Future<List<Map<String, dynamic>>> getAllDeviceOptionParams() async {
     try {
@@ -376,12 +393,13 @@ class DeviceService {
             return DeviceStatus.fromString(status).isVisibleInManagementList;
           })
           .map((doc) {
-        final data = doc.data();
-        return {
-          'deviceId': doc.id,
-          'optionParams': data['optionParams'] ?? {},
-        };
-      }).toList();
+            final data = doc.data();
+            return {
+              'deviceId': doc.id,
+              'optionParams': data['optionParams'] ?? {},
+            };
+          })
+          .toList();
     } catch (e) {
       print('全デバイスoptionParams取得エラー: $e');
       return [];
@@ -406,6 +424,17 @@ class DeviceService {
       return device?.role == 'terminal';
     } catch (e) {
       print('ターミナルチェックエラー: $e');
+      return false;
+    }
+  }
+
+  /// デバイスが卓専用かチェック
+  Future<bool> isTableDevice() async {
+    try {
+      final device = await getCurrentDevice();
+      return device?.role == 'table';
+    } catch (e) {
+      print('卓専用チェックエラー: $e');
       return false;
     }
   }

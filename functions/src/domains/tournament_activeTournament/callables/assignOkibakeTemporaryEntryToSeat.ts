@@ -13,6 +13,10 @@ import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError'
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { canonicalSeatKeyFromSuffix, parseSeatKeyToTwoDigitSuffix } from '../lib/parseOkibakeSeatKey';
+import {
+  assertTableDeviceTournamentSeatAssignmentEnabled,
+  extractBoundTableId,
+} from '../../../table_device/lib/shared';
 
 const assignOkibakeSeatSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId は必須です'),
@@ -83,10 +87,6 @@ export const assignOkibakeTemporaryEntryToSeat = onCall(async (request) => {
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
-    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
-    if (!hasPermission) {
-      throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
-    }
 
     const parsed = assignOkibakeSeatSchema.safeParse(request.data);
     if (!parsed.success) {
@@ -96,6 +96,27 @@ export const assignOkibakeTemporaryEntryToSeat = onCall(async (request) => {
 
     const { tournamentId, okibakeEntryId, tableId, seatKey: rawSeatKey, operationId, deviceName } =
       parsed.data;
+    const db = admin.firestore();
+
+    if (device.role === 'table') {
+      await assertTableDeviceTournamentSeatAssignmentEnabled(db, device);
+      const boundTableId = extractBoundTableId(device);
+      if (boundTableId == null) {
+        throw new HttpsError(
+          'failed-precondition',
+          '卓の紐付けが未設定です。管理者に連絡してください。',
+        );
+      }
+      if (boundTableId !== tableId) {
+        throw new HttpsError('permission-denied', 'この卓を操作する権限がありません');
+      }
+    } else {
+      const hasPermission =
+        device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+      if (!hasPermission) {
+        throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+      }
+    }
 
     const suffix = parseSeatKeyToTwoDigitSuffix(rawSeatKey);
     if (!suffix) {
@@ -103,7 +124,6 @@ export const assignOkibakeTemporaryEntryToSeat = onCall(async (request) => {
     }
     const canonicalSeatKey = canonicalSeatKeyFromSuffix(suffix);
 
-    const db = admin.firestore();
     const opLogRef = db.collection('operationLogs').doc(operationId);
     const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
     const tournamentSnap = await tournamentRef.get();

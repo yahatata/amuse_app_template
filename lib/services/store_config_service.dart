@@ -24,6 +24,10 @@ class StoreConfigData {
   final bool settlementAggregatorEnabled;
   final bool reportingAggregatorEnabled;
   final bool tableDeviceRegistrationEnabled;
+  final String tableDeviceForceClearPasscode;
+  final bool tableDeviceTournamentSeatAssignmentEnabled;
+  final bool tableDeviceActionHistoryViewEnabled;
+  final bool tableDeviceActionHistoryRollbackEnabled;
   final bool createAttendanceByManual;
   final bool attendanceTimeAdjustmentEnabled;
   final int? attendanceTimeAdjustmentMaxFutureMinutes;
@@ -43,6 +47,7 @@ class StoreConfigData {
   final int sideGameChipRoundingUnit;
   final Map<String, Map<String, dynamic>> businessHoursStyles;
   final String linePlan;
+
   /// storeMeta/config.okibake.loginPromptMode（詳細仕様書 §14.15）
   final String okibakeLoginPromptMode;
   final int shiftSubmissionStartDay;
@@ -68,6 +73,13 @@ class StoreConfigData {
     this.reportingAggregatorEnabled = kDefaultReportingAggregatorEnabled,
     this.tableDeviceRegistrationEnabled =
         kDefaultTableDeviceRegistrationEnabled,
+    this.tableDeviceForceClearPasscode = kDefaultTableDeviceForceClearPasscode,
+    this.tableDeviceTournamentSeatAssignmentEnabled =
+        kDefaultTableDeviceTournamentSeatAssignmentEnabled,
+    this.tableDeviceActionHistoryViewEnabled =
+        kDefaultTableDeviceActionHistoryViewEnabled,
+    this.tableDeviceActionHistoryRollbackEnabled =
+        kDefaultTableDeviceActionHistoryRollbackEnabled,
     this.createAttendanceByManual = kDefaultCreateAttendanceByManual,
     this.attendanceTimeAdjustmentEnabled =
         kDefaultAttendanceTimeAdjustmentEnabled,
@@ -135,7 +147,8 @@ class StoreConfigData {
            tournamentLiffRegistrationEnabled ??
            kDefaultTournamentLiffRegistrationEnabled,
        tournamentLiffCalendarEnabled =
-           tournamentLiffCalendarEnabled ?? kDefaultTournamentLiffCalendarEnabled;
+           tournamentLiffCalendarEnabled ??
+           kDefaultTournamentLiffCalendarEnabled;
 
   static StoreConfigData fromDefaults() => StoreConfigData();
 
@@ -165,6 +178,7 @@ class StoreConfigData {
     }
 
     final features = data['features'] as Map<String, dynamic>?;
+    final tableDevice = data['tableDevice'] as Map<String, dynamic>?;
     final attendanceTimeAdjustment =
         data['attendanceTimeAdjustment'] as Map<String, dynamic>?;
     final autoOpenClose = data['autoOpenClose'] as Map<String, dynamic>?;
@@ -258,6 +272,31 @@ class StoreConfigData {
       tableDeviceRegistrationEnabled:
           parseBool(features?['tableDeviceRegistrationEnabled']) ??
           kDefaultTableDeviceRegistrationEnabled,
+      tableDeviceForceClearPasscode: () {
+        final value = parseString(tableDevice?['forceClearPasscode']);
+        final normalized = value != null && RegExp(r'^\d{4}$').hasMatch(value)
+            ? value
+            : null;
+        track('tableDevice.forceClearPasscode', normalized != null);
+        return normalized ?? kDefaultTableDeviceForceClearPasscode;
+      }(),
+      tableDeviceTournamentSeatAssignmentEnabled: () {
+        final value = parseBool(
+          tableDevice?['tournamentSeatAssignmentEnabled'],
+        );
+        track('tableDevice.tournamentSeatAssignmentEnabled', value != null);
+        return value ?? kDefaultTableDeviceTournamentSeatAssignmentEnabled;
+      }(),
+      tableDeviceActionHistoryViewEnabled: () {
+        final value = parseBool(tableDevice?['actionHistoryViewEnabled']);
+        track('tableDevice.actionHistoryViewEnabled', value != null);
+        return value ?? kDefaultTableDeviceActionHistoryViewEnabled;
+      }(),
+      tableDeviceActionHistoryRollbackEnabled: () {
+        final value = parseBool(tableDevice?['actionHistoryRollbackEnabled']);
+        track('tableDevice.actionHistoryRollbackEnabled', value != null);
+        return value ?? kDefaultTableDeviceActionHistoryRollbackEnabled;
+      }(),
       createAttendanceByManual:
           parseBool(features?['createAttendanceByManual']) ??
           kDefaultCreateAttendanceByManual,
