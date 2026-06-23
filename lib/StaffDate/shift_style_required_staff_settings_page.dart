@@ -607,7 +607,7 @@ class _ShiftStyleRequiredStaffSettingsPageState
               )
             else
               const Text(
-                '営業スタイルごとに必要人数を設定します。空のまま保存すると、そのスタイルでは人数判定を行いません。',
+                '営業スタイルごとにスタッフの必要人数を設定します。設定のない場合は、そのスタイルでは必要人数判定を行いません。',
                 style: TextStyle(fontSize: 13, color: Colors.grey),
               ),
             const SizedBox(height: 16),
