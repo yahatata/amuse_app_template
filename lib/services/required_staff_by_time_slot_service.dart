@@ -1,26 +1,60 @@
-/// storeMeta/requiredStaffByTimeSlot の購読サービス（config 閲覧サービスの一種）
+/// storeMeta/requiredStaffByTimeSlot の購読サービス（v2 byStyle のみ）
 ///
-/// snapshot で storeMeta/requiredStaffByTimeSlot を購読し、
-/// 時間帯別必要人数の参照が必要な画面に提供する。
-/// 未存在時はデフォルトにフォールバック。読み取り失敗時は最後の成功値を維持。
-///
-/// 参照: docs/運用時資料/設定/storeMeta/configによる設定の詳細/shift.md
+/// doc 未存在・不正形式・読取失敗時は fallback しない。
+/// 読取失敗時のキャッシュは不足判定に使わない。
 
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
-import 'store_config_defaults.dart';
+import '../StaffDate/utils/required_staff_resolution.dart';
+
+enum RequiredStaffDocStatus {
+  loading,
+  ready,
+  docMissing,
+  invalidFormat,
+  readError,
+}
+
+enum RequiredStaffStyleStatus {
+  notApplicable,
+  docNotReady,
+  styleNotConfigured,
+  disabledByEmptyList,
+  active,
+}
+
+class RequiredStaffStyleResolution {
+  final RequiredStaffStyleStatus status;
+  final List<Map<String, int>> slots;
+
+  const RequiredStaffStyleResolution({
+    required this.status,
+    this.slots = const [],
+  });
+}
+
+class RequiredStaffByTimeSlotV2Data {
+  final int version;
+  final Map<String, List<Map<String, int>>> byStyle;
+
+  const RequiredStaffByTimeSlotV2Data({
+    required this.version,
+    required this.byStyle,
+  });
+}
 
 /// storeMeta/requiredStaffByTimeSlot の購読サービス（シングルトン）
 class RequiredStaffByTimeSlotService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
-  final StreamController<List<Map<String, int>>> _streamController =
-      StreamController<List<Map<String, int>>>.broadcast();
+  final StreamController<RequiredStaffDocStatus> _statusController =
+      StreamController<RequiredStaffDocStatus>.broadcast();
 
-  List<Map<String, int>>? _latestData;
+  RequiredStaffByTimeSlotV2Data? _latestV2;
+  RequiredStaffDocStatus _docStatus = RequiredStaffDocStatus.loading;
 
   static final RequiredStaffByTimeSlotService _instance =
       RequiredStaffByTimeSlotService._();
@@ -30,34 +64,46 @@ class RequiredStaffByTimeSlotService {
     _initializeListener();
   }
 
-  void _logConfigFallback({
-    required String configKey,
-    required String reason,
-    Object? fallbackValue,
-  }) {
-    debugPrint(
-      '[CONFIG_FALLBACK] configKey=$configKey | reason=$reason | '
-      'fallbackValue=$fallbackValue',
-    );
-  }
-
   void _logConfigReadError(String message) {
     debugPrint('[CONFIG_READ_ERROR] reason=read_error | message=$message');
   }
 
-  static List<Map<String, int>> _parseData(dynamic v) {
-    if (v is! List) return List<Map<String, int>>.from(kDefaultRequiredStaffByTimeSlot);
-    final result = v
-        .where((e) => e is Map && e['startHour'] != null && e['endHour'] != null)
-        .map((e) => {
-              'startHour': (e['startHour'] as num).toInt(),
-              'endHour': (e['endHour'] as num).toInt(),
-              'requiredCount': ((e['requiredCount'] as num?) ?? 0).toInt(),
-            })
+  static List<Map<String, int>> _parseSlots(dynamic raw) {
+    if (raw is! List) return [];
+    return raw
+        .where(
+          (e) =>
+              e is Map &&
+              e['startHour'] != null &&
+              e['endHour'] != null &&
+              e['requiredCount'] != null,
+        )
+        .map(
+          (e) => {
+            'startHour': (e['startHour'] as num).toInt(),
+            'endHour': (e['endHour'] as num).toInt(),
+            'requiredCount': (e['requiredCount'] as num).toInt(),
+          },
+        )
         .toList();
-    // 空配列は「不足判定を行わない」としてそのまま返す
-    if (v.isEmpty) return <Map<String, int>>[];
-    return result.isNotEmpty ? result : List<Map<String, int>>.from(kDefaultRequiredStaffByTimeSlot);
+  }
+
+  static RequiredStaffByTimeSlotV2Data? _parseV2(Map<String, dynamic>? raw) {
+    if (raw == null) return null;
+    if (raw['version'] != 2) return null;
+    final byStyleRaw = raw['byStyle'];
+    if (byStyleRaw is! Map) return null;
+
+    final byStyle = <String, List<Map<String, int>>>{};
+    for (final entry in byStyleRaw.entries) {
+      byStyle[entry.key] = _parseSlots(entry.value);
+    }
+    return RequiredStaffByTimeSlotV2Data(version: 2, byStyle: byStyle);
+  }
+
+  void _emitStatus(RequiredStaffDocStatus status) {
+    _docStatus = status;
+    _statusController.add(status);
   }
 
   void _initializeListener() {
@@ -68,52 +114,49 @@ class RequiredStaffByTimeSlotService {
         .listen(
       (snapshot) {
         if (!snapshot.exists) {
-          _logConfigFallback(
-            configKey: 'requiredStaffByTimeSlot',
-            reason: 'document_missing',
-            fallbackValue: 'kDefaultRequiredStaffByTimeSlot',
-          );
-          final data = List<Map<String, int>>.from(kDefaultRequiredStaffByTimeSlot);
-          _latestData = data;
-          _streamController.add(data);
+          _latestV2 = null;
+          _emitStatus(RequiredStaffDocStatus.docMissing);
           return;
         }
-        final raw = snapshot.data();
-        final dataArr = raw?['data'];
-        final data = _parseData(dataArr);
-        _latestData = data;
-        _streamController.add(data);
+
+        final parsed = _parseV2(snapshot.data());
+        if (parsed == null) {
+          _latestV2 = null;
+          _emitStatus(RequiredStaffDocStatus.invalidFormat);
+          return;
+        }
+
+        _latestV2 = parsed;
+        _emitStatus(RequiredStaffDocStatus.ready);
       },
       onError: (error) {
         _logConfigReadError(error.toString());
-        if (_latestData != null) {
-          _streamController.add(_latestData!);
-        } else {
-          _logConfigFallback(
-            configKey: 'requiredStaffByTimeSlot',
-            reason: 'read_error_no_cache',
-            fallbackValue: 'kDefaultRequiredStaffByTimeSlot',
-          );
-          final data = List<Map<String, int>>.from(kDefaultRequiredStaffByTimeSlot);
-          _latestData = data;
-          _streamController.add(data);
-        }
+        _latestV2 = null;
+        _emitStatus(RequiredStaffDocStatus.readError);
       },
     );
   }
 
-  /// 現在の storeMeta/requiredStaffByTimeSlot の最新値
-  List<Map<String, int>>? get latestData => _latestData;
+  RequiredStaffDocStatus get docStatus => _docStatus;
 
-  Stream<List<Map<String, int>>> get stream async* {
-    if (_latestData != null) {
-      yield _latestData!;
-    }
-    yield* _streamController.stream;
+  RequiredStaffByTimeSlotV2Data? get latestV2 => _latestV2;
+
+  Stream<RequiredStaffDocStatus> get statusStream => _statusController.stream;
+
+  RequiredStaffStyleResolution resolveForStyle({
+    required String? styleId,
+    required bool isClosed,
+  }) {
+    return resolveRequiredStaffForStyle(
+      docStatus: _docStatus,
+      v2: _latestV2,
+      styleId: styleId,
+      isClosed: isClosed,
+    );
   }
 
   void dispose() {
     _subscription?.cancel();
-    _streamController.close();
+    _statusController.close();
   }
 }

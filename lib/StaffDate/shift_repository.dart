@@ -433,4 +433,36 @@ class ShiftRepository {
       'payload': payload,
     });
   }
+
+  /// 営業スタイル設定を保存
+  Future<void> saveBusinessHoursStyles({
+    required Map<String, dynamic> businessHoursStyles,
+  }) async {
+    final installationId = await _getInstallationId();
+    if (installationId == null) {
+      throw Exception('Device not registered. InstallationId not found.');
+    }
+
+    final callable = _functions.httpsCallable('saveBusinessHoursStyles');
+    await callable.call({
+      'installationId': installationId,
+      'businessHoursStyles': businessHoursStyles,
+    });
+  }
+
+  /// 必要人数設定（v2）を保存
+  Future<void> saveRequiredStaffByTimeSlot({
+    required Map<String, dynamic> requiredStaffByTimeSlot,
+  }) async {
+    final installationId = await _getInstallationId();
+    if (installationId == null) {
+      throw Exception('Device not registered. InstallationId not found.');
+    }
+
+    final callable = _functions.httpsCallable('saveRequiredStaffByTimeSlotCallable');
+    await callable.call({
+      'installationId': installationId,
+      'requiredStaffByTimeSlot': requiredStaffByTimeSlot,
+    });
+  }
 }

@@ -8,6 +8,9 @@ import '../Utils/time_converter.dart';
 import '../services/required_staff_by_time_slot_service.dart';
 import '../services/store_config_defaults.dart';
 import '../services/store_config_service.dart';
+import 'utils/gap_time_slots.dart';
+import 'utils/insufficient_time_slots.dart';
+import 'utils/merge_consecutive_insufficient_slots.dart';
 
 /// シフト確定用ホーム画面（カレンダー表示）
 class ShiftHomePage extends StatefulWidget {
@@ -1242,12 +1245,14 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                     final hasInsufficientSlots = gapSlots.isNotEmpty || insufficientSlots.isNotEmpty;
                     final isInsufficient = !dayData.isSufficient;
                     
-                    // スタッフ不足時間帯の表示用リスト（空き時間帯と設定された時間帯の不足を統合）
-                    final allInsufficientSlots = <String>[];
-                    // 空き時間帯を追加
-                    allInsufficientSlots.addAll(gapSlots.map((g) => '${formatMinutes(g.start)} - ${formatMinutes(g.end)}（現在0人）'));
-                    // 設定された時間帯での不足を追加
-                    allInsufficientSlots.addAll(insufficientSlots.map((s) => '${formatMinutes(s.start)} - ${formatMinutes(s.end)}（必要${s.required}人/現在${s.current}人）'));
+                    // スタッフ不足時間帯の表示用リスト（gap と insufficient を分離）
+                    final gapLabels = gapSlots
+                        .map((g) => '${formatMinutes(g.start)} - ${formatMinutes(g.end)}（現在0人）')
+                        .toList();
+                    final insufficientLabels = insufficientSlots
+                        .map((s) =>
+                            '${formatMinutes(s.start)} - ${formatMinutes(s.end)}（必要${s.required}人/現在${s.current}人）')
+                        .toList();
                     
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -1265,9 +1270,20 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                                 style: TextStyle(color: Colors.orange),
                               ),
                             if (hasInsufficientSlots)
-                              Text(
-                                'スタッフ不足時間帯: ${allInsufficientSlots.join(', ')}',
-                                style: const TextStyle(color: Colors.red),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (gapLabels.isNotEmpty)
+                                    Text(
+                                      '空き時間帯: ${gapLabels.join(', ')}',
+                                      style: const TextStyle(color: Colors.red),
+                                    ),
+                                  if (insufficientLabels.isNotEmpty)
+                                    Text(
+                                      '人数不足時間帯: ${insufficientLabels.join(', ')}',
+                                      style: const TextStyle(color: Colors.orange),
+                                    ),
+                                ],
                               ),
                           ],
                         ),
@@ -1514,11 +1530,11 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                                                   '${formatMinutes(slot.start)} - ${formatMinutes(slot.end)}（必要${slot.required}人/現在${slot.current}人）',
                                                   style: const TextStyle(
                                                     fontSize: 13,
-                                                    color: Colors.red,
+                                                    color: Colors.orange,
                                                   ),
                                                 ),
                                               );
-                                            }).toList(),
+                                            }),
                                           ],
                                         ),
                                       );
@@ -1963,121 +1979,52 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
   }
 
 
-  /// 営業時間内でシフトがいない時間帯を検出
+  /// 営業時間内でシフトがいない時間帯を検出（60分刻み）
   List<({int start, int end})> _findGapTimeSlots(ShiftDayData dayData) {
     if (dayData.businessHours.isClosed || dayData.assignments.isEmpty) {
       return [];
     }
 
-    final openMinutes = dayData.businessHours.openMinute;
-    final closeMinutes = dayData.businessHours.closeMinute;
-    
-    // 営業時間内の各30分刻みでスタッフがいるかチェック
-    final coveredMinutes = <int>{};
-    for (final assignment in dayData.assignments) {
-      final startMinutes = assignment.startMinute;
-      final endMinutes = assignment.endMinute;
-      
-      // 30分刻みでカバーされている時間をマーク
-      for (int minute = startMinutes; minute < endMinutes; minute += 30) {
-        if (minute >= openMinutes && minute < closeMinutes) {
-          coveredMinutes.add(minute);
-        }
-      }
-    }
+    final assignments = dayData.assignments
+        .map((a) => (startMinute: a.startMinute, endMinute: a.endMinute))
+        .toList();
 
-    // カバーされていない時間帯を見つける
-    final gaps = <({int start, int end})>[];
-    int? gapStart;
-    
-    for (int minute = openMinutes; minute < closeMinutes; minute += 30) {
-      if (!coveredMinutes.contains(minute)) {
-        gapStart ??= minute;
-      } else {
-        if (gapStart != null) {
-          gaps.add((start: gapStart, end: minute));
-          gapStart = null;
-        }
-      }
-    }
-    
-    // 最後まで空き時間が続く場合
-    if (gapStart != null) {
-      gaps.add((start: gapStart, end: closeMinutes));
-    }
-
-    return gaps;
+    return findGapTimeSlots(
+      openMinute: dayData.businessHours.openMinute,
+      closeMinute: dayData.businessHours.closeMinute,
+      assignments: assignments,
+    );
   }
 
   /// スタッフ不足時間帯を検出（設定された時間帯での不足のみ、空き時間帯は除外）
-  List<({int start, int end, int required, int current})> _findInsufficientTimeSlots(ShiftDayData dayData) {
+  List<({int start, int end, int required, int current})> _findInsufficientTimeSlots(
+    ShiftDayData dayData,
+  ) {
     if (dayData.businessHours.isClosed) {
       return [];
     }
 
-    final openMinutes = dayData.businessHours.openMinute;
-    final closeMinutes = dayData.businessHours.closeMinute;
-    
-    final insufficientSlots = <({int start, int end, int required, int current})>[];
+    final resolution = RequiredStaffByTimeSlotService.instance.resolveForStyle(
+      styleId: dayData.businessHours.styleId,
+      isClosed: dayData.businessHours.isClosed,
+    );
 
-    // 時間帯別の必要人数設定を取得してチェック
-    final requiredSlots = RequiredStaffByTimeSlotService.instance.latestData ?? kDefaultRequiredStaffByTimeSlot;
-    if (requiredSlots.isNotEmpty) {
-      // 各設定された時間帯についてチェック
-      for (final slot in requiredSlots) {
-        final startHour = slot['startHour']!;
-        final endHour = slot['endHour']!;
-        final requiredCount = slot['requiredCount']!;
-        
-        // 時間を分に変換（例: 19 → 1140分 = 19:00）
-        final slotStartMinutes = startHour * 60;
-        final slotEndMinutes = endHour * 60;
-        
-        // 営業時間と重ならない場合はスキップ
-        if (slotEndMinutes <= openMinutes || slotStartMinutes >= closeMinutes) {
-          continue;
-        }
-
-        // この時間帯に勤務しているスタッフ数をカウント（1時間単位でチェック）
-        for (int hour = startHour; hour < endHour; hour++) {
-          final hourStartMinutes = hour * 60;
-          final hourEndMinutes = (hour + 1) * 60;
-          
-          // 営業時間と重なる部分を計算
-          final hourCheckStart = hourStartMinutes > openMinutes ? hourStartMinutes : openMinutes;
-          final hourCheckEnd = hourEndMinutes < closeMinutes ? hourEndMinutes : closeMinutes;
-          
-          // 営業時間と重ならない場合はスキップ
-          if (hourCheckStart >= hourCheckEnd) {
-            continue;
-          }
-
-          // この1時間に勤務しているスタッフ数をカウント
-          int currentCount = 0;
-          for (final assignment in dayData.assignments) {
-            // 割当時間とこの1時間が重なっているかチェック
-            if (assignment.startMinute < hourEndMinutes && assignment.endMinute > hourStartMinutes) {
-              currentCount++;
-            }
-          }
-
-          // 必要人数に足りない場合は不足時間帯として記録
-          if (currentCount < requiredCount) {
-            insufficientSlots.add((
-              start: hourStartMinutes,
-              end: hourEndMinutes,
-              required: requiredCount,
-              current: currentCount,
-            ));
-          }
-        }
-      }
+    if (resolution.status != RequiredStaffStyleStatus.active) {
+      return [];
     }
 
-    // 時刻順にソート（startの値でソート）
-    insufficientSlots.sort((a, b) => a.start.compareTo(b.start));
+    final assignments = dayData.assignments
+        .map((a) => (startMinute: a.startMinute, endMinute: a.endMinute))
+        .toList();
 
-    return insufficientSlots;
+    final slots = findInsufficientTimeSlots(
+      openMinute: dayData.businessHours.openMinute,
+      closeMinute: dayData.businessHours.closeMinute,
+      assignments: assignments,
+      requiredStaffByTimeSlot: resolution.slots,
+    );
+
+    return mergeConsecutiveInsufficientSlots(slots);
   }
 }
 

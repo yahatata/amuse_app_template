@@ -3,9 +3,9 @@ import * as admin from "firebase-admin";
 import {
   assertAdminDevice,
   getYearMonthFromDateKey,
-  calculateIsSufficient,
   checkAndSetAllDaysFinalized,
   getRequiredStaffByTimeSlot,
+  computeIsSufficientForDay,
 } from "../services/helpers";
 
 const db = admin.firestore();
@@ -46,7 +46,7 @@ export const finalizeDay = onCall(
     const yearMonth = getYearMonthFromDateKey(dateKey);
 
     // トランザクションで最終確定
-    const requiredStaffByTimeSlot = await getRequiredStaffByTimeSlot();
+    const requiredStaffConfig = await getRequiredStaffByTimeSlot();
 
     await db.runTransaction(async (transaction) => {
       // shifts dayDoc を取得
@@ -71,6 +71,7 @@ export const finalizeDay = onCall(
         openMinute: number;
         closeMinute: number;
         isClosed: boolean;
+        styleId?: string | null;
       } | undefined;
 
       // businessHoursが存在しない場合はエラー
@@ -128,17 +129,16 @@ export const finalizeDay = onCall(
         }>) || [];
 
         // 店休日の場合はisSufficientをtrueに設定（計算不要）
-        if (businessHours.isClosed) {
+        if (businessHours.isClosed || businessHours.styleId === "closed") {
           transaction.update(dayDocRef, {
             isSufficient: true,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         } else {
-          const isSufficient = calculateIsSufficient(
-            businessHours.openMinute,
-            businessHours.closeMinute,
+          const isSufficient = computeIsSufficientForDay(
+            businessHours,
             finalAssignments,
-            requiredStaffByTimeSlot
+            requiredStaffConfig
           );
 
           transaction.update(dayDocRef, {

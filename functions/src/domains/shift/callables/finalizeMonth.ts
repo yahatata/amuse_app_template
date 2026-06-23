@@ -2,9 +2,10 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import {
   assertAdminDevice,
-  calculateIsSufficient,
+  computeIsSufficientForDay,
   getRequiredStaffByTimeSlot,
 } from "../services/helpers";
+import type { RequiredStaffByTimeSlotV2 } from "../../../shared/config/types";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
@@ -21,7 +22,7 @@ interface FinalizeMonthRequest {
 async function finalizeDayInternal(
   dateKey: string,
   yearMonth: string,
-  requiredStaffByTimeSlot: Array<{ startHour: number; endHour: number; requiredCount: number }>
+  requiredStaffConfig: RequiredStaffByTimeSlotV2 | null
 ): Promise<void> {
   await db.runTransaction(async (transaction) => {
     const dayDocRef = db.collection("shifts").doc(yearMonth).collection("days").doc(dateKey);
@@ -45,6 +46,7 @@ async function finalizeDayInternal(
       openMinute: number;
       closeMinute: number;
       isClosed: boolean;
+      styleId?: string | null;
     } | undefined;
 
     // businessHoursが存在しない場合はエラー
@@ -106,17 +108,16 @@ async function finalizeDayInternal(
       }>) || [];
 
       // 店休日の場合はisSufficientをtrueに設定（計算不要）
-      if (businessHours.isClosed) {
+      if (businessHours.isClosed || businessHours.styleId === "closed") {
         transaction.update(dayDocRef, {
           isSufficient: true,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       } else {
-        const isSufficient = calculateIsSufficient(
-          businessHours.openMinute,
-          businessHours.closeMinute,
+        const isSufficient = computeIsSufficientForDay(
+          businessHours,
           finalAssignments,
-          requiredStaffByTimeSlot
+          requiredStaffConfig
         );
 
         transaction.update(dayDocRef, {
@@ -158,7 +159,7 @@ export const finalizeMonth = onCall(
     const [year, month] = yearMonth.split("-").map(Number);
     const daysInMonth = new Date(year, month, 0).getDate();
 
-    const requiredStaffByTimeSlot = await getRequiredStaffByTimeSlot();
+    const requiredStaffConfig = await getRequiredStaffByTimeSlot();
     let finalizedCount = 0;
 
     // 各日を順次処理（トランザクション制限を考慮）
@@ -167,7 +168,7 @@ export const finalizeMonth = onCall(
       const dateKey = `${yearMonth}-${dayStr}`;
 
       try {
-        await finalizeDayInternal(dateKey, yearMonth, requiredStaffByTimeSlot);
+        await finalizeDayInternal(dateKey, yearMonth, requiredStaffConfig);
         finalizedCount++;
       } catch (error: any) {
         // 既に最終確定済みの場合はスキップ（冪等性）

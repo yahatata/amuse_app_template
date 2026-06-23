@@ -112,6 +112,20 @@ const List<Map<String, int>> kDefaultRequiredStaffByTimeSlot = [
   {'startHour': 10, 'endHour': 12, 'requiredCount': 3},
 ];
 
+/// storeMeta/requiredStaffByTimeSlot v2 初期値（initializeStoreConfigCallable と同等）
+const Map<String, dynamic> kDefaultRequiredStaffByTimeSlotV2 = {
+  'version': 2,
+  'byStyle': {
+    'weekday': [
+      {'startHour': 19, 'endHour': 22, 'requiredCount': 2},
+    ],
+    'weekendHoliday': <Map<String, int>>[],
+    'event': <Map<String, int>>[],
+    'allDay': <Map<String, int>>[],
+    'closed': <Map<String, int>>[],
+  },
+};
+
 // payroll
 const int kDefaultPayrollStartDay = 26;
 const int kDefaultPayrollEndDay = 25;

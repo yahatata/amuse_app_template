@@ -1,8 +1,7 @@
 import { HttpsError } from "firebase-functions/v2/https";
-import { logger } from "firebase-functions";
 import * as admin from "firebase-admin";
 import type { Firestore } from "firebase-admin/firestore";
-import { CONFIG_ERROR_CODES } from "../../../shared/config/configLoader";
+import type { RequiredStaffByTimeSlotV2, RequiredStaffSlot } from "../../../shared/config/types";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
@@ -72,16 +71,10 @@ export function validateWithinBusinessHours(
   }
 }
 
-/** R-09: storeMeta/requiredStaffByTimeSlot から時間帯別必要人数を取得。
- * 未存在時・読み取り失敗時は defaults にフォールバック（リトライ後も失敗時は defaults）。
- * 空配列の場合は不足判定を行わない（[] を返す）。
- */
-export async function getRequiredStaffByTimeSlot(firestore?: Firestore): Promise<
-  Array<{ startHour: number; endHour: number; requiredCount: number }>
-> {
-  const { DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT } = await import(
-    "../../../shared/config/defaults"
-  );
+/** R-09: storeMeta/requiredStaffByTimeSlot から v2 形式を取得。未設定・不正時は null（fallback しない） */
+export async function getRequiredStaffByTimeSlot(
+  firestore?: Firestore
+): Promise<RequiredStaffByTimeSlotV2 | null> {
   const firestoreInstance = firestore ?? db;
   const docRef = firestoreInstance.collection("storeMeta").doc("requiredStaffByTimeSlot");
 
@@ -90,92 +83,116 @@ export async function getRequiredStaffByTimeSlot(firestore?: Firestore): Promise
     try {
       const doc = await docRef.get();
       if (!doc.exists) {
-        logger.warn("config_fallback", {
-          code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,
-          configKey: "requiredStaffByTimeSlot",
-          fallbackSource: "defaults.ts",
-          reason: "document_missing",
-        });
-    logOpsSuccess({
-  message: "getRequiredStaffByTimeSlot 成功",
-  functionEntry: "getRequiredStaffByTimeSlot",
-  operation: "config_read",
-  context: {
-      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-      reason: "read_error",
-      message: 'ok',
-    },
-});
-
-        return [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
+        return null;
       }
+
       const data = doc.data();
-      const arr = data?.data;
-      if (!Array.isArray(arr)) {logOpsSuccess({
-  message: "getRequiredStaffByTimeSlot 成功",
-  functionEntry: "getRequiredStaffByTimeSlot",
-  operation: "config_read",
-  context: {
-      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-      reason: "read_error",
-      message: 'ok',
-    },
-});
-
-        return [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
+      if (
+        data?.version === 2 &&
+        data.byStyle &&
+        typeof data.byStyle === "object" &&
+        !Array.isArray(data.byStyle)
+      ) {
+        logOpsSuccess({
+          message: "getRequiredStaffByTimeSlot 成功",
+          functionEntry: "getRequiredStaffByTimeSlot",
+          operation: "config_read",
+        });
+        return {
+          version: 2,
+          byStyle: data.byStyle as Record<string, RequiredStaffSlot[]>,
+        };
       }
-      const filtered = arr.filter(
-        (x: unknown) =>
-          x && typeof x === "object" && typeof (x as Record<string, unknown>).startHour === "number"
-      ) as { startHour: number; endHour: number; requiredCount: number }[];
-      // 空配列は「不足判定を行わない」としてそのまま返す
-      if (arr.length === 0)      logOpsSuccess({
-        message: "getRequiredStaffByTimeSlot 成功",
-        functionEntry: "getRequiredStaffByTimeSlot",
-        operation: "config_read",
-        context: {
-            code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-            reason: "read_error",
-            message: 'ok',
-          },
-      });
- return [];logOpsSuccess({
-  message: "getRequiredStaffByTimeSlot 成功",
-  functionEntry: "getRequiredStaffByTimeSlot",
-  operation: "config_read",
-  context: {
-      code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-      reason: "read_error",
-      message: 'ok',
-    },
-});
 
-      // 全要素不正の場合は defaults
-      return filtered.length > 0 ? filtered : [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
+      return null;
     } catch (err) {
       lastError = err;
       if (attempt < MAX_RETRIES) continue;
       logOpsError({
-        message: "config_read_error",
+        message: "requiredStaffByTimeSlot の読み取りに失敗",
         functionEntry: "getRequiredStaffByTimeSlot",
         operation: "config_read",
         cause: lastError,
-        context: {
-          code: CONFIG_ERROR_CODES.CONFIG_READ_ERROR,
-          reason: "read_error",
-          message: String(err instanceof Error ? err.message : err),
-        },
       });
-      logger.warn("config_fallback", {
-        code: CONFIG_ERROR_CODES.CONFIG_FALLBACK,
-        configKey: "requiredStaffByTimeSlot",
-        fallbackSource: "defaults.ts",
-        reason: "read_error_after_retries",
-      });
-      return [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
+      return null;
     }
   }
-  return [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT];
+
+  return null;
+}
+
+/**
+ * 対象日の styleId に応じた必要人数スロットを解決
+ */
+export function resolveRequiredStaffSlotsForDay(params: {
+  businessHours: {
+    styleId?: string | null;
+    isClosed: boolean;
+    openMinute?: number;
+    closeMinute?: number;
+  };
+  requiredStaffConfig: RequiredStaffByTimeSlotV2 | null;
+}): RequiredStaffSlot[] | null {
+  const { businessHours, requiredStaffConfig } = params;
+
+  if (businessHours.isClosed || businessHours.styleId === "closed") {
+    return null;
+  }
+
+  if (!requiredStaffConfig) {
+    return null;
+  }
+
+  const styleId = businessHours.styleId;
+  if (!styleId) {
+    return null;
+  }
+
+  const byStyle = requiredStaffConfig.byStyle;
+  if (!byStyle || typeof byStyle !== "object") {
+    return null;
+  }
+
+  if (!(styleId in byStyle)) {
+    return null;
+  }
+
+  const slots = byStyle[styleId];
+  if (!Array.isArray(slots)) {
+    return null;
+  }
+
+  return slots;
+}
+
+/**
+ * 1 日分の isSufficient を計算（休業日は true）
+ */
+export function computeIsSufficientForDay(
+  businessHours: {
+    openMinute: number;
+    closeMinute: number;
+    isClosed: boolean;
+    styleId?: string | null;
+  },
+  assignments: Array<{ startMinute: number; endMinute: number }>,
+  requiredStaffConfig: RequiredStaffByTimeSlotV2 | null
+): boolean {
+  if (businessHours.isClosed || businessHours.styleId === "closed") {
+    return true;
+  }
+
+  const requiredSlots = resolveRequiredStaffSlotsForDay({
+    businessHours,
+    requiredStaffConfig,
+  });
+
+  return calculateIsSufficient(
+    businessHours.openMinute,
+    businessHours.closeMinute,
+    assignments,
+    requiredSlots
+  );
 }
 
 /**
@@ -307,7 +324,7 @@ export function findInsufficientTimeSlots(
   openMinute: number,
   closeMinute: number,
   assignments: Array<{ startMinute: number; endMinute: number }>,
-  requiredStaffByTimeSlot: Array<{ startHour: number; endHour: number; requiredCount: number }>
+  requiredStaffByTimeSlot: RequiredStaffSlot[]
 ): Array<{ start: number; end: number; required: number; current: number }> {
   if (openMinute >= closeMinute || requiredStaffByTimeSlot.length === 0) {
     return [];
@@ -373,15 +390,13 @@ export function calculateIsSufficient(
   openMinute: number,
   closeMinute: number,
   assignments: Array<{ startMinute: number; endMinute: number }>,
-  requiredStaffByTimeSlot: Array<{ startHour: number; endHour: number; requiredCount: number }>
+  requiredSlots: RequiredStaffSlot[] | null
 ): boolean {
   const gapSlots = findGapTimeSlots(openMinute, closeMinute, assignments);
-  const insufficientSlots = findInsufficientTimeSlots(
-    openMinute,
-    closeMinute,
-    assignments,
-    requiredStaffByTimeSlot
-  );
+  const insufficientSlots =
+    requiredSlots && requiredSlots.length > 0
+      ? findInsufficientTimeSlots(openMinute, closeMinute, assignments, requiredSlots)
+      : [];
 
   return gapSlots.length === 0 && insufficientSlots.length === 0;
 }
@@ -562,8 +577,9 @@ export async function isInsufficientDayOrTimeSlot(dateKey: string): Promise<bool
     openMinute: number;
     closeMinute: number;
     isClosed: boolean;
+    styleId?: string | null;
   };
-  
+
   // 不足日の条件: !isFinalized && !isClosed && isSufficient==false
   if (
     dayData.isFinalized !== true &&
@@ -572,24 +588,31 @@ export async function isInsufficientDayOrTimeSlot(dateKey: string): Promise<bool
   ) {
     return true;
   }
-  
+
   // 不足時間の条件: gapSlots または insufficientSlots が存在する
   const assignments = (dayData.assignments as Array<{ startMinute: number; endMinute: number }>) || [];
-  
-  const requiredStaffByTimeSlot = await getRequiredStaffByTimeSlot();
-  
+
+  const requiredStaffConfig = await getRequiredStaffByTimeSlot();
+  const requiredSlots = resolveRequiredStaffSlotsForDay({
+    businessHours,
+    requiredStaffConfig,
+  });
+
   const gapSlots = findGapTimeSlots(
     businessHours.openMinute,
     businessHours.closeMinute,
     assignments
   );
-  
-  const insufficientSlots = findInsufficientTimeSlots(
-    businessHours.openMinute,
-    businessHours.closeMinute,
-    assignments,
-    requiredStaffByTimeSlot
-  );
-  
+
+  const insufficientSlots =
+    requiredSlots && requiredSlots.length > 0
+      ? findInsufficientTimeSlots(
+          businessHours.openMinute,
+          businessHours.closeMinute,
+          assignments,
+          requiredSlots
+        )
+      : [];
+
   return gapSlots.length > 0 || insufficientSlots.length > 0;
 }

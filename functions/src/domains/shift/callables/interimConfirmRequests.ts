@@ -4,7 +4,7 @@ import {
   assertAdminDevice,
   assertHourStep,
   getYearMonthFromDateKey,
-  calculateIsSufficient,
+  computeIsSufficientForDay,
   getRequiredStaffByTimeSlot,
 } from "../services/helpers";
 
@@ -168,7 +168,7 @@ export const interimConfirmRequests = onCall(
     }
 
     // トランザクションで更新
-    const requiredStaffByTimeSlot = await getRequiredStaffByTimeSlot();
+    const requiredStaffConfig = await getRequiredStaffByTimeSlot();
     let confirmedCount = 0;
 
     await db.runTransaction(async (transaction) => {
@@ -270,11 +270,10 @@ export const interimConfirmRequests = onCall(
       // isSufficient を再計算（override==null のときのみ）
       let isSufficient: boolean | undefined;
       if (sufficientOverride === null) {
-        isSufficient = calculateIsSufficient(
-          businessHours.openMinute,
-          businessHours.closeMinute,
+        isSufficient = computeIsSufficientForDay(
+          businessHours,
           filteredAssignments,
-          requiredStaffByTimeSlot
+          requiredStaffConfig
         );
       }
 

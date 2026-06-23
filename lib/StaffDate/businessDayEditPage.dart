@@ -7,6 +7,7 @@ import 'shiftHomePage.dart'; // BusinessHours型を使用するため
 import '../Utils/time_converter.dart';
 import '../services/store_config_service.dart';
 import '../services/store_config_defaults.dart';
+import 'utils/business_hours_style_labels.dart';
 
 /// 営業日編集ページ
 class BusinessDayEditPage extends StatefulWidget {
@@ -580,28 +581,9 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
     String? selectedStyleId = current.styleId;
     
     // スタイル選択肢（5つのスタイル）
-    final styleOptions = [
-      {
-        'id': 'weekday',
-        'label': '平日（15:00-25:00）',
-      },
-      {
-        'id': 'weekendHoliday',
-        'label': '週末・祝日（12:00-25:00）',
-      },
-      {
-        'id': 'event',
-        'label': 'イベント（10:00-25:00）',
-      },
-      {
-        'id': 'allDay',
-        'label': '終日（6:00-25:00）',
-      },
-      {
-        'id': 'closed',
-        'label': '休業日',
-      },
-    ];
+    final styleOptions = kBusinessHoursStyleIds
+        .map((id) => {'id': id, 'label': businessHoursStyleLabel(id)})
+        .toList();
     
     final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
     final dayStr = day.toString().padLeft(2, '0');

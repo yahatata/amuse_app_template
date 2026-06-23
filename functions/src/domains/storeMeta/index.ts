@@ -11,6 +11,7 @@ export { continueBusinessTerminal } from './callables/continueBusinessTerminal';
 export { createInitialStateDocCallable } from './callables/createInitialStateDocCallable';
 export { initializeStoreConfigCallable } from './callables/initializeStoreConfigCallable';
 export { updateTableDeviceConfigCallable } from './callables/updateTableDeviceConfigCallable';
+export { saveRequiredStaffByTimeSlotCallable } from './callables/saveRequiredStaffByTimeSlotCallable';
 export { closeAssessmentTask } from './callables/closeAssessmentTask';
 export { openAssessmentTask } from './callables/openAssessmentTask';
 export { temporaryUnlockAlreadyRunningDifferentDateTerminal } from './callables/temporaryUnlockAlreadyRunningDifferentDateTerminal';

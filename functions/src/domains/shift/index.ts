@@ -4,6 +4,7 @@ export {
   generateBusinessHoursForMonthFromStyles,
   generateBusinessHoursForYearFromStyles,
   setBusinessHoursManualForDay,
+  saveBusinessHoursStyles,
 } from "../../shared/businessHours";
 export { initShiftDaysForMonth } from "./callables/initShiftDaysForMonth";
 export { interimConfirmRequests } from "./callables/interimConfirmRequests";

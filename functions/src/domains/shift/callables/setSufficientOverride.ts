@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 import {
   assertAdminDevice,
   getYearMonthFromDateKey,
-  calculateIsSufficient,
+  computeIsSufficientForDay,
   getRequiredStaffByTimeSlot,
 } from "../services/helpers";
 
@@ -53,7 +53,7 @@ export const setSufficientOverride = onCall(
     const yearMonth = getYearMonthFromDateKey(dateKey);
 
     // トランザクションで更新
-    const requiredStaffByTimeSlot = await getRequiredStaffByTimeSlot();
+    const requiredStaffConfig = await getRequiredStaffByTimeSlot();
 
     await db.runTransaction(async (transaction) => {
       const dayDocRef = db.collection("shifts").doc(yearMonth).collection("days").doc(dateKey);
@@ -71,6 +71,7 @@ export const setSufficientOverride = onCall(
         openMinute: number;
         closeMinute: number;
         isClosed: boolean;
+        styleId?: string | null;
       };
 
       let isSufficient: boolean;
@@ -86,11 +87,10 @@ export const setSufficientOverride = onCall(
           endMinute: number;
         }>) || [];
 
-        isSufficient = calculateIsSufficient(
-          businessHours.openMinute,
-          businessHours.closeMinute,
+        isSufficient = computeIsSufficientForDay(
+          businessHours,
           assignments,
-          requiredStaffByTimeSlot
+          requiredStaffConfig
         );
       }
 

@@ -192,6 +192,8 @@ export const SERVICE_BY_FUNCTION_ENTRY: Record<string, string> = {
   "sendLinePushMessage": "line",
   "sendRecruitmentNotification": "shift",
   "setBusinessHoursManualForDay": "business_hours",
+  "saveBusinessHoursStyles": "business_hours",
+  "saveRequiredStaffByTimeSlotCallable": "store",
   "setPrizeData": "tournament",
   "setRankingData": "tournament",
   "setSufficientOverride": "shift",

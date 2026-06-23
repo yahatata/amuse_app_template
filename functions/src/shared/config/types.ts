@@ -11,10 +11,28 @@ export interface BusinessHoursStyle {
   isClosed: boolean;
 }
 
-export interface RequiredStaffByTimeSlot {
+export interface RequiredStaffSlot {
   startHour: number;
   endHour: number;
   requiredCount: number;
+}
+
+/** @deprecated v2 では RequiredStaffSlot を使用 */
+export interface RequiredStaffByTimeSlot extends RequiredStaffSlot {}
+
+export const REQUIRED_STAFF_STYLE_IDS = [
+  'weekday',
+  'weekendHoliday',
+  'event',
+  'allDay',
+  'closed',
+] as const;
+
+export type RequiredStaffStyleId = (typeof REQUIRED_STAFF_STYLE_IDS)[number];
+
+export interface RequiredStaffByTimeSlotV2 {
+  version: 2;
+  byStyle: Record<string, RequiredStaffSlot[]>;
 }
 
 /** 詳細仕様書 §14.15: storeMeta/config.okibake.loginPromptMode（フラット構成） */

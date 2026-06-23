@@ -1,23 +1,77 @@
-/// requiredStaffByTimeSlot 関連のテスト（R-09 分離）
-///
-/// - デフォルト値の妥当性を検証
-/// - RequiredStaffByTimeSlotService の Firestore 購読は integration で検証
+import 'package:amuse_app_template/StaffDate/utils/required_staff_resolution.dart';
+import 'package:amuse_app_template/services/required_staff_by_time_slot_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:amuse_app_template/services/store_config_defaults.dart';
-
 void main() {
-  group('requiredStaffByTimeSlot デフォルト値', () {
-    test('kDefaultRequiredStaffByTimeSlot が妥当', () {
-      expect(
-        kDefaultRequiredStaffByTimeSlot.length,
-        greaterThanOrEqualTo(1),
+  group('resolveRequiredStaffForStyle', () {
+    test('休業日は notApplicable', () {
+      final resolution = resolveRequiredStaffForStyle(
+        docStatus: RequiredStaffDocStatus.ready,
+        v2: null,
+        styleId: 'closed',
+        isClosed: true,
       );
-      for (final slot in kDefaultRequiredStaffByTimeSlot) {
-        expect(slot['startHour'], isNotNull);
-        expect(slot['endHour'], isNotNull);
-        expect(slot['requiredCount'], isNotNull);
-      }
+      expect(resolution.status, RequiredStaffStyleStatus.notApplicable);
+    });
+
+    test('doc 未完了は docNotReady', () {
+      final resolution = resolveRequiredStaffForStyle(
+        docStatus: RequiredStaffDocStatus.docMissing,
+        v2: null,
+        styleId: 'weekday',
+        isClosed: false,
+      );
+      expect(resolution.status, RequiredStaffStyleStatus.docNotReady);
+    });
+
+    test('style キーなしは styleNotConfigured', () {
+      final resolution = resolveRequiredStaffForStyle(
+        docStatus: RequiredStaffDocStatus.ready,
+        v2: const RequiredStaffByTimeSlotV2Data(
+          version: 2,
+          byStyle: {
+            'weekday': [
+              {'startHour': 19, 'endHour': 22, 'requiredCount': 2},
+            ],
+          },
+        ),
+        styleId: 'event',
+        isClosed: false,
+      );
+      expect(resolution.status, RequiredStaffStyleStatus.styleNotConfigured);
+    });
+
+    test('[] は disabledByEmptyList', () {
+      final resolution = resolveRequiredStaffForStyle(
+        docStatus: RequiredStaffDocStatus.ready,
+        v2: const RequiredStaffByTimeSlotV2Data(
+          version: 2,
+          byStyle: {
+            'weekendHoliday': [],
+          },
+        ),
+        styleId: 'weekendHoliday',
+        isClosed: false,
+      );
+      expect(resolution.status, RequiredStaffStyleStatus.disabledByEmptyList);
+    });
+
+    test('active はスロットを返す', () {
+      final resolution = resolveRequiredStaffForStyle(
+        docStatus: RequiredStaffDocStatus.ready,
+        v2: const RequiredStaffByTimeSlotV2Data(
+          version: 2,
+          byStyle: {
+            'weekday': [
+              {'startHour': 19, 'endHour': 22, 'requiredCount': 2},
+            ],
+          },
+        ),
+        styleId: 'weekday',
+        isClosed: false,
+      );
+      expect(resolution.status, RequiredStaffStyleStatus.active);
+      expect(resolution.slots, hasLength(1));
     });
   });
 }
