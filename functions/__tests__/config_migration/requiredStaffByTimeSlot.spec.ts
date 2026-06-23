@@ -1,56 +1,45 @@
 /**
- * storeMeta/requiredStaffByTimeSlot テスト（R-09 分離）
- *
- * getRequiredStaffByTimeSlot が storeMeta/requiredStaffByTimeSlot から
- * 正しく読み取ることを検証する。
- * helpers は admin.firestore() を module load 時に参照するため、
- * 本ファイルでは initializeApp を先に実行してから helpers を require する。
+ * storeMeta/requiredStaffByTimeSlot テスト（v2 byStyle・純粋 unit）
  */
 
-import * as admin from 'firebase-admin';
-import { getFirestore } from 'firebase-admin/firestore';
-import { DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT } from '../../src/shared/config/defaults';
+import { DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2 } from '../../src/shared/config/defaults';
+import { resolveRequiredStaffSlotsForDay } from '../../src/domains/shift/services/helpers';
 
-if (admin.apps.length > 0) {
-  for (const app of admin.apps) {
-    if (app) app.delete();
-  }
-}
-admin.initializeApp({ projectId: 'test-required-staff' });
-
-const { getRequiredStaffByTimeSlot } = require('../../src/domains/shift/services/helpers');
-
-describe('storeMeta/requiredStaffByTimeSlot', () => {
-  const itWithEmulator = process.env.FIRESTORE_EMULATOR_HOST ? it : it.skip;
-  const db = getFirestore();
-
-  beforeEach(async () => {
-    const ref = db.collection('storeMeta').doc('requiredStaffByTimeSlot');
-    const snap = await ref.get();
-    if (snap.exists) await ref.delete();
-  });
-
-  it('getRequiredStaffByTimeSlot: doc 未存在 → defaults を返す', async () => {
-    const result = await getRequiredStaffByTimeSlot(db);
-    expect(result).toEqual(DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT);
-  });
-
-  itWithEmulator('getRequiredStaffByTimeSlot: doc 存在 → Firestore の data を返す', async () => {
-    await db.collection('storeMeta').doc('requiredStaffByTimeSlot').set({
-      data: [{ startHour: 10, endHour: 14, requiredCount: 4 }],
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+describe('storeMeta/requiredStaffByTimeSlot v2 (unit)', () => {
+  it('resolveRequiredStaffSlotsForDay: byStyle[styleId] が [] → 空配列', () => {
+    const config = {
+      version: 2 as const,
+      byStyle: {
+        ...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2.byStyle,
+        weekendHoliday: [],
+      },
+    };
+    const slots = resolveRequiredStaffSlotsForDay({
+      businessHours: { isClosed: false, styleId: 'weekendHoliday' },
+      requiredStaffConfig: config,
     });
-    const result = await getRequiredStaffByTimeSlot(db);
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ startHour: 10, endHour: 14, requiredCount: 4 });
+    expect(slots).toEqual([]);
   });
 
-  itWithEmulator('getRequiredStaffByTimeSlot: data が空配列 → [] を返す（不足判定なし）', async () => {
-    await db.collection('storeMeta').doc('requiredStaffByTimeSlot').set({
-      data: [],
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  it('resolveRequiredStaffSlotsForDay: style キーなし → null', () => {
+    const config = {
+      version: 2 as const,
+      byStyle: {
+        weekday: [{ startHour: 19, endHour: 22, requiredCount: 2 }],
+      },
+    };
+    const slots = resolveRequiredStaffSlotsForDay({
+      businessHours: { isClosed: false, styleId: 'event' },
+      requiredStaffConfig: config,
     });
-    const result = await getRequiredStaffByTimeSlot(db);
-    expect(result).toEqual([]);
+    expect(slots).toBeNull();
+  });
+
+  it('resolveRequiredStaffSlotsForDay: doc 未設定は null', () => {
+    const slots = resolveRequiredStaffSlotsForDay({
+      businessHours: { isClosed: false, styleId: 'weekday' },
+      requiredStaffConfig: null,
+    });
+    expect(slots).toBeNull();
   });
 });

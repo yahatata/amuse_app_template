@@ -3,9 +3,9 @@ import * as admin from "firebase-admin";
 import {
   assertAdminDevice,
   getYearMonthFromDateKey,
-  calculateIsSufficient,
   ADMIN_CREATED_SHIFT_ID,
   getRequiredStaffByTimeSlot,
+  computeIsSufficientForDay,
 } from "../services/helpers";
 
 const db = admin.firestore();
@@ -83,7 +83,7 @@ export const updateDayAssignments = onCall(
       }
     }
 
-    const requiredStaffByTimeSlot = await getRequiredStaffByTimeSlot();
+    const requiredStaffConfig = await getRequiredStaffByTimeSlot();
 
     await db.runTransaction(async (transaction) => {
       // shifts dayDoc を取得
@@ -141,6 +141,7 @@ export const updateDayAssignments = onCall(
         openMinute: number;
         closeMinute: number;
         isClosed: boolean;
+        styleId?: string | null;
       };
 
       // 営業時間内制約チェック（管理者が直接作成したシフトの場合はスキップ）
@@ -182,11 +183,10 @@ export const updateDayAssignments = onCall(
       let isSufficient: boolean | undefined;
 
       if (sufficientOverride === null) {
-        isSufficient = calculateIsSufficient(
-          businessHours.openMinute,
-          businessHours.closeMinute,
+        isSufficient = computeIsSufficientForDay(
+          businessHours,
           assignments,
-          requiredStaffByTimeSlot
+          requiredStaffConfig
         );
       }
 

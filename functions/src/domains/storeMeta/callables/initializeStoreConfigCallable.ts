@@ -23,7 +23,7 @@ import {
 } from '../../../shared/config/schedulerConfigLoader';
 import { buildPayrollConfigFromDefaults, mergePayrollConfigForUpsert } from '../../../shared/config/payrollConfigLoader';
 import {
-  DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT,
+  DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2,
 } from '../../../shared/config/defaults';
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
@@ -88,7 +88,8 @@ export const initializeStoreConfigCallable = onCall(
 
       if (!requiredStaffDoc.exists) {
         await requiredStaffRef.set({
-          data: [...DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT],
+          version: DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2.version,
+          byStyle: DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2.byStyle,
           updatedAt: FieldValue.serverTimestamp(),
         });
         created.push('storeMeta/requiredStaffByTimeSlot');

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:amuse_app_template/StaffDate/shiftHomePage.dart';
 import 'package:amuse_app_template/StaffDate/shiftDraftPage.dart';
 import 'package:amuse_app_template/StaffDate/businessDayEditPage.dart';
+import 'package:amuse_app_template/StaffDate/shift_style_required_staff_settings_page.dart';
 
 /// シフトメニュー画面
 class ShiftMenuPage extends StatelessWidget {
@@ -10,7 +11,7 @@ class ShiftMenuPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
-    final buttonHeight = (screenHeight - kToolbarHeight - 48 - 48) / 3 - 12;
+    final buttonHeight = (screenHeight - kToolbarHeight - 48 - 48) / 4 - 12;
 
     return Scaffold(
       appBar: AppBar(
@@ -106,6 +107,36 @@ class ShiftMenuPage extends StatelessWidget {
                   ),
                   child: const Text(
                     '営業日編集',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // 営業スタイル・必要人数設定
+              SizedBox(
+                height: buttonHeight,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            const ShiftStyleRequiredStaffSettingsPage(),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[100],
+                    foregroundColor: Colors.grey[800],
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: BorderSide(color: Colors.grey[300]!, width: 1),
+                    ),
+                  ),
+                  child: const Text(
+                    '営業スタイル・必要人数設定',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
                   ),
                 ),

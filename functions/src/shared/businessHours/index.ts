@@ -5,3 +5,4 @@ export { initBusinessHoursForMonth } from './callables/initBusinessHoursForMonth
 export { generateBusinessHoursForMonthFromStyles } from './callables/generateBusinessHoursForMonthFromStyles';
 export { generateBusinessHoursForYearFromStyles } from './callables/generateBusinessHoursForYearFromStyles';
 export { setBusinessHoursManualForDay } from './callables/setBusinessHoursManualForDay';
+export { saveBusinessHoursStyles } from './callables/saveBusinessHoursStyles';

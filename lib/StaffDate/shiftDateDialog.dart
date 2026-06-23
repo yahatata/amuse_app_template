@@ -7,7 +7,9 @@ import '../Utils/time_converter.dart';
 import '../globalConstant.dart';
 import '../services/device_service.dart';
 import '../services/required_staff_by_time_slot_service.dart';
-import '../services/store_config_defaults.dart';
+import 'utils/gap_time_slots.dart';
+import 'utils/insufficient_time_slots.dart';
+import 'utils/merge_consecutive_insufficient_slots.dart';
 
 /// 日付ダイアログ（カレンダーセルの拡大＆編集）
 class ShiftDateDialog extends StatefulWidget {
@@ -711,7 +713,7 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
   }
 
 
-  /// 営業時間内でシフトがいない時間帯を検出
+  /// 営業時間内でシフトがいない時間帯を検出（60分刻み）
   List<({int start, int end})> _findGapTimeSlots() {
     if (widget.dayData == null ||
         widget.dayData!.businessHours.isClosed ||
@@ -720,47 +722,15 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
     }
 
     final businessHours = widget.dayData!.businessHours;
-    final openMinutes = businessHours.openMinute;
-    final closeMinutes = businessHours.closeMinute;
-    
-    // 営業時間内の各30分刻みでスタッフがいるかチェック
-    final coveredMinutes = <int>{};
-    for (final assignment in _assignments) {
-      final startMinutes = assignment.startMinute;
-      final endMinutes = assignment.endMinute;
-      
-      // 30分刻みでカバーされている時間をマーク
-      for (int minute = startMinutes; minute < endMinutes; minute += 30) {
-        if (minute >= openMinutes && minute < closeMinutes) {
-          coveredMinutes.add(minute);
-        }
-      }
-    }
+    final assignments = _assignments
+        .map((a) => (startMinute: a.startMinute, endMinute: a.endMinute))
+        .toList();
 
-    // カバーされていない時間帯を見つける
-    final gaps = <({int start, int end})>[];
-    int? gapStart;
-    
-    for (int minute = openMinutes; minute < closeMinutes; minute += 30) {
-      if (!coveredMinutes.contains(minute)) {
-        gapStart ??= minute;
-      } else {
-        if (gapStart != null) {
-          gaps.add((start: gapStart, end: minute));
-          gapStart = null;
-        }
-      }
-    }
-    
-    // 最後まで空き時間が続く場合
-    if (gapStart != null) {
-      gaps.add((start: gapStart, end: closeMinutes));
-    }
-
-    // 時刻順にソート（startの値でソート）
-    gaps.sort((a, b) => a.start.compareTo(b.start));
-
-    return gaps;
+    return findGapTimeSlots(
+      openMinute: businessHours.openMinute,
+      closeMinute: businessHours.closeMinute,
+      assignments: assignments,
+    );
   }
 
   /// スタッフ不足時間帯を検出（設定された時間帯での不足のみ、空き時間帯は除外）
@@ -770,69 +740,27 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
     }
 
     final businessHours = widget.dayData!.businessHours;
-    final openMinutes = businessHours.openMinute;
-    final closeMinutes = businessHours.closeMinute;
-    
-    final insufficientSlots = <({int start, int end, int required, int current})>[];
+    final resolution = RequiredStaffByTimeSlotService.instance.resolveForStyle(
+      styleId: businessHours.styleId,
+      isClosed: businessHours.isClosed,
+    );
 
-    // 時間帯別の必要人数設定を取得してチェック
-    final requiredSlots = RequiredStaffByTimeSlotService.instance.latestData ?? kDefaultRequiredStaffByTimeSlot;
-    if (requiredSlots.isNotEmpty) {
-      // 各設定された時間帯についてチェック
-      for (final slot in requiredSlots) {
-        final startHour = slot['startHour']!;
-        final endHour = slot['endHour']!;
-        final requiredCount = slot['requiredCount']!;
-        
-        // 時間を分に変換（例: 19 → 1140分 = 19:00）
-        final slotStartMinutes = startHour * 60;
-        final slotEndMinutes = endHour * 60;
-        
-        // 営業時間と重ならない場合はスキップ
-        if (slotEndMinutes <= openMinutes || slotStartMinutes >= closeMinutes) {
-          continue;
-        }
-
-        // この時間帯に勤務しているスタッフ数をカウント（1時間単位でチェック）
-        for (int hour = startHour; hour < endHour; hour++) {
-          final hourStartMinutes = hour * 60;
-          final hourEndMinutes = (hour + 1) * 60;
-          
-          // 営業時間と重なる部分を計算
-          final hourCheckStart = hourStartMinutes > openMinutes ? hourStartMinutes : openMinutes;
-          final hourCheckEnd = hourEndMinutes < closeMinutes ? hourEndMinutes : closeMinutes;
-          
-          // 営業時間と重ならない場合はスキップ
-          if (hourCheckStart >= hourCheckEnd) {
-            continue;
-          }
-
-          // この1時間に勤務しているスタッフ数をカウント
-          int currentCount = 0;
-          for (final assignment in _assignments) {
-            // 割当時間とこの1時間が重なっているかチェック
-            if (assignment.startMinute < hourEndMinutes && assignment.endMinute > hourStartMinutes) {
-              currentCount++;
-            }
-          }
-
-          // 必要人数に足りない場合は不足時間帯として記録
-          if (currentCount < requiredCount) {
-            insufficientSlots.add((
-              start: hourStartMinutes,
-              end: hourEndMinutes,
-              required: requiredCount,
-              current: currentCount,
-            ));
-          }
-        }
-      }
+    if (resolution.status != RequiredStaffStyleStatus.active) {
+      return [];
     }
 
-    // 時刻順にソート（startの値でソート）
-    insufficientSlots.sort((a, b) => a.start.compareTo(b.start));
+    final assignments = _assignments
+        .map((a) => (startMinute: a.startMinute, endMinute: a.endMinute))
+        .toList();
 
-    return insufficientSlots;
+    final slots = findInsufficientTimeSlots(
+      openMinute: businessHours.openMinute,
+      closeMinute: businessHours.closeMinute,
+      assignments: assignments,
+      requiredStaffByTimeSlot: resolution.slots,
+    );
+
+    return mergeConsecutiveInsufficientSlots(slots);
   }
 
   /// 新規シフト作成ダイアログを表示
@@ -851,23 +779,34 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
       }).toList();
       // かな順でソート
       staffList.sort((a, b) => (a['fullNameKana'] as String).compareTo(b['fullNameKana'] as String));
+
+      final assignedStaffIds =
+          _assignments.map((assignment) => assignment.staffId).toSet();
+      final hadAnyStaff = staffList.isNotEmpty;
+      staffList = staffList
+          .where((staff) => !assignedStaffIds.contains(staff['id']))
+          .toList();
+
+      if (staffList.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                hadAnyStaff
+                    ? 'この日に追加可能なスタッフがいません'
+                    : 'スタッフが見つかりません',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('スタッフ一覧の取得に失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
-
-    if (staffList.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('スタッフが見つかりません'),
             backgroundColor: Colors.red,
           ),
         );

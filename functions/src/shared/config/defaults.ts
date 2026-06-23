@@ -266,7 +266,7 @@ export const DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE = 'notice_only' as const;
 // R-09: 時間帯別必要人数（曜日ごとの可能性あり、実装時検討）
 // =============================================================================
 
-/** 時間帯別の必要スタッフ数。シフト不足判定に使用。曜日ごとに異なる場合は別 doc を検討 */
+/** @deprecated v2 初期化は DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2 を使用 */
 export const DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT: Array<{
   startHour: number;
   endHour: number;
@@ -275,3 +275,15 @@ export const DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT: Array<{
   { startHour: 19, endHour: 22, requiredCount: 2 },
   { startHour: 10, endHour: 12, requiredCount: 3 },
 ];
+
+/** storeMeta/requiredStaffByTimeSlot の v2 初期値（initializeStoreConfigCallable 用） */
+export const DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2 = {
+  version: 2 as const,
+  byStyle: {
+    weekday: [{ startHour: 19, endHour: 22, requiredCount: 2 }],
+    weekendHoliday: [] as Array<{ startHour: number; endHour: number; requiredCount: number }>,
+    event: [] as Array<{ startHour: number; endHour: number; requiredCount: number }>,
+    allDay: [] as Array<{ startHour: number; endHour: number; requiredCount: number }>,
+    closed: [] as Array<{ startHour: number; endHour: number; requiredCount: number }>,
+  },
+};
