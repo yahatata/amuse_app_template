@@ -5,8 +5,8 @@
 | 項目 | 内容 |
 |------|------|
 | **文書名** | ChangeSpec: ミニアプリトーナメント追加機能 |
-| **作成先** | [`changeSpec_LIFFトーナメント追加機能.md`](./changeSpec_LIFFトーナメント追加機能.md)（本ファイル） |
-| **正本仕様** | [`../01_仕様整理.md`](../01_仕様整理.md) |
+| **作成先** | [`02_changeSpec.md`](./02_changeSpec.md)（本ファイル） |
+| **正本仕様** | [`01_仕様整理.md`](./01_仕様整理.md) |
 | **調査根拠** | 実装落とし込み調査（`public/user/index.html` / `getTodayTournaments.ts` / `getUpcomingTournaments.ts` / `registerForTournament.ts` / `storeMeta/config` 周辺） |
 | **実装** | **本 ChangeSpec の作成のみ。コード変更は行わない。** |
 
