@@ -7,11 +7,15 @@ import * as admin from 'firebase-admin';
 import { FieldValue, type UpdateData, type DocumentData } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import type { DeviceDoc } from '../../../shared/devices';
-import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { parseSeatKeyToTwoDigitSuffix } from '../lib/parseOkibakeSeatKey';
+import {
+  assertOkibakeTournamentOperationPermission,
+  assertTableDeviceCanAccessOkibakeEntry,
+} from '../lib/okibakeTableDevicePermission';
 
 const updateLinkedUserSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId は必須です'),
@@ -88,10 +92,7 @@ export const updateOkibakeTemporaryEntryLinkedUser = onCall(async (request) => {
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
     }
-    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
-    if (!hasPermission) {
-      throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
-    }
+    assertOkibakeTournamentOperationPermission(device);
 
     const parsed = updateLinkedUserSchema.safeParse(request.data);
     if (!parsed.success) {
@@ -123,6 +124,17 @@ export const updateOkibakeTemporaryEntryLinkedUser = onCall(async (request) => {
     const entryRef = tournamentRef.collection('okibakeTemporaryEntries').doc(okibakeEntryId);
     const userRef = db.collection('users').doc(linkedUserId);
     const usersListRef = tournamentRef.collection('views').doc('usersList');
+
+    if (device.role === 'table') {
+      const entrySnapForPermission = await entryRef.get();
+      if (!entrySnapForPermission.exists) {
+        throw new HttpsError('not-found', '置きバケエントリが見つかりません');
+      }
+      assertTableDeviceCanAccessOkibakeEntry({
+        device,
+        entry: entrySnapForPermission.data(),
+      });
+    }
 
     const preSnap = await opLogRef.get();
     if (preSnap.exists) {

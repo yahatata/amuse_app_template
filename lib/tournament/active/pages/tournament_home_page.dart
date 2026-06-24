@@ -25,6 +25,7 @@ import 'package:amuse_app_template/tournament/active/services/tournament_data_se
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/ActionHistory/tournamentActionsHistoryPage.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_read_only.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_tables_seat_display.dart';
 import 'table_detail_page.dart';
 import 'prize_setup_page.dart';
 import 'ranking_setup_page.dart';
@@ -1883,8 +1884,11 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                       }
 
                                       final allDocs = seatedSnapshot.data?.docs ?? [];
-                                      // 'waiting'と'busted'ドキュメントを除外
-                                      final tables = allDocs.where((doc) => doc.id != 'waiting' && doc.id != 'busted').toList();
+                                      final tables =
+                                          filterTablesSeatDocsForDisplay(
+                                        allDocs,
+                                        tourStatus,
+                                      );
                                       
                                       int totalOccupiedSeats = 0;
                                       for (final tableDoc in tables) {
@@ -1945,8 +1949,10 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                   }
 
                                   final allDocs = tablesSnapshot.data?.docs ?? [];
-                                  // 'waiting'と'busted'ドキュメントを除外
-                                  final tables = allDocs.where((doc) => doc.id != 'waiting' && doc.id != 'busted').toList();
+                                  final tables = filterTablesSeatDocsForDisplay(
+                                    allDocs,
+                                    tourStatus,
+                                  );
                                   debugPrint('=== 卓データ取得成功 ===');
                                   debugPrint('全ドキュメント数: ${allDocs.length}');
                                   debugPrint('卓数: ${tables.length}');
@@ -1990,6 +1996,8 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                       );
                                       final totalSeats = safeMax;
                                       final isOccupied = occupiedSeats > 0;
+                                      final isEnabled = isTablesSeatEnabled(tableData);
+                                      final isRemovedTable = !isEnabled;
 
                                       return Card(
                                         child: InkWell(
@@ -1998,8 +2006,16 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                             mainAxisAlignment: MainAxisAlignment.center,
                                             children: [
                                               Icon(
-                                                isOccupied ? Icons.table_restaurant : Icons.table_bar,
-                                                color: isOccupied ? Colors.blue : Colors.grey,
+                                                isRemovedTable
+                                                    ? Icons.table_bar_outlined
+                                                    : isOccupied
+                                                        ? Icons.table_restaurant
+                                                        : Icons.table_bar,
+                                                color: isRemovedTable
+                                                    ? Colors.blueGrey
+                                                    : isOccupied
+                                                        ? Colors.blue
+                                                        : Colors.grey,
                                                 size: 32,
                                               ),
                                               const SizedBox(height: 4),
@@ -2007,14 +2023,24 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                                 tableId,
                                                 style: TextStyle(
                                                   fontWeight: FontWeight.bold,
-                                                  color: isOccupied ? Colors.blue : Colors.grey,
+                                                  color: isRemovedTable
+                                                      ? Colors.blueGrey
+                                                      : isOccupied
+                                                          ? Colors.blue
+                                                          : Colors.grey,
                                                 ),
                                               ),
                                               Text(
-                                                '$occupiedSeats/$totalSeats',
+                                                isRemovedTable
+                                                    ? '登録解除済'
+                                                    : '$occupiedSeats/$totalSeats',
                                                 style: TextStyle(
                                                   fontSize: 12,
-                                                  color: isOccupied ? Colors.blue : Colors.grey,
+                                                  color: isRemovedTable
+                                                      ? Colors.blueGrey
+                                                      : isOccupied
+                                                          ? Colors.blue
+                                                          : Colors.grey,
                                                 ),
                                               ),
                                             ],

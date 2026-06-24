@@ -13,7 +13,7 @@ import { onCall } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { addLogEntry } from '../../user/services/logUtils';
-import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { assertSideGameOperationPermission } from '../lib/sideGameOperationPermission';
 import { getActiveBillByUser } from '../../bills/repos/getActiveBillByUser';
 import { appendSideGameChip } from '../../bills/repos/appendSideGameChip';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
@@ -31,16 +31,7 @@ export const depositChip = onCall(async (request) => {
   let billId: string | undefined;
 
   try {
-    // デバイス権限の確認（role: admin または options.side_game: true）
-    const device = await getCallerDeviceByUid(callerUid);
-    if (!device || !isActive(device.status)) {
-      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
-    }
-
-    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'side_game');
-    if (!hasPermission) {
-      throw new HttpsError('permission-denied', 'サイドゲーム操作の権限がありません');
-    }
+    await assertSideGameOperationPermission({ callerUid });
 
     console.log(`=== depositChip開始 ===`);
     console.log(`userId: ${userId}`);

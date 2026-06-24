@@ -11,7 +11,7 @@
 import { onCall } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
+import { assertSideGameOperationPermission } from '../lib/sideGameOperationPermission';
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
@@ -28,25 +28,17 @@ export const leaveSeat = onCall(async (request) => {
   let billId: string | undefined;
 
   try {
-    // デバイス権限の確認（role: admin または options.side_game: true）
-    const device = await getCallerDeviceByUid(callerUid);
-    if (!device || !isActive(device.status)) {
-      throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
-    }
-
-    const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'side_game');
-    if (!hasPermission) {
-      throw new HttpsError('permission-denied', 'サイドゲーム操作の権限がありません');
-    }
-    console.log(`=== leaveSeat開始 ===`);
-    console.log(`tableId: ${tableId}`);
-    console.log(`seatNumber: ${seatNumber}`);
-    console.log(`userId: ${userId}`);
-
     // パラメータの検証
     if (!tableId || !seatNumber || !userId) {
       throw new HttpsError('invalid-argument', '必須パラメータが不足しています: tableId, seatNumber, userId');
     }
+
+    await assertSideGameOperationPermission({ callerUid, tableId });
+
+    console.log(`=== leaveSeat開始 ===`);
+    console.log(`tableId: ${tableId}`);
+    console.log(`seatNumber: ${seatNumber}`);
+    console.log(`userId: ${userId}`);
 
     // 1. activeStaysからbillIdを取得（存在チェックは本callable側の責務）
     const activeStayRef = db.collection('activeStays').doc(userId);

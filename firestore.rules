@@ -109,16 +109,16 @@ service cloud.firestore {
       allow write: if false; // 書き込みはCloud Functions経由のみ
     }
 
-    // tables の読み取り・書き込み（開発用：全許可）
+    // tables — 読み取りのみ（書き込みは Cloud Functions 経由）
     match /tables/{tableId} {
       allow read: if true; // 開発用：全許可
-      allow write: if true; // 開発用：全許可
+      allow write: if false;
     }
 
-    // sideGame の読み取り・書き込み（開発用：全許可）
+    // sideGame — 読み取りのみ（書き込みは Cloud Functions 経由）
     match /sideGame/{tableId} {
       allow read: if true; // 開発用：全許可
-      allow write: if true; // 開発用：全許可
+      allow write: if false;
     }
 
     // デバイスコレクション（開発用：読み取り全許可）

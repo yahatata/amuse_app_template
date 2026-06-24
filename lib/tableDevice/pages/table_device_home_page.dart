@@ -27,6 +27,7 @@ class TableDedicatedHomePage extends StatefulWidget {
 class _TableDedicatedHomePageState extends State<TableDedicatedHomePage> {
   final TableDeviceService _tableDeviceService = TableDeviceService();
   bool _isLoading = true;
+  bool _isRegistering = false;
   String? _resolvedTableId;
 
   @override
@@ -78,7 +79,9 @@ class _TableDedicatedHomePageState extends State<TableDedicatedHomePage> {
         ),
         builder: (context, snapshot) {
           final state = snapshot.data!;
-          return Scaffold(
+          return Stack(
+            children: [
+              Scaffold(
             appBar: AppBar(
               title: Text(state.tableName ?? state.tableId ?? '卓専用端末'),
               centerTitle: true,
@@ -121,6 +124,19 @@ class _TableDedicatedHomePageState extends State<TableDedicatedHomePage> {
                 );
               },
             ),
+          ),
+              if (_isRegistering)
+                Positioned.fill(
+                  child: AbsorbPointer(
+                    child: ColoredBox(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      child: const Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           );
         },
       ),
@@ -207,7 +223,7 @@ class _TableDedicatedHomePageState extends State<TableDedicatedHomePage> {
               ),
             ),
             const SizedBox(height: 16),
-            if (state.canRegisterTournament)
+            if (state.canRegisterTournament && !_isRegistering)
               FilledButton.icon(
                 onPressed: () => _handleTournamentRegistration(context, state),
                 icon: const Icon(Icons.emoji_events),
@@ -220,7 +236,7 @@ class _TableDedicatedHomePageState extends State<TableDedicatedHomePage> {
                 label: const Text('トーナメントに登録'),
               ),
             const SizedBox(height: 12),
-            if (state.canRegisterSideGame)
+            if (state.canRegisterSideGame && !_isRegistering)
               FilledButton.icon(
                 onPressed: () => _handleSideGameRegistration(
                   context,
@@ -385,39 +401,50 @@ class _TableDedicatedHomePageState extends State<TableDedicatedHomePage> {
     TableDeviceHomeState state,
   ) async {
     final tableId = state.tableId;
-    if (tableId == null) return;
+    if (tableId == null || _isRegistering) return;
 
+    final candidate = await _showTournamentPicker(context, tableId);
+    if (!mounted || candidate == null) return;
+
+    setState(() => _isRegistering = true);
+    String? errorMessage;
     try {
-      final candidates = await _showTournamentPicker(context, tableId);
-      if (!mounted || candidates == null) return;
       await _tableDeviceService.registerTableToTournament(
         tableId: tableId,
-        tournamentId: candidates.tournamentId,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${candidates.tournamentName} に登録しました'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => TableDeviceTableDetailPage(
-            tournamentId: candidates.tournamentId,
-            tableId: tableId,
-          ),
-        ),
+        tournamentId: candidate.tournamentId,
       );
     } catch (error) {
-      if (!mounted) return;
+      errorMessage = _tableDeviceService.formatFunctionsError(error);
+    } finally {
+      if (mounted) {
+        setState(() => _isRegistering = false);
+      }
+    }
+    if (!mounted) return;
+    if (errorMessage != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_tableDeviceService.formatFunctionsError(error)),
+          content: Text(errorMessage),
           backgroundColor: Colors.red,
         ),
       );
+      return;
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${candidate.tournamentName} に登録しました'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TableDeviceTableDetailPage(
+          tournamentId: candidate.tournamentId,
+          tableId: tableId,
+        ),
+      ),
+    );
   }
 
   Future<TableDeviceTournamentCandidate?> _showTournamentPicker(
@@ -475,7 +502,7 @@ class _TableDedicatedHomePageState extends State<TableDedicatedHomePage> {
     List<String> sideGameTypes,
   ) async {
     final tableId = state.tableId;
-    if (tableId == null || sideGameTypes.isEmpty) return;
+    if (tableId == null || sideGameTypes.isEmpty || _isRegistering) return;
 
     final gameName = await showDialog<String>(
       context: context,
@@ -506,35 +533,45 @@ class _TableDedicatedHomePageState extends State<TableDedicatedHomePage> {
     );
     if (!mounted || gameName == null) return;
 
+    setState(() => _isRegistering = true);
+    String? errorMessage;
     try {
       await _tableDeviceService.registerTableToSideGame(
         tableId: tableId,
         gameName: gameName,
       );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$gameName を開始しました'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => TableDeviceSideGamePage(
-            tableId: tableId,
-            gameName: gameName,
-          ),
-        ),
-      );
     } catch (error) {
-      if (!mounted) return;
+      errorMessage = _tableDeviceService.formatFunctionsError(error);
+    } finally {
+      if (mounted) {
+        setState(() => _isRegistering = false);
+      }
+    }
+    if (!mounted) return;
+    if (errorMessage != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_tableDeviceService.formatFunctionsError(error)),
+          content: Text(errorMessage),
           backgroundColor: Colors.red,
         ),
       );
+      return;
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$gameName を開始しました'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TableDeviceSideGamePage(
+          tableId: tableId,
+          gameName: gameName,
+        ),
+      ),
+    );
   }
 
   String _formatTournamentStatus(String status) {

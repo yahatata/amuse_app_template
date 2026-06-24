@@ -47,6 +47,23 @@ describe('applyOkibakeAddon', () => {
     });
   }
 
+  async function seedTableDevice(uid: string, tableId: string) {
+    await db.collection('devices').doc(`table_${uid}`).set({
+      uid,
+      role: 'table',
+      status: 'active',
+      name: 'Table Okibake Addon',
+      options: {},
+      optionParams: {
+        table_device_table: {
+          tableId,
+        },
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
   function entryBase(id: string, tournamentId: string, status: string, overrides: Record<string, unknown> = {}) {
     const nowTs = admin.firestore.FieldValue.serverTimestamp();
     return {
@@ -383,5 +400,79 @@ describe('applyOkibakeAddon', () => {
     expect(a.replay).toBe(false);
     expect(b.replay).toBe(true);
     expect(b.addonRecordId).toBe(a.addonRecordId);
+  });
+
+  it('role table は自卓着席の置きバケに Addon できる', async () => {
+    const uid = 'u-table-addon';
+    const tid = 't-table-addon';
+    const eid = 'e-table-addon';
+    const tableId = 'tbl-own';
+    await seedTableDevice(uid, tableId);
+    await seedTour(tid);
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(
+        entryBase(eid, tid, 'seated', {
+          assignedTableId: tableId,
+          assignedSeatKey: 'seat01',
+        }),
+      );
+
+    const res = await applyOkibakeAddon.run({
+      data: { tournamentId: tid, okibakeEntryId: eid, operationId: 'op-table-addon' },
+      auth: { uid },
+    } as any);
+
+    expect(res.success).toBe(true);
+  });
+
+  it('role table は別卓着席の置きバケ Addon を拒否する', async () => {
+    const uid = 'u-table-addon-deny';
+    const tid = 't-table-addon-deny';
+    const eid = 'e-table-addon-deny';
+    await seedTableDevice(uid, 'tbl-own');
+    await seedTour(tid);
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(
+        entryBase(eid, tid, 'seated', {
+          assignedTableId: 'tbl-other',
+          assignedSeatKey: 'seat01',
+        }),
+      );
+
+    await expect(
+      applyOkibakeAddon.run({
+        data: { tournamentId: tid, okibakeEntryId: eid, operationId: 'op-table-addon-deny' },
+        auth: { uid },
+      } as any),
+    ).rejects.toThrow(HttpsError);
+  });
+
+  it('role table は待機中（未着席）の置きバケ Addon を拒否する', async () => {
+    const uid = 'u-table-addon-wait';
+    const tid = 't-table-addon-wait';
+    const eid = 'e-table-addon-wait';
+    await seedTableDevice(uid, 'tbl-own');
+    await seedTour(tid);
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(entryBase(eid, tid, 'registered'));
+
+    await expect(
+      applyOkibakeAddon.run({
+        data: { tournamentId: tid, okibakeEntryId: eid, operationId: 'op-table-addon-wait' },
+        auth: { uid },
+      } as any),
+    ).rejects.toThrow('着席していない置きバケは卓端末から操作できません');
   });
 });

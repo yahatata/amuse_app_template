@@ -4,6 +4,7 @@ import { HttpsError } from 'firebase-functions/v2/https';
 
 import {
   getCallerDeviceByUid,
+  hasRequiredOption,
   isActive,
   type DeviceDoc,
 } from '../../shared/devices';
@@ -53,6 +54,48 @@ export function assertTableDeviceCanAccessTable(params: {
   if (boundTableId !== requestedTableId) {
     throw new HttpsError('permission-denied', 'この卓を操作する権限がありません');
   }
+}
+
+const ACTIVE_TOURNAMENT_STATUSES = new Set([
+  'scheduled',
+  'running',
+  'registered',
+  'paused',
+]);
+
+export async function requireSideGameTableMutationCaller(params: {
+  callerUid: string;
+  requestedTableId: string;
+}): Promise<TableDeviceCaller> {
+  const { callerUid, requestedTableId } = params;
+  const device = await getCallerDeviceByUid(callerUid);
+  if (!device || !isActive(device.status)) {
+    throw new HttpsError(
+      'permission-denied',
+      'デバイスが見つからないか、アクティブではありません',
+    );
+  }
+
+  if (
+    device.role === 'admin' ||
+    hasRequiredOption(device.options, 'side_game')
+  ) {
+    return {
+      device,
+      requestedTableId,
+    };
+  }
+
+  if (device.role !== 'table') {
+    throw new HttpsError('permission-denied', 'サイドゲーム操作の権限がありません');
+  }
+
+  assertTableDeviceCanAccessTable({ device, requestedTableId });
+
+  return {
+    device,
+    requestedTableId,
+  };
 }
 
 export async function requireTableDeviceCaller(params: {
@@ -217,6 +260,40 @@ export async function assertTableDeviceActionHistoryRollbackEnabled(
 export async function resolveSideGameTypes(db: Firestore): Promise<string[]> {
   const config = await getStoreConfig(db);
   return config.sideGameTypes ?? [];
+}
+
+export async function resolveTableStatusAfterSideGameEnd(
+  db: Firestore,
+  tableId: string,
+): Promise<'open' | 'tournament'> {
+  const businessDateKey = await resolveCurrentBusinessDateKey(db);
+  const tournamentsSnap = await db
+    .collection('scheduledTournaments')
+    .where('businessDate', '==', businessDateKey)
+    .get();
+
+  for (const tournamentDoc of tournamentsSnap.docs) {
+    const status = tournamentDoc.data()?.status as string | undefined;
+    if (!ACTIVE_TOURNAMENT_STATUSES.has(status ?? '')) {
+      continue;
+    }
+
+    const tableSeatDoc = await db
+      .collection('scheduledTournaments')
+      .doc(tournamentDoc.id)
+      .collection('tablesSeat')
+      .doc(tableId)
+      .get();
+    if (!tableSeatDoc.exists) {
+      continue;
+    }
+    if (tableSeatDoc.data()?.isEnabled === false) {
+      continue;
+    }
+    return 'tournament';
+  }
+
+  return 'open';
 }
 
 export async function resolveCurrentBusinessDateKey(db: Firestore): Promise<string> {

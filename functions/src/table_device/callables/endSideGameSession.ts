@@ -4,37 +4,32 @@ import { z } from 'zod';
 
 import {
   buildSeatClearUpdateFromSeats,
-  countOccupiedSeatIds,
   requireSideGameTableMutationCaller,
-  resolveForceClearPasscode,
-  resolveSideGameTypes,
+  resolveTableStatusAfterSideGameEnd,
   serverTimestamp,
-  validateForceClear,
 } from '../lib/shared';
 import { logOpsError, logOpsSuccess } from '../../shared/logging/logOpsError';
 
 const schema = z.object({
   tableId: z.string().min(1),
-  force: z.boolean().optional(),
-  passcode: z.string().optional(),
 });
 
-export const unregisterTableFromSideGame = onCall(async (request) => {
+export const endSideGameSession = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
   let deviceId: string | undefined;
   try {
-    const { tableId, force = false, passcode } = schema.parse(request.data);
+    const { tableId } = schema.parse(request.data);
     const db = admin.firestore();
     const { device } = await requireSideGameTableMutationCaller({
       callerUid: request.auth.uid,
       requestedTableId: tableId,
     });
     deviceId = device.id;
-    const sideGameTypes = await resolveSideGameTypes(db);
-    const correctPasscode = await resolveForceClearPasscode(db);
+
+    const restoredStatus = await resolveTableStatusAfterSideGameEnd(db, tableId);
 
     const result = await db.runTransaction(async (transaction) => {
       const tableRef = db.collection('tables').doc(tableId);
@@ -52,70 +47,45 @@ export const unregisterTableFromSideGame = onCall(async (request) => {
       }
 
       const tableData = tableDoc.data() ?? {};
-      const tableStatus = tableData.status as string | undefined;
-      if (tableStatus == null || !sideGameTypes.includes(tableStatus)) {
-        throw new HttpsError(
-          'failed-precondition',
-          '現在サイドゲーム状態ではないため解除できません',
-        );
-      }
-
       const sideGameData = sideGameDoc.data() ?? {};
-      if (sideGameData.active !== true) {
-        throw new HttpsError(
-          'failed-precondition',
-          '現在サイドゲーム進行中ではありません',
-        );
-      }
-
-      const seats = (sideGameData.seats as Record<string, unknown> | undefined) ?? {};
-      const occupiedCount = countOccupiedSeatIds(seats);
-      validateForceClear({
-        occupiedCount,
-        force,
-        passcode,
-        correctPasscode,
-      });
-
       const maxSeats = Number(sideGameData.maxSeats ?? tableData.maxSeats ?? 6);
+      const seats =
+        (sideGameData.seats as Record<string, unknown> | undefined) ?? {};
       const seatClearUpdate = buildSeatClearUpdateFromSeats(seats, maxSeats);
+
       transaction.update(sideGameRef, {
         ...seatClearUpdate,
         active: false,
         updatedAt: serverTimestamp(),
       });
 
-      const hasTournamentDetail =
-        typeof (
-          tableData.tournamentDetail as Record<string, unknown> | undefined
-        )?.tournamentId === 'string';
       transaction.update(tableRef, {
-        status: hasTournamentDetail ? 'tournament' : 'open',
+        status: restoredStatus,
         updatedAt: serverTimestamp(),
       });
 
       return {
         success: true,
         tableId,
-        restoredStatus: hasTournamentDetail ? 'tournament' : 'open',
-        forced: occupiedCount > 0,
+        restoredStatus,
       };
     });
 
     logOpsSuccess({
-      message: 'unregisterTableFromSideGame 成功',
-      functionEntry: 'unregisterTableFromSideGame',
+      message: 'endSideGameSession 成功',
+      functionEntry: 'endSideGameSession',
       context: {
         deviceId,
         tableId,
+        restoredStatus: result.restoredStatus,
       },
     });
 
     return result;
   } catch (error) {
     logOpsError({
-      message: 'unregisterTableFromSideGame 失敗',
-      functionEntry: 'unregisterTableFromSideGame',
+      message: 'endSideGameSession 失敗',
+      functionEntry: 'endSideGameSession',
       cause: error,
       context: {
         deviceId,
@@ -130,7 +100,7 @@ export const unregisterTableFromSideGame = onCall(async (request) => {
     }
     throw new HttpsError(
       'internal',
-      error instanceof Error ? error.message : '卓のサイドゲーム解除に失敗しました',
+      error instanceof Error ? error.message : 'サイドゲーム終了に失敗しました',
     );
   }
 });

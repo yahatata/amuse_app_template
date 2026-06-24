@@ -113,13 +113,6 @@ export const registerTableToTournament = onCall(async (request) => {
       if (!startAt) {
         throw new HttpsError('failed-precondition', '開始時刻が設定されていません');
       }
-      const oneHourAgo = Date.now() - 60 * 60 * 1000;
-      if (startAt.toDate().getTime() < oneHourAgo) {
-        throw new HttpsError(
-          'failed-precondition',
-          '開始から1時間を超えたトーナメントには登録できません',
-        );
-      }
 
       if (tournamentTableDoc.exists && tournamentTableDoc.data()?.isEnabled !== false) {
         throw new HttpsError(

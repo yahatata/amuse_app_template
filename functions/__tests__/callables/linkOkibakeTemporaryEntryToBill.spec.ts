@@ -53,6 +53,23 @@ describe('linkOkibakeTemporaryEntryToBill', () => {
     });
   }
 
+  async function seedTableDevice(uid: string, tableId: string) {
+    await db.collection('devices').doc(`table_${uid}`).set({
+      uid,
+      role: 'table',
+      status: 'active',
+      name: 'Table Okibake Link',
+      options: {},
+      optionParams: {
+        table_device_table: {
+          tableId,
+        },
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
   function entryBase(
     id: string,
     tournamentId: string,
@@ -1161,6 +1178,92 @@ describe('linkOkibakeTemporaryEntryToBill', () => {
         billId,
         operationId,
       })
+    ).rejects.toBeInstanceOf(HttpsError);
+  });
+
+  it('role table は自卓着席の置きバケを伝票に紐付けできる', async () => {
+    const uid = 'u-table-link';
+    const tid = 't-table-link';
+    const eid = 'e-table-link';
+    const guestUid = 'guest-table-link';
+    const billId = 'bill-table-link';
+    const tableId = 'tbl-seat';
+    await seedTableDevice(uid, tableId);
+    await seedTournament(tid);
+    await seedBillAndStay(guestUid, billId, 'in_progress');
+    await seedTable(tid, tableId, {
+      seat03UserId: null,
+      seat03PokerName: 'オキバケ',
+      seat03OkibakeEntryId: eid,
+    });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(
+        entryBase(eid, tid, 'seated', {
+          assignedTableId: tableId,
+          assignedSeatKey: 'seat03',
+        }),
+      );
+
+    await runLink({
+      uid,
+      tournamentId: tid,
+      okibakeEntryId: eid,
+      userId: guestUid,
+      billId,
+      operationId: 'op-table-link',
+    });
+
+    const entry = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tid)
+        .collection('okibakeTemporaryEntries')
+        .doc(eid)
+        .get()
+    ).data()!;
+    expect(entry.billLinkStatus).toBe('linked');
+  });
+
+  it('role table は別卓着席の置きバケ伝票紐付けを拒否する', async () => {
+    const uid = 'u-table-link-deny';
+    const tid = 't-table-link-deny';
+    const eid = 'e-table-link-deny';
+    const guestUid = 'guest-table-link-deny';
+    const billId = 'bill-table-link-deny';
+    const tableId = 'tbl-seat';
+    await seedTableDevice(uid, 'tbl-own');
+    await seedTournament(tid);
+    await seedBillAndStay(guestUid, billId, 'in_progress');
+    await seedTable(tid, tableId, {
+      seat03UserId: null,
+      seat03PokerName: 'オキバケ',
+      seat03OkibakeEntryId: eid,
+    });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(
+        entryBase(eid, tid, 'seated', {
+          assignedTableId: tableId,
+          assignedSeatKey: 'seat03',
+        }),
+      );
+
+    await expect(
+      runLink({
+        uid,
+        tournamentId: tid,
+        okibakeEntryId: eid,
+        userId: guestUid,
+        billId,
+        operationId: 'op-table-link-deny',
+      }),
     ).rejects.toBeInstanceOf(HttpsError);
   });
 });

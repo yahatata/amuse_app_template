@@ -12,6 +12,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import { isExpectedTournamentClientRejection } from '../lib/isExpectedTournamentClientRejection';
 import { canonicalSeatKeyFromSuffix, parseSeatKeyToTwoDigitSuffix } from '../lib/parseOkibakeSeatKey';
 import {
   assertTableDeviceTournamentSeatAssignmentEnabled,
@@ -343,7 +344,16 @@ export const assignOkibakeTemporaryEntryToSeat = onCall(async (request) => {
       throw new FunctionCustomError({
         errorKey: txResult.errorKey,
         message: txResult.message,
-        context: { tournamentId, okibakeEntryId, operationId, tableId, seatKey: canonicalSeatKey },
+        context: {
+          tournamentId,
+          okibakeEntryId,
+          operationId,
+          tableId,
+          seatKey: canonicalSeatKey,
+          ...(txResult.message === 'テーブルが無効です'
+              ? { reason: 'table_disabled' }
+              : {}),
+        },
       });
     }
     if (txResult.kind === 'replay') {
@@ -391,12 +401,14 @@ export const assignOkibakeTemporaryEntryToSeat = onCall(async (request) => {
       throw new HttpsError('invalid-argument', error.errors.map((e) => e.message).join(', '));
     }
     if (error instanceof FunctionCustomError) {
-      logOpsError({
-        message: 'assignOkibakeTemporaryEntryToSeat 業務拒否',
-        functionEntry: 'assignOkibakeTemporaryEntryToSeat',
-        operation: 'assignOkibakeCatch',
-        cause: error,
-      });
+      if (!isExpectedTournamentClientRejection(error)) {
+        logOpsError({
+          message: 'assignOkibakeTemporaryEntryToSeat 業務拒否',
+          functionEntry: 'assignOkibakeTemporaryEntryToSeat',
+          operation: 'assignOkibakeCatch',
+          cause: error,
+        });
+      }
       throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
     }
 

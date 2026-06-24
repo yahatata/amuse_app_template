@@ -1,4 +1,5 @@
 import 'package:amuse_app_template/tournament/active/models/scheduled_tournament_seat_map.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_tables_seat_display.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_callable_error_formatter.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -210,8 +211,7 @@ class _AssignSeatDialogState extends State<AssignSeatDialog> {
         }
 
         final allDocs = snapshot.data?.docs ?? [];
-        final tables =
-            allDocs.where((doc) => doc.id != 'waiting' && doc.id != 'busted').toList();
+        final tables = filterTablesSeatDocsForDisplay(allDocs, null);
 
         return DropdownButtonFormField<String>(
           decoration: const InputDecoration(
