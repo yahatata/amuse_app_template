@@ -1,6 +1,6 @@
 # 卓専用端末（role: table）To-Be 仕様書
 
-最終更新: 2026-03-02
+最終更新: 2026-05-27
 
 ---
 
@@ -22,6 +22,7 @@
 14. [進行中ステータス定義](#14-進行中ステータス定義)
 15. [実装フェーズ分け](#15-実装フェーズ分け)
 16. [残タスク（実装時実施）](#16-残タスク実装時実施)
+17. [実装・検証ステータス](#17-実装検証ステータス)
 
 ---
 
@@ -420,7 +421,7 @@ AppBar 左の「≡」ボタンで開く。
 |------|------|
 | `businessDate` | `storeMeta/currentBusinessDay.currentBusinessDateKey` と一致する |
 | `status` | `'scheduled'` / `'running'` / `'registered'` / `'paused'` のいずれか |
-| `startAt` | 現在時刻から 1 時間以上前ではない（startAt >= 現在時刻 - 1時間） |
+| `startAt` | 設定されていること |
 | 重複登録チェック | 対象トーナメントの `tablesSeat/{tableId}` が `isEnabled: true` で存在する場合は選択不可 |
 
 **前提:**
@@ -790,6 +791,48 @@ Functions:
 | 4 | **`forceClearPasscode` の取得失敗 / 不具合時対応整理** | `docs/運用時資料/設定/取得失敗時の挙動設計.md` / `docs/運用時資料/設定/設定の不具合時の対応.md` | `tableDevice.forceClearPasscode` のデフォルト値 (`'0000'`) と、読めない場合のフォールバック方針を追加する。 |
 
 ※ Phase2 config 移行検証（Z_crossCutting）で検出。B-06 はスキーマ定義のみのため実装時に対応する。
+
+---
+
+## 17. 実装・検証ステータス
+
+**ステータス: 実装完了・実機確認済（2026-05-27）**
+
+### 17-1. Phase 完了状況
+
+| Phase | 内容 | 状態 |
+|-------|------|------|
+| Phase 1 | 基盤（role / config / 論理削除 / 既存 CF 更新） | ✅ |
+| Phase 2 | 卓専用 Home / Drawer | ✅ |
+| Phase 3 | 卓デバイス版 TN/SG 画面・登録解除 | ✅ |
+| Phase 4 | 卓からの登録（オプション） | ✅ |
+| 本番化 | Firestore rules + SG 直接 write の CF 化 | ✅ |
+| 追補 | 卓ページ TN/SG/置きバケの `role: table` 権限 | ✅ |
+
+### 17-2. Cloud Functions（追加分・本番化関連）
+
+| 関数名 | 配置 | 備考 |
+|--------|------|------|
+| `endSideGameSession` | `table_device/callables/` | terminal SG 終了 |
+| `changeSideGameTableGameName` | `table_device/callables/` | ゲーム名変更 |
+| — | `sideGame/lib/sideGameOperationPermission.ts` | `registerForSideGame` 等の table 権限 |
+| — | `tournament_activeTournament/lib/okibakeTableDevicePermission.ts` | 着席済み置きバケ操作 |
+
+卓ページ TN 操作（`addon` / `bulkAddon` / `bustAnd*` / `assignSeat*` / `placeOrder`）も `role: table` 対応済み。詳細は [A-1 詳細_コード確認.md](../残タスク_0623/カテゴリA_システム構築/A-1_テーブルデバイス挙動確認/詳細_コード確認.md)。
+
+### 17-3. `storeMeta/config` 追加分（実装済み）
+
+| パス | 型 | 説明 | デフォルト |
+|------|----|------|-----------|
+| `tableDevice.tournamentSeatAssignmentEnabled` | `boolean` | 卓端末からの空席着席 | `false` |
+| `tableDevice.actionHistoryViewEnabled` | `boolean` | 操作履歴参照 | `true` |
+| `tableDevice.actionHistoryRollbackEnabled` | `boolean` | 操作履歴取り消し | `false` |
+
+### 17-4. 検証
+
+- **実機確認:** A-1 シナリオ 3 項目 — 問題なし
+- **単体テスト:** `test/table_device/`、`functions/__tests__/callables/tableDeviceTournamentActions.spec.ts`、`functions/__tests__/logs/tableDeviceActionHistory.spec.ts` 等
+- **残:** §16 の運用時資料更新
 
 ---
 

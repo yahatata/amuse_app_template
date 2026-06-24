@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
+import 'package:amuse_app_template/sideGame/services/side_game_table_mutation_service.dart';
 import 'package:amuse_app_template/user_actions/user_action_home.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
-import 'package:amuse_app_template/tournament/active/utils/active_tournament_table_usage.dart';
 import 'package:intl/intl.dart';
 
 class SideGameTableHomePage extends StatefulWidget {
@@ -41,7 +41,11 @@ class SideGameTableHomePage extends StatefulWidget {
 
 class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final SideGameTableMutationService _mutationService =
+      SideGameTableMutationService();
   String _currentGameName = '';
+  bool _isEndingGame = false;
+  bool _isUpdatingGameName = false;
 
   @override
   void initState() {
@@ -184,6 +188,7 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
               ),
             ),
             onSelected: (String gameName) {
+              if (_isUpdatingGameName) return;
               setState(() {
                 _currentGameName = gameName;
               });
@@ -306,11 +311,22 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
     if (widget.disableBackNavigation) {
       return PopScope(
         canPop: false,
-        child: scaffold,
+        child: _wrapWithMutationLoading(scaffold),
       );
     }
 
-    return scaffold;
+    return _wrapWithMutationLoading(scaffold);
+  }
+
+  Widget _wrapWithMutationLoading(Widget child) {
+    final isLocked = _isEndingGame || _isUpdatingGameName;
+    return Stack(
+      children: [
+        child,
+        if (isLocked) const ModalBarrier(dismissible: false, color: Colors.black54),
+        if (isLocked) const Center(child: CircularProgressIndicator()),
+      ],
+    );
   }
 
   Widget _buildTableDisplay(int maxSeats, Map<String, dynamic> seats) {
@@ -607,29 +623,12 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
   }
 
   Future<void> _endGame() async {
+    setState(() {
+      _isEndingGame = true;
+    });
+
     try {
-      // sideGameコレクションの座席を全てnullに設定（seatsマップ内）
-      final seatsUpdate = <String, dynamic>{};
-      for (int i = 1; i <= 10; i++) { // 最大10席まで対応
-        final seatNumber = i.toString().padLeft(2, '0');
-        seatsUpdate['seats.seat${seatNumber}UserId'] = null;
-        seatsUpdate['seats.seat${seatNumber}PokerName'] = null;
-      }
-
-      await _firestore.collection('sideGame').doc(widget.tableId).update({
-        ...seatsUpdate,
-        'active': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      final usage =
-          await findActiveTournamentTableUsage(_firestore, widget.tableId);
-      final restoredStatus = resolveTableStatusAfterSideGameEnd(usage);
-
-      await _firestore.collection('tables').doc(widget.tableId).update({
-        'status': restoredStatus,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await _mutationService.endSideGameSession(tableId: widget.tableId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -653,15 +652,25 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
           ),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isEndingGame = false;
+        });
+      }
     }
   }
 
   Future<void> _updateGameName(String gameName) async {
+    setState(() {
+      _isUpdatingGameName = true;
+    });
+
     try {
-      await _firestore.collection('sideGame').doc(widget.tableId).update({
-        'gameName': gameName,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await _mutationService.changeSideGameTableGameName(
+        tableId: widget.tableId,
+        gameName: gameName,
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -671,59 +680,18 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
           ),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingGameName = false;
+        });
+      }
     }
   }
 
   /// sideGameドキュメントを手動作成するメソッド
   Future<void> _createSideGameDocument() async {
-    try {
-      // テーブル情報を取得
-      final tableDoc = await _firestore.collection('tables').doc(widget.tableId).get();
-      if (!tableDoc.exists) {
-        throw Exception('テーブル ${widget.tableId} が見つかりません');
-      }
-      
-      final tableData = tableDoc.data()!;
-      final maxSeats = tableData['maxSeats'] as int? ?? 6;
-      
-      // 座席情報を生成
-      final seats = <String, dynamic>{};
-      for (int i = 1; i <= maxSeats; i++) {
-        final seatNumber = i.toString().padLeft(2, '0');
-        seats['seat${seatNumber}UserId'] = null;
-        seats['seat${seatNumber}PokerName'] = null;
-      }
-      
-      // sideGameドキュメントを作成
-      await _firestore.collection('sideGame').doc(widget.tableId).set({
-        'tableId': widget.tableId,
-        'name': widget.tableId,
-        'maxSeats': maxSeats,
-        'seats': seats,
-        'active': false,
-        'isEnabled': true,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('sideGameドキュメントを作成しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('ドキュメント作成に失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+    await _debugSideGame();
   }
 
   /// デバッグ用Cloud Functionを呼び出すメソッド

@@ -6,7 +6,7 @@ import {
   assertTableDeviceRegistrationEnabled,
   buildEmptySeats,
   countOccupiedSeatIds,
-  requireTableDeviceCaller,
+  requireSideGameTableMutationCaller,
   resolveSideGameTypes,
   serverTimestamp,
 } from '../lib/shared';
@@ -27,7 +27,7 @@ export const registerTableToSideGame = onCall(async (request) => {
   try {
     const { tableId, gameName, allowOverride = false } = schema.parse(request.data);
     const db = admin.firestore();
-    const { device } = await requireTableDeviceCaller({
+    const { device } = await requireSideGameTableMutationCaller({
       callerUid: request.auth.uid,
       requestedTableId: tableId,
     });

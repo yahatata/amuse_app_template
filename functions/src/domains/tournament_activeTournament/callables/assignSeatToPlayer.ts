@@ -10,6 +10,7 @@ import { writeSingleOperationLog, toErrorSummary } from '../../logs/lib/operatio
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import { isExpectedTournamentClientRejection } from '../lib/isExpectedTournamentClientRejection';
 import {
   assertTableDeviceTournamentSeatAssignmentEnabled,
   extractBoundTableId,
@@ -342,12 +343,14 @@ export const assignSeatToPlayer = onCall(async (request) => {
     }
 
     if (error instanceof FunctionCustomError) {
-      logOpsError({
-        message: '=== 待機者着席エラー ===',
-        functionEntry: 'assignSeatToPlayer',
-        operation: 'assignSeatToPlayerCatch',
-        cause: error,
-      });
+      if (!isExpectedTournamentClientRejection(error)) {
+        logOpsError({
+          message: '=== 待機者着席エラー ===',
+          functionEntry: 'assignSeatToPlayer',
+          operation: 'assignSeatToPlayerCatch',
+          cause: error,
+        });
+      }
       throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
     }
 

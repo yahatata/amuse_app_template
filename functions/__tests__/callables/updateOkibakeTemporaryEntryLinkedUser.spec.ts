@@ -50,6 +50,23 @@ describe('updateOkibakeTemporaryEntryLinkedUser', () => {
     });
   }
 
+  async function seedTableDevice(uid: string, tableId: string) {
+    await db.collection('devices').doc(`table_${uid}`).set({
+      uid,
+      role: 'table',
+      status: 'active',
+      name: 'Table Okibake Linked User',
+      options: {},
+      optionParams: {
+        table_device_table: {
+          tableId,
+        },
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
   async function seedTournament(tournamentId: string, users: Record<string, unknown> = {}) {
     await db.collection('scheduledTournaments').doc(tournamentId).set({
       templateId: 'tpl-update-linked-user',
@@ -517,5 +534,68 @@ describe('updateOkibakeTemporaryEntryLinkedUser', () => {
         .get()
     ).data()!;
     expect(entry.linkedUserPokerName).toBe(linkedUserId);
+  });
+
+  it('role table は自卓着席の置きバケに対象ユーザーを設定できる', async () => {
+    const uid = 'u-table-update';
+    const tid = 't-table-update';
+    const eid = 'e-table-update';
+    const linkedUserId = 'guest-table-update';
+    const tableId = 'tbl-seat';
+    await seedTableDevice(uid, tableId);
+    await seedTournament(tid);
+    await seedUser(linkedUserId, '卓端末太郎');
+    await seedTable(tid, tableId, {
+      seat03UserId: null,
+      seat03PokerName: 'オキバケA',
+      seat03OkibakeEntryId: eid,
+    });
+    await seedEntry(tid, eid, 'seated', {
+      assignedTableId: tableId,
+      assignedSeatKey: 'seat03',
+      seatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const res = await runUpdate({
+      uid,
+      tournamentId: tid,
+      okibakeEntryId: eid,
+      linkedUserId,
+      operationId: 'op-table-update',
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.linkedUserPokerName).toBe('卓端末太郎');
+  });
+
+  it('role table は別卓着席の置きバケ対象ユーザー設定を拒否する', async () => {
+    const uid = 'u-table-update-deny';
+    const tid = 't-table-update-deny';
+    const eid = 'e-table-update-deny';
+    const linkedUserId = 'guest-table-update-deny';
+    const tableId = 'tbl-seat';
+    await seedTableDevice(uid, 'tbl-own');
+    await seedTournament(tid);
+    await seedUser(linkedUserId, '拒否太郎');
+    await seedTable(tid, tableId, {
+      seat03UserId: null,
+      seat03PokerName: 'オキバケA',
+      seat03OkibakeEntryId: eid,
+    });
+    await seedEntry(tid, eid, 'seated', {
+      assignedTableId: tableId,
+      assignedSeatKey: 'seat03',
+      seatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await expect(
+      runUpdate({
+        uid,
+        tournamentId: tid,
+        okibakeEntryId: eid,
+        linkedUserId,
+        operationId: 'op-table-update-deny',
+      }),
+    ).rejects.toThrow(HttpsError);
   });
 });

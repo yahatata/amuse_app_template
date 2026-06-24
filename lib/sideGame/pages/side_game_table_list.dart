@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_home.dart';
+import 'package:amuse_app_template/sideGame/services/side_game_table_mutation_service.dart';
 import 'package:amuse_app_template/Home/app_home_navigation.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
@@ -23,9 +24,13 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
   List<String> get _sideGameTypes =>
       StoreConfigService.instance.latestData?.sideGameTypes ?? kDefaultSideGameTypes;
 
+  final SideGameTableMutationService _mutationService =
+      SideGameTableMutationService();
+
   String? _myTableId;
   Set<String> _excludedTableIds = {};
   bool _isLoadingPermissions = true;
+  bool _isStartingSideGame = false;
 
   @override
   void initState() {
@@ -69,7 +74,9 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return Stack(
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: const Text('サイドゲーム テーブル選択'),
         centerTitle: true,
@@ -126,6 +133,12 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
               },
             ),
       ),
+    ),
+        if (_isStartingSideGame)
+          const ModalBarrier(dismissible: false, color: Colors.black54),
+        if (_isStartingSideGame)
+          const Center(child: CircularProgressIndicator()),
+      ],
     );
   }
 
@@ -341,6 +354,18 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
       );
       final confirmed = await _showWarningDialog(presentation);
       if (!confirmed) return;
+      final selectedGame = await _showGameSelectionDialog();
+      if (selectedGame != null) {
+        final started = await _updateTableStatus(
+          tableId,
+          selectedGame,
+          allowOverride: true,
+        );
+        if (started && mounted) {
+          _navigateToTableHome(tableId, selectedGame);
+        }
+      }
+      return;
     }
 
     final selectedGame = await _showGameSelectionDialog();
@@ -420,44 +445,21 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
     );
   }
 
-  Future<bool> _updateTableStatus(String tableId, String gameName) async {
+  Future<bool> _updateTableStatus(
+    String tableId,
+    String gameName, {
+    bool allowOverride = false,
+  }) async {
+    setState(() {
+      _isStartingSideGame = true;
+    });
+
     try {
-      final tableDoc = await _firestore.collection('tables').doc(tableId).get();
-      if (!tableDoc.exists) {
-        throw Exception('テーブル $tableId が見つかりません');
-      }
-      final maxSeats = tableDoc.data()?['maxSeats'] as int? ?? 6;
-
-      await _firestore.collection('tables').doc(tableId).update({
-        'status': gameName,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      final sideGameRef = _firestore.collection('sideGame').doc(tableId);
-      final sideGameDoc = await sideGameRef.get();
-      if (sideGameDoc.exists) {
-        await sideGameRef.update({
-          'active': true,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      } else {
-        final seats = <String, dynamic>{};
-        for (int i = 1; i <= maxSeats; i++) {
-          final seatNumber = i.toString().padLeft(2, '0');
-          seats['seat${seatNumber}UserId'] = null;
-          seats['seat${seatNumber}PokerName'] = null;
-        }
-        await sideGameRef.set({
-          'tableId': tableId,
-          'name': tableId,
-          'maxSeats': maxSeats,
-          'seats': seats,
-          'active': true,
-          'isEnabled': true,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
+      await _mutationService.registerTableToSideGame(
+        tableId: tableId,
+        gameName: gameName,
+        allowOverride: allowOverride,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -478,6 +480,12 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
         );
       }
       return false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isStartingSideGame = false;
+        });
+      }
     }
   }
 

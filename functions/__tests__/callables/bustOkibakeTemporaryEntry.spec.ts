@@ -49,6 +49,23 @@ describe('bustOkibakeTemporaryEntry', () => {
     });
   }
 
+  async function seedTableDevice(uid: string, tableId: string) {
+    await db.collection('devices').doc(`table_${uid}`).set({
+      uid,
+      role: 'table',
+      status: 'active',
+      name: 'Table Okibake Bust',
+      options: {},
+      optionParams: {
+        table_device_table: {
+          tableId,
+        },
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
   async function seedViews(tournamentId: string) {
     await db.collection('scheduledTournaments').doc(tournamentId).set({
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -387,5 +404,50 @@ describe('bustOkibakeTemporaryEntry', () => {
         .get()
     ).data()!;
     expect(main.playersBusted).toBe(2);
+  });
+
+  it('role table は自卓着席の置きバケを bust できる', async () => {
+    const uid = 'u-table-bust';
+    const tid = 't-table-bust';
+    const eid = 'e-table-bust';
+    const tableId = 'table-b';
+    await seedTableDevice(uid, tableId);
+    await seedViews(tid);
+    await seedTable(tid, eid);
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(seatedEntry(eid, tid));
+
+    const res = await bustOkibakeTemporaryEntry.run({
+      data: { tournamentId: tid, okibakeEntryId: eid, operationId: 'op-table-bust' },
+      auth: { uid },
+    } as any);
+
+    expect(res.success).toBe(true);
+  });
+
+  it('role table は別卓着席の置きバケ bust を拒否する', async () => {
+    const uid = 'u-table-bust-deny';
+    const tid = 't-table-bust-deny';
+    const eid = 'e-table-bust-deny';
+    await seedTableDevice(uid, 'table-a');
+    await seedViews(tid);
+    await seedTable(tid, eid);
+    await db
+      .collection('scheduledTournaments')
+      .doc(tid)
+      .collection('okibakeTemporaryEntries')
+      .doc(eid)
+      .set(seatedEntry(eid, tid));
+
+    await expect(
+      bustOkibakeTemporaryEntry.run({
+        data: { tournamentId: tid, okibakeEntryId: eid, operationId: 'op-table-bust-deny' },
+        auth: { uid },
+      } as any),
+    ).rejects.toThrow(HttpsError);
   });
 });

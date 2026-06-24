@@ -139,6 +139,29 @@ describe('registerTableToTournament', () => {
     ).rejects.toMatchObject({ code: 'permission-denied' });
   });
 
+  it('開始から1時間以上前でも登録できる', async () => {
+    const today = '2026-06-18';
+    await seedCurrentBusinessDay(today);
+    await createTableDevice('table_uid_old_start', 'T4');
+    await seedTable('T4');
+    await seedTournament({
+      tournamentId: 'tour_old_start',
+      businessDate: today,
+      status: 'running',
+      startAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    });
+
+    const result = await (registerTableToTournament as any).run({
+      auth: { uid: 'table_uid_old_start' },
+      data: {
+        tableId: 'T4',
+        tournamentId: 'tour_old_start',
+      },
+    } as any);
+
+    expect(result.success).toBe(true);
+  });
+
   it('tableDeviceRegistrationEnabled=false のとき table role は拒否される', async () => {
     const today = '2026-06-18';
     await seedCurrentBusinessDay(today);

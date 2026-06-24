@@ -55,7 +55,6 @@ class TableDeviceService {
         .orderBy('startAt')
         .get();
 
-    final oneHourAgo = DateTime.now().subtract(const Duration(hours: 1));
     final candidates = <TableDeviceTournamentCandidate>[];
     for (final doc in query.docs) {
       final data = doc.data();
@@ -63,8 +62,7 @@ class TableDeviceService {
       final startAt = data['startAt'] as Timestamp?;
       if (status == null ||
           !const ['scheduled', 'running', 'registered', 'paused'].contains(status) ||
-          startAt == null ||
-          startAt.toDate().isBefore(oneHourAgo)) {
+          startAt == null) {
         continue;
       }
 

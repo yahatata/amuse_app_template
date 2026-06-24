@@ -115,6 +115,44 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     }
   }
 
+  Future<void> _updateDeviceRole(Device device, String newRole) async {
+    if (newRole == device.role) return;
+
+    setState(() => _isMutatingDevice = true);
+    String? successMessage;
+    String? errorMessage;
+    try {
+      await _deviceService.updateDeviceRoleByAdmin(
+        targetDeviceId: device.id,
+        role: newRole,
+      );
+      await _loadDevices();
+      successMessage = 'roleを$newRoleに変更しました';
+    } catch (e) {
+      errorMessage = 'エラー: $e';
+    } finally {
+      if (mounted) {
+        setState(() => _isMutatingDevice = false);
+      }
+    }
+    if (!mounted) return;
+    if (successMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(successMessage),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else if (errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Future<void> _deleteDevice(Device device) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -847,27 +885,12 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                         DropdownMenuItem(value: 'terminal', child: Text('terminal')),
                         DropdownMenuItem(value: 'table', child: Text('table')),
                       ],
-                      onChanged: (String? newRole) async {
-                        if (newRole == null || newRole == device.role) return;
-                        try {
-                          await _deviceService.updateDeviceRoleByAdmin(
-                            targetDeviceId: device.id,
-                            role: newRole,
-                          );
-                          await _loadDevices();
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('roleを$newRoleに変更しました'), backgroundColor: Colors.green),
-                            );
-                          }
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('エラー: $e'), backgroundColor: Colors.red),
-                            );
-                          }
-                        }
-                      },
+                      onChanged: _isPageLocked
+                          ? null
+                          : (String? newRole) {
+                              if (newRole == null) return;
+                              _updateDeviceRole(device, newRole);
+                            },
                     ),
                   ],
                 ),

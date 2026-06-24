@@ -201,4 +201,50 @@ describe('depositChip', () => {
       expect(chipsSnapshot.size).toBe(1);
     });
   });
+
+  describe('table device', () => {
+    async function createTableDevice(uid: string, tableId: string) {
+      await db.collection('devices').doc(`device_${uid}`).set({
+        uid,
+        role: 'table',
+        status: 'active',
+        name: `Table Device ${tableId}`,
+        options: {},
+        optionParams: {
+          table_device_table: { tableId },
+        },
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    it('role: table かつ卓紐付けありなら depositChip できること', async () => {
+      const userId = 'user_table_deposit_1';
+      const billId = 'bill_table_deposit_1';
+      const callerUid = 'table_device_deposit_1';
+      const amount = 100;
+      const clientNonce = 'deposit_table_nonce_1';
+
+      await createTableDevice(callerUid, 'TableA');
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: 'テスト太郎',
+        idempotencyKey: 'idem_table_deposit_1',
+      });
+      await db.collection('users').doc(userId).set({
+        sideGameChip: 500,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      const result = await (depositChip as any).run({
+        auth: { uid: callerUid },
+        data: { userId, amount, clientNonce },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data.newBalance).toBe(600);
+    });
+  });
 });
