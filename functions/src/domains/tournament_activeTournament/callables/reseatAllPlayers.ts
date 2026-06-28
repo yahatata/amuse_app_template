@@ -38,8 +38,103 @@ const reseatAllPlayersSchema = z.object({
   operationId: z.string().min(1, 'operationId は必須です'),
   tournamentId: z.string(),
   playerAssignments: z.array(playerAssignmentSchema),
+  reseatTableIds: z.array(z.string().min(1)).optional(),
   deviceName: z.string().optional(),
 });
+
+function resolveTableMaxSeats(tableData: Record<string, unknown>): number {
+  const maxSeatsRaw = tableData.maxSeats;
+  if (typeof maxSeatsRaw === 'number' && maxSeatsRaw > 0) {
+    return Math.min(Math.trunc(maxSeatsRaw), 99);
+  }
+  if (typeof maxSeatsRaw === 'string') {
+    const parsed = Number.parseInt(maxSeatsRaw, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      return Math.min(parsed, 99);
+    }
+  }
+
+  const seats = (tableData.seats as Record<string, unknown> | undefined) ?? {};
+  const re = /^seat(\d{1,2})(UserId|PokerName|OkibakeEntryId)$/;
+  let maxN = 0;
+  for (const key of Object.keys(seats)) {
+    const match = re.exec(key);
+    if (match) {
+      const n = Number.parseInt(match[1], 10);
+      if (!Number.isNaN(n) && n > maxN) maxN = n;
+    }
+  }
+  return maxN > 0 ? maxN : 6;
+}
+
+function assertReseatTableIdsValid(params: {
+  reseatTableIds: string[] | undefined;
+  playerAssignments: Array<{ tableId: string }>;
+  tablesSeatDocs: admin.firestore.QuerySnapshot<admin.firestore.DocumentData>;
+  tournamentId: string;
+}): void {
+  const { reseatTableIds, playerAssignments, tablesSeatDocs, tournamentId } = params;
+  if (reseatTableIds === undefined) return;
+
+  if (reseatTableIds.length === 0) {
+    throw new FunctionCustomError({
+      errorKey: 'TOURNAMENT_INVALID_STATE',
+      message: 'リシート先の卓を1つ以上選択してください',
+      context: { tournamentId, reason: 'reseat_table_ids_empty' },
+    });
+  }
+
+  const enabledTableIds = tablesSeatDocs.docs
+    .filter((doc) => doc.id !== 'waiting' && doc.data().isEnabled === true)
+    .map((doc) => doc.id);
+  const enabledSet = new Set(enabledTableIds);
+  const reseatSet = new Set(reseatTableIds);
+
+  for (const tableId of reseatTableIds) {
+    if (!enabledSet.has(tableId)) {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `リシート先に指定できない卓です: ${tableId}`,
+        context: { tournamentId, tableId, reason: 'invalid_reseat_table_id' },
+      });
+    }
+  }
+
+  for (const assignment of playerAssignments) {
+    if (!reseatSet.has(assignment.tableId)) {
+      throw new FunctionCustomError({
+        errorKey: 'TOURNAMENT_INVALID_STATE',
+        message: `リシート先外の卓に割り当てられています: ${assignment.tableId}`,
+        context: {
+          tournamentId,
+          tableId: assignment.tableId,
+          reason: 'assignment_outside_reseat_tables',
+        },
+      });
+    }
+  }
+
+  let totalSeats = 0;
+  for (const tableId of reseatTableIds) {
+    const doc = tablesSeatDocs.docs.find((d) => d.id === tableId);
+    if (doc) {
+      totalSeats += resolveTableMaxSeats(doc.data() as Record<string, unknown>);
+    }
+  }
+
+  if (playerAssignments.length > totalSeats) {
+    throw new FunctionCustomError({
+      errorKey: 'TOURNAMENT_INVALID_STATE',
+      message: '選択した卓の席数では、対象者を全員配置できません',
+      context: {
+        tournamentId,
+        reason: 'insufficient_reseat_table_seats',
+        selectedSeatCount: totalSeats,
+        targetParticipantCount: playerAssignments.length,
+      },
+    });
+  }
+}
 
 type OkibakeEntrySnapshot = {
   entryStatus: string;
@@ -104,7 +199,7 @@ export const reseatAllPlayers = onCall(async (request) => {
 
     const startedAt = FieldValue.serverTimestamp();
     const { data } = request;
-    const { operationId, tournamentId, playerAssignments, deviceName } = reseatAllPlayersSchema.parse(data);
+    const { operationId, tournamentId, playerAssignments, reseatTableIds, deviceName } = reseatAllPlayersSchema.parse(data);
 
     console.log(`=== 全員リシート開始 ===`);
     console.log(`tournamentId: ${tournamentId}`);
@@ -134,6 +229,13 @@ export const reseatAllPlayers = onCall(async (request) => {
         .collection('tablesSeat');
 
       const tablesSeatDocs = await transaction.get(tablesSeatRef);
+
+      assertReseatTableIdsValid({
+        reseatTableIds,
+        playerAssignments,
+        tablesSeatDocs,
+        tournamentId,
+      });
 
       // 1. 巻き戻し用: 変更前の座席配置を保存（undoReseatAllPlayers で復元する形式）
       const previousSeatingData: Record<string, { waiting?: Record<string, unknown>; count?: number; seats?: Record<string, unknown> }> = {};

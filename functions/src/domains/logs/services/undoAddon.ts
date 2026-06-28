@@ -1,5 +1,6 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 
 export interface UndoAddonParams {
   tournamentId: string;
@@ -21,6 +22,8 @@ export interface UndoAddonParams {
 export async function undoAddon(params: UndoAddonParams): Promise<void> {
   const db = getFirestore();
   const now = Timestamp.now();
+  const tournamentSnap = await db.collection('scheduledTournaments').doc(params.tournamentId).get();
+  const snapshot = tournamentSnap.data()?.snapshot ?? {};
   
   try {
     const mainViewRef = db
@@ -57,10 +60,17 @@ export async function undoAddon(params: UndoAddonParams): Promise<void> {
         }
       }
 
-      transaction.update(mainViewRef, {
-        addons: Math.max(0, mainAddons - 1),
-        updatedAt: now,
-      });
+      transaction.update(
+        mainViewRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            addons: Math.max(0, mainAddons - 1),
+            updatedAt: now,
+          },
+          mainViewData,
+          snapshot,
+        ),
+      );
       if (billTournamentRef != null && billAddonCount !== null) {
         transaction.update(billTournamentRef, {
           addonCount: billAddonCount,

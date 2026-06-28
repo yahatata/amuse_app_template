@@ -1706,4 +1706,170 @@ describe('rollbackAction okibake undo', () => {
       expect(main.playersBusted).toBe(1);
     });
   });
+
+  it('置きバケ Addon の undo で okibakeAddonCount と views.addons を戻せる', async () => {
+    const tournamentId = 't-undo-okibake-addon';
+    const okibakeEntryId = 'e-undo-okibake-addon';
+    const operationId = 'op-undo-okibake-addon';
+    const addonRecordId = 'addon-rec-undo-1';
+    const occurredAt = Timestamp.fromDate(new Date('2025-06-01T12:00:00Z'));
+
+    await db.collection('scheduledTournaments').doc(tournamentId).set({
+      snapshot: {
+        isAddon: true,
+        addonLimitPerPlayer: 2,
+        startStack: 10000,
+        addonStack: 5000,
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('views')
+      .doc('main')
+      .set({
+        entries: 1,
+        addons: 2,
+        playersBusted: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('okibakeTemporaryEntries')
+      .doc(okibakeEntryId)
+      .set({
+        tournamentId,
+        okibakeEntryId,
+        entryStatus: 'registered',
+        billLinkStatus: 'unlinked',
+        okibakeAddonCount: 1,
+        lastOkibakeAddonAt: occurredAt,
+        okibakeAddonRecords: [
+          {
+            addonRecordId,
+            operationId,
+            occurredAt,
+            createdByDeviceId: 'dev-addon',
+            reflectedToBill: false,
+            reflectedToBillAt: null,
+            linkedBillId: null,
+            rolledBack: false,
+            rollBackAt: null,
+            rollBackBy: null,
+          },
+        ],
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    await db.collection('operationLogs').doc(operationId).set({
+      operationId,
+      operationName: '置きバケ Addon',
+      tournamentId,
+      status: 'succeeded',
+      payload: {
+        tournamentId,
+        okibakeEntryId,
+        addonRecordId,
+        okibakeAddonCountBefore: 0,
+        okibakeAddonCountAfter: 1,
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const res = await rollbackAction.run({
+      data: {
+        tournamentId,
+        operationId,
+        action: 'okibake_addon',
+        rollBackBy: 'dev-rollback',
+      },
+    } as any);
+
+    expect(res.success).toBe(true);
+
+    const entry = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .get()
+    ).data()!;
+    expect(entry.okibakeAddonCount).toBe(0);
+    expect(entry.lastOkibakeAddonAt).toBeNull();
+    const records = entry.okibakeAddonRecords as Array<Record<string, unknown>>;
+    expect(records[0].rolledBack).toBe(true);
+    expect(records[0].rollBackBy).toBe('dev-rollback');
+
+    const main = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .get()
+    ).data()!;
+    expect(main.addons).toBe(1);
+    expect(main.avgStack).toBe(15000);
+
+    const op = (await db.collection('operationLogs').doc(operationId).get()).data()!;
+    expect(op.rolledBack).toBe(true);
+  });
+
+  it('伝票反映済みの置きバケ Addon は undo できない', async () => {
+    const tournamentId = 't-undo-okibake-addon-reflected';
+    const okibakeEntryId = 'e-reflected';
+    const operationId = 'op-reflected';
+    const addonRecordId = 'addon-rec-reflected';
+
+    await db.collection('scheduledTournaments').doc(tournamentId).set({
+      snapshot: { isAddon: true, addonLimitPerPlayer: 2 },
+    });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('views')
+      .doc('main')
+      .set({ addons: 1, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('okibakeTemporaryEntries')
+      .doc(okibakeEntryId)
+      .set({
+        okibakeAddonCount: 1,
+        okibakeAddonRecords: [
+          {
+            addonRecordId,
+            operationId,
+            reflectedToBill: true,
+            rolledBack: false,
+          },
+        ],
+      });
+
+    await db.collection('operationLogs').doc(operationId).set({
+      operationId,
+      operationName: '置きバケ Addon',
+      tournamentId,
+      status: 'succeeded',
+      payload: { tournamentId, okibakeEntryId, addonRecordId },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await expect(
+      rollbackAction.run({
+        data: {
+          tournamentId,
+          operationId,
+          action: 'okibake_addon',
+          rollBackBy: 'dev-rollback',
+        },
+      } as any),
+    ).rejects.toMatchObject({
+      code: 'failed-precondition',
+    });
+  });
 });

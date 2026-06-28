@@ -1,4 +1,4 @@
-import 'package:amuse_app_template/services/required_staff_by_time_slot_service.dart';
+import 'package:amuse_app_template/services/required_staff_types.dart';
 
 /// styleId と v2 設定から必要人数スロットを解決（Firestore 非依存）
 RequiredStaffStyleResolution resolveRequiredStaffForStyle({

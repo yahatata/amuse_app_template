@@ -12,6 +12,7 @@ import { FunctionCustomError } from '../../../shared/logging/functionCustomError
 import { resolveAddonLimitPerPlayer } from '../../../shared/tournament/resolveAddonLimitPerPlayer';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { assertTableDeviceCanAccessTable } from '../../../table_device/lib/shared';
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 
 const addonSchema = z.object({
   operationId: z.string().min(1, 'operationId は必須です'),
@@ -252,10 +253,17 @@ export const addon = onCall(async (request) => {
     // トランザクションで処理を実行
     const result = await admin.firestore().runTransaction(async (transaction) => {
       // scheduledTournaments/views/mainを更新
-      transaction.update(viewsMainRef, {
-        addons: currentAddons + 1,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      transaction.update(
+        viewsMainRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            addons: currentAddons + 1,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          viewsMainData ?? {},
+          snapshot,
+        ),
+      );
 
       // todaysBillsのtournamentsフィールドへの直接更新は削除（recordTournamentAction内のDualWriteに集約）
 

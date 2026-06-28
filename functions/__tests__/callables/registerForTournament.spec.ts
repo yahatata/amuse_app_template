@@ -101,6 +101,7 @@ describe('registerForTournament', () => {
       snapshot: {
         name: templateName,
         entryFee,
+        startStack: 10000,
       },
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -201,6 +202,7 @@ describe('registerForTournament', () => {
       expect(viewsMainData.playersIn).toBe(1);
       expect(viewsMainData.entries).toBe(1);
       expect(viewsMainData.waitingCount).toBe(1);
+      expect(viewsMainData.avgStack).toBe(10000);
 
       // waiting にユーザーが追加されている
       const waitingDoc = await db

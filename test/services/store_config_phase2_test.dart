@@ -77,13 +77,6 @@ void main() {
       expect(config.sideGameChipRoundingUnit, kDefaultSideGameChipRoundingUnit);
     });
 
-    test('businessHoursStyles (R-10)', () {
-      expect(config.businessHoursStyles.containsKey('weekday'), true);
-      expect(config.businessHoursStyles.containsKey('closed'), true);
-      expect(config.businessHoursStyles['weekday']!['openMinute'], 900);
-      expect(config.businessHoursStyles['closed']!['isClosed'], true);
-    });
-
     test('linePlan (D-04)', () {
       expect(config.linePlan, kDefaultLinePlan);
     });
@@ -282,27 +275,6 @@ void main() {
         kOkibakeLoginPromptModeLinkPrompt,
       );
     });
-
-    test('businessHoursStyles 上書き', () {
-      final config = StoreConfigData.fromMap({
-        'businessHoursStyles': {
-          'weekday': {
-            'styleId': 'weekday',
-            'openMinute': 600,
-            'closeMinute': 1440,
-            'isClosed': false,
-          },
-          'closed': {
-            'styleId': 'closed',
-            'openMinute': 0,
-            'closeMinute': 0,
-            'isClosed': true,
-          },
-        },
-      });
-      expect(config.businessHoursStyles['weekday']!['openMinute'], 600);
-      expect(config.businessHoursStyles['closed']!['isClosed'], true);
-    });
   });
 
   // ===================================================================
@@ -339,37 +311,10 @@ void main() {
       });
       expect(config.sideGameChipRate, kDefaultSideGameChipRate);
     });
-
-    test('businessHoursStyles 不正構造 → デフォルト', () {
-      final config = StoreConfigData.fromMap({
-        'businessHoursStyles': 'not_a_map',
-      });
-      expect(config.businessHoursStyles.containsKey('weekday'), true);
-      expect(config.businessHoursStyles['weekday']!['openMinute'], 900);
-    });
   });
 
   // ===================================================================
-  // 5. getBusinessHoursByStyleId
-  // ===================================================================
-  group('getBusinessHoursByStyleId', () {
-    test('存在する styleId → 正しい値', () {
-      final config = StoreConfigData.fromDefaults();
-      final style = config.getBusinessHoursByStyleId('weekday');
-      expect(style, isNotNull);
-      expect(style!['styleId'], 'weekday');
-      expect(style['openMinute'], 900);
-    });
-
-    test('存在しない styleId → null', () {
-      final config = StoreConfigData.fromDefaults();
-      final style = config.getBusinessHoursByStyleId('nonexistent');
-      expect(style, isNull);
-    });
-  });
-
-  // ===================================================================
-  // 6. 全フィールド上書き同時テスト
+  // 5. 全フィールド上書き同時テスト
   // ===================================================================
   test('全フィールド同時上書き', () {
     final config = StoreConfigData.fromMap({
@@ -402,14 +347,6 @@ void main() {
           'roundingUnits': {'pointAB': 100, 'sideGameChip': 10},
         },
       },
-      'businessHoursStyles': {
-        'weekday': {
-          'styleId': 'weekday',
-          'openMinute': 480,
-          'closeMinute': 1200,
-          'isClosed': false,
-        },
-      },
       'linePlan': 'light',
       'okibake': {'loginPromptMode': kOkibakeLoginPromptModeLinkPrompt},
       'shift': {
@@ -433,7 +370,6 @@ void main() {
     expect(config.pointPriority, ['pointB']);
     expect(config.pointABRoundingUnit, 100);
     expect(config.sideGameChipRoundingUnit, 10);
-    expect(config.businessHoursStyles['weekday']!['openMinute'], 480);
     expect(config.linePlan, 'light');
     expect(config.okibakeLoginPromptMode, kOkibakeLoginPromptModeLinkPrompt);
     expect(config.shiftSubmissionStartDay, 3);

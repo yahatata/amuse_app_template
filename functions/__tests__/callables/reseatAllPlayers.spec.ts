@@ -51,6 +51,11 @@ describe('reseatAllPlayers', () => {
 
   // テスト用のヘルパ関数: scheduledTournaments のセットアップ
   async function setupTournament(tournamentId: string, tableIds: string[]) {
+    await db.collection('scheduledTournaments').doc(tournamentId).set({
+      status: 'running',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
     const tablesSeatRef = db
       .collection('scheduledTournaments')
       .doc(tournamentId)
@@ -535,6 +540,174 @@ describe('reseatAllPlayers', () => {
       } as any;
 
       await expect((reseatAllPlayers as any).run(mockRequest)).rejects.toThrow();
+    });
+  });
+
+  describe('reseatTableIds 検証', () => {
+    it('reseatTableIds が空の場合はエラーになること', async () => {
+      const tournamentId = 'tournament_test_reseat_table_ids_empty';
+      const userId = 'user_test_reseat_table_ids_empty';
+      const billId = 'bill_test_reseat_table_ids_empty';
+      const tableId = 'table_001';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: 'テスト太郎',
+        idempotencyKey: 'idem_test_reseat_table_ids_empty',
+      });
+
+      await setupTournament(tournamentId, [tableId]);
+
+      const adminId = 'admin_test_reseat_table_ids_empty';
+      await createAdminDevice(adminId);
+
+      await expect(
+        (reseatAllPlayers as any).run({
+          auth: { uid: adminId },
+          data: {
+            operationId: `op_reseat_${tournamentId}`,
+            tournamentId,
+            reseatTableIds: [],
+            playerAssignments: [
+              { userId, tableId, seatNumber: 1 },
+            ],
+          },
+        } as any),
+      ).rejects.toThrow(/リシート先の卓を1つ以上選択してください/);
+    });
+
+    it('選択卓の席数不足の場合はエラーになること', async () => {
+      const tournamentId = 'tournament_test_reseat_table_ids_capacity';
+      const tableId1 = 'table_001';
+      const tableId2 = 'table_002';
+
+      await setupTournament(tournamentId, [tableId1, tableId2]);
+
+      const users = [
+        { userId: 'user_cap_1', billId: 'bill_cap_1' },
+        { userId: 'user_cap_2', billId: 'bill_cap_2' },
+        { userId: 'user_cap_3', billId: 'bill_cap_3' },
+      ];
+
+      for (const [index, user] of users.entries()) {
+        await createBillWithActiveStay({
+          billId: user.billId,
+          userId: user.userId,
+          pokerName: `テスト${index + 1}`,
+          idempotencyKey: `idem_test_reseat_cap_${index}`,
+        });
+      }
+
+      const adminId = 'admin_test_reseat_table_ids_capacity';
+      await createAdminDevice(adminId);
+
+      await expect(
+        (reseatAllPlayers as any).run({
+          auth: { uid: adminId },
+          data: {
+            operationId: `op_reseat_${tournamentId}`,
+            tournamentId,
+            reseatTableIds: [tableId1],
+            playerAssignments: users.map((user, index) => ({
+              userId: user.userId,
+              tableId: tableId1,
+              seatNumber: index + 1,
+            })),
+          },
+        } as any),
+      ).rejects.toThrow(/選択した卓の席数では、対象者を全員配置できません/);
+    });
+
+    it('未選択卓には assignment を作らないと未選択卓は空のままになること', async () => {
+      const tournamentId = 'tournament_test_reseat_table_ids_partial';
+      const userId = 'user_test_reseat_table_ids_partial';
+      const billId = 'bill_test_reseat_table_ids_partial';
+      const tableId1 = 'table_001';
+      const tableId2 = 'table_002';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: 'テスト太郎',
+        idempotencyKey: 'idem_test_reseat_table_ids_partial',
+      });
+
+      await setupTournament(tournamentId, [tableId1, tableId2]);
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId2)
+        .update({
+          'seats.seat01UserId': 'old_user',
+          'seats.seat01PokerName': '移動前',
+        });
+
+      const adminId = 'admin_test_reseat_table_ids_partial';
+      await createAdminDevice(adminId);
+
+      const result = await (reseatAllPlayers as any).run({
+        auth: { uid: adminId },
+        data: {
+          operationId: `op_reseat_${tournamentId}`,
+          tournamentId,
+          reseatTableIds: [tableId1],
+          playerAssignments: [{ userId, tableId: tableId1, seatNumber: 1 }],
+        },
+      } as any);
+
+      expect(result.success).toBe(true);
+
+      const selectedTableDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId1)
+        .get();
+      expect(selectedTableDoc.data()!.seats.seat01UserId).toBe(userId);
+
+      const unselectedTableDoc = await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc(tableId2)
+        .get();
+      const unselectedSeats = unselectedTableDoc.data()!.seats;
+      expect(unselectedSeats.seat01UserId).toBeNull();
+      expect(unselectedSeats.seat01PokerName).toBeNull();
+    });
+
+    it('reseatTableIds 外の卓への assignment はエラーになること', async () => {
+      const tournamentId = 'tournament_test_reseat_table_ids_outside';
+      const userId = 'user_test_reseat_table_ids_outside';
+      const billId = 'bill_test_reseat_table_ids_outside';
+      const tableId1 = 'table_001';
+      const tableId2 = 'table_002';
+
+      await createBillWithActiveStay({
+        billId,
+        userId,
+        pokerName: 'テスト太郎',
+        idempotencyKey: 'idem_test_reseat_table_ids_outside',
+      });
+
+      await setupTournament(tournamentId, [tableId1, tableId2]);
+
+      const adminId = 'admin_test_reseat_table_ids_outside';
+      await createAdminDevice(adminId);
+
+      await expect(
+        (reseatAllPlayers as any).run({
+          auth: { uid: adminId },
+          data: {
+            operationId: `op_reseat_${tournamentId}`,
+            tournamentId,
+            reseatTableIds: [tableId1],
+            playerAssignments: [{ userId, tableId: tableId2, seatNumber: 1 }],
+          },
+        } as any),
+      ).rejects.toThrow(/リシート先外の卓に割り当てられています/);
     });
   });
 });

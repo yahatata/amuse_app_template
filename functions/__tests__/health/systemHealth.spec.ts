@@ -135,14 +135,23 @@ describe('1. config 基盤', () => {
       expect(config.tournament?.prizeDistribution?.['1']).toEqual([100.0]);
     });
 
-    it('businessHoursStyles が全5スタイル揃っている', () => {
-      const styles = config.businessHoursStyles!;
-      expect(Object.keys(styles)).toEqual(expect.arrayContaining(
-        ['weekday', 'weekendHoliday', 'event', 'allDay', 'closed']
-      ));
+    it('storeMeta/businessStyles 初期値が全5スタイル揃っている', () => {
+      const { buildDefaultBusinessStyles } = require('../../src/shared/config/businessStyles');
+      const businessStyles = buildDefaultBusinessStyles();
+      expect(businessStyles.version).toBe(2);
+      expect(Object.keys(businessStyles.styles)).toEqual(
+        expect.arrayContaining(['weekday', 'weekendHoliday', 'event', 'allDay', 'closed'])
+      );
       for (const key of Object.keys(DEFAULT_BUSINESS_HOURS_STYLES)) {
-        expect(styles[key]).toEqual(DEFAULT_BUSINESS_HOURS_STYLES[key]);
+        const style = businessStyles.styles[key as keyof typeof businessStyles.styles];
+        expect(style.openMinute).toBe(DEFAULT_BUSINESS_HOURS_STYLES[key].openMinute);
+        expect(style.isClosed).toBe(DEFAULT_BUSINESS_HOURS_STYLES[key].isClosed);
       }
+      expect(businessStyles.styles.closed.requiredStaffByTimeSlot).toEqual([]);
+    });
+
+    it('buildFromDefaults は businessHoursStyles を含まない', () => {
+      expect((config as Record<string, unknown>).businessHoursStyles).toBeUndefined();
     });
   });
 
@@ -379,6 +388,8 @@ describe('5. contentHash の決定論性', () => {
 // ---------- 6. getStoreConfig Firestore 統合 ----------
 
 describe('6. getStoreConfig Firestore 統合', () => {
+  const runEmulatorTests = process.env.RUN_EMULATOR_TESTS === '1';
+  const itWithEmulator = runEmulatorTests ? it : it.skip;
   const projectId = 'test-system-health';
   let db: admin.firestore.Firestore;
 
@@ -386,6 +397,7 @@ describe('6. getStoreConfig Firestore 統合', () => {
   const errorSpy = jest.spyOn(require('firebase-functions').logger, 'error').mockImplementation(() => {});
 
   beforeAll(async () => {
+    if (!runEmulatorTests) return;
     process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
     if (admin.apps.length > 0) {
       await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
@@ -401,13 +413,14 @@ describe('6. getStoreConfig Firestore 統合', () => {
   });
 
   beforeEach(async () => {
+    if (!runEmulatorTests) return;
     warnSpy.mockClear();
     const ref = db.collection('storeMeta').doc('config');
     const snap = await ref.get();
     if (snap.exists) await ref.delete();
   });
 
-  it('storeMeta/config が無い → defaults にフォールバックし warning が出る', async () => {
+  itWithEmulator('storeMeta/config が無い → defaults にフォールバックし warning が出る', async () => {
     const config = await getStoreConfig(db);
     expect(config.features?.dualWriteEnabled).toBe(DEFAULT_DUAL_WRITE_ENABLED);
     expect(config.billing?.sideGameChipRate).toBe(DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE);
@@ -416,7 +429,7 @@ describe('6. getStoreConfig Firestore 統合', () => {
     }));
   });
 
-  it('storeMeta/config に部分設定 → merge されて残りは defaults', async () => {
+  itWithEmulator('storeMeta/config に部分設定 → merge されて残りは defaults', async () => {
     await db.collection('storeMeta').doc('config').set({
       features: { dualWriteEnabled: true },
       billing: { entranceFee: 2000 },
@@ -429,7 +442,7 @@ describe('6. getStoreConfig Firestore 統合', () => {
     expect(config.billing?.sideGameChipRate).toBe(DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE);
   });
 
-  it('不正な型は無視して defaults が使われる', async () => {
+  itWithEmulator('不正な型は無視して defaults が使われる', async () => {
     await db.collection('storeMeta').doc('config').set({
       features: { dualWriteEnabled: 'yes' },
       linePlan: 999,
@@ -439,7 +452,7 @@ describe('6. getStoreConfig Firestore 統合', () => {
     expect(config.linePlan).toBe(DEFAULT_LINE_PLAN);
   });
 
-  it('全フィールドを上書き → 全て Firestore の値が使われる', async () => {
+  itWithEmulator('全フィールドを上書き → 全て Firestore の値が使われる', async () => {
     await db.collection('storeMeta').doc('config').set({
       features: {
         dualWriteEnabled: true,

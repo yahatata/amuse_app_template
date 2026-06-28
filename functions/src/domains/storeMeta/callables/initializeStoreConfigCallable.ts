@@ -1,11 +1,11 @@
 /**
- * storeMeta/config、storeMeta/requiredStaffByTimeSlot、storeMeta/schedulerConfig 初期セットアップ Callable
+ * storeMeta/config、storeMeta/businessStyles、storeMeta/schedulerConfig 初期セットアップ Callable
  *
  * - storeMeta/config: 未存在時は buildFromDefaults() をそのまま作成。既存時は defaults のフィールドのうち
- *   存在しないもののみデフォルトで追加（既存値は上書きしない）。requiredStaffByTimeSlot 等の別 doc 項目は含めない。
- * - storeMeta/requiredStaffByTimeSlot: R-09 分離。未存在時のみ作成（DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT）。
- * - storeMeta/schedulerConfig: スケジューラー ON/OFF。未存在時は buildSchedulerConfigFromDefaults() で作成。
- *   既存時は不足フィールドのみデフォルトで追加。
+ *   存在しないもののみデフォルトで追加（既存値は上書きしない）。
+ *   ※ businessHoursStyles は storeMeta/businessStyles が正本のため config には含めない。
+ * - storeMeta/businessStyles: 未存在時のみ DEFAULT_BUSINESS_STYLES_V2 で作成。
+ * - storeMeta/schedulerConfig / payrollConfig: 従来どおり。
  * 認可: admin デバイスのみ。
  *
  * 参照: docs/config_migration/phase1/PHASE1_UPDATE_PATH_DESIGN.md
@@ -22,9 +22,7 @@ import {
   mergeSchedulerConfigForUpsert,
 } from '../../../shared/config/schedulerConfigLoader';
 import { buildPayrollConfigFromDefaults, mergePayrollConfigForUpsert } from '../../../shared/config/payrollConfigLoader';
-import {
-  DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2,
-} from '../../../shared/config/defaults';
+import { buildDefaultBusinessStyles } from '../../../shared/config/businessStyles';
 import { getCallerDeviceByUid, isActive } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 
@@ -54,31 +52,35 @@ export const initializeStoreConfigCallable = onCall(
 
     try {
       const configRef = db.collection('storeMeta').doc('config');
-      const requiredStaffRef = db.collection('storeMeta').doc('requiredStaffByTimeSlot');
+      const businessStylesRef = db.collection('storeMeta').doc('businessStyles');
       const schedulerConfigRef = db.collection('storeMeta').doc('schedulerConfig');
-
       const payrollConfigRef = db.collection('storeMeta').doc('payrollConfig');
 
-      const [configDoc, requiredStaffDoc, schedulerConfigDoc, payrollConfigDoc] = await Promise.all([
-        configRef.get(),
-        requiredStaffRef.get(),
-        schedulerConfigRef.get(),
-        payrollConfigRef.get(),
-      ]);
+      const [configDoc, businessStylesDoc, schedulerConfigDoc, payrollConfigDoc] =
+        await Promise.all([
+          configRef.get(),
+          businessStylesRef.get(),
+          schedulerConfigRef.get(),
+          payrollConfigRef.get(),
+        ]);
 
       const created: string[] = [];
       const updated: string[] = [];
 
+      const initializationDefaults = buildConfigForInitialization();
+
       if (!configDoc.exists) {
-        const config = buildConfigForInitialization();
+        const config = initializationDefaults;
         await configRef.set({
           ...config,
           updatedAt: FieldValue.serverTimestamp(),
         });
         created.push('storeMeta/config');
       } else {
-        const defaults = buildConfigForInitialization();
-        const merged = mergeConfigForUpsert(configDoc.data() as Record<string, unknown>, defaults);
+        const merged = mergeConfigForUpsert(
+          configDoc.data() as Record<string, unknown>,
+          initializationDefaults
+        );
         await configRef.set(
           { ...merged, updatedAt: FieldValue.serverTimestamp() },
           { merge: true }
@@ -86,13 +88,14 @@ export const initializeStoreConfigCallable = onCall(
         updated.push('storeMeta/config');
       }
 
-      if (!requiredStaffDoc.exists) {
-        await requiredStaffRef.set({
-          version: DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2.version,
-          byStyle: DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2.byStyle,
+      if (!businessStylesDoc.exists) {
+        const businessStyles = buildDefaultBusinessStyles();
+        await businessStylesRef.set({
+          version: businessStyles.version,
+          styles: businessStyles.styles,
           updatedAt: FieldValue.serverTimestamp(),
         });
-        created.push('storeMeta/requiredStaffByTimeSlot');
+        created.push('storeMeta/businessStyles');
       }
 
       if (!schedulerConfigDoc.exists) {
@@ -139,7 +142,7 @@ export const initializeStoreConfigCallable = onCall(
       const message =
         parts.length > 0
           ? parts.join('。')
-          : 'storeMeta/config、storeMeta/requiredStaffByTimeSlot、storeMeta/schedulerConfig、storeMeta/payrollConfig は既に存在し、不足フィールドもありません';
+          : 'storeMeta/config、storeMeta/businessStyles、storeMeta/schedulerConfig、storeMeta/payrollConfig は既に存在し、不足フィールドもありません';
 
       logOpsSuccess({
         message: 'initializeStoreConfigCallable 成功',

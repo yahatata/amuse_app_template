@@ -8,6 +8,7 @@ import * as crypto from 'crypto';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { resolveAddonLimitPerPlayer } from '../../../shared/tournament/resolveAddonLimitPerPlayer';
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { assertTableDeviceCanAccessTable } from '../../../table_device/lib/shared';
 
@@ -377,10 +378,17 @@ export const bulkAddon = onCall(async (request) => {
       const now = admin.firestore.FieldValue.serverTimestamp();
       const totalProcessed = availableUsers.length + availableOkibakeEntries.length;
       // scheduledTournaments/views/mainを更新
-      transaction.update(viewsMainRef, {
-        addons: currentAddons + totalProcessed,
-        updatedAt: now,
-      });
+      transaction.update(
+        viewsMainRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            addons: currentAddons + totalProcessed,
+            updatedAt: now,
+          },
+          viewsMainData ?? {},
+          snapshot,
+        ),
+      );
 
       // todaysBillsのtournamentsフィールドへの直接更新は削除（recordTournamentAction内のDualWriteに集約）
 

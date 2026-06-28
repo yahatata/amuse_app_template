@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/tournament/active/models/scheduled_tournament_seat_map.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 
 class RemoveTableDialog extends StatefulWidget {
@@ -139,29 +140,19 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
         if (data['isEnabled'] == false) continue;
         final seats = data['seats'] as Map<String, dynamic>? ?? {};
 
-        // 着席しているユーザーがいるかチェック
-        final hasOccupiedSeats = seats.entries.any(
-          (entry) {
-            if (!entry.key.endsWith('UserId')) return false;
-            final value = entry.value;
-            // null、空文字列、空の値をチェック
-            return value != null && 
-                   value.toString().trim().isNotEmpty;
-          },
-        );
+        if (!ScheduledTournamentSeatMap.isTournamentTableEmpty(seats)) {
+          continue;
+        }
 
-        // 空いている卓のみを追加
-        if (!hasOccupiedSeats) {
-          // tablesコレクションから卓情報を取得
-          final tableDoc = await _firestore.collection('tables').doc(doc.id).get();
-          if (tableDoc.exists) {
-            final tableData = tableDoc.data() as Map<String, dynamic>;
-            emptyTables.add({
-              'tableId': doc.id,
-              'name': tableData['name'] ?? doc.id,
-              'maxSeats': data['maxSeats'] ?? tableData['maxSeats'] ?? 0,
-            });
-          }
+        // tablesコレクションから卓情報を取得
+        final tableDoc = await _firestore.collection('tables').doc(doc.id).get();
+        if (tableDoc.exists) {
+          final tableData = tableDoc.data() as Map<String, dynamic>;
+          emptyTables.add({
+            'tableId': doc.id,
+            'name': tableData['name'] ?? doc.id,
+            'maxSeats': data['maxSeats'] ?? tableData['maxSeats'] ?? 0,
+          });
         }
       }
 

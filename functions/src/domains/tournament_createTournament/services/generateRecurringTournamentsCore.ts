@@ -27,6 +27,7 @@ import {
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { runEnqueueTournamentTasks } from "./enqueueTournamentTasksCore";
 import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
+import { buildRuntimeStagesFromBlindLevels } from "../../../shared/tournament/buildRuntimeStagesFromBlindLevels";
 
 const ENQUEUE_AFTER_GENERATE_THRESHOLD = 50;
 
@@ -423,46 +424,10 @@ async function createScheduledTournamentFromRecurrence(
         lateRegUntilLev = blindTemplateData.lateRegUntilLev || 0;
         breakDuration = blindTemplateData.breakDuration || 0;
 
-        stages = levels
-          .map((level: any) => {
-            const stage = {
-              type: "level",
-              lev: level.level,
-              durationSec: (level.duration || 0) * 60,
-            };
-
-            if (level.hasBreakAfter) {
-              return [
-                stage,
-                {
-                  type: "break",
-                  durationSec: breakDuration * 60,
-                },
-              ];
-            }
-
-            return stage;
-          })
-          .flat();
-
-        if (lateRegUntilLev > 0) {
-          const newStages: any[] = [];
-
-          for (let i = 0; i < stages.length; i++) {
-            const stage = stages[i];
-
-            if (stage.type === "level" && stage.lev === lateRegUntilLev + 1) {
-              newStages.push({
-                type: "regist",
-                durationSec: 0,
-              });
-            }
-
-            newStages.push(stage);
-          }
-
-          stages = newStages;
-        }
+        stages = buildRuntimeStagesFromBlindLevels(levels, {
+          lateRegUntilLev,
+          breakDurationMin: breakDuration,
+        });
       }
     }
 
@@ -549,7 +514,6 @@ async function createScheduledTournamentFromRecurrence(
       businessDate,
       startAt: plannedStartAt,
       regEndAt: Timestamp.fromDate(plannedRegistAt),
-      freeze: false,
       isPrizeConfirmed: false,
       isArchived: false,
       regular: true,

@@ -343,7 +343,6 @@ abstract class TournamentService {
     required DateTime regEndAt,
     required String storeId,
     required String tenantId,
-    bool freeze = false,
     BuildContext? context,
   });
   // エントリー関連
@@ -429,6 +428,7 @@ abstract class TournamentService {
   Future<Map<String, dynamic>> reseatAllPlayers({
     required String tournamentId,
     required List<Map<String, dynamic>> playerAssignments,
+    List<String>? reseatTableIds,
   });
 
   // Bust&退席
@@ -479,7 +479,6 @@ class TournamentServiceImpl implements TournamentService {
     required DateTime regEndAt,
     required String storeId,
     required String tenantId,
-    bool freeze = false,
     BuildContext? context,
   }) async {
     try {
@@ -489,7 +488,6 @@ class TournamentServiceImpl implements TournamentService {
         'templateId': templateId,
         'startAt': startAt.toIso8601String(),
         'regEndAt': regEndAt.toIso8601String(),
-        'freeze': freeze,
         'storeId': storeId,
         'tenantId': tenantId,
       });
@@ -510,7 +508,6 @@ class TournamentServiceImpl implements TournamentService {
                 templateId: templateId,
                 startAt: startAt,
                 regEndAt: regEndAt,
-                freeze: freeze,
                 storeId: storeId,
                 tenantId: tenantId,
                 context: context,
@@ -525,7 +522,6 @@ class TournamentServiceImpl implements TournamentService {
               'templateId': templateId,
               'startAt': startAt.toIso8601String(),
               'regEndAt': regEndAt.toIso8601String(),
-              'freeze': freeze,
               'storeId': storeId,
               'tenantId': tenantId,
               'selectedBusinessDateKey': selectedBusinessDateKey, // 選択された営業日キーを追加
@@ -941,6 +937,7 @@ class TournamentServiceImpl implements TournamentService {
   Future<Map<String, dynamic>> reseatAllPlayers({
     required String tournamentId,
     required List<Map<String, dynamic>> playerAssignments,
+    List<String>? reseatTableIds,
   }) async {
     try {
       final operationId =
@@ -953,6 +950,7 @@ class TournamentServiceImpl implements TournamentService {
         'operationId': operationId,
         'tournamentId': tournamentId,
         'playerAssignments': playerAssignments,
+        if (reseatTableIds != null) 'reseatTableIds': reseatTableIds,
         if (deviceName != null) 'deviceName': deviceName,
       });
 
@@ -1045,7 +1043,6 @@ class MockTournamentService implements TournamentService {
     required DateTime regEndAt,
     required String storeId,
     required String tenantId,
-    bool freeze = false,
     BuildContext? context,
   }) async {
     await Future.delayed(const Duration(milliseconds: 1000));
@@ -1293,6 +1290,7 @@ class MockTournamentService implements TournamentService {
   Future<Map<String, dynamic>> reseatAllPlayers({
     required String tournamentId,
     required List<Map<String, dynamic>> playerAssignments,
+    List<String>? reseatTableIds,
   }) async {
     await Future.delayed(const Duration(milliseconds: 1000));
     

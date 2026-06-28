@@ -2,8 +2,8 @@
 
 submissionStartDay / submissionEndDay / schedulingStartDay（storeMeta/config 内）
 
-> ※ requiredStaffByTimeSlot は **storeMeta/requiredStaffByTimeSlot** に分離済み。  
-> 詳細は `storeMeta/requiredStaffByTimeSlot.md` を参照。
+> ※ 営業時間スタイル + 必要人数は **storeMeta/businessStyles** が正本（Phase 3 以降）。  
+> 詳細は `docs/運用時資料/設定/storeMeta/configによる設定の詳細/businessHoursStyles.md` を参照。
 
 ---
 

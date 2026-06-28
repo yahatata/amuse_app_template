@@ -6,7 +6,6 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { assertAdminDevice } from "../../../domains/shift/services/helpers";
 import { recalculateIsSufficientForEligibleDays } from "../../../domains/shift/services/recalculateIsSufficient";
-import { getStoreConfig } from "../../config/configLoader";
 import { logOpsError, logOpsSuccess } from "../../logging/logOpsError";
 import { propagateBusinessHoursStyleChange } from "../services/propagateBusinessHoursStyleChange";
 import {
@@ -16,6 +15,11 @@ import {
 } from "../services/validateShiftSettings";
 import { assertEligibleMonthsDataConsistency } from "../../../domains/shift/services/recalculateIsSufficient";
 import { generateJstDateKey } from "../../time/generateJstDateKey";
+import {
+  businessStylesToBusinessHoursStyles,
+  getBusinessStylesOrThrow,
+} from "../../config/businessStylesLoader";
+import { mergeBusinessHoursStylesIntoBusinessStyles } from "../../config/businessStyles";
 
 const db = getFirestore();
 
@@ -45,19 +49,23 @@ export const saveBusinessHoursStyles = onCall(
 
       await assertEligibleMonthsDataConsistency(db, todayJst);
 
-      const existingConfig = await getStoreConfig();
+      const existingBusinessStyles = await getBusinessStylesOrThrow(db);
+      const existingHours = businessStylesToBusinessHoursStyles(existingBusinessStyles);
       const changedStyleIds = detectChangedBusinessHoursStyleIds(
-        existingConfig.businessHoursStyles,
+        existingHours,
         validatedStyles
       );
 
-      await db.collection("storeMeta").doc("config").set(
-        {
-          businessHoursStyles: validatedStyles,
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
+      const merged = mergeBusinessHoursStylesIntoBusinessStyles(
+        existingBusinessStyles,
+        validatedStyles
       );
+
+      await db.collection("storeMeta").doc("businessStyles").set({
+        version: merged.version,
+        styles: merged.styles,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
 
       if (changedStyleIds.length > 0) {
         const changedStyles = buildChangedStylesMap(validatedStyles, changedStyleIds);

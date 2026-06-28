@@ -10,6 +10,7 @@ import { resolveStoreTenantForWrite } from "../../../shared/runtime/storeTenantI
 import { calcBusinessDate } from "../../bills/repos/calcBusinessDate";
 import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
 import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
+import { buildRuntimeStagesFromBlindLevels } from "../../../shared/tournament/buildRuntimeStagesFromBlindLevels";
 
 // 入力スキーマの定義
 const createTournamentRecurrenceSchema = z.object({
@@ -332,43 +333,10 @@ async function createScheduledTournamentFromRecurrence(
         lateRegUntilLev = blindTemplateData.lateRegUntilLev || 0;
         breakDuration = blindTemplateData.breakDuration || 0;
         
-        // levelsからstagesを生成
-        stages = levels.map((level: any) => {
-          const stage = {
-            type: 'level',
-            lev: level.level,
-            durationSec: (level.duration || 0) * 60,
-          };
-          
-          if (level.hasBreakAfter) {
-            return [stage, {
-              type: 'break',
-              durationSec: breakDuration * 60,
-            }];
-          }
-          
-          return stage;
-        }).flat();
-        
-        // lateRegUntilLev+1のレベル直前にregistステージを追加
-        if (lateRegUntilLev > 0) {
-          const newStages: any[] = [];
-          
-          for (let i = 0; i < stages.length; i++) {
-            const stage = stages[i];
-            
-            if (stage.type === 'level' && stage.lev === lateRegUntilLev + 1) {
-              newStages.push({
-                type: 'regist',
-                durationSec: 0,
-              });
-            }
-            
-            newStages.push(stage);
-          }
-          
-          stages = newStages;
-        }
+        stages = buildRuntimeStagesFromBlindLevels(levels, {
+          lateRegUntilLev,
+          breakDurationMin: breakDuration,
+        });
       }
     }
 
@@ -455,7 +423,6 @@ async function createScheduledTournamentFromRecurrence(
       businessDate,
       startAt: plannedStartAt,
       regEndAt: Timestamp.fromDate(plannedRegistAt), // 正確なregEndAt
-      freeze: false,
       isPrizeConfirmed: false,
       isArchived: false,
       regular: true, // 定期開催から生成
