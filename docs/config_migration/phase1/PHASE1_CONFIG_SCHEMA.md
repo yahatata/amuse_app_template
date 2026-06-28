@@ -71,8 +71,13 @@
 
 ---
 
-### 3.4 businessHoursStyles（営業時間スタイル）
+### 3.4 businessHoursStyles（営業時間スタイル）— Deprecated
 
+> **Phase 3 以降**: 正本は `storeMeta/businessStyles`（version 2）。  
+> `storeMeta/config.businessHoursStyles` は schema / defaults / merge 対象外。  
+> 詳細: `docs/運用時資料/設定/storeMeta/configによる設定の詳細/businessHoursStyles.md`
+
+以下は Phase 1 時点の旧定義（参照用）:
 | キー | 型 | 必須 | 説明 | デフォルト |
 |------|-----|------|------|------------|
 | `businessHoursStyles.weekday` | object | 任意 | 平日スタイル | 下記 |

@@ -51,6 +51,17 @@ describe('bustAndExit', () => {
 
   // テスト用のヘルパ関数: scheduledTournaments のセットアップ
   async function setupTournament(tournamentId: string, tableId: string, userId: string, seatNumber: number, pokerName: string) {
+    await db.collection('scheduledTournaments').doc(tournamentId).set({
+      templateId: 'template_bust_test',
+      status: 'scheduled',
+      snapshot: {
+        name: 'テストトーナメント',
+        startStack: 10000,
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
     const tablesSeatRef = db
       .collection('scheduledTournaments')
       .doc(tournamentId)
@@ -83,6 +94,8 @@ describe('bustAndExit', () => {
       .doc('main')
       .set({
         playersBusted: 0,
+        entries: 2,
+        reentries: 0,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -164,6 +177,7 @@ describe('bustAndExit', () => {
         .get();
       const viewsMainData = viewsMainDoc.data()!;
       expect(viewsMainData.playersBusted).toBe(1);
+      expect(viewsMainData.avgStack).toBe(20000);
 
       // busted に退席情報が追加されている
       const bustedDoc = await db
@@ -448,6 +462,17 @@ describe('bustAndExit', () => {
         'place.seat': seatNumber,
       });
 
+      await db.collection('scheduledTournaments').doc(tournamentId).set({
+        templateId: 'template_bust_test',
+        status: 'scheduled',
+        snapshot: {
+          name: 'テストトーナメント',
+          startStack: 10000,
+        },
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
       // テーブルを作成（ユーザーが座っている状態）
       const tablesSeatRef = db
         .collection('scheduledTournaments')
@@ -478,6 +503,8 @@ describe('bustAndExit', () => {
         .doc('main')
         .set({
           playersBusted: 0,
+          entries: 2,
+          reentries: 0,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
@@ -523,6 +550,7 @@ describe('bustAndExit', () => {
         .get();
       const viewsMainData = viewsMainDoc.data()!;
       expect(viewsMainData.playersBusted).toBe(1);
+      expect(viewsMainData.avgStack).toBe(20000);
 
       // /tablesSeat/busted ドキュメントが新規作成され、その中の bustedUser.{userId} に pokerName と bustAt が設定されていること
       const bustedDoc = await db

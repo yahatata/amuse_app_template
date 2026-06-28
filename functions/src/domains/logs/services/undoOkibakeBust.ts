@@ -1,6 +1,7 @@
 import { getFirestore, Timestamp, type UpdateData, type DocumentData } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 import {
   type FallbackSeatInput,
   resolveBustUndoRestorePlan,
@@ -37,6 +38,8 @@ export async function undoOkibakeBust(params: UndoOkibakeBustParams): Promise<vo
     .collection('okibakeTemporaryEntries')
     .doc(params.okibakeEntryId);
   const viewsMainRef = tournamentRef.collection('views').doc('main');
+  const tournamentSnap = await tournamentRef.get();
+  const snapshot = tournamentSnap.data()?.snapshot ?? {};
 
   const tableId =
     typeof params.payload.tableId === 'string' ? params.payload.tableId : null;
@@ -189,10 +192,17 @@ export async function undoOkibakeBust(params: UndoOkibakeBustParams): Promise<vo
         updatedAt: now,
       });
       tx.update(entryRef, entryPatch as UpdateData<DocumentData>);
-      tx.update(viewsMainRef, {
-        playersBusted: Math.max(0, currentPlayersBusted - 1),
-        updatedAt: now,
-      });
+      tx.update(
+        viewsMainRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            playersBusted: Math.max(0, currentPlayersBusted - 1),
+            updatedAt: now,
+          },
+          viewsMainData,
+          snapshot,
+        ),
+      );
     });
 
     logOpsSuccess({

@@ -93,11 +93,8 @@ describe('buildFromDefaults: 全フィールド網羅チェック', () => {
     expect(config.businessDay?.calcBufferMinutes).toBe(DEFAULT_CALC_BUSINESS_DATE_BUFFER_MINUTES);
   });
 
-  test('businessHoursStyles が defaults と一致', () => {
-    expect(config.businessHoursStyles).toBeDefined();
-    expect(config.businessHoursStyles!.weekday.openMinute).toBe(DEFAULT_BUSINESS_HOURS_STYLES.weekday.openMinute);
-    expect(config.businessHoursStyles!.closed.isClosed).toBe(true);
-    expect(Object.keys(config.businessHoursStyles!)).toEqual(Object.keys(DEFAULT_BUSINESS_HOURS_STYLES));
+  test('buildFromDefaults は businessHoursStyles を含まない', () => {
+    expect((config as Record<string, unknown>).businessHoursStyles).toBeUndefined();
   });
 
   test('billing 系が defaults と一致', () => {
@@ -180,12 +177,12 @@ describe('getter 関数: nullable 対応', () => {
 // 3. Emulator テスト: Firestore 値のマージ
 // =====================================================================
 describe('getStoreConfig with Firestore (emulator)', () => {
-  const hasFirestoreEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
-  const itWithEmulator = hasFirestoreEmulator ? it : it.skip;
+  const runEmulatorTests = process.env.RUN_EMULATOR_TESTS === '1';
+  const itWithEmulator = runEmulatorTests ? it : it.skip;
   const db = getFirestore();
 
   beforeEach(async () => {
-    if (!hasFirestoreEmulator) return;
+    if (!runEmulatorTests) return;
     warnSpy.mockClear();
     const configRef = db.collection('storeMeta').doc('config');
     const snap = await configRef.get();
@@ -390,20 +387,6 @@ describe('getStoreConfig with Firestore (emulator)', () => {
     expect(config.businessDay?.calcBufferMinutes).toBe(120);
   });
 
-  itWithEmulator('businessHoursStyles を Firestore から上書きできる', async () => {
-    await db.collection('storeMeta').doc('config').set({
-      businessHoursStyles: {
-        weekday: { styleId: 'weekday', openMinute: 600, closeMinute: 1440, isClosed: false },
-        closed: { styleId: 'closed', openMinute: 0, closeMinute: 0, isClosed: true },
-      },
-    });
-
-    const config = await getStoreConfig(db);
-    expect(config.businessHoursStyles?.weekday.openMinute).toBe(600);
-    expect(config.businessHoursStyles?.weekday.closeMinute).toBe(1440);
-    expect(config.businessHoursStyles?.closed.isClosed).toBe(true);
-  });
-
   itWithEmulator('全フィールド同時上書き: config 全体が正しくマージされる', async () => {
     await db.collection('storeMeta').doc('config').set({
       features: { dualWriteEnabled: true, settlementAggregatorEnabled: false },
@@ -456,21 +439,32 @@ describe('getStoreConfig with Firestore (emulator)', () => {
 });
 
 // =====================================================================
-// 4. businessHoursStyles 個別テスト
+// 4. getBusinessHoursByStyleId (businessStyles 正本)
 // =====================================================================
 describe('getBusinessHoursByStyleId (styles.ts)', () => {
-  const hasFirestoreEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
-  const itWithEmulator = hasFirestoreEmulator ? it : it.skip;
+  const runEmulatorTests = process.env.RUN_EMULATOR_TESTS === '1';
+  const itWithEmulator = runEmulatorTests ? it : it.skip;
   const db = getFirestore();
 
   beforeEach(async () => {
-    if (!hasFirestoreEmulator) return;
-    const configRef = db.collection('storeMeta').doc('config');
-    const snap = await configRef.get();
-    if (snap.exists) await configRef.delete();
+    if (!runEmulatorTests) return;
+    for (const id of ['config', 'businessStyles']) {
+      const ref = db.collection('storeMeta').doc(id);
+      const snap = await ref.get();
+      if (snap.exists) await ref.delete();
+    }
   });
 
-  itWithEmulator('storeMeta/config 未存在時、デフォルト styles から取得できる', async () => {
+  itWithEmulator('storeMeta/businessStyles 未存在時は throw', async () => {
+    const { getBusinessHoursByStyleId } = await import('../../src/shared/businessHours/services/styles');
+    await expect(getBusinessHoursByStyleId('weekday')).rejects.toThrow();
+  });
+
+  itWithEmulator('businessStyles から styleId の営業時間を取得できる', async () => {
+    const { buildDefaultBusinessStyles } = await import('../../src/shared/config/businessStyles');
+    const defaults = buildDefaultBusinessStyles();
+    await db.collection('storeMeta').doc('businessStyles').set(defaults);
+
     const { getBusinessHoursByStyleId } = await import('../../src/shared/businessHours/services/styles');
     const style = await getBusinessHoursByStyleId('weekday');
     expect(style.styleId).toBe('weekday');
@@ -478,7 +472,12 @@ describe('getBusinessHoursByStyleId (styles.ts)', () => {
   });
 
   itWithEmulator('存在しない styleId で throw', async () => {
+    const { buildDefaultBusinessStyles } = await import('../../src/shared/config/businessStyles');
+    await db.collection('storeMeta').doc('businessStyles').set(buildDefaultBusinessStyles());
+
     const { getBusinessHoursByStyleId } = await import('../../src/shared/businessHours/services/styles');
-    await expect(getBusinessHoursByStyleId('nonexistent')).rejects.toThrow('Unknown styleId');
+    await expect(getBusinessHoursByStyleId('nonexistent')).rejects.toThrow(
+      'storeMeta/businessStyles.styles.nonexistent not found'
+    );
   });
 });

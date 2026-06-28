@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_prize_participant_count.dart';
 
 class PrizeSetupPage extends StatefulWidget {
   final String tournamentId;
@@ -207,8 +208,8 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
     
     print('=== End Snapshot デバッグ ===');
     
-    // デフォルトのプライズ受け取り人数を計算
-    final totalParticipants = entries + reentries;
+    // デフォルトのプライズ受け取り人数を計算（entries + reentries。置きバケ含む）
+    final totalParticipants = resolveTournamentPrizeParticipantCount(_mainViewData);
     _prizeReceiverCount = ((totalParticipants * (StoreConfigService.instance.latestData?.tournamentPrizeReceiverPercentage ?? kDefaultTournamentPrizeReceiverPercentage)) / 100).round();
     if (_prizeReceiverCount < 1) _prizeReceiverCount = 1;
     if (_prizeReceiverCount > 100) _prizeReceiverCount = 100;
@@ -279,45 +280,40 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
         _errorMessage = null;
       });
       
-      // プライズ受け取り人数とusersフィールドの個数をチェック
-      final usersListDoc = await FirebaseFirestore.instance
+      // プライズ受け取り人数と参加人数（entries + reentries。置きバケ含む）をチェック
+      final mainViewDoc = await FirebaseFirestore.instance
           .collection('scheduledTournaments')
           .doc(widget.tournamentId)
           .collection('views')
-          .doc('usersList')
+          .doc('main')
           .get();
-      
-      if (usersListDoc.exists) {
-        final usersListData = usersListDoc.data();
-        final users = usersListData?['users'];
-        
-        if (users is Map) {
-          final usersCount = users.length;
-          
-          if (_prizeReceiverCount > usersCount) {
-            // エラーダイアログを表示
-            if (mounted) {
-              await showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('エラー'),
-                  content: Text(
-                    'プライズ受け取り人数（$_prizeReceiverCount人）が'
-                    '参加者数（$usersCount人）を上回っています。\n'
-                    'プライズ受け取り人数を参加者数以下に設定してください。',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('OK'),
-                    ),
-                  ],
+
+      final mainViewData = mainViewDoc.exists
+          ? Map<String, dynamic>.from(mainViewDoc.data() as Map)
+          : null;
+      final participantCount = resolveTournamentPrizeParticipantCount(mainViewData);
+
+      if (_prizeReceiverCount > participantCount) {
+        if (mounted) {
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('エラー'),
+              content: Text(
+                'プライズ受け取り人数（$_prizeReceiverCount人）が'
+                '参加者数（$participantCount人）を上回っています。\n'
+                'プライズ受け取り人数を参加者数以下に設定してください。',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
                 ),
-              );
-            }
-            return;
-          }
+              ],
+            ),
+          );
         }
+        return;
       }
       
       // プライズデータを準備

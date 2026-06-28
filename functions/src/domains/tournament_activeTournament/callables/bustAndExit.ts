@@ -14,6 +14,7 @@ import {
 } from '../lib/syncLinkedOkibakeOnNormalBust';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { assertTableDeviceCanAccessTable } from '../../../table_device/lib/shared';
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 
 // 入力データの検証スキーマ
 const bustAndExitSchema = z.object({
@@ -162,6 +163,7 @@ export const bustAndExit = onCall(async (request) => {
 
     const viewsMainData = viewsMainDoc.data()!;
     const currentPlayersBusted = viewsMainData.playersBusted || 0;
+    const snapshot = tournamentDoc.data()?.snapshot ?? {};
 
     // bustedUser を取得（存在しない場合は空オブジェクトをデフォルトとして使用）
     const bustedData = bustedDoc.exists ? bustedDoc.data()! : { bustedUser: {} };
@@ -205,10 +207,17 @@ export const bustAndExit = onCall(async (request) => {
       });
 
       // 2. scheduledTournaments/views/mainを更新
-      transaction.update(viewsMainRef, {
-        playersBusted: currentPlayersBusted + 1,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      transaction.update(
+        viewsMainRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            playersBusted: currentPlayersBusted + 1,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          viewsMainData,
+          snapshot,
+        ),
+      );
 
       // 3. bustedドキュメントに退席情報を追加（merge: true で存在しない場合は自動作成）
       const updatedBustedUser = {

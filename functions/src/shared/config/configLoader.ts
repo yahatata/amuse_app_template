@@ -33,7 +33,6 @@ import {
   DEFAULT_TASK_CLOSE_OFFSET_MINUTES,
   DEFAULT_TASK_OPEN_OFFSET_MINUTES,
   DEFAULT_ALREADY_RUNNING_DIFFERENT_DATE_RECHECK_MINUTES,
-  DEFAULT_BUSINESS_HOURS_STYLES,
   DEFAULT_CATEGORY_PAYMENT_METHODS,
   DEFAULT_CATEGORY_ORDER,
   DEFAULT_POINT_PRIORITY,
@@ -195,7 +194,6 @@ export function buildFromDefaults(): StoreConfig {
     businessDay: {
       calcBufferMinutes: DEFAULT_CALC_BUSINESS_DATE_BUFFER_MINUTES,
     },
-    businessHoursStyles: { ...DEFAULT_BUSINESS_HOURS_STYLES },
     billing: {
       entranceFee: DEFAULT_ENTRANCE_FEE,
       entranceFeeDescription: DEFAULT_ENTRANCE_FEE_DESCRIPTION,
@@ -460,19 +458,7 @@ export function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
     fb('businessDay.calcBufferMinutes', 'field_missing', result.businessDay!.calcBufferMinutes);
   }
 
-  // businessHoursStyles - 複雑なため一旦デフォルトを優先（部分マージは省略）
-  const bhs = raw.businessHoursStyles as Record<string, unknown> | undefined;
-  if (bhs && typeof bhs === 'object' && Object.keys(bhs).length > 0) {
-    const merged: Record<string, { styleId: string; openMinute: number; closeMinute: number; isClosed: boolean }> = { ...DEFAULT_BUSINESS_HOURS_STYLES };
-    for (const k of ['weekday', 'weekendHoliday', 'event', 'allDay', 'closed']) {
-      const v = bhs[k] as Record<string, unknown> | undefined;
-      if (v && typeof v.styleId === 'string' && typeof v.openMinute === 'number' && typeof v.closeMinute === 'number' && typeof v.isClosed === 'boolean') {
-        merged[k] = { styleId: v.styleId, openMinute: v.openMinute, closeMinute: v.closeMinute, isClosed: v.isClosed };
-      }
-    }
-    result.businessHoursStyles = merged;
-    fromConfig.push('businessHoursStyles');
-  }
+  // businessHoursStyles: storeMeta/businessStyles が正本のため config では読み取らない
 
   // billing
   const billing = raw.billing as Record<string, unknown> | undefined;
@@ -770,20 +756,7 @@ export function mergeConfigForUpsert(
     calcBufferMinutes: typeof bdEx?.calcBufferMinutes === 'number' ? bdEx.calcBufferMinutes : bdDef.calcBufferMinutes,
   };
 
-  // businessHoursStyles
-  const bhsDef = defaults.businessHoursStyles!;
-  const bhsEx = ex.businessHoursStyles as Record<string, unknown> | undefined;
-  const bhsMerged: Record<string, unknown> = {};
-  for (const k of ['weekday', 'weekendHoliday', 'event', 'allDay', 'closed']) {
-    const vEx = bhsEx?.[k] as Record<string, unknown> | undefined;
-    const vDef = bhsDef[k] as { styleId: string; openMinute: number; closeMinute: number; isClosed: boolean };
-    if (vEx && typeof vEx.styleId === 'string' && typeof vEx.openMinute === 'number' && typeof vEx.closeMinute === 'number' && typeof vEx.isClosed === 'boolean') {
-      bhsMerged[k] = vEx;
-    } else {
-      bhsMerged[k] = vDef;
-    }
-  }
-  out.businessHoursStyles = bhsMerged;
+  // businessHoursStyles: storeMeta/businessStyles が正本のため config upsert 対象外
 
   // billing
   const bilDef = defaults.billing!;
@@ -815,7 +788,7 @@ export function mergeConfigForUpsert(
     ? ex.linePlan
     : defaults.linePlan;
 
-  // shift（requiredStaffByTimeSlot は storeMeta/requiredStaffByTimeSlot に分離済みのため config には含めない）
+  // shift（requiredStaffByTimeSlot は storeMeta/businessStyles が正本のため config には含めない）
   const shiftDef = defaults.shift!;
   const shiftEx = ex.shift as Record<string, unknown> | undefined;
   out.shift = {

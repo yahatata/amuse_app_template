@@ -5,7 +5,7 @@ import 'package:holiday_jp/holiday_jp.dart' as holiday_jp;
 import 'shift_repository.dart';
 import 'shiftHomePage.dart'; // BusinessHours型を使用するため
 import '../Utils/time_converter.dart';
-import '../services/store_config_service.dart';
+import '../services/business_styles_service.dart';
 import '../services/store_config_defaults.dart';
 import 'utils/business_hours_style_labels.dart';
 
@@ -52,6 +52,14 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
     super.dispose();
   }
   
+  /// storeMeta/businessStyles から styleId の営業時間を取得（未ロード時は defaults）
+  Map<String, dynamic>? _businessHoursStyleFor(String styleId) {
+    final fromBusinessStyles =
+        BusinessStylesService.instance.businessHoursStyles[styleId];
+    if (fromBusinessStyles != null) return fromBusinessStyles;
+    return kDefaultBusinessHoursStyles[styleId];
+  }
+
   /// businessHoursMonthlyMap を snapshot 購読（保存後のUI更新はここで反映）
   void _subscribeBusinessHours() {
     _businessHoursSubscription?.cancel();
@@ -443,7 +451,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                           int openMinute;
                           int closeMinute;
                           if (data.styleId != null) {
-                            final styleData = (StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults()).getBusinessHoursByStyleId(data.styleId!);
+                            final styleData = _businessHoursStyleFor(data.styleId!);
                             if (styleData != null) {
                               openMinute = styleData['openMinute'] as int;
                               closeMinute = styleData['closeMinute'] as int;
@@ -498,7 +506,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                                           : 'weekendHoliday';
                                       
                                       // スタイルから営業時間を取得
-                                      final styleData = (StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults()).getBusinessHoursByStyleId(determinedStyleId);
+                                      final styleData = _businessHoursStyleFor(determinedStyleId);
                                       if (styleData != null) {
                                         startTime = minutesToTimeOfDay(styleData['openMinute'] as int);
                                         endTime = minutesToTimeOfDay(styleData['closeMinute'] as int);
@@ -596,7 +604,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
           // スタイルが選択されている場合、営業時間を表示用に取得
           String? displayTimeRange;
           if (selectedStyleId != null) {
-            final styleData = (StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults()).getBusinessHoursByStyleId(selectedStyleId!);
+            final styleData = _businessHoursStyleFor(selectedStyleId!);
             if (styleData != null) {
               final openMinute = styleData['openMinute'] as int;
               final closeMinute = styleData['closeMinute'] as int;
@@ -691,7 +699,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                     ? null
                     : () {
                         if (selectedStyleId == null) return;
-                        final styleData = (StoreConfigService.instance.latestData ?? StoreConfigData.fromDefaults()).getBusinessHoursByStyleId(selectedStyleId!);
+                        final styleData = _businessHoursStyleFor(selectedStyleId!);
                         if (styleData == null) return;
                         final openMinute = styleData['openMinute'] as int;
                         final closeMinute = styleData['closeMinute'] as int;

@@ -1,11 +1,34 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-// 削除されたファイルへの参照を削除:
 // import '../model/runtime_main.dart';
 // import '../repositories/tournament_repo.dart';
+import 'package:amuse_app_template/tournament/active/utils/blind_stage_display_helpers.dart';
+import 'package:amuse_app_template/tournament/active/utils/blind_avg_stack_display_helpers.dart';
+import 'package:amuse_app_template/tournament/active/utils/blind_timer_display_helpers.dart';
 import 'package:amuse_app_template/tournament/active/services/stage_builder.dart';
 import 'package:amuse_app_template/tournament/active/services/server_time_helper.dart';
 import 'package:amuse_app_template/tournament/active/widgets/display/timer_widget.dart';
+
+/// ブラインドタイマー表示前にサーバー時刻オフセットを取得する。
+@visibleForTesting
+Future<void> initializeBlindTimerServerTimeOffset({
+  Future<Duration?> Function()? getServerOffset,
+  void Function(String message)? logWarning,
+}) async {
+  final fetchOffset = getServerOffset ?? ServerTimeHelper.getServerOffset;
+  final log = logWarning ?? debugPrint;
+
+  try {
+    final offset = await fetchOffset();
+    if (offset == null) {
+      log('BlindTimerPage: server time offset unavailable, using device time');
+    }
+  } catch (e, st) {
+    log('BlindTimerPage: failed to initialize server time offset: $e\n$st');
+  }
+}
 
 /// ブラインドタイマー画面
 class BlindTimerPage extends StatefulWidget {
@@ -33,7 +56,13 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
   @override
   void initState() {
     super.initState();
+    _initializeServerTimeOffset();
     _loadTournamentData();
+  }
+
+  Future<void> _initializeServerTimeOffset() async {
+    await initializeBlindTimerServerTimeOffset();
+    if (!mounted) return;
   }
 
   Future<void> _loadTournamentData() async {
@@ -266,14 +295,11 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
         // 画面中央 - ブラインド情報
         _buildCenterContent(progress, runtimeData, screenSize),
 
-        // 画面左部 - 統計情報
+        // 画面左部 - 統計情報・プライズ
         _buildLeftContent(screenSize),
 
         // 画面右部 - 追加情報
         _buildRightContent(screenSize, progress, runtimeData),
-        
-        // 画面下部 - プライズ情報
-        _buildPrizeContent(screenSize),
         ],
       ),
     );
@@ -361,26 +387,131 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     return Positioned(
       left: 0,
       top: screenSize.height * 0.2,
-      child: Container(
-        width: screenSize.width * 0.25,
-        height: screenSize.height * 0.6,
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey[300]!),
-        ),
-        child: Column(
-          children: [
-            _buildLeftItem('Players', _getPlayerCount(), screenSize),
-            _buildLeftItem('総エントリー', _getTotalEntries(), screenSize),
-            _buildLeftItem('Addon', _getAddonCount(), screenSize),
-            _buildLeftItem('Avg Stack', _getAvgStack(), screenSize),
-            _buildLeftItem('Reentry', _getReentryCount(), screenSize),
-          ],
-        ),
+      child: StreamBuilder<DocumentSnapshot>(
+        stream: _firestore
+            .collection('scheduledTournaments')
+            .doc(widget.tournamentId)
+            .collection('views')
+            .doc('main')
+            .snapshots(),
+        builder: (context, snapshot) {
+          BlindPrizeDisplay? prizeDisplay;
+          if (snapshot.hasData && snapshot.data!.exists) {
+            final data = snapshot.data!.data() as Map<String, dynamic>?;
+            prizeDisplay = parseBlindPrizeDisplay(data);
+          }
+
+          final prizeGroups = prizeDisplay != null
+              ? groupBlindPrizeRanksForDisplay(prizeDisplay.ranks)
+              : const <BlindPrizeRankGroup>[];
+
+          return Container(
+            width: screenSize.width * 0.25,
+            height: screenSize.height * 0.6,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: Column(
+              children: [
+                _buildLeftItem(
+                  '残プレイヤー',
+                  _getPlayerCount(),
+                  screenSize,
+                ),
+                _buildLeftItem(
+                  'Avg Stack',
+                  _getAvgStack(),
+                  screenSize,
+                ),
+                if (prizeDisplay != null)
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final display = prizeDisplay!;
+                      return FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.topCenter,
+                        child: SizedBox(
+                          width: constraints.maxWidth,
+                          child: _buildLeftPrizeSection(
+                            display,
+                            screenSize,
+                            prizeGroups: prizeGroups,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildLeftItem(String label, String value, Size screenSize) {
+  Widget _buildLeftPrizeSection(
+    BlindPrizeDisplay prizeDisplay,
+    Size screenSize, {
+    required List<BlindPrizeRankGroup> prizeGroups,
+  }) {
+    final safeHeight = screenSize.height > 0 ? screenSize.height : 100.0;
+    final infoFontSize = safeHeight * 0.016;
+    final maxRankFontSize = safeHeight * 0.018;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+          child: Text(
+            'Prize',
+            style: TextStyle(
+              fontSize: safeHeight * 0.015,
+              color: Colors.grey[600],
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Text(
+            formatBlindPrizeReceiverCount(prizeDisplay.prizeReceiverCount),
+            style: TextStyle(
+              fontSize: infoFontSize,
+              fontWeight: FontWeight.bold,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Text(
+            formatBlindPrizePoolLine(prizeDisplay.prizePool),
+            style: TextStyle(
+              fontSize: infoFontSize,
+              fontWeight: FontWeight.bold,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(height: 4),
+        _RotatingBlindPrizeRankList(
+          prizeGroups: prizeGroups,
+          infoFontSize: infoFontSize,
+          maxRankFontSize: maxRankFontSize,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLeftItem(
+    String label,
+    String value,
+    Size screenSize,
+  ) {
     return Expanded(
       child: Container(
         decoration: BoxDecoration(
@@ -402,11 +533,18 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
               ),
             ),
             Center(
-              child: Text(
-                value,
-                style: TextStyle(
-                  fontSize: screenSize.height * 0.0375,
-                  fontWeight: FontWeight.bold,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: screenSize.height * 0.0375,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
             ),
@@ -429,9 +567,23 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
         child: Column(
           children: [
             _buildRightItem('Total Time', _getTotalTime(runtimeData), screenSize),
-            _buildRightItem('レジストまでの残り時間', _getTimeToRegist(progress, runtimeData), screenSize),
-            _buildRightItem('Reentry情報', _getReentryInfo(), screenSize),
-            _buildRightItem('Addon情報', _getAddonInfo(), screenSize),
+            _buildRightItem(
+              'レジストまでの残り時間',
+              _getRegistrationStatusDisplay(runtimeData, progress),
+              screenSize,
+            ),
+            _buildRightItem(
+              'Reentry',
+              _getReentryConditionDisplay(),
+              screenSize,
+              compact: true,
+            ),
+            _buildRightItem(
+              'Addon',
+              _getAddonConditionDisplay(),
+              screenSize,
+              compact: true,
+            ),
             _buildRightItem('Next Break', _getNextBreak(progress, runtimeData), screenSize),
           ],
         ),
@@ -439,7 +591,16 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     );
   }
 
-  Widget _buildRightItem(String label, String value, Size screenSize) {
+  Widget _buildRightItem(
+    String label,
+    String value,
+    Size screenSize, {
+    bool compact = false,
+  }) {
+    final valueFontSize = compact
+        ? screenSize.height * 0.028
+        : screenSize.height * 0.0375;
+
     return Expanded(
       child: Container(
         decoration: BoxDecoration(
@@ -461,18 +622,48 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
               ),
             ),
             Center(
-              child: Text(
-                value,
-                style: TextStyle(
-                  fontSize: screenSize.height * 0.0375,
-                  fontWeight: FontWeight.bold,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: valueFontSize,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: compact ? 3 : 1,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: true,
                 ),
-                textAlign: TextAlign.center,
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Map<String, dynamic> get _snapshot =>
+      _tournamentData?['snapshot'] as Map<String, dynamic>? ?? {};
+
+  String _stripConditionPrefix(String formatted, String prefix) {
+    if (formatted.startsWith(prefix)) {
+      return formatted.substring(prefix.length);
+    }
+    return formatted;
+  }
+
+  String _getReentryConditionDisplay() {
+    return _stripConditionPrefix(
+      formatBlindReentryCondition(_snapshot),
+      'Reentry: ',
+    );
+  }
+
+  String _getAddonConditionDisplay() {
+    return _stripConditionPrefix(
+      formatBlindAddonCondition(_snapshot),
+      'Addon: ',
     );
   }
 
@@ -529,61 +720,7 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
   }
 
   String _getBlindValues(Map<String, dynamic>? stage) {
-    if (stage == null) return '-';
-    
-    switch (stage['type']) {
-      case 'level':
-        // stagesに埋め込まれたブラインド情報を取得
-        final sb = stage['sb'] as int?;
-        final bb = stage['bb'] as int?;
-        final ante = stage['ante'] as int?;
-        
-        if (sb != null && bb != null) {
-          if (ante != null && ante > 0) {
-            return '$sb / $bb / $ante';
-          } else {
-            return '$sb / $bb / 0';
-          }
-        }
-        
-        // ブラインド情報がない場合は仮の値
-        final lev = stage['lev'] as int? ?? 1;
-        final defaultSb = lev * 25;
-        final defaultBb = lev * 50;
-        final defaultAnte = lev * 5;
-        return '$defaultSb / $defaultBb / $defaultAnte';
-      case 'break':
-        return '- / - / -';
-      case 'regist':
-        return '-';
-      default:
-        return '-';
-    }
-  }
-
-  String _getTotalEntries() {
-    // main view データから取得
-    final entries = _mainViewData?['entries'] as int? ?? 0;
-    final reentries = _mainViewData?['reentries'] as int? ?? 0;
-    return (entries + reentries).toString();
-  }
-
-  String _getReentryCount() {
-    // main view データから取得
-    final reentries = _mainViewData?['reentries'] as int? ?? 0;
-    return reentries.toString();
-  }
-
-  String _getAddonCount() {
-    // main view データから取得
-    final addons = _mainViewData?['addons'] as int? ?? 0;
-    return addons.toString();
-  }
-
-  String _getAvgStack() {
-    // main view データから取得
-    final avgStack = _mainViewData?['avgStack'] as int? ?? 0;
-    return avgStack.toString();
+    return formatBlindValuesFromStage(stage);
   }
 
   String _getPlayerCount() {
@@ -596,6 +733,10 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     final playersBusted = _mainViewData?['playersBusted'] as int? ?? 0;
     final yy = entries + reentries - playersBusted;
     return '$yy/$playersIn';
+  }
+
+  String _getAvgStack() {
+    return formatBlindAvgStack(_mainViewData?['avgStack']);
   }
 
   String _getTotalTime(Map<String, dynamic> runtimeData) {
@@ -632,32 +773,6 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     final seconds = elapsedSec % 60;
     
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
-  String _getReentryInfo() {
-    final snapshot = _tournamentData?['snapshot'] as Map<String, dynamic>? ?? {};
-    final isReentry = snapshot['isReentry'] as bool? ?? false;
-    final maxReentries = snapshot['maxReentriesPerPlayer'] as int?;
-    
-    if (!isReentry) {
-      return 'Reentry不可';
-    } else if (maxReentries == null) {
-      return '無制限';
-    } else {
-      return '$maxReentries回まで';
-    }
-  }
-
-  String _getAddonInfo() {
-    final snapshot = _tournamentData?['snapshot'] as Map<String, dynamic>? ?? {};
-    final isAddon = snapshot['isAddon'] as bool? ?? false;
-    final addonStack = snapshot['addonStack'] as int?;
-    
-    if (!isAddon) {
-      return 'Addon不可';
-    } else {
-      return '${addonStack ?? 0}';
-    }
   }
 
   String _getNextBreak(StageProgress progress, Map<String, dynamic> runtimeData) {
@@ -699,167 +814,138 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     return '-';
   }
 
-  String _getTimeToRegist(StageProgress progress, Map<String, dynamic> runtimeData) {
-    final stages = (runtimeData['stages'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final currentIndex = progress.currentStageIndex;
-    
-    // 開始前の場合
-    if (progress.isNotStarted) {
-      return '-';
-    }
-    
-    // registステージを探す
-    int registIndex = -1;
-    for (int i = 0; i < stages.length; i++) {
-      if (stages[i]['type'] == 'regist') {
-        registIndex = i;
-        break;
-      }
-    }
-    
-    // registステージが見つからない場合
-    if (registIndex == -1) {
-      return '-';
-    }
-    
-    // すでにregistステージを通過している場合
-    if (currentIndex >= registIndex) {
-      return 'レジスト済み';
-    }
-    
-    // registステージまでの残り時間を計算
-    int timeToRegist = progress.remainingSec;
-    
-    // 現在のステージの次からregistステージの前まで加算
-    for (int i = currentIndex + 1; i < registIndex; i++) {
-      final stageDuration = stages[i]['durationSec'] as int? ?? 0;
-      timeToRegist += stageDuration;
-    }
-    
-    // XX:YY形式にフォーマット
-    final minutes = timeToRegist ~/ 60;
-    final seconds = timeToRegist % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  String _getRegistrationStatusDisplay(
+    Map<String, dynamic> runtimeData,
+    StageProgress progress,
+  ) {
+    final startedAt = parseBlindStartedAt(runtimeData['startedAt']);
+
+    return formatBlindRegistrationStatus(
+      registrationOffsetSec: calculateBlindRegistrationOffsetSec(
+        startAt: parseBlindStartAt(_tournamentData?['startAt']),
+        regEndAt: parseBlindRegEndAt(_tournamentData?['regEndAt']),
+      ),
+      tournamentElapsedSec: startedAt == null ? null : progress.elapsedSec,
+      status: _tournamentData?['status'] as String?,
+      registAt: parseBlindRegistAt(runtimeData['registAt']),
+    );
+  }
+}
+
+class _RotatingBlindPrizeRankList extends StatefulWidget {
+  const _RotatingBlindPrizeRankList({
+    required this.prizeGroups,
+    required this.infoFontSize,
+    required this.maxRankFontSize,
+  });
+
+  final List<BlindPrizeRankGroup> prizeGroups;
+  final double infoFontSize;
+  final double maxRankFontSize;
+
+  @override
+  State<_RotatingBlindPrizeRankList> createState() =>
+      _RotatingBlindPrizeRankListState();
+}
+
+class _RotatingBlindPrizeRankListState
+    extends State<_RotatingBlindPrizeRankList> {
+  Timer? _rotationTimer;
+  int _pageIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _restartRotationIfNeeded();
   }
 
-  Widget _buildPrizeContent(Size screenSize) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: _firestore
-          .collection('scheduledTournaments')
-          .doc(widget.tournamentId)
-          .collection('views')
-          .doc('main')
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return const SizedBox.shrink();
-        }
+  @override
+  void didUpdateWidget(covariant _RotatingBlindPrizeRankList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!blindPrizeRankGroupsEqual(
+      oldWidget.prizeGroups,
+      widget.prizeGroups,
+    )) {
+      _pageIndex = 0;
+      _restartRotationIfNeeded();
+    }
+  }
 
-        final data = snapshot.data!.data() as Map<String, dynamic>?;
-        final prizeReceiverCount = data?['prizeReceiverCount'] as int?;
+  void _restartRotationIfNeeded() {
+    _rotationTimer?.cancel();
+    _rotationTimer = null;
 
-        // prizeReceiverCountが存在しない場合は表示しない
-        if (prizeReceiverCount == null || prizeReceiverCount <= 0) {
-          return const SizedBox.shrink();
-        }
+    final pageCount = blindPrizeRankListPageCount(widget.prizeGroups.length);
+    if (pageCount <= 1) return;
 
-        // プライズ情報を取得
-        final prizes = <Map<String, dynamic>>[];
-        for (int i = 1; i <= prizeReceiverCount; i++) {
-          final prizeKey = '${i}stPrize';
-          final prizeValue = data?[prizeKey];
-          if (prizeValue != null) {
-            prizes.add({
-              'rank': i,
-              'prize': prizeValue,
-            });
+    _rotationTimer = Timer.periodic(
+      kBlindPrizeRankListRotationInterval,
+      (_) {
+        if (!mounted) return;
+        setState(() {
+          final totalPages = blindPrizeRankListPageCount(
+            widget.prizeGroups.length,
+          );
+          if (totalPages <= 1) {
+            _pageIndex = 0;
+            return;
           }
-        }
-
-        if (prizes.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
-        // 画面サイズの安全性チェック
-        final safeWidth = screenSize.width > 0 ? screenSize.width : 100.0;
-        final safeHeight = screenSize.height > 0 ? screenSize.height : 100.0;
-        
-        // 枠のサイズを計算（個数によって横幅を調整）
-        // 余白を考慮して安全性を向上（左右に各1%の余白）
-        final padding = safeWidth * 0.01;
-        final availableWidth = safeWidth - (padding * 2);
-        final prizeHeight = safeHeight * 0.15;
-
-        return Positioned(
-          left: 0,
-          bottom: 0,
-          child: Container(
-            width: safeWidth,
-            height: prizeHeight,
-            padding: EdgeInsets.symmetric(horizontal: padding),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey[300]!),
-              color: Colors.white,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.max,
-              children: prizes.asMap().entries.map((entry) {
-                final index = entry.key;
-                final prize = entry.value;
-                final isLast = index == prizes.length - 1;
-                
-                return Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: isLast 
-                          ? null 
-                          : Border(
-                              right: BorderSide(color: Colors.grey[300]!),
-                            ),
-                    ),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              '${prize['rank']}stPrize',
-                              style: TextStyle(
-                                fontSize: safeHeight * 0.02,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Flexible(
-                            child: Text(
-                              '¥${prize['prize']}',
-                              style: TextStyle(
-                                fontSize: safeHeight * 0.025,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.amber[700],
-                              ),
-                              textAlign: TextAlign.center,
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        );
+          _pageIndex = (_pageIndex + 1) % totalPages;
+        });
       },
     );
   }
 
+  @override
+  void dispose() {
+    _rotationTimer?.cancel();
+    super.dispose();
+  }
 
+  @override
+  Widget build(BuildContext context) {
+    final visibleGroups = visibleBlindPrizeRankGroupsForPage(
+      widget.prizeGroups,
+      _pageIndex,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < visibleGroups.length; i++) ...[
+            if (i > 0) const SizedBox(height: 2),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    formatBlindPrizeRankLabel(
+                      visibleGroups[i].startRank,
+                      visibleGroups[i].endRank,
+                    ),
+                    style: TextStyle(
+                      fontSize: widget.infoFontSize,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  formatBlindPrizeAmount(visibleGroups[i].amount),
+                  style: TextStyle(
+                    fontSize: widget.maxRankFontSize,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.amber[700],
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }

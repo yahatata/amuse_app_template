@@ -185,7 +185,6 @@ describeOrSkip('Step 1 Emulator 検証: 単発作成・定期生成', () => {
         templateId: TEMPLATE_ID,
         startAt: START_AT,
         regEndAt: REG_END_AT,
-        freeze: false,
         storeId: 'test-store',
         tenantId: 'test-tenant',
       },

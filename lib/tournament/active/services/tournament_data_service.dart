@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/tournament/active/models/table_and_users.dart';
 import 'package:amuse_app_template/tournament/active/models/waiting_user_data.dart';
 import 'package:amuse_app_template/tournament/active/models/okibake_temporary_entry.dart';
+import 'package:amuse_app_template/tournament/active/utils/available_tables_filter.dart';
 
 class TournamentDataService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -252,7 +253,8 @@ class TournamentDataService {
   }
 
   /// 利用可能なテーブル（status: 'open'）を取得。
-  /// [tournamentId] の tablesSeat に既登録済みの卓は除外する。
+  /// [tournamentId] の tablesSeat に有効登録済み（`isEnabled != false`）の卓は除外する。
+  /// 論理削除済み（`isEnabled: false`）の卓は再追加候補に含める。
   Future<List<Map<String, dynamic>>> getAvailableTables(
     String tournamentId,
   ) async {
@@ -268,10 +270,11 @@ class TournamentDataService {
           .collection('tablesSeat')
           .get();
 
-      final registeredTableIds = tablesSeatSnap.docs
-          .map((doc) => doc.id)
-          .where((id) => id != 'waiting' && id != 'busted')
-          .toSet();
+      final registeredTableIds = activeRegisteredTableIdsFromTablesSeat(
+        tablesSeatSnap.docs.map(
+          (doc) => MapEntry(doc.id, doc.data()),
+        ),
+      );
 
       final tables = snapshot.docs
           .where((doc) => !registeredTableIds.contains(doc.id))

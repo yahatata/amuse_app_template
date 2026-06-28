@@ -64,6 +64,7 @@ describe('addon', () => {
     const snapshot: Record<string, unknown> = {
       name: templateName,
       entryFee: 1000,
+      startStack: 10000,
       isAddon,
       addonFee: isAddon ? addonFee : null,
       addonStack: isAddon ? addonStack : null,
@@ -90,6 +91,9 @@ describe('addon', () => {
       .doc('main')
       .set({
         addons: 0,
+        entries: 2,
+        reentries: 0,
+        playersBusted: 0,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
   }
@@ -160,6 +164,7 @@ describe('addon', () => {
         .get();
       const viewsMainData = viewsMainDoc.data()!;
       expect(viewsMainData.addons).toBe(1);
+      expect(viewsMainData.avgStack).toBe(10500);
     });
   });
 

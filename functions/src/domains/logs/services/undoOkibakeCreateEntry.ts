@@ -1,6 +1,7 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 
 export interface UndoOkibakeCreateEntryParams {
   tournamentId: string;
@@ -18,6 +19,8 @@ export async function undoOkibakeCreateEntry(
     .collection('okibakeTemporaryEntries')
     .doc(params.okibakeEntryId);
   const viewsMainRef = tournamentRef.collection('views').doc('main');
+  const tournamentSnap = await tournamentRef.get();
+  const snapshot = tournamentSnap.data()?.snapshot ?? {};
 
   try {
     await db.runTransaction(async (tx) => {
@@ -95,12 +98,19 @@ export async function undoOkibakeCreateEntry(
         updatedAt: now,
         updatedByDeviceId: params.rollBackByDeviceId,
       });
-      tx.update(viewsMainRef, {
-        entries: Math.max(0, entries - 1),
-        playersIn: Math.max(0, playersIn - 1),
-        waitingCount: Math.max(0, waitingCount - 1),
-        updatedAt: now,
-      });
+      tx.update(
+        viewsMainRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            entries: Math.max(0, entries - 1),
+            playersIn: Math.max(0, playersIn - 1),
+            waitingCount: Math.max(0, waitingCount - 1),
+            updatedAt: now,
+          },
+          viewsMainData,
+          snapshot,
+        ),
+      );
     });
 
     logOpsSuccess({

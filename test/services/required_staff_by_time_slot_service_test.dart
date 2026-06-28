@@ -1,5 +1,5 @@
 import 'package:amuse_app_template/StaffDate/utils/required_staff_resolution.dart';
-import 'package:amuse_app_template/services/required_staff_by_time_slot_service.dart';
+import 'package:amuse_app_template/services/required_staff_types.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -1,11 +1,10 @@
 /**
  * 営業スタイル定義
  *
- * storeMeta/config.businessHoursStyles から取得する。
- * SSoT は storeMeta/config（defaults.ts でデフォルト値を提供）。
+ * storeMeta/businessStyles から取得する（Phase 2 正本）。
  */
 
-import { getStoreConfig } from '../../config/configLoader';
+import { getBusinessStylesOrThrow } from '../../config/businessStylesLoader';
 
 export interface BusinessHoursStyle {
   styleId: string;
@@ -15,19 +14,23 @@ export interface BusinessHoursStyle {
 }
 
 /**
- * styleIdから営業時間を取得（storeMeta/config 経由）
+ * styleIdから営業時間を取得（storeMeta/businessStyles 経由）
  * @param styleId スタイルID
  * @returns 営業時間スタイル
  * @throws Error styleIdが存在しない場合
  */
 export async function getBusinessHoursByStyleId(styleId: string): Promise<BusinessHoursStyle> {
-  const config = await getStoreConfig();
-  const styles = config.businessHoursStyles ?? {};
-  const style = styles[styleId] as BusinessHoursStyle | undefined;
+  const config = await getBusinessStylesOrThrow();
+  const style = config.styles[styleId as keyof typeof config.styles];
   if (!style) {
-    throw new Error(`Unknown styleId: ${styleId}`);
+    throw new Error(`storeMeta/businessStyles.styles.${styleId} not found`);
   }
-  return style;
+  return {
+    styleId: style.styleId,
+    openMinute: style.openMinute,
+    closeMinute: style.closeMinute,
+    isClosed: style.isClosed,
+  };
 }
 
 /**

@@ -13,6 +13,7 @@ import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError'
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { resolveAddonLimitPerPlayer } from '../../../shared/tournament/resolveAddonLimitPerPlayer';
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 import { parseSeatKeyToTwoDigitSuffix } from '../lib/parseOkibakeSeatKey';
 import {
   assertOkibakeTournamentOperationPermission,
@@ -287,10 +288,17 @@ export const applyOkibakeAddon = onCall(async (request) => {
         updatedAt: nowTs,
       });
 
-      tx.update(viewsMainRef, {
-        addons: addonsBefore + 1,
-        updatedAt: nowTs,
-      });
+      tx.update(
+        viewsMainRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            addons: addonsBefore + 1,
+            updatedAt: nowTs,
+          },
+          viewsData,
+          snapshot,
+        ),
+      );
 
       const entryAfter = {
         ...(entryBefore ?? {}),

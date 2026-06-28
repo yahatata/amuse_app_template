@@ -11,6 +11,7 @@ import { getStoreConfig } from "../../../shared/config/configLoader";
 import { getCurrentBusinessDateKeyOrThrow } from "../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow";
 import { isRegEndAtPast } from "../../../shared/tournament/liffTournamentDateUtils";
 import { isTournamentStatusCancelled } from "../../../shared/tournament/mapScheduledTournamentForLiff";
+import { appendAvgStackToMainViewUpdate } from "../../../shared/tournament/calculateAvgStack";
 
 // 入力スキーマ
 const registerForTournamentSchema = z.object({
@@ -251,12 +252,19 @@ export const registerForTournament = onCall(async (request) => {
       // 全ての読み取りが完了したので、ここから書き込み操作を開始
       
       // 6. scheduledTournaments/views/mainを更新（初回エントリー）
-      transaction.update(viewsMainRef, {
-        playersIn: currentPlayersIn + 1,
-        entries: currentEntries + 1,
-        waitingCount: currentWaitingCount + 1,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      transaction.update(
+        viewsMainRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            playersIn: currentPlayersIn + 1,
+            entries: currentEntries + 1,
+            waitingCount: currentWaitingCount + 1,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          viewsMainData,
+          snapshot,
+        ),
+      );
       
       // 7. scheduledTournaments/tablesSeat/waitingを更新
       if (!waitingExists) {

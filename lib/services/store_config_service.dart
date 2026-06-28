@@ -45,7 +45,6 @@ class StoreConfigData {
   final List<String> pointPriority;
   final int pointABRoundingUnit;
   final int sideGameChipRoundingUnit;
-  final Map<String, Map<String, dynamic>> businessHoursStyles;
   final String linePlan;
 
   /// storeMeta/config.okibake.loginPromptMode（詳細仕様書 §14.15）
@@ -101,7 +100,6 @@ class StoreConfigData {
     List<String>? pointPriority,
     this.pointABRoundingUnit = kDefaultPointABRoundingUnit,
     this.sideGameChipRoundingUnit = kDefaultSideGameChipRoundingUnit,
-    Map<String, Map<String, dynamic>>? businessHoursStyles,
     this.linePlan = kDefaultLinePlan,
     this.okibakeLoginPromptMode = kDefaultOkibakeLoginPromptMode,
     this.shiftSubmissionStartDay = kDefaultShiftSubmissionStartDay,
@@ -118,10 +116,7 @@ class StoreConfigData {
     Map<int, List<double>>? tournamentPrizeDistribution,
     bool? tournamentLiffRegistrationEnabled,
     bool? tournamentLiffCalendarEnabled,
-  }) : businessHoursStyles =
-           businessHoursStyles ??
-           Map<String, Map<String, dynamic>>.from(kDefaultBusinessHoursStyles),
-       categoryPaymentMethods =
+  }) : categoryPaymentMethods =
            categoryPaymentMethods ??
            Map<String, List<String>>.from(kDefaultCategoryPaymentMethods),
        pointPriority =
@@ -151,10 +146,6 @@ class StoreConfigData {
            kDefaultTournamentLiffCalendarEnabled;
 
   static StoreConfigData fromDefaults() => StoreConfigData();
-
-  Map<String, dynamic>? getBusinessHoursByStyleId(String styleId) {
-    return businessHoursStyles[styleId];
-  }
 
   /// [onParseComplete] が指定された場合、パース完了時に fromConfig/fromDefaults を渡す。
   factory StoreConfigData.fromMap(
@@ -195,28 +186,6 @@ class StoreConfigData {
     double? parseDouble(dynamic v) => v is num ? v.toDouble() : null;
     bool? parseBool(dynamic v) => v is bool ? v : null;
     String? parseString(dynamic v) => v is String ? v : null;
-
-    Map<String, Map<String, dynamic>>? _parseBusinessHoursStyles(dynamic v) {
-      if (v is! Map) return null;
-      final result = <String, Map<String, dynamic>>{};
-      for (final e in v.entries) {
-        if (e.value is Map) {
-          final m = e.value as Map;
-          if (m['styleId'] is String &&
-              m['openMinute'] is num &&
-              m['closeMinute'] is num &&
-              m['isClosed'] is bool) {
-            result[e.key.toString()] = {
-              'styleId': m['styleId'] as String,
-              'openMinute': (m['openMinute'] as num).toInt(),
-              'closeMinute': (m['closeMinute'] as num).toInt(),
-              'isClosed': m['isClosed'] as bool,
-            };
-          }
-        }
-      }
-      return result.isNotEmpty ? result : null;
-    }
 
     Map<String, List<String>>? parseCategoryPaymentMethods(dynamic v) {
       if (v is! Map) return null;
@@ -358,9 +327,6 @@ class StoreConfigData {
       sideGameChipRoundingUnit:
           parseInt(roundingUnits?['sideGameChip']) ??
           kDefaultSideGameChipRoundingUnit,
-      businessHoursStyles: _parseBusinessHoursStyles(
-        data['businessHoursStyles'],
-      ),
       linePlan:
           (parseString(data['linePlan']) != null &&
               ['communication', 'light', 'standard'].contains(data['linePlan']))

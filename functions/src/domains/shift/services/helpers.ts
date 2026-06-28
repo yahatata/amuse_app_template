@@ -2,6 +2,10 @@ import { HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import type { Firestore } from "firebase-admin/firestore";
 import type { RequiredStaffByTimeSlotV2, RequiredStaffSlot } from "../../../shared/config/types";
+import {
+  businessStylesToRequiredStaffV2,
+  getBusinessStyles,
+} from "../../../shared/config/businessStylesLoader";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
@@ -71,48 +75,37 @@ export function validateWithinBusinessHours(
   }
 }
 
-/** R-09: storeMeta/requiredStaffByTimeSlot から v2 形式を取得。未設定・不正時は null（fallback しない） */
+/** storeMeta/businessStyles から v2 形式の byStyle を取得。未設定・不正時は null（fallback しない） */
 export async function getRequiredStaffByTimeSlot(
   firestore?: Firestore
 ): Promise<RequiredStaffByTimeSlotV2 | null> {
   const firestoreInstance = firestore ?? db;
-  const docRef = firestoreInstance.collection("storeMeta").doc("requiredStaffByTimeSlot");
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const doc = await docRef.get();
-      if (!doc.exists) {
+      const businessStyles = await getBusinessStyles(firestoreInstance);
+      if (!businessStyles) {
         return null;
       }
 
-      const data = doc.data();
-      if (
-        data?.version === 2 &&
-        data.byStyle &&
-        typeof data.byStyle === "object" &&
-        !Array.isArray(data.byStyle)
-      ) {
-        logOpsSuccess({
-          message: "getRequiredStaffByTimeSlot 成功",
-          functionEntry: "getRequiredStaffByTimeSlot",
-          operation: "config_read",
-        });
-        return {
-          version: 2,
-          byStyle: data.byStyle as Record<string, RequiredStaffSlot[]>,
-        };
-      }
-
-      return null;
+      const result = businessStylesToRequiredStaffV2(businessStyles);
+      logOpsSuccess({
+        message: "storeMeta/businessStyles 読み取り成功（必要人数）",
+        functionEntry: "getRequiredStaffByTimeSlot",
+        operation: "config_read",
+        context: { configDoc: "storeMeta/businessStyles" },
+      });
+      return result;
     } catch (err) {
       lastError = err;
       if (attempt < MAX_RETRIES) continue;
       logOpsError({
-        message: "requiredStaffByTimeSlot の読み取りに失敗",
+        message: "storeMeta/businessStyles の読み取りに失敗",
         functionEntry: "getRequiredStaffByTimeSlot",
         operation: "config_read",
         cause: lastError,
+        context: { configDoc: "storeMeta/businessStyles" },
       });
       return null;
     }

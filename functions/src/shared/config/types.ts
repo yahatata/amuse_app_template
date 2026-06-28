@@ -30,6 +30,24 @@ export const REQUIRED_STAFF_STYLE_IDS = [
 
 export type RequiredStaffStyleId = (typeof REQUIRED_STAFF_STYLE_IDS)[number];
 
+/** storeMeta/businessStyles の styleId（固定5種。RequiredStaffStyleId と同一） */
+export type BusinessStyleId = RequiredStaffStyleId;
+
+export interface BusinessStyleConfig {
+  styleId: BusinessStyleId;
+  openMinute: number;
+  closeMinute: number;
+  isClosed: boolean;
+  requiredStaffByTimeSlot: RequiredStaffSlot[];
+}
+
+/** storeMeta/businessStyles v2 スキーマ */
+export interface BusinessStylesConfigV2 {
+  version: 2;
+  styles: Record<BusinessStyleId, BusinessStyleConfig>;
+  updatedAt?: FirebaseFirestore.Timestamp;
+}
+
 export interface RequiredStaffByTimeSlotV2 {
   version: 2;
   byStyle: Record<string, RequiredStaffSlot[]>;
@@ -73,7 +91,6 @@ export interface StoreConfig {
   businessDay?: {
     calcBufferMinutes?: number;
   };
-  businessHoursStyles?: Record<string, BusinessHoursStyle>;
   billing?: {
     entranceFee?: number;
     entranceFeeDescription?: string;

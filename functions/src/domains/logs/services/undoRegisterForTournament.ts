@@ -1,5 +1,6 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 
 export interface UndoRegisterForTournamentParams {
   tournamentId: string;
@@ -18,6 +19,8 @@ export interface UndoRegisterForTournamentParams {
 export async function undoRegisterForTournament(params: UndoRegisterForTournamentParams): Promise<void> {
   const db = getFirestore();
   const now = Timestamp.now();
+  const tournamentSnap = await db.collection('scheduledTournaments').doc(params.tournamentId).get();
+  const snapshot = tournamentSnap.data()?.snapshot ?? {};
 
   try {
     const billRef = params.billId ? db.collection('bills').doc(params.billId) : null;
@@ -96,12 +99,19 @@ export async function undoRegisterForTournament(params: UndoRegisterForTournamen
       }
 
       // 1. views/main を更新
-      transaction.update(mainViewRef, {
-        entries: Math.max(0, currentEntries - 1),
-        playersIn: Math.max(0, currentPlayersIn - 1),
-        waitingCount: Math.max(0, currentWaitingCount - (wasInWaiting ? 1 : 0)),
-        updatedAt: now,
-      });
+      transaction.update(
+        mainViewRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            entries: Math.max(0, currentEntries - 1),
+            playersIn: Math.max(0, currentPlayersIn - 1),
+            waitingCount: Math.max(0, currentWaitingCount - (wasInWaiting ? 1 : 0)),
+            updatedAt: now,
+          },
+          mainViewData,
+          snapshot,
+        ),
+      );
 
       // 2. waiting から削除（在籍していた場合）
       if (waitingDoc.exists && wasInWaiting) {

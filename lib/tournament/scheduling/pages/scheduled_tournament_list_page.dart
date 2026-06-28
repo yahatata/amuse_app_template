@@ -1088,7 +1088,6 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
         'templateId': templateId,
         'startAt': startAt.toIso8601String(),
         'regEndAt': regEndAt.toIso8601String(),
-        'freeze': false,
         'storeId': kDevPlaceholderStoreId,
         'tenantId': kDevPlaceholderTenantId,
       };

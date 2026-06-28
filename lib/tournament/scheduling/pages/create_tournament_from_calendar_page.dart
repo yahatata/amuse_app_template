@@ -742,7 +742,6 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
         'templateId': templateId,
         'startAt': startAt.toIso8601String(),
         'regEndAt': regEndAt.toIso8601String(),
-        'freeze': false,
         'storeId': kDevPlaceholderStoreId,
         'tenantId': kDevPlaceholderTenantId,
         if (selectedBusinessDateKey != null) 'selectedBusinessDateKey': selectedBusinessDateKey,

@@ -1,58 +1,46 @@
-# storeMeta/requiredStaffByTimeSlot（時間帯別必要人数）
+# storeMeta/requiredStaffByTimeSlot（廃止）
 
-R-09 で storeMeta/config から分離した専用ドキュメント。シフトの「必要十分」判定に使用する時間帯別の必要スタッフ数を保持する。
+> **Deprecated（Phase 3）**  
+> 正本は `storeMeta/businessStyles` に移行済みです。  
+> 本ドキュメントは旧構造の参照用です。運用・実装では `businessStyles` を参照してください。
 
-## パス
+## 旧パス
 
 `storeMeta/requiredStaffByTimeSlot`（単一ドキュメント）
 
-## スキーマ
+## 現行正本
 
-| フィールド | 型 | 意味 |
-|------------|-----|------|
-| data | Array<{ startHour, endHour, requiredCount }> | 時間帯別必要人数の配列 |
-| updatedAt | Timestamp | 最終更新日時（任意） |
+`storeMeta/businessStyles`（version 2）
 
-## 初期化
+各 styleId の `requiredStaffByTimeSlot` 配列に時間帯別必要人数を保持します。
 
-- `initializeStoreConfigCallable` 実行時に、storeMeta/config の補完と合わせて**未存在時のみ**作成される。
-- 管理者画面「storeMeta/config 初期セットアップ」ボタンで config（不足フィールド補完）と requiredStaffByTimeSlot（未存在時のみ作成）が実行される。
+```text
+storeMeta/businessStyles
+  version: 2
+  styles:
+    weekday:
+      requiredStaffByTimeSlot: [{ startHour, endHour, requiredCount }]
+    closed:
+      requiredStaffByTimeSlot: []  # 常に空
+```
 
-## 読み取り
+## 読み取り（現行）
 
-- **Functions**: `getRequiredStaffByTimeSlot()`（helpers.ts）が Firestore から直接読み取り。未存在時・読み取り失敗時（リトライ後も失敗）は defaults.ts の `DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT` にフォールバック。
-- **Flutter**: `RequiredStaffByTimeSlotService` が snapshot で購読。未存在時は `kDefaultRequiredStaffByTimeSlot` にフォールバック。読み取り失敗時は最後の成功値を維持。
+- **Functions**: `getBusinessStyles` / `getRequiredStaffByTimeSlot()`（businessStyles 経由）
+- **Flutter**: `BusinessStylesService` / `RequiredStaffByTimeSlotService`（facade）
 
-## フォールバック仕様
+旧 doc への fallback はありません。
 
-| 条件 | 戻り値 |
-|------|--------|
-| ドキュメント未存在 | defaults |
-| Firestore 読み取り失敗（リトライ後も失敗） | defaults |
-| data が配列でない | defaults |
-| data が空配列 `[]` | `[]`（不足判定を行わない） |
-| data の全要素が不正 | defaults |
+## 書き込み（現行）
 
-## 中央管理アプリとの関係
+- `saveRequiredStaffByTimeSlotCallable` → `storeMeta/businessStyles` のみ更新
+- `initializeStoreConfigCallable` → 旧 doc は**作成しない**
 
-`requiredStaffByTimeSlot` は中央管理アプリの Config 同期対象 6 件の 1 つでもある。
+## 中央管理アプリ
 
-用途:
+同期キーは `businessStyles` への移行を TODO（`docs/運用時資料/設定/storeMeta/中央管理アプリ連携.md` 参照）。
 
-- 中央の設定参照 UI
-- 店舗設定の運用確認時の比較材料
+## 関連資料
 
-店舗側で値を更新したあと、中央側でも新しい値を見たい場合は
-`設定 > 店舗 Config 同期` を再実行する。
-
-## 影響を受けるファイル
-
-| 種別 | ファイル | 役割 |
-|------|----------|------|
-| ts | functions/src/shared/config/defaults.ts | DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT 定義 |
-| ts | functions/src/domains/shift/services/helpers.ts | getRequiredStaffByTimeSlot() |
-| ts | functions/src/domains/storeMeta/callables/initializeStoreConfigCallable.ts | 初期化時作成 |
-| dart | lib/services/store_config_defaults.dart | kDefaultRequiredStaffByTimeSlot 定義 |
-| dart | lib/services/required_staff_by_time_slot_service.dart | 購読・latestData 提供 |
-| dart | lib/StaffDate/shiftHomePage.dart | RequiredStaffByTimeSlotService 参照 |
-| dart | lib/StaffDate/shiftDateDialog.dart | RequiredStaffByTimeSlotService 参照 |
+- `docs/config_migration/phase1/PHASE1_CONFIG_SCHEMA.md`（businessStyles セクション）
+- `docs/残タスク整理/11_requiredStaffByTimeSlot方針/02_changeSpec.md`（移行仕様）

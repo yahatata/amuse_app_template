@@ -11,6 +11,7 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { buildOkibakeTemporaryDisplayName } from '../lib/okibakeTemporaryDisplayName';
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import type { OkibakeAddonIntent } from '../types/okibake';
 
@@ -155,6 +156,7 @@ export const createOkibakeTemporaryEntry = onCall(async (request) => {
       }
 
       const tourData = tourSnap.data() ?? {};
+      const snapshot = tourData.snapshot ?? {};
       if (linkedUserId != null) {
         const okibakeSnap = await tx.get(tournamentRef.collection('okibakeTemporaryEntries'));
         for (const doc of okibakeSnap.docs) {
@@ -228,12 +230,19 @@ export const createOkibakeTemporaryEntry = onCall(async (request) => {
         updatedAt: nowTs,
       });
 
-      tx.update(viewsMainRef, {
-        entries: entries + 1,
-        playersIn: playersIn + 1,
-        waitingCount: waitingCount + 1,
-        updatedAt: nowTs,
-      });
+      tx.update(
+        viewsMainRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            entries: entries + 1,
+            playersIn: playersIn + 1,
+            waitingCount: waitingCount + 1,
+            updatedAt: nowTs,
+          },
+          viewsData,
+          snapshot,
+        ),
+      );
 
       const opPayload: Record<string, unknown> = {
         tournamentId,

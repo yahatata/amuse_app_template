@@ -16,9 +16,10 @@ class ScheduledTournamentSeatMap {
 
   static String? _asNullableString(Object? v) {
     if (v == null) return null;
-    if (v is String) return v.isEmpty ? null : v;
-    final s = v.toString();
-    return s.isEmpty ? null : s;
+    if (v is! String) return null;
+    final trimmed = v.trim();
+    if (trimmed.isEmpty) return null;
+    return trimmed;
   }
 
   /// [seatsFlat] から [seatNumber]（1 始まり）の 1 席分を [SeatData] にまとめる。
@@ -56,6 +57,26 @@ class ScheduledTournamentSeatMap {
     }
     return c;
   }
+
+  /// `seat*UserId` または `seat*OkibakeEntryId` が1つでもあれば true。
+  ///
+  /// Cloud Functions `removeTableFromTournament` の occupied 判定と同じ基準。
+  static bool hasOccupiedTournamentSeat(Map<String, dynamic> seatsFlat) {
+    for (final entry in seatsFlat.entries) {
+      final key = entry.key.toString();
+      if (!key.endsWith('UserId') && !key.endsWith('OkibakeEntryId')) {
+        continue;
+      }
+      if (_asNullableString(entry.value) != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// 卓の全席が空いているか（UserId / OkibakeEntryId いずれも未設定）。
+  static bool isTournamentTableEmpty(Map<String, dynamic> seatsFlat) =>
+      !hasOccupiedTournamentSeat(seatsFlat);
 
   /// `maxSeats` と seats フラットから卓の席数 N（1〜99）を求める。
   ///

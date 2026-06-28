@@ -276,7 +276,7 @@ export const DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT: Array<{
   { startHour: 10, endHour: 12, requiredCount: 3 },
 ];
 
-/** storeMeta/requiredStaffByTimeSlot の v2 初期値（initializeStoreConfigCallable 用） */
+/** businessStyles 初期値の weekday 等に使用（buildDefaultBusinessStyles 用） */
 export const DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2 = {
   version: 2 as const,
   byStyle: {
@@ -287,3 +287,9 @@ export const DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2 = {
     closed: [] as Array<{ startHour: number; endHour: number; requiredCount: number }>,
   },
 };
+
+// =============================================================================
+// storeMeta/businessStyles（営業スタイル + 必要人数統合）
+// =============================================================================
+
+export { DEFAULT_BUSINESS_STYLES_V2, buildDefaultBusinessStyles } from './businessStyles';

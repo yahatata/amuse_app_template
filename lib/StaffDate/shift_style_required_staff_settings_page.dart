@@ -1,9 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../Utils/time_converter.dart';
+import '../services/business_styles_service.dart';
 import '../services/required_staff_by_time_slot_service.dart';
 import '../services/store_config_defaults.dart';
-import '../services/store_config_service.dart';
 import 'shift_repository.dart';
 import 'utils/business_hours_style_labels.dart';
 import 'utils/required_staff_slot_validation.dart';
@@ -34,41 +36,42 @@ class _ShiftStyleRequiredStaffSettingsPageState
   Map<String, Map<String, dynamic>>? _businessHoursStylesSnapshot;
   Map<String, List<Map<String, int>>>? _requiredStaffByStyleSnapshot;
 
+  StreamSubscription<BusinessStylesDocStatus>? _businessStylesSubscription;
+
   @override
   void initState() {
     super.initState();
+    _businessStylesSubscription =
+        BusinessStylesService.instance.statusStream.listen((_) {
+      if (mounted) _loadInitialData();
+    });
     _loadInitialData();
   }
 
+  @override
+  void dispose() {
+    _businessStylesSubscription?.cancel();
+    super.dispose();
+  }
+
   void _loadInitialData() {
-    final config = StoreConfigService.instance.latestData;
-    if (config != null) {
+    final businessStyles = BusinessStylesService.instance.latest;
+
+    if (businessStyles != null) {
       _businessHoursStyles = Map<String, Map<String, dynamic>>.from(
-        config.businessHoursStyles.map(
+        businessStyles.businessHoursStyles.map(
           (key, value) => MapEntry(key, Map<String, dynamic>.from(value)),
         ),
       );
-    }
-
-    final v2 = RequiredStaffByTimeSlotService.instance.latestV2;
-    if (v2 != null) {
-      _requiredStaffByStyle = v2.byStyle.map(
+      _requiredStaffByStyle = businessStyles.requiredStaffByStyle.map(
         (key, value) => MapEntry(
           key,
           value.map((e) => Map<String, int>.from(e)).toList(),
         ),
       );
     } else {
-      final defaults = kDefaultRequiredStaffByTimeSlotV2['byStyle']
-          as Map<String, dynamic>;
-      _requiredStaffByStyle = defaults.map(
-        (key, value) => MapEntry(
-          key,
-          (value as List)
-              .map((e) => Map<String, int>.from(e as Map))
-              .toList(),
-        ),
-      );
+      _businessHoursStyles = {};
+      _requiredStaffByStyle = {};
     }
 
     for (final styleId in kBusinessHoursStyleIds) {
@@ -130,6 +133,7 @@ class _ShiftStyleRequiredStaffSettingsPageState
   Widget _sectionActionButtons({
     required bool isEditing,
     required bool isSaving,
+    required bool canEdit,
     required VoidCallback onEdit,
     required VoidCallback onSave,
     required VoidCallback onCancel,
@@ -145,7 +149,9 @@ class _ShiftStyleRequiredStaffSettingsPageState
               child: const Text('キャンセル'),
             ),
           ElevatedButton(
-            onPressed: isSaving ? null : (isEditing ? onSave : onEdit),
+            onPressed: isSaving || (!isEditing && !canEdit)
+                ? null
+                : (isEditing ? onSave : onEdit),
             child: Text(isEditing ? '保存' : '編集'),
           ),
         ],
@@ -328,6 +334,9 @@ class _ShiftStyleRequiredStaffSettingsPageState
   }
 
   Widget _buildBusinessHoursSection() {
+    final docStatus = BusinessStylesService.instance.docStatus;
+    final isDocReady = docStatus == BusinessStylesDocStatus.ready;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -339,13 +348,22 @@ class _ShiftStyleRequiredStaffSettingsPageState
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            const Text(
-              '各営業スタイルの営業時間を設定します。営業日編集で選択したスタイルに反映されます。',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
+            if (!isDocReady)
+              const Text(
+                '営業スタイル設定未完了（管理者画面から storeMeta 初期セットアップを実行してください）',
+                style: TextStyle(color: Colors.orange),
+              )
+            else
+              const Text(
+                '各営業スタイルの営業時間を設定します。営業日編集で選択したスタイルに反映されます。',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
             const SizedBox(height: 16),
             ...kBusinessHoursStyleIds.where((id) => id != 'closed').map((styleId) {
-              final style = _businessHoursStyles[styleId]!;
+              final style = _businessHoursStyles[styleId];
+              if (style == null) {
+                return const SizedBox.shrink();
+              }
               final openMinute = style['openMinute'] as int;
               final closeMinute = style['closeMinute'] as int;
 
@@ -378,6 +396,7 @@ class _ShiftStyleRequiredStaffSettingsPageState
             _sectionActionButtons(
               isEditing: _isEditingBusinessHours,
               isSaving: _isSavingStyles,
+              canEdit: isDocReady,
               onEdit: _startEditingBusinessHours,
               onSave: _saveBusinessHoursStyles,
               onCancel: _cancelEditingBusinessHours,
@@ -582,6 +601,7 @@ class _ShiftStyleRequiredStaffSettingsPageState
 
   Widget _buildRequiredStaffSection() {
     final docStatus = RequiredStaffByTimeSlotService.instance.docStatus;
+    final isDocReady = docStatus == RequiredStaffDocStatus.ready;
 
     return Card(
       child: Padding(
@@ -597,7 +617,7 @@ class _ShiftStyleRequiredStaffSettingsPageState
             if (docStatus == RequiredStaffDocStatus.docMissing ||
                 docStatus == RequiredStaffDocStatus.invalidFormat)
               const Text(
-                '必要人数設定未完了（保存すると v2 形式で作成されます）',
+                '必要人数設定未完了（管理者画面から storeMeta 初期セットアップを実行してください）',
                 style: TextStyle(color: Colors.orange),
               )
             else if (docStatus == RequiredStaffDocStatus.readError)
@@ -655,6 +675,7 @@ class _ShiftStyleRequiredStaffSettingsPageState
             _sectionActionButtons(
               isEditing: _isEditingRequiredStaff,
               isSaving: _isSavingRequiredStaff,
+              canEdit: isDocReady,
               onEdit: _startEditingRequiredStaff,
               onSave: _saveRequiredStaff,
               onCancel: _cancelEditingRequiredStaff,

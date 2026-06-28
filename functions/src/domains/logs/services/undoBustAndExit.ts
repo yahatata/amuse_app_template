@@ -1,6 +1,7 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 import {
   type FallbackSeatInput,
   isSeatSlotEmpty,
@@ -29,6 +30,8 @@ export interface UndoBustAndExitParams {
 export async function undoBustAndExit(params: UndoBustAndExitParams): Promise<void> {
   const db = getFirestore();
   const now = Timestamp.now();
+  const tournamentSnap = await db.collection('scheduledTournaments').doc(params.tournamentId).get();
+  const snapshot = tournamentSnap.data()?.snapshot ?? {};
   const seatNumStr = String(params.seatNumber).padStart(2, '0');
   const originalSeatKey = `seat${seatNumStr}`;
 
@@ -130,11 +133,18 @@ export async function undoBustAndExit(params: UndoBustAndExitParams): Promise<vo
       const currentPlayersBusted = mainViewData.playersBusted || 0;
       const currentPlayersIn = mainViewData.playersIn || 0;
 
-      transaction.update(mainViewRef, {
-        playersBusted: Math.max(0, currentPlayersBusted - 1),
-        playersIn: currentPlayersIn + 1,
-        updatedAt: now,
-      });
+      transaction.update(
+        mainViewRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            playersBusted: Math.max(0, currentPlayersBusted - 1),
+            playersIn: currentPlayersIn + 1,
+            updatedAt: now,
+          },
+          mainViewData,
+          snapshot,
+        ),
+      );
 
       const restoreSeatNumber = parseInt(restorePlan.seatSuffix, 10);
 

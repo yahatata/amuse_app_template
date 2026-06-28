@@ -17,6 +17,7 @@ import {
   assertOkibakeTournamentOperationPermission,
   assertTableDeviceCanAccessOkibakeEntry,
 } from '../lib/okibakeTableDevicePermission';
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 
 const bustOkibakeSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId は必須です'),
@@ -116,6 +117,8 @@ export const bustOkibakeTemporaryEntry = onCall(async (request) => {
       tournamentId,
       status: tournamentSnap.data()?.status as string | undefined,
     });
+
+    const snapshot = tournamentSnap.data()?.snapshot ?? {};
 
     const entryRef = tournamentRef.collection('okibakeTemporaryEntries').doc(okibakeEntryId);
     if (device.role === 'table') {
@@ -229,7 +232,8 @@ export const bustOkibakeTemporaryEntry = onCall(async (request) => {
           'TOURNAMENT_OKIBAKE_INVALID_STATUS'
         );
       }
-      const currentPlayersBusted = (viewsMainSnap.data()?.playersBusted as number | undefined) ?? 0;
+      const viewsMainData = viewsMainSnap.data() ?? {};
+      const currentPlayersBusted = (viewsMainData.playersBusted as number | undefined) ?? 0;
 
       const seats = ((tableSnap.data() ?? {}).seats ?? {}) as Record<string, unknown>;
       const seatOk = seats[`seat${suffix}OkibakeEntryId`];
@@ -260,10 +264,17 @@ export const bustOkibakeTemporaryEntry = onCall(async (request) => {
       };
       tx.update(entryRef, entryAfterPatch as UpdateData<DocumentData>);
 
-      tx.update(viewsMainRef, {
-        playersBusted: currentPlayersBusted + 1,
-        updatedAt: nowTs,
-      });
+      tx.update(
+        viewsMainRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            playersBusted: currentPlayersBusted + 1,
+            updatedAt: nowTs,
+          },
+          viewsMainData,
+          snapshot,
+        ),
+      );
 
       const entryAfter = { ...entryBefore, ...entryAfterPatch } as Record<string, unknown>;
 

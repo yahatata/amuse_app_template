@@ -5,6 +5,7 @@ import 'package:amuse_app_template/tournament/active/models/table_and_users.dart
 import 'package:amuse_app_template/tournament/active/services/tournament_data_service.dart';
 import 'package:amuse_app_template/tournament/active/services/seat_decision_logic.dart';
 import 'package:amuse_app_template/tournament/active/utils/reseat_participant_builder.dart';
+import 'package:amuse_app_template/tournament/active/utils/reseat_table_selection_helpers.dart';
 
 
 class ReseatAllDialog extends StatefulWidget {
@@ -25,6 +26,7 @@ class ReseatAllDialog extends StatefulWidget {
 
 class _ReseatAllDialogState extends State<ReseatAllDialog> {
   final List<String> _reseatTargetKeys = [];
+  final Set<String> _reseatTableIds = {};
   bool _isLoading = false;
   bool _isLoadingData = true;
   List<ReseatParticipant> _candidates = [];
@@ -34,6 +36,22 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
   Map<String, ReseatParticipant> get _candidateByKey => {
         for (final c in _candidates) c.selectionKey: c,
       };
+
+  ReseatTableSelectionValidation get _tableSelectionValidation =>
+      ReseatTableSelectionHelpers.validateReseatTableSelection(
+        targetParticipantCount: _reseatTargetKeys.length,
+        tables: _tournamentTables,
+        reseatTableIds: _reseatTableIds,
+      );
+
+  bool get _canExecuteReseat =>
+      _reseatTargetKeys.isNotEmpty && _tableSelectionValidation.canExecute;
+
+  List<TournamentTable> get _selectedTables =>
+      ReseatTableSelectionHelpers.filterTablesForReseat(
+        _tournamentTables,
+        _reseatTableIds,
+      );
 
   @override
   void initState() {
@@ -57,11 +75,14 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
                 title: const Text('全員リシート'),
                 content: SizedBox(
                   width: double.maxFinite,
-                  height: 400,
+                  height: 520,
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('リシート対象者を選択してください'),
-                      const SizedBox(height: 16),
+                      const Text('着席者は自動でリシート対象です。待機者は追加選択してください。'),
+                      const SizedBox(height: 8),
+                      _buildTableSelectionSection(),
+                      const SizedBox(height: 12),
                       Expanded(
                         child: Row(
                           children: [
@@ -82,7 +103,7 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
                     child: const Text('キャンセル'),
                   ),
                   ElevatedButton(
-                    onPressed: _isLoading || _reseatTargetKeys.isEmpty
+                    onPressed: _isLoading || !_canExecuteReseat
                         ? null
                         : _showConfirmationDialog,
                     child: const Text('リシート実行'),
@@ -173,6 +194,94 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
         _reseatTargetKeys.add(selectionKey);
       }
     });
+  }
+
+  void _toggleReseatTable(String tableId) {
+    setState(() {
+      if (_reseatTableIds.contains(tableId)) {
+        _reseatTableIds.remove(tableId);
+      } else {
+        _reseatTableIds.add(tableId);
+      }
+    });
+  }
+
+  Widget _buildTableSelectionSection() {
+    if (_isLoadingData) {
+      return const SizedBox(
+        height: 72,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_tournamentTables.isEmpty) {
+      return const Text(
+        '有効な卓がありません',
+        style: TextStyle(color: Colors.grey),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'リシート先の卓',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          '選択した卓だけに参加者を再配置します。未選択の卓には配置されません。',
+          style: TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 88,
+          child: ListView.builder(
+            itemCount: _tournamentTables.length,
+            itemBuilder: (context, index) {
+              final table = _tournamentTables[index];
+              final isSelected = _reseatTableIds.contains(table.tableId);
+
+              return Align(
+                alignment: Alignment.centerRight,
+                child: InkWell(
+                  onTap: _isLoading
+                      ? null
+                      : () => _toggleReseatTable(table.tableId),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('${table.name}（${table.maxSeats}席）'),
+                        const SizedBox(width: 8),
+                        Checkbox(
+                          value: isSelected,
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                          onChanged: _isLoading
+                              ? null
+                              : (_) => _toggleReseatTable(table.tableId),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        if (_tableSelectionValidation.message != null)
+          Text(
+            _tableSelectionValidation.message!,
+            style: const TextStyle(
+              color: Colors.red,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+          ),
+      ],
+    );
   }
 
   /// リシート対象者リストを構築
@@ -276,11 +385,11 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
       return const SizedBox.shrink();
     }
 
-    final availableSeats = _tournamentTables
-        .fold<int>(0, (sum, table) => sum + table.maxSeats);
-
+    final validation = _tableSelectionValidation;
+    final availableSeats = validation.selectedSeatCount;
     final selectedCount = _reseatTargetKeys.length;
-    final isOverCapacity = selectedCount > availableSeats;
+    final isOverCapacity = !validation.canExecute &&
+        validation.issue == ReseatTableSelectionIssue.insufficientSeats;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -301,11 +410,11 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
             ),
           ),
           const SizedBox(height: 8),
-          Text('利用可能座席数: $availableSeats席'),
-          Text('選択された人数: $selectedCount人'),
+          Text('選択した卓の座席数: $availableSeats席'),
+          Text('リシート対象者: $selectedCount人'),
           if (isOverCapacity)
             const Text(
-              '⚠️ 座席数が不足しています',
+              '⚠️ 選択した卓の席数が不足しています',
               style: TextStyle(
                 color: Colors.red,
                 fontWeight: FontWeight.bold,
@@ -318,13 +427,12 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
 
   /// 確認ダイアログを表示
   void _showConfirmationDialog() {
-    final availableSeats = _tournamentTables
-        .fold<int>(0, (sum, table) => sum + table.maxSeats);
-
-    if (_reseatTargetKeys.length > availableSeats) {
+    final validation = _tableSelectionValidation;
+    if (!validation.canExecute) {
+      final message = validation.message ?? 'リシートを実行できません';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('座席数が不足しています'),
+        SnackBar(
+          content: Text(message),
           backgroundColor: Colors.red,
         ),
       );
@@ -338,7 +446,7 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
         return AlertDialog(
           title: const Text('リシート確認'),
           content: Text(
-            '${_reseatTargetKeys.length}人のリシートを実行しますか？',
+            '${_reseatTargetKeys.length}人を${_selectedTables.length}卓にリシートしますか？',
           ),
           actions: [
             TextButton(
@@ -366,7 +474,7 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
     });
 
     try {
-      final availableTables = _tournamentTables;
+      final availableTables = _selectedTables;
 
       final tableInfos = availableTables
           .map((table) => TableInfo(
@@ -443,6 +551,7 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
       final result = await service.reseatAllPlayers(
         tournamentId: widget.tournamentId,
         playerAssignments: playerAssignments,
+        reseatTableIds: _reseatTableIds.toList(),
       );
 
       if (result['success'] == true) {
@@ -495,6 +604,12 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
         _reseatTargetKeys
           ..clear()
           ..addAll(ReseatParticipantBuilder.seatedSelectionKeys(candidates));
+
+        _reseatTableIds
+          ..clear()
+          ..addAll(
+            ReseatTableSelectionHelpers.enabledTableIds(tournamentTables),
+          );
       });
     } catch (e) {
       setState(() {

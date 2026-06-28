@@ -1,6 +1,7 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { markOperationLogRolledBack } from '../lib/operationLog';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 
 export interface UndoRegisterParticipantsDetail {
   playerUid: string;
@@ -36,6 +37,8 @@ export async function undoRegisterParticipants(params: UndoRegisterParticipantsP
   const entryCount = details.filter((d: UndoRegisterParticipantsDetail) => !d.isReentry).length;
   const reentryCount = details.filter((d: UndoRegisterParticipantsDetail) => d.isReentry).length;
   const n = details.length;
+  const tournamentSnap = await db.collection('scheduledTournaments').doc(params.tournamentId).get();
+  const snapshot = tournamentSnap.data()?.snapshot ?? {};
 
   try {
     await db.runTransaction(async (transaction) => {
@@ -94,13 +97,20 @@ export async function undoRegisterParticipants(params: UndoRegisterParticipantsP
       const currentReentries = mainViewData.reentries || 0;
 
       // 1. views/main
-      transaction.update(mainViewRef, {
-        entries: Math.max(0, currentEntries - entryCount),
-        reentries: Math.max(0, currentReentries - reentryCount),
-        playersIn: Math.max(0, currentPlayersIn - n),
-        waitingCount: Math.max(0, currentWaitingCount - n),
-        updatedAt: now,
-      });
+      transaction.update(
+        mainViewRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            entries: Math.max(0, currentEntries - entryCount),
+            reentries: Math.max(0, currentReentries - reentryCount),
+            playersIn: Math.max(0, currentPlayersIn - n),
+            waitingCount: Math.max(0, currentWaitingCount - n),
+            updatedAt: now,
+          },
+          mainViewData,
+          snapshot,
+        ),
+      );
 
       // 2. waiting から各ユーザーを削除（取り消し後も待機者一覧に残らないように必ず更新）
       const removeUidSet = new Set(details.map((d) => String(d.playerUid).trim()));

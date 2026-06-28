@@ -21,6 +21,7 @@ import {
   undoOkibakeCreateEntry,
   undoOkibakeAssignSeat,
   undoOkibakeBust,
+  undoOkibakeAddon,
 } from "../services";
 import {
   assertTableDeviceActionHistoryRollbackEnabled,
@@ -48,6 +49,7 @@ const rollbackActionSchema = z.object({
     'okibake_create_entry',
     'okibake_assign_seat',
     'okibake_bust',
+    'okibake_addon',
   ], { errorMap: () => ({ message: "有効な操作タイプを指定してください" }) }),
   rollBackBy: z.string().min(1, "ロールバック実行者のデバイスIDは必須です"),
   rollBackByDeviceName: z.string().optional(),
@@ -504,6 +506,29 @@ export const rollbackAction = onCall(async (request) => {
         payload,
         operationLogId: operationId,
         fallbackSeat,
+      });
+      await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
+      logOpsSuccess({
+        message: "rollbackAction 成功",
+        functionEntry: "rollbackAction",
+        context: { tournamentId: tId, operationId, action, operationName },
+      });
+      return { success: true, message: '操作のロールバックが完了しました', operationId, action };
+    } else if (operationName === '置きバケ Addon') {
+      const okibakeEntryId = (payload.okibakeEntryId as string) ?? '';
+      const addonRecordId = (payload.addonRecordId as string) ?? '';
+      if (!okibakeEntryId) {
+        throw new HttpsError('invalid-argument', '操作記録に okibakeEntryId がありません');
+      }
+      if (!addonRecordId) {
+        throw new HttpsError('invalid-argument', '操作記録に addonRecordId がありません');
+      }
+      await undoOkibakeAddon({
+        tournamentId: tId,
+        okibakeEntryId,
+        addonRecordId,
+        rollBackBy: rollBackByDeviceId,
+        operationLogId: operationId,
       });
       await markOperationLogRolledBack(operationId, rollBackBy, rollBackByDeviceName ?? undefined);
       logOpsSuccess({

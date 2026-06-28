@@ -38,6 +38,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
     'okibake_link_bill',
     'okibake_assign_seat',
     'okibake_bust',
+    'okibake_addon',
   };
   TabController? _tabController;
   List<Map<String, dynamic>> _actionLogs = [];

@@ -1,11 +1,11 @@
 /**
- * storeMeta/requiredStaffByTimeSlot テスト（v2 byStyle・純粋 unit）
+ * businessStyles 由来の必要人数解決テスト（v2 byStyle 相当・純粋 unit）
  */
 
 import { DEFAULT_REQUIRED_STAFF_BY_TIME_SLOT_V2 } from '../../src/shared/config/defaults';
 import { resolveRequiredStaffSlotsForDay } from '../../src/domains/shift/services/helpers';
 
-describe('storeMeta/requiredStaffByTimeSlot v2 (unit)', () => {
+describe('businessStyles requiredStaff resolution (unit)', () => {
   it('resolveRequiredStaffSlotsForDay: byStyle[styleId] が [] → 空配列', () => {
     const config = {
       version: 2 as const,

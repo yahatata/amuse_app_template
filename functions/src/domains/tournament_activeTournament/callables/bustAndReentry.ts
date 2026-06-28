@@ -15,6 +15,7 @@ import {
 } from '../lib/syncLinkedOkibakeOnNormalBust';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { assertTableDeviceCanAccessTable } from '../../../table_device/lib/shared';
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 
 // 入力スキーマ
 const bustAndReentrySchema = z.object({
@@ -81,6 +82,7 @@ export const bustAndReentry = onCall(async (request) => {
       });
 
       const tournamentData = tournamentDoc.data()!;
+      const snapshot = tournamentData.snapshot ?? {};
       const templateId = tournamentData.templateId;
       const reentryFee = tournamentData.snapshot?.reentryFee || 0;
       const maxReentriesPerPlayer = tournamentData.snapshot?.maxReentriesPerPlayer;
@@ -274,11 +276,18 @@ export const bustAndReentry = onCall(async (request) => {
         console.log(`空席数(${totalEmptySeats}) - waiting数(${waitingCount}) = ${totalEmptySeats - waitingCount} ≥ 3のため、ユーザー ${userId} をシートに残します`);
         
         // シートは変更せず、統計のみ更新
-        transaction.update(viewsMainRef, {
-          playersBusted: currentPlayersBusted + 1,
-          reentries: currentReentries + 1,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        transaction.update(
+          viewsMainRef,
+          appendAvgStackToMainViewUpdate(
+            {
+              playersBusted: currentPlayersBusted + 1,
+              reentries: currentReentries + 1,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            viewsMainData,
+            snapshot,
+          ),
+        );
         
         // todaysBillsのtournamentsフィールドへの直接更新は削除（recordTournamentAction内のDualWriteに集約）
         
@@ -321,12 +330,19 @@ export const bustAndReentry = onCall(async (request) => {
       });
       
       // scheduledTournaments/views/mainを更新
-      transaction.update(viewsMainRef, {
-        playersBusted: currentPlayersBusted + 1,
-        reentries: currentReentries + 1,
-        waitingCount: isAlreadyInWaiting ? currentWaitingCount : currentWaitingCount + 1,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      transaction.update(
+        viewsMainRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            playersBusted: currentPlayersBusted + 1,
+            reentries: currentReentries + 1,
+            waitingCount: isAlreadyInWaiting ? currentWaitingCount : currentWaitingCount + 1,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          viewsMainData,
+          snapshot,
+        ),
+      );
       
       // scheduledTournaments/tablesSeat/waitingを更新（ユーザーが既にwaitingに存在しない場合のみ）
       if (!isAlreadyInWaiting) {

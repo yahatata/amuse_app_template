@@ -1,5 +1,6 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 
 export interface UndoBulkAddonDetail {
   playerUid: string;
@@ -35,6 +36,8 @@ export async function undoBulkAddon(params: UndoBulkAddonParams): Promise<void> 
   const okibakeDetails = params.okibakeDetails ?? [];
   const nNormal = useBills ? params.details!.length : params.playerUids.length;
   const n = nNormal + okibakeDetails.length;
+  const tournamentSnap = await db.collection('scheduledTournaments').doc(params.tournamentId).get();
+  const snapshot = tournamentSnap.data()?.snapshot ?? {};
 
   try {
     await db.runTransaction(async (transaction) => {
@@ -83,10 +86,17 @@ export async function undoBulkAddon(params: UndoBulkAddonParams): Promise<void> 
       const currentAddons = mainViewData.addons || 0;
 
       // ここから書き込みのみ
-      transaction.update(mainViewRef, {
-        addons: Math.max(0, currentAddons - n),
-        updatedAt: now,
-      });
+      transaction.update(
+        mainViewRef,
+        appendAvgStackToMainViewUpdate(
+          {
+            addons: Math.max(0, currentAddons - n),
+            updatedAt: now,
+          },
+          mainViewData,
+          snapshot,
+        ),
+      );
 
       if (useBills && params.details) {
         for (let i = 0; i < params.details.length; i++) {

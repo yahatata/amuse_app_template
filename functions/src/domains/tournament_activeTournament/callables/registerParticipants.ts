@@ -9,6 +9,7 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { findOkibakeLinkedUserConflictInTx } from '../lib/okibakeLinkedUserConflict';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 
 // 入力スキーマ
 const registerParticipantsSchema = z.object({
@@ -227,12 +228,19 @@ export const registerParticipants = onCall(async (request) => {
           if (isUserAlreadyRegistered) {
             // リエントリーの場合
             const currentReentries = viewsMainData.reentries || 0;
-            transaction.update(viewsMainRef, {
-              playersIn: currentPlayersIn + 1,
-              reentries: currentReentries + 1,
-              waitingCount: currentWaitingCount + 1,
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+            transaction.update(
+              viewsMainRef,
+              appendAvgStackToMainViewUpdate(
+                {
+                  playersIn: currentPlayersIn + 1,
+                  reentries: currentReentries + 1,
+                  waitingCount: currentWaitingCount + 1,
+                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                },
+                viewsMainData,
+                snapshot,
+              ),
+            );
             
             // bustedから該当ユーザーを削除（読み取りは上で済み）
             if (currentBustedUser[userId]) {
@@ -244,12 +252,19 @@ export const registerParticipants = onCall(async (request) => {
             }
           } else {
             // 初回エントリーの場合
-            transaction.update(viewsMainRef, {
-              playersIn: currentPlayersIn + 1,
-              entries: currentEntries + 1,
-              waitingCount: currentWaitingCount + 1,
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+            transaction.update(
+              viewsMainRef,
+              appendAvgStackToMainViewUpdate(
+                {
+                  playersIn: currentPlayersIn + 1,
+                  entries: currentEntries + 1,
+                  waitingCount: currentWaitingCount + 1,
+                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                },
+                viewsMainData,
+                snapshot,
+              ),
+            );
           }
           
           // 7. scheduledTournaments/tablesSeat/waitingを更新

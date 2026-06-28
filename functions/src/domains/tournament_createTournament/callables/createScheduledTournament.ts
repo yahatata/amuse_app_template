@@ -14,6 +14,7 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { runEnqueueTournamentTasks } from "../services/enqueueTournamentTasksCore";
 import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
+import { buildRuntimeStagesFromBlindLevels, type RuntimeStage } from "../../../shared/tournament/buildRuntimeStagesFromBlindLevels";
 
 // 入力スキーマの定義
 const createScheduledTournamentSchema = z.object({
@@ -34,7 +35,6 @@ const createScheduledTournamentSchema = z.object({
       return false;
     }
   }, "レジスト終了時刻は有効な日時文字列である必要があります"),
-  freeze: z.boolean().optional().default(false),
   // Phase0A D-13: default 削除。本番では default-store/default-tenant 禁止
   storeId: z.string().min(1, "店舗IDは必須です").optional(),
   tenantId: z.string().min(1, "テナントIDは必須です").optional(),
@@ -72,7 +72,7 @@ export const createScheduledTournament = onCall(async (request) => {
       validatedData.storeId,
       validatedData.tenantId
     );
-    const { templateId, startAt, regEndAt, freeze } = validatedData;
+    const { templateId, startAt, regEndAt } = validatedData;
     // selectedBusinessDateKeyはスキーマに含まれていないため、request.dataから直接取得
     const selectedBusinessDateKey = (request.data as any)?.selectedBusinessDateKey as string | undefined;
 
@@ -218,7 +218,6 @@ export const createScheduledTournament = onCall(async (request) => {
       startAt: Timestamp.fromDate(startAtDate),
       regEndAt: Timestamp.fromDate(regEndAtDate),
       businessDate, // 追加: startAtから計算した営業日
-      freeze: freeze || false,
       isPrizeConfirmed: false,
       isArchived: false,
       regular: false, // 通常のトーナメント作成
@@ -285,7 +284,7 @@ export const createScheduledTournament = onCall(async (request) => {
 
     // 6) blindTemplateからstagesを生成
     const blindStructureId = templateData.blindStructure || templateData.blindStructureId;
-    let stages = [];
+    let stages: RuntimeStage[] = [];
     let lateRegUntilLev = 0;
     let breakDuration = 0;
     
@@ -297,45 +296,10 @@ export const createScheduledTournament = onCall(async (request) => {
         lateRegUntilLev = blindTemplateData.lateRegUntilLev || 0;
         breakDuration = blindTemplateData.breakDuration || 0;
         
-        // levelsからstagesを生成（durationは分→秒に変換）
-        stages = levels.map((level: any) => {
-          const stage = {
-            type: 'level',
-            lev: level.level, // 数値のみ
-            durationSec: (level.duration || 0) * 60, // 分を秒に変換
-          };
-          
-          // hasBreakAfterがtrueの場合、breakステージを追加
-          if (level.hasBreakAfter) {
-            return [stage, {
-              type: 'break',
-              durationSec: breakDuration * 60, // 分を秒に変換
-            }];
-          }
-          
-          return stage;
-        }).flat();
-        
-            // lateRegUntilLev+1のレベル直前にregistステージを追加
-    if (lateRegUntilLev > 0) {
-      const newStages: any[] = [];
-      
-      for (let i = 0; i < stages.length; i++) {
-        const stage = stages[i];
-        
-        // lateRegUntilLev+1のレベル直前にregistを挿入
-        if (stage.type === 'level' && stage.lev === lateRegUntilLev + 1) {
-          newStages.push({
-            type: 'regist',
-            durationSec: 0,
-          });
-        }
-        
-        newStages.push(stage);
-      }
-      
-      stages = newStages;
-    }
+        stages = buildRuntimeStagesFromBlindLevels(levels, {
+          lateRegUntilLev,
+          breakDurationMin: breakDuration,
+        });
       }
     }
 

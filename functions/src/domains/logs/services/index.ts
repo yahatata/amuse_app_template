@@ -13,3 +13,4 @@ export { undoOkibakeLinkToBill } from "./undoOkibakeLinkToBill";
 export { undoOkibakeCreateEntry } from "./undoOkibakeCreateEntry";
 export { undoOkibakeAssignSeat } from "./undoOkibakeAssignSeat";
 export { undoOkibakeBust } from "./undoOkibakeBust";
+export { undoOkibakeAddon } from "./undoOkibakeAddon";

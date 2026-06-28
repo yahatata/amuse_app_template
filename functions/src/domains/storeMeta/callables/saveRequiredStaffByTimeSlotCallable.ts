@@ -12,6 +12,8 @@ import {
 import { validateRequiredStaffByTimeSlotV2 } from "../../../shared/businessHours/services/validateShiftSettings";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { generateJstDateKey } from "../../../shared/time/generateJstDateKey";
+import { getBusinessStylesOrThrow } from "../../../shared/config/businessStylesLoader";
+import { mergeRequiredStaffByStyleIntoBusinessStyles } from "../../../shared/config/businessStyles";
 
 const db = getFirestore();
 
@@ -42,9 +44,15 @@ export const saveRequiredStaffByTimeSlotCallable = onCall(
 
       await assertEligibleMonthsDataConsistency(db, todayJst);
 
-      await db.collection("storeMeta").doc("requiredStaffByTimeSlot").set({
-        version: validated.version,
-        byStyle: validated.byStyle,
+      const existingBusinessStyles = await getBusinessStylesOrThrow(db);
+      const merged = mergeRequiredStaffByStyleIntoBusinessStyles(
+        existingBusinessStyles,
+        validated.byStyle
+      );
+
+      await db.collection("storeMeta").doc("businessStyles").set({
+        version: merged.version,
+        styles: merged.styles,
         updatedAt: FieldValue.serverTimestamp(),
       });
 
