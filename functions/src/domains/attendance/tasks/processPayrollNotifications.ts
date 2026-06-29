@@ -2,7 +2,8 @@
  * processPayrollNotifications — onTaskDispatched
  *
  * 1日1回実行。対象期間の monthlyPayroll を読み取り、
- * 5種のスケジューラー経由通知の条件を評価・作成する。
+ * 4種のスケジューラー経由通知の条件を評価・作成する。
+ * （payroll_hold_reminder は registerPaymentStatus でイベント駆動）
  *
  * 参照: 07_NOTIFICATION_SCHEDULER_SPEC §3-3
  */
@@ -46,7 +47,6 @@ export interface PeriodInfo {
   periodEnd: string;
   monthlyPayrollStatus: string | null;
   latestRunId: string | null;
-  holdCount: number;
 }
 
 export interface NotificationAction {
@@ -64,8 +64,11 @@ function addDays(dateStr: string, days: number): string {
   return `${d.getFullYear()}-${m}-${dd}`;
 }
 
+/** payroll_calc_remind: 支払日の N 日前から strong_warning に昇格（A-5 確定: 7日前） */
+const CALC_REMIND_STRONG_WARNING_DAYS_BEFORE_PAYMENT = 7;
+
 /**
- * 5種のスケジューラー通知条件を純粋に評価する（Firestore 非依存）。
+ * 4種のスケジューラー通知条件を純粋に評価する（Firestore 非依存）。
  */
 export function evaluateScheduledNotifications(
   todayStr: string,
@@ -103,15 +106,19 @@ export function evaluateScheduledNotifications(
     });
   }
 
-  // 2. payroll_calc_remind: periodEnd+N <= today, 計算未実行
+  // 2. payroll_calc_remind: periodEnd+N <= today, 計算未実行（支払日7日前から strong_warning）
   if (todayStr >= reminderStartDate && !recentPeriod.latestRunId) {
     let typeOverride: string | undefined;
     if (actualPaymentDate) {
-      const threeDaysBefore = addDays(actualPaymentDate, -3);
-      if (todayStr >= threeDaysBefore) {
+      const strongWarningStartDate = addDays(
+        actualPaymentDate,
+        -CALC_REMIND_STRONG_WARNING_DAYS_BEFORE_PAYMENT
+      );
+      if (todayStr >= strongWarningStartDate) {
         typeOverride = 'strong_warning';
       }
     }
+
     actions.push({
       triggerType: 'payroll_calc_remind',
       params: {
@@ -162,26 +169,6 @@ export function evaluateScheduledNotifications(
       },
       docId: buildSchedulerIdempotencyKey(
         'payroll_payment_overdue',
-        recentPeriod.paymentPeriodKey,
-        todayStr
-      ),
-    });
-  }
-
-  // 5. payroll_hold_reminder: 月曜 + hold
-  const dayOfWeek = new Date(`${todayStr}T00:00:00`).getDay();
-  if (
-    dayOfWeek === 1 &&
-    recentPeriod.monthlyPayrollStatus === 'hold' &&
-    recentPeriod.holdCount > 0
-  ) {
-    actions.push({
-      triggerType: 'payroll_hold_reminder',
-      params: {
-        holdCount: String(recentPeriod.holdCount),
-      },
-      docId: buildSchedulerIdempotencyKey(
-        'payroll_hold_reminder',
         recentPeriod.paymentPeriodKey,
         todayStr
       ),
@@ -251,27 +238,12 @@ export const processPayrollNotifications = onTaskDispatched(
     const mpDoc = await db.collection('monthlyPayroll').doc(recentPeriodKey).get();
     const mpData = mpDoc.exists ? mpDoc.data()! : null;
 
-    // holdCount 算出
-    let holdCount = 0;
-    if (mpData?.latestRunId && mpData.status === 'hold') {
-      const staffResultsSnap = await db
-        .collection('monthlyPayroll')
-        .doc(recentPeriodKey)
-        .collection('payrollRuns')
-        .doc(mpData.latestRunId)
-        .collection('staffResults')
-        .where('paymentStatus', '==', 'hold')
-        .get();
-      holdCount = staffResultsSnap.size;
-    }
-
     const recentPeriodInfo: PeriodInfo = {
       paymentPeriodKey: recentPeriodKey,
       periodStart: recentPeriodRange.periodStart,
       periodEnd: recentPeriodRange.periodEnd,
       monthlyPayrollStatus: mpData?.status ?? null,
       latestRunId: mpData?.latestRunId ?? null,
-      holdCount,
     };
 
     const actions = evaluateScheduledNotifications(

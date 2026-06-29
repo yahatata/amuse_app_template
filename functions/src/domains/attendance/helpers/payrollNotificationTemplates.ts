@@ -53,7 +53,7 @@ export const PAYROLL_NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate
   },
   payroll_attendance_corrected: {
     type: 'warning',
-    title: '確定済み期間の勤怠が修正されました',
-    body: '{staffName} の {date} の勤怠データが修正されました。給与は確定済みのため自動再計算されません。',
+    title: '給与反映済み勤怠が修正されました',
+    body: '{staffName} の {date} の勤怠データが給与反映後に修正されました。給与は自動再計算されません。必要に応じて再計算または差額調整を行ってください。',
   },
 };

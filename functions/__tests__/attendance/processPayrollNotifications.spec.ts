@@ -21,7 +21,6 @@ function makePeriodInfo(overrides: Partial<PeriodInfo> = {}): PeriodInfo {
     periodEnd: '2026-03-25',
     monthlyPayrollStatus: null,
     latestRunId: null,
-    holdCount: 0,
     ...overrides,
   };
 }
@@ -106,27 +105,28 @@ describe('evaluateScheduledNotifications', () => {
       expect(triggerTypes(actions)).not.toContain('payroll_calc_remind');
     });
 
-    it('支払日3日前から strong_warning に昇格する', () => {
+    it('支払日7日前より前は warning（typeOverride なし）', () => {
       const period = makePeriodInfo();
-      const actions = evaluateScheduledNotifications('2026-04-22', period, PAYMENT_DAY, PAYMENT_MONTH_OFFSET, REMINDER_DAYS);
-      const calcRemind = actions.find((a) => a.triggerType === 'payroll_calc_remind');
-      expect(calcRemind).toBeDefined();
-      expect(calcRemind!.typeOverride).toBe('strong_warning');
-    });
-
-    it('支払日4日前では warning のまま', () => {
-      const period = makePeriodInfo();
-      const actions = evaluateScheduledNotifications('2026-04-21', period, PAYMENT_DAY, PAYMENT_MONTH_OFFSET, REMINDER_DAYS);
+      const actions = evaluateScheduledNotifications('2026-04-17', period, PAYMENT_DAY, PAYMENT_MONTH_OFFSET, REMINDER_DAYS);
       const calcRemind = actions.find((a) => a.triggerType === 'payroll_calc_remind');
       expect(calcRemind).toBeDefined();
       expect(calcRemind!.typeOverride).toBeUndefined();
     });
 
-    it('同月払いでも実支給日3日前から strong_warning に昇格する', () => {
-      const period = makePeriodInfo({ periodEnd: '2026-03-25' });
-      const actions = evaluateScheduledNotifications('2026-03-28', period, '31', 0, REMINDER_DAYS);
+    it('支払日7日前から strong_warning に昇格', () => {
+      const period = makePeriodInfo();
+      const actions = evaluateScheduledNotifications('2026-04-18', period, PAYMENT_DAY, PAYMENT_MONTH_OFFSET, REMINDER_DAYS);
       const calcRemind = actions.find((a) => a.triggerType === 'payroll_calc_remind');
-      expect(calcRemind?.typeOverride).toBe('strong_warning');
+      expect(calcRemind).toBeDefined();
+      expect(calcRemind!.typeOverride).toBe('strong_warning');
+    });
+
+    it('支払日7日前以降も strong_warning を維持', () => {
+      const period = makePeriodInfo();
+      const actions = evaluateScheduledNotifications('2026-04-22', period, PAYMENT_DAY, PAYMENT_MONTH_OFFSET, REMINDER_DAYS);
+      const calcRemind = actions.find((a) => a.triggerType === 'payroll_calc_remind');
+      expect(calcRemind).toBeDefined();
+      expect(calcRemind!.typeOverride).toBe('strong_warning');
     });
   });
 
@@ -196,32 +196,10 @@ describe('evaluateScheduledNotifications', () => {
     });
   });
 
-  // ── payroll_hold_reminder ──
+  // ── payroll_hold_reminder（scheduler では発火しない）──
   describe('payroll_hold_reminder', () => {
-    it('月曜 + hold + holdCount > 0 → 通知あり', () => {
-      // 2026-03-30 is Monday
-      const period = makePeriodInfo({ latestRunId: 'run1', monthlyPayrollStatus: 'hold', holdCount: 2 });
-      const actions = evaluateScheduledNotifications('2026-03-30', period, PAYMENT_DAY, PAYMENT_MONTH_OFFSET, REMINDER_DAYS);
-      expect(triggerTypes(actions)).toContain('payroll_hold_reminder');
-      const action = actions.find((a) => a.triggerType === 'payroll_hold_reminder');
-      expect(action!.params.holdCount).toBe('2');
-    });
-
-    it('月曜以外 → 通知なし', () => {
-      // 2026-03-31 is Tuesday
-      const period = makePeriodInfo({ latestRunId: 'run1', monthlyPayrollStatus: 'hold', holdCount: 2 });
-      const actions = evaluateScheduledNotifications('2026-03-31', period, PAYMENT_DAY, PAYMENT_MONTH_OFFSET, REMINDER_DAYS);
-      expect(triggerTypes(actions)).not.toContain('payroll_hold_reminder');
-    });
-
-    it('holdCount == 0 → 通知なし', () => {
-      const period = makePeriodInfo({ latestRunId: 'run1', monthlyPayrollStatus: 'hold', holdCount: 0 });
-      const actions = evaluateScheduledNotifications('2026-03-30', period, PAYMENT_DAY, PAYMENT_MONTH_OFFSET, REMINDER_DAYS);
-      expect(triggerTypes(actions)).not.toContain('payroll_hold_reminder');
-    });
-
-    it('status != hold → 通知なし', () => {
-      const period = makePeriodInfo({ latestRunId: 'run1', monthlyPayrollStatus: 'confirmed', holdCount: 2 });
+    it('scheduler 評価では hold 状態でも通知しない（registerPaymentStatus でイベント駆動）', () => {
+      const period = makePeriodInfo({ latestRunId: 'run1', monthlyPayrollStatus: 'hold' });
       const actions = evaluateScheduledNotifications('2026-03-30', period, PAYMENT_DAY, PAYMENT_MONTH_OFFSET, REMINDER_DAYS);
       expect(triggerTypes(actions)).not.toContain('payroll_hold_reminder');
     });

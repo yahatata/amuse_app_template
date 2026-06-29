@@ -39,6 +39,16 @@ export function buildSchedulerIdempotencyKey(
 }
 
 /**
+ * 給与期間単位の冪等キー（hold 初回通知など、日付を含めない）
+ */
+export function buildPeriodIdempotencyKey(
+  triggerType: string,
+  paymentPeriodKey: string
+): string {
+  return `${triggerType}_${paymentPeriodKey}`;
+}
+
+/**
  * イベント駆動の冪等キーを生成する
  */
 export function buildEventIdempotencyKey(

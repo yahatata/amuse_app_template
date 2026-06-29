@@ -7,6 +7,7 @@
 import {
   expandTemplate,
   buildSchedulerIdempotencyKey,
+  buildPeriodIdempotencyKey,
   buildEventIdempotencyKey,
 } from '../../src/domains/attendance/helpers/payrollNotificationHelper';
 import { PAYROLL_NOTIFICATION_TEMPLATES } from '../../src/domains/attendance/helpers/payrollNotificationTemplates';
@@ -45,6 +46,16 @@ describe('payrollNotificationHelper', () => {
         '2026-04-01'
       );
       expect(key).toBe('payroll_calc_remind_2026-02-26_2026-03-25_2026-04-01');
+    });
+  });
+
+  describe('buildPeriodIdempotencyKey', () => {
+    it('期間単位の冪等キーを生成する', () => {
+      const key = buildPeriodIdempotencyKey(
+        'payroll_hold_reminder',
+        '2026-02-26_2026-03-25'
+      );
+      expect(key).toBe('payroll_hold_reminder_2026-02-26_2026-03-25');
     });
   });
 
@@ -97,6 +108,17 @@ describe('payrollNotificationHelper', () => {
       const tmpl = PAYROLL_NOTIFICATION_TEMPLATES.payroll_hold_reminder;
       const body = expandTemplate(tmpl.body, { holdCount: '3' });
       expect(body).toContain('3');
+    });
+
+    it('payroll_attendance_corrected テンプレートの確定文言', () => {
+      const tmpl = PAYROLL_NOTIFICATION_TEMPLATES.payroll_attendance_corrected;
+      expect(tmpl.title).toBe('給与反映済み勤怠が修正されました');
+      const body = expandTemplate(tmpl.body, {
+        staffName: '山田',
+        date: '2026-03-01',
+      });
+      expect(body).toContain('再計算または差額調整');
+      expect(body).toContain('山田');
     });
   });
 });
