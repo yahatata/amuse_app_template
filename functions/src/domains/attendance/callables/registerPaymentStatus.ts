@@ -20,6 +20,10 @@ import {
   validatePaymentStatusTransition,
   determineMonthlyPayrollStatus,
 } from '../helpers/paymentStatusHelpers';
+import {
+  buildPeriodIdempotencyKey,
+  createPayrollNotification,
+} from '../helpers/payrollNotificationHelper';
 import type { PaymentStatus } from '../types/payrollCalcTypes';
 
 const PERIOD_KEY_REGEX = /^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/;
@@ -176,6 +180,25 @@ export const registerPaymentStatus = onCall(
     }
 
     await monthlyPayrollRef.update(mpUpdateData);
+
+    // hold 初回発生時のみ通知（A-5 確定方針: 毎週月曜の scheduler 通知は廃止）
+    if (mpStatus !== 'hold' && newMpStatus === 'hold') {
+      try {
+        await createPayrollNotification(
+          db,
+          'payroll_hold_reminder',
+          { holdCount: String(holdCount) },
+          {
+            docId: buildPeriodIdempotencyKey('payroll_hold_reminder', paymentPeriodKey),
+          }
+        );
+      } catch (notifErr) {
+        logger.warn('registerPaymentStatus: hold notification creation failed (non-fatal)', {
+          paymentPeriodKey,
+          error: String(notifErr),
+        });
+      }
+    }
 
     // 8. attendanceLogs 書き込み
     for (const logEntry of logEntries) {
