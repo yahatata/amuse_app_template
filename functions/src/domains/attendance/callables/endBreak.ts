@@ -89,6 +89,10 @@ export const endBreak = onCall(async (request: CallableRequest) => {
       throw new HttpsError('not-found', '勤怠データが見つかりません');
     }
 
+    const attendanceDataForGuard = attendanceSnap.data()!;
+    const { assertActiveStaff } = await import('../../staff/helpers/staffStatus');
+    await assertActiveStaff(String(attendanceDataForGuard.staffId));
+
     let breakRef: admin.firestore.DocumentReference;
     if (breakId) {
       breakRef = attendanceRef.collection('breaks').doc(breakId);

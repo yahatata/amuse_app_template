@@ -2,7 +2,8 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { getStoreConfig } from "../../../shared/config/configLoader";
 import { DEFAULT_SHIFT_SCHEDULING_START_DAY } from "../../../shared/config/defaults";
-import { assertStaffExists, assertHourStep, getYearMonthFromDateKey, isInShiftSchedulingPeriod, isInsufficientDaysNotificationSent, isInsufficientDayOrTimeSlot } from "../../shift/services/helpers";
+import { assertHourStep, getYearMonthFromDateKey, isInShiftSchedulingPeriod, isInsufficientDaysNotificationSent, isInsufficientDayOrTimeSlot } from "../../shift/services/helpers";
+import { assertActiveStaff } from "../helpers/staffStatus";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 const db = admin.firestore();
@@ -74,7 +75,7 @@ export const updateShiftRequest = onCall(
       const schedulingStartDay = config.shift?.schedulingStartDay ?? DEFAULT_SHIFT_SCHEDULING_START_DAY;
 
       // スタッフ存在確認
-      await assertStaffExists(staffId);
+      await assertActiveStaff(staffId);
 
       // スタッフ情報を取得（存在確認のみ）
       const staffDoc = await db.collection("staffs").doc(staffId).get();

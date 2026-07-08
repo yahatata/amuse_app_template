@@ -50,6 +50,9 @@ export const generateQRCode = onCall(
           throw new Error("Staff not found. Please create an account first.");
         }
 
+        const { assertActiveStaff } = await import("../../staff/helpers/staffStatus");
+        await assertActiveStaff(uid);
+
         userData = staffDoc.data();
         collectionName = "staffs";
       } else {

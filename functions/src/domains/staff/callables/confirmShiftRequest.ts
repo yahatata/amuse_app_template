@@ -3,6 +3,7 @@ import { HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { getStoreConfig } from "../../../shared/config/configLoader";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { assertActiveStaff } from "../helpers/staffStatus";
 
 interface ConfirmShiftRequestRequest {
   requestId: string;
@@ -42,6 +43,7 @@ export const confirmShiftRequest = onCall(
     }
 
     const staffId = request.auth.uid;
+    await assertActiveStaff(staffId);
     const { requestId } = request.data as ConfirmShiftRequestRequest;
 
     if (!requestId) {

@@ -769,7 +769,9 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
     List<Map<String, dynamic>> staffList = [];
     try {
       final snapshot = await FirebaseFirestore.instance.collection('staffs').get();
-      staffList = snapshot.docs.map((doc) {
+      staffList = snapshot.docs
+          .where((doc) => doc.data()['status'] != 'retired')
+          .map((doc) {
         final data = doc.data();
         return {
           'id': doc.id,

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 
 import 'admin_attendance_editAndCreate_page.dart';
 
@@ -12,12 +13,23 @@ class AdminAttendanceListPage extends StatefulWidget {
 
 class _AdminAttendanceListPageState extends State<AdminAttendanceListPage> {
   late DateTime _selectedDate;
+  Set<String> _retiredStaffIds = {};
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _selectedDate = DateTime(now.year, now.month, now.day);
+    _loadRetiredStaffIds();
+  }
+
+  Future<void> _loadRetiredStaffIds() async {
+    final ids = await StaffRetiredUi.fetchRetiredStaffIds();
+    if (mounted) {
+      setState(() {
+        _retiredStaffIds = ids;
+      });
+    }
   }
 
   @override
@@ -117,13 +129,19 @@ class _AdminAttendanceListPageState extends State<AdminAttendanceListPage> {
                     final breakStr = showWorkTimes
                         ? (breakMin != null ? '${breakMin}分' : '-')
                         : '-';
+                    final staffName = d['staffsFullName']?.toString() ?? '—';
+                    final staffId = d['staffId']?.toString() ?? '';
                     return ListTile(
                       tileColor: tileColor,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                         side: BorderSide(color: Colors.grey.shade300),
                       ),
-                      title: Text(d['staffsFullName']?.toString() ?? '—'),
+                      title: StaffRetiredUi.nameWithRetiredBadge(
+                        name: staffName,
+                        isRetired: staffId.isNotEmpty &&
+                            _retiredStaffIds.contains(staffId),
+                      ),
                       subtitle: Text(
                         '勤務状況: $status\n'
                         '出勤: ${_fmtTs(d['clockIn'])}  退勤: ${_fmtTs(d['clockOut'])}\n'

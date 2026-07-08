@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/AttendanceManagement/staff_attendance_detail_page_from_allStaffAttendance.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
+import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 
 import 'attendanceService.dart';
 
@@ -25,6 +26,7 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
   List<Map<String, dynamic>> shifts = [];
   dynamic payrollData = []; // 給与データを追加
   Map<String, dynamic>? summaryData;
+  Set<String> _retiredStaffIds = {};
 
   @override
   void initState() {
@@ -37,7 +39,17 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
     print('計算後のselectedDate: $selectedDate');
     print('selectedDate.month: ${selectedDate.month}');
     print('selectedDate.year: ${selectedDate.year}');
+    _loadRetiredStaffIds();
     _loadAttendanceData();
+  }
+
+  Future<void> _loadRetiredStaffIds() async {
+    final ids = await StaffRetiredUi.fetchRetiredStaffIds();
+    if (mounted) {
+      setState(() {
+        _retiredStaffIds = ids;
+      });
+    }
   }
 
   @override
@@ -496,9 +508,15 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
             ),
             title: Row(
               children: [
-                Text(
-                  staffName,
-                  style: const TextStyle(fontSize: 18.0, fontWeight: FontWeight.bold),
+                Expanded(
+                  child: StaffRetiredUi.nameWithRetiredBadge(
+                    name: staffName,
+                    isRetired: _retiredStaffIds.contains(staffId),
+                    nameStyle: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
                 if (hasNoClockOut) ...[
                   const SizedBox(width: 8.0),
@@ -574,6 +592,7 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
                     builder: (context) => StaffAttendanceDetailPage(
                       staffId: staffId,
                       staffName: staffName,
+                      isRetired: _retiredStaffIds.contains(staffId),
                       // 既存の勤怠データも渡す（最初のデータを使用）
                       existingAttendanceData: staffAttendances.first,
                       // 月次データも渡す

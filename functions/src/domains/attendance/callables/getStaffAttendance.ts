@@ -34,6 +34,11 @@ export const getStaffAttendance = onCall(
         throw new Error("Invalid parameters. staffId, year, and month (1-12) are required.");
       }
 
+      if (request.auth.uid === staffId) {
+        const { assertActiveStaff } = await import("../../staff/helpers/staffStatus");
+        await assertActiveStaff(staffId);
+      }
+
       // 指定された月の開始と終了日を計算
       const startDate = new Date(year, month - 1, 1);
       const endDate = new Date(year, month, 0);

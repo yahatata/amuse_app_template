@@ -1,3 +1,4 @@
+import 'package:amuse_app_template/Home/staffRetirementPage.dart';
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -22,6 +23,8 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
   final FirebaseFunctions _functions = FunctionsClient.instance;
   final TextEditingController _hourlyWageController = TextEditingController();
   
+  late Map<String, dynamic> _staffData;
+  
   // 銀行口座情報用のコントローラー
   final TextEditingController _bankNameController = TextEditingController();
   final TextEditingController _branchNameController = TextEditingController();
@@ -36,10 +39,11 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
   @override
   void initState() {
     super.initState();
-    _hourlyWageController.text = widget.staffData['hourlyWage']?.toString() ?? '';
+    _staffData = Map<String, dynamic>.from(widget.staffData);
+    _hourlyWageController.text = _staffData['hourlyWage']?.toString() ?? '';
     
     // 銀行口座情報の初期化
-    final bankInfo = widget.staffData['bankInfo'] as Map<String, dynamic>?;
+    final bankInfo = _staffData['bankInfo'] as Map<String, dynamic>?;
     if (bankInfo != null) {
       _bankNameController.text = bankInfo['bankName']?.toString() ?? '';
       _branchNameController.text = bankInfo['branchName']?.toString() ?? '';
@@ -57,6 +61,75 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
     _accountNumberController.dispose();
     _accountHolderController.dispose();
     super.dispose();
+  }
+
+  bool get _isRetired => _staffData['status'] == 'retired';
+
+  Future<void> _reloadStaffData() async {
+    final snap = await _firestore.collection('staffs').doc(widget.staffId).get();
+    if (!mounted || !snap.exists) return;
+    setState(() {
+      _staffData = snap.data() ?? _staffData;
+    });
+  }
+
+  Future<void> _openRetirementFlow() async {
+    final staffName = _staffData['fullName']?.toString() ?? 'このスタッフ';
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('退職手続き画面へ進みます'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'この時点では退職手続きはまだ実行されません。\n'
+                  '次の画面で退職日・退職理由を確認し、最終実行できます。',
+                ),
+                const SizedBox(height: 16),
+                Text('対象スタッフ:\n$staffName'),
+                const SizedBox(height: 16),
+                const Text('退職手続き画面へ進みますか？'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('退職手続き画面へ進む'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (proceed != true || !mounted) return;
+
+    final completed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StaffRetirementPage(
+          staffId: widget.staffId,
+          staffData: Map<String, dynamic>.from(_staffData),
+        ),
+      ),
+    );
+
+    if (!mounted || completed != true) return;
+
+    await _reloadStaffData();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('退職手続きが完了しました')),
+    );
   }
 
   // 銀行口座情報を更新する関数（Cloud Function経由）
@@ -165,7 +238,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
       
       if (response['success'] == true) {
         setState(() {
-          widget.staffData['hourlyWage'] = hourlyWage;
+          _staffData['hourlyWage'] = hourlyWage;
           _isEditing = false;
           _isLoading = false;
         });
@@ -202,16 +275,50 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
         children: [
           Scaffold(
       appBar: AppBar(
-        title: Text(widget.staffData['fullName'] ?? 'スタッフ詳細'),
+        title: Text(_staffData['fullName'] ?? 'スタッフ詳細'),
         backgroundColor: Colors.blue[600],
         foregroundColor: Colors.white,
-        actions: [],
+        actions: [
+          if (!_isRetired)
+            TextButton(
+              onPressed: _isLoading ? null : _openRetirementFlow,
+              child: const Text(
+                '退職手続き',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_isRetired)
+              Card(
+                color: Colors.grey[200],
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Chip(
+                            label: Text('退職済み'),
+                            backgroundColor: Colors.red,
+                            labelStyle: TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildInfoRow('退職日', _staffData['retiredDate']?.toString() ?? '未設定'),
+                      _buildInfoRow('退職理由', _staffData['retiredReason']?.toString() ?? '未設定'),
+                    ],
+                  ),
+                ),
+              ),
+            if (_isRetired) const SizedBox(height: 16),
             // 基本情報カード
             Card(
               elevation: 4,
@@ -237,7 +344,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                widget.staffData['fullName'] ?? '名前不明',
+                                _staffData['fullName'] ?? '名前不明',
                                 style: const TextStyle(
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,
@@ -257,8 +364,8 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _buildInfoRow('Email', widget.staffData['email'] ?? '未設定'),
-                    _buildInfoRow('電話番号', widget.staffData['phone'] ?? '未設定'),
+                    _buildInfoRow('Email', _staffData['email'] ?? '未設定'),
+                    _buildInfoRow('電話番号', _staffData['phoneNumber'] ?? _staffData['phone'] ?? '未設定'),
                   ],
                 ),
               ),
@@ -289,7 +396,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                             setState(() {
                               _isEditing = !_isEditing;
                               if (!_isEditing) {
-                                _hourlyWageController.text = widget.staffData['hourlyWage']?.toString() ?? '';
+                                _hourlyWageController.text = _staffData['hourlyWage']?.toString() ?? '';
                               }
                             });
                           },
@@ -339,7 +446,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                                   onPressed: _isLoading ? null : () {
                                     setState(() {
                                       _isEditing = false;
-                                      _hourlyWageController.text = widget.staffData['hourlyWage']?.toString() ?? '';
+                                      _hourlyWageController.text = _staffData['hourlyWage']?.toString() ?? '';
                                     });
                                   },
                                   icon: const Icon(Icons.cancel),
@@ -355,7 +462,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                       )
                     else
                       Text(
-                        '¥${widget.staffData['hourlyWage'] ?? '未設定'}',
+                        '¥${_staffData['hourlyWage'] ?? '未設定'}',
                         style: const TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
@@ -393,7 +500,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                               _isEditingBankInfo = !_isEditingBankInfo;
                               if (!_isEditingBankInfo) {
                                 // キャンセル時に元の値に戻す
-                                final bankInfo = widget.staffData['bankInfo'] as Map<String, dynamic>?;
+                                final bankInfo = _staffData['bankInfo'] as Map<String, dynamic>?;
                                 if (bankInfo != null) {
                                   _bankNameController.text = bankInfo['bankName']?.toString() ?? '';
                                   _branchNameController.text = bankInfo['branchName']?.toString() ?? '';
@@ -499,7 +606,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
                                   onPressed: _isLoading ? null : () {
                                     setState(() {
                                       _isEditingBankInfo = false;
-                                      final bankInfo = widget.staffData['bankInfo'] as Map<String, dynamic>?;
+                                      final bankInfo = _staffData['bankInfo'] as Map<String, dynamic>?;
                                       if (bankInfo != null) {
                                         _bankNameController.text = bankInfo['bankName']?.toString() ?? '';
                                         _branchNameController.text = bankInfo['branchName']?.toString() ?? '';

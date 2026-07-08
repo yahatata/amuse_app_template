@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 import 'staff_card.dart';
 
 class StaffDetailPage extends StatefulWidget {
@@ -75,14 +76,36 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(d.staffName)),
+      appBar: AppBar(
+        title: StaffRetiredUi.nameWithRetiredBadge(
+          name: d.staffName,
+          isRetired: d.isRetired,
+        ),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _sectionTitle('基本情報'),
-            _infoRow('スタッフ名', d.staffName),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(
+                    width: 120,
+                    child: Text('スタッフ名', style: TextStyle(color: Colors.grey)),
+                  ),
+                  Expanded(
+                    child: StaffRetiredUi.nameWithRetiredBadge(
+                      name: d.staffName,
+                      isRetired: d.isRetired,
+                    ),
+                  ),
+                ],
+              ),
+            ),
             _infoRow('基本時給', '¥${yenFormat.format(d.baseHourlyWage)}'),
             const Divider(height: 32),
 

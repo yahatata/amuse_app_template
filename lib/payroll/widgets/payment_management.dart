@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/services/payroll_config_service.dart';
 import 'package:amuse_app_template/payroll/utils/payment_date_utils.dart';
+import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 import '../services/payroll_callable_service.dart';
 import 'staff_card.dart';
 
@@ -207,8 +208,11 @@ class _PaymentManagementState extends State<PaymentManagement> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(staff.staffName,
-                    style: const TextStyle(fontWeight: FontWeight.w500)),
+                StaffRetiredUi.nameWithRetiredBadge(
+                  name: staff.staffName,
+                  isRetired: staff.isRetired,
+                  nameStyle: const TextStyle(fontWeight: FontWeight.w500),
+                ),
                 Text('¥${yenFormat.format(staff.grossPay)}',
                     style: const TextStyle(color: Colors.grey, fontSize: 13)),
               ],

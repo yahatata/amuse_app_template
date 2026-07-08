@@ -4,6 +4,7 @@ import * as logger from "firebase-functions/logger";
 import { logOpsError, logOpsSuccess, truncateForLog } from "../../../shared/logging/logOpsError";
 import { getLineConfig } from "../../../shared/secrets/secretManager";
 import { linkStaffRichMenu, linkUserRichMenu } from "../services/lineRichMenu";
+import { isActiveStaff } from "../../staff/helpers/staffStatus";
 import { verifyLineWebhookSignature } from "../services/lineWebhookSignature";
 
 // postback リプライ用。リッチメニューリンクは lineRichMenu サービス経由（ensureStaffRichMenu と同一経路）
@@ -132,6 +133,48 @@ export const lineWebhook = onRequest(async (request, response) => {
           const requestId = params.get("requestId");
 
           if (action === "decline" && requestId) {
+            const staffDoc = await db.collection("staffs").doc(lineUserId).get();
+            if (!staffDoc.exists || !isActiveStaff(staffDoc.data())) {
+              try {
+                const replyResponse = await fetch("https://api.line.me/v2/bot/message/reply", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${channelAccessToken}`,
+                  },
+                  body: JSON.stringify({
+                    replyToken: event.replyToken,
+                    messages: [
+                      {
+                        type: "text",
+                        text: "退職済みのため、この操作は利用できません。",
+                      },
+                    ],
+                  }),
+                });
+                if (!replyResponse.ok) {
+                  const errorText = await replyResponse.text();
+                  logOpsError({
+                    message: "Failed to send retired staff reply message",
+                    functionEntry: "lineWebhook",
+                    operation: "replyPostbackRetiredStaffNotOk",
+                    context: {
+                      status: replyResponse.status,
+                      lineApiErrorPreview: errorText.slice(0, 200),
+                    },
+                  });
+                }
+              } catch (replyError) {
+                logOpsError({
+                  message: "Error sending retired staff reply message",
+                  functionEntry: "lineWebhook",
+                  operation: "replyPostbackRetiredStaffCatch",
+                  cause: replyError,
+                });
+              }
+              continue;
+            }
+
             // プランチェック: コミュニケーションプランの場合は機能を無効化
             const { getStoreConfig } = await import('../../../shared/config/configLoader');
             const storeConfig = await getStoreConfig();
@@ -279,7 +322,7 @@ export const lineWebhook = onRequest(async (request, response) => {
           const staffDocRef = db.collection("staffs").doc(lineUserId);
           const staffDoc = await staffDocRef.get();
 
-          const ok = staffDoc.exists
+          const ok = staffDoc.exists && isActiveStaff(staffDoc.data())
             ? await linkStaffRichMenu(lineUserId)
             : await linkUserRichMenu(lineUserId);
 

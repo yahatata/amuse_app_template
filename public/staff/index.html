@@ -365,6 +365,55 @@
         </form>
       </div>
 
+  <!-- 再登録画面（退職済み） -->
+  <div id="reactivation-page" class="page registration-page" style="display: none;">
+    <h1>退職済みアカウント</h1>
+    <p>店舗と復帰の合意がある場合のみ、同じLINEアカウントで再登録できます。</p>
+    <form id="reactivation-form">
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="reactivation-agreement">
+          店舗と復帰について合意済みです
+        </label>
+      </div>
+      <div id="reactivation-validation-message" style="display: none; margin-bottom: 16px; padding: 12px; background: #fdecea; border: 1px solid #f5c2c7; border-radius: 8px; color: #842029; white-space: pre-wrap;"></div>
+      <div class="form-group">
+        <label>お名前</label>
+        <div style="display: flex; gap: 10px;">
+          <input type="text" id="reactivation-lastName" placeholder="山田" style="flex: 1;">
+          <input type="text" id="reactivation-firstName" placeholder="太郎" style="flex: 1;">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>かな</label>
+        <div style="display: flex; gap: 10px;">
+          <input type="text" id="reactivation-lastNameKana" placeholder="やまだ" style="flex: 1;">
+          <input type="text" id="reactivation-firstNameKana" placeholder="たろう" style="flex: 1;">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>誕生日</label>
+        <div style="display: flex; gap: 10px;">
+          <select id="reactivation-birthMonth" style="flex: 1;">
+            <option value="">月</option>
+          </select>
+          <select id="reactivation-birthDay" style="flex: 1;">
+            <option value="">日</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="reactivation-email">メールアドレス</label>
+        <input type="email" id="reactivation-email" placeholder="example@email.com">
+      </div>
+      <div class="form-group">
+        <label for="reactivation-phone">電話番号</label>
+        <input type="tel" id="reactivation-phone" placeholder="09012345678">
+      </div>
+      <button type="submit" class="btn">再登録する</button>
+    </form>
+  </div>
+
       <!-- QRコード表示画面 -->
       <div id="qr-page" class="page qr-page" style="display: none;">
         <h1>出勤・退勤QRコード</h1>
@@ -644,6 +693,7 @@
   const loadingEl = document.getElementById('loading');
   const homePageEl = document.getElementById('home-page');
   const registrationPageEl = document.getElementById('registration-page');
+  const reactivationPageEl = document.getElementById('reactivation-page');
       const qrPageEl = document.getElementById('qr-page');
       const shiftPageEl = document.getElementById('shift-page');
   const profilePageEl = document.getElementById('profile-page');
@@ -656,7 +706,154 @@
   window.updateInitProgress = (percent) => { if (progressFillEl) progressFillEl.style.width = Math.min(100, Math.max(0, percent)) + '%'; };
 
   const registrationFormEl = document.getElementById('registration-form');
+  const reactivationFormEl = document.getElementById('reactivation-form');
       const shiftFormEl = document.getElementById('shift-form');
+
+  window._staffStatus = 'unknown';
+
+  function normalizeStaffStatusClient(data) {
+    if (data && data.status === 'retired') {
+      return 'retired';
+    }
+    return 'active';
+  }
+
+  function splitFullName(fullName) {
+    if (!fullName || typeof fullName !== 'string') {
+      return { lastName: '', firstName: '' };
+    }
+    const trimmed = fullName.trim();
+    const parts = trimmed.split(/[\s　]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return { lastName: parts[0], firstName: parts.slice(1).join('') };
+    }
+    return { lastName: trimmed, firstName: '' };
+  }
+
+  function splitFullNameKana(fullNameKana) {
+    if (!fullNameKana || typeof fullNameKana !== 'string') {
+      return { lastName: '', firstName: '' };
+    }
+    const trimmed = fullNameKana.trim();
+    if (!trimmed) {
+      return { lastName: '', firstName: '' };
+    }
+    if (/[\s　]/.test(trimmed)) {
+      const parts = splitFullName(trimmed);
+      return { lastName: parts.lastName, firstName: parts.firstName };
+    }
+    return { lastName: '', firstName: '' };
+  }
+
+  function clearReactivationValidationMessage() {
+    const el = document.getElementById('reactivation-validation-message');
+    if (el) {
+      el.style.display = 'none';
+      el.textContent = '';
+    }
+  }
+
+  function showReactivationValidationIssues(issues) {
+    const el = document.getElementById('reactivation-validation-message');
+    if (!el || !issues.length) return;
+    el.textContent = '以下を確認してください。\n' + issues.map((item) => `- ${item}`).join('\n');
+    el.style.display = 'block';
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function validateReactivationForm() {
+    clearReactivationValidationMessage();
+    const issues = [];
+    const agreementEl = document.getElementById('reactivation-agreement');
+    const lastName = document.getElementById('reactivation-lastName')?.value.trim() || '';
+    const firstName = document.getElementById('reactivation-firstName')?.value.trim() || '';
+    const lastNameKana = document.getElementById('reactivation-lastNameKana')?.value.trim() || '';
+    const firstNameKana = document.getElementById('reactivation-firstNameKana')?.value.trim() || '';
+    const birthMonth = document.getElementById('reactivation-birthMonth')?.value || '';
+    const birthDay = document.getElementById('reactivation-birthDay')?.value || '';
+    const email = document.getElementById('reactivation-email')?.value.trim() || '';
+    const phoneNumber = document.getElementById('reactivation-phone')?.value.trim() || '';
+
+    if (!agreementEl || !agreementEl.checked) {
+      issues.push('店舗と復帰について合意済みであることを確認してください。');
+    }
+    if (!lastName) {
+      issues.push('姓を入力してください。');
+    }
+    if (!firstName) {
+      issues.push('名を入力してください。');
+    }
+    if (!lastNameKana) {
+      issues.push('かな（姓）を入力してください。');
+    }
+    if (!firstNameKana) {
+      issues.push('かな（名）を入力してください。');
+    }
+    if (!birthMonth || !birthDay) {
+      issues.push('生年月日（月・日）を選択してください。');
+    }
+    if (!email) {
+      issues.push('メールアドレスを入力してください。');
+    }
+    if (!phoneNumber) {
+      issues.push('電話番号を入力してください。');
+    }
+
+    if (issues.length > 0) {
+      showReactivationValidationIssues(issues);
+      return false;
+    }
+    return true;
+  }
+
+  function populateReactivationForm(staffData) {
+    const nameParts = splitFullName(staffData.fullName || '');
+    const kanaParts = splitFullNameKana(staffData.fullNameKana || '');
+    const lastNameEl = document.getElementById('reactivation-lastName');
+    const firstNameEl = document.getElementById('reactivation-firstName');
+    const lastNameKanaEl = document.getElementById('reactivation-lastNameKana');
+    const firstNameKanaEl = document.getElementById('reactivation-firstNameKana');
+    const emailEl = document.getElementById('reactivation-email');
+    const phoneEl = document.getElementById('reactivation-phone');
+    const birthMonthEl = document.getElementById('reactivation-birthMonth');
+    const birthDayEl = document.getElementById('reactivation-birthDay');
+
+    if (lastNameEl) lastNameEl.value = nameParts.lastName;
+    if (firstNameEl) firstNameEl.value = nameParts.firstName;
+    if (lastNameKanaEl) lastNameKanaEl.value = kanaParts.lastName;
+    if (firstNameKanaEl) firstNameKanaEl.value = kanaParts.firstName;
+    if (emailEl) emailEl.value = staffData.email || '';
+    if (phoneEl) phoneEl.value = staffData.phoneNumber || '';
+    clearReactivationValidationMessage();
+
+    const birthMonthDay = staffData.birthMonthDay ? String(staffData.birthMonthDay) : '';
+    if (birthMonthDay.length === 4) {
+      if (birthMonthEl) birthMonthEl.value = birthMonthDay.substring(0, 2);
+      if (birthDayEl) birthDayEl.value = birthMonthDay.substring(2, 4);
+    }
+  }
+
+  function initReactivationBirthdayOptions() {
+    const birthMonthEl = document.getElementById('reactivation-birthMonth');
+    const birthDayEl = document.getElementById('reactivation-birthDay');
+    if (!birthMonthEl || !birthDayEl || birthMonthEl.options.length > 1) {
+      return;
+    }
+    for (let month = 1; month <= 12; month++) {
+      const monthValue = month.toString().padStart(2, '0');
+      const option = document.createElement('option');
+      option.value = monthValue;
+      option.textContent = `${month}月`;
+      birthMonthEl.appendChild(option);
+    }
+    for (let day = 1; day <= 31; day++) {
+      const dayValue = day.toString().padStart(2, '0');
+      const option = document.createElement('option');
+      option.value = dayValue;
+      option.textContent = `${day}日`;
+      birthDayEl.appendChild(option);
+    }
+  }
 
   // エラー表示関数
   function showError(message, error = null) {
@@ -793,6 +990,14 @@
 
   // ページ表示関数
   function showPage(pageElement) {
+    if (
+      reactivationPageEl &&
+      pageElement !== reactivationPageEl &&
+      window._staffStatus === 'retired'
+    ) {
+      pageElement = reactivationPageEl;
+    }
+
     // ローディング画面を確実に非表示にする
     if (loadingEl) {
     loadingEl.style.display = 'none';
@@ -803,6 +1008,7 @@
         // 全てのページを非表示
         homePageEl.style.display = 'none';
         registrationPageEl.style.display = 'none';
+        if (reactivationPageEl) reactivationPageEl.style.display = 'none';
         qrPageEl.style.display = 'none';
         shiftPageEl.style.display = 'none';
       profilePageEl.style.display = 'none';
@@ -816,6 +1022,7 @@
         // activeクラスの管理
     homePageEl.classList.remove('active');
     registrationPageEl.classList.remove('active');
+    if (reactivationPageEl) reactivationPageEl.classList.remove('active');
         qrPageEl.classList.remove('active');
         shiftPageEl.classList.remove('active');
       profilePageEl.classList.remove('active');
@@ -880,6 +1087,20 @@
       }
 
       if (staffDoc.exists()) {
+        const staffData = staffDoc.data();
+        window._staffStatus = normalizeStaffStatusClient(staffData);
+
+        if (window._staffStatus === 'retired') {
+          initReactivationBirthdayOptions();
+          populateReactivationForm(staffData);
+          if (reactivationPageEl) {
+            showPage(reactivationPageEl);
+          }
+          return;
+        }
+
+        window._staffStatus = 'active';
+
             if (window._debugLog) window._debugLog('5a. スタッフ登録済み→handleHashNavigation');
             // 登録済みの場合
         // スタッフ情報はプロフィール画面で表示するため、ここでは何もしない
@@ -897,6 +1118,7 @@
         }
       } else {
             if (window._debugLog) window._debugLog('5b. スタッフ未登録→登録ページ表示');
+            window._staffStatus = 'unknown';
             // 未登録の場合
         const registrationPageEl = document.getElementById('registration-page');
         if (registrationPageEl) {
@@ -918,10 +1140,9 @@
     }
   }
 
-      // かな入力のバリデーション
+      // かな入力のバリデーション（姓・名結合時の全角/半角スペースも許可）
       function validateFullNameKana(fullNameKana) {
-        // ひらがなとカタカナのみ許可
-        const kanaRegex = /^[ぁ-んァ-ヶー]*$/;
+        const kanaRegex = /^[ぁ-んァ-ヶー\s　]*$/;
         return kanaRegex.test(fullNameKana);
       }
       
@@ -1029,6 +1250,71 @@
       });
     }
   });
+
+  if (reactivationFormEl) {
+    reactivationFormEl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      if (!validateReactivationForm()) {
+        return;
+      }
+
+      const controls = reactivationFormEl.querySelectorAll('input, select, button');
+      const runReactivation = async () => {
+        const lastName = document.getElementById('reactivation-lastName').value.trim();
+        const firstName = document.getElementById('reactivation-firstName').value.trim();
+        const fullName = lastName + '　' + firstName;
+        const lastNameKana = document.getElementById('reactivation-lastNameKana').value.trim();
+        const firstNameKana = document.getElementById('reactivation-firstNameKana').value.trim();
+        if (!validateFullNameKana(lastNameKana) || !validateFullNameKana(firstNameKana)) {
+          throw new Error('かなはひらがなまたはカタカナで入力してください。');
+        }
+        const fullNameKana = lastNameKana + firstNameKana;
+        const birthMonth = document.getElementById('reactivation-birthMonth').value;
+        const birthDay = document.getElementById('reactivation-birthDay').value;
+        const email = document.getElementById('reactivation-email').value;
+        const phoneNumber = document.getElementById('reactivation-phone').value;
+
+        if (!birthMonth || !birthDay) {
+          throw new Error('誕生日の月と日を選択してください');
+        }
+
+        const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+        const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
+        const reactivateStaffAccount = httpsCallable(functions, 'reactivateStaffAccount');
+        const result = await reactivateStaffAccount({
+          fullName,
+          fullNameKana,
+          email,
+          phoneNumber,
+          birthMonthDay: birthMonth + birthDay,
+        });
+
+        if (!result.data || !result.data.success) {
+          throw new Error(result.data?.error || '再登録に失敗しました。');
+        }
+
+        showSuccess('再登録が完了しました！');
+        window._staffStatus = 'active';
+        const loadingElRe = document.getElementById('loading');
+        if (loadingElRe) {
+          loadingElRe.style.display = 'block';
+        }
+        setTimeout(() => {
+          checkStaffRegistration();
+        }, 1000);
+      };
+
+      controls.forEach((el) => { el.disabled = true; });
+      try {
+        await executeWithGlobalLoading(runReactivation, '再登録処理中…');
+      } catch (error) {
+        showError('再登録に失敗しました: ' + error.message);
+      } finally {
+        controls.forEach((el) => { el.disabled = false; });
+      }
+    });
+  }
 
       // QRコード表示関数
       window.showStaffQRCode = async () => {

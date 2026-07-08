@@ -84,6 +84,7 @@ export const createStaffByApp = onCall(async (request) => {
     birthMonthDay,
     loginId,
     staffRole: "staff",
+    status: "active",
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     qrCodeUrl,
     qrExpiresAt: admin.firestore.Timestamp.fromDate(new Date(qrData.timestamp + 10 * 60 * 1000)),

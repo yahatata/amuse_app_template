@@ -75,6 +75,9 @@ export const createManualClockInRecord = onCall(async (request: CallableRequest)
       throw new HttpsError('invalid-argument', 'staffId is required');
     }
 
+    const { assertActiveStaff } = await import('../../staff/helpers/staffStatus');
+    await assertActiveStaff(staffId);
+
     Object.assign(logContext, { staffId });
 
     const config = await getStoreConfig();

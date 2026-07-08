@@ -87,6 +87,8 @@ export const startBreak = onCall(async (request: CallableRequest) => {
     }
 
     const attendanceData = attendanceSnap.data()!;
+    const { assertActiveStaff } = await import('../../staff/helpers/staffStatus');
+    await assertActiveStaff(String(attendanceData.staffId));
     Object.assign(logContext, {
       staffId: attendanceData.staffId,
       date: attendanceData.date,
