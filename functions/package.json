@@ -30,7 +30,8 @@
     "test:phase4-03": "jest --runInBand __tests__/config_migration/phase4_03_nightlyIntegrityCheck.spec.ts",
     "test:phase4-1C": "jest --runInBand __tests__/config_migration/phase4_1C",
     "test:phase4-1C:emulator": "cd .. && firebase emulators:exec --only firestore 'cd functions && npm test -- __tests__/config_migration/phase4_1C --runInBand'",
-    "test:phase0A:emulator": "cd .. && firebase emulators:exec --only firestore 'cd functions && RUN_EMULATOR_TESTS=1 npm test -- tournament_createTournament config_migration'"
+    "test:phase0A:emulator": "cd .. && firebase emulators:exec --only firestore 'cd functions && RUN_EMULATOR_TESTS=1 npm test -- tournament_createTournament config_migration'",
+    "migrate:staff-status": "npx ts-node scripts/migrateStaffStatusActive.ts"
   },
   "engines": {
     "node": "22"

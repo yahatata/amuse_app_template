@@ -146,6 +146,7 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
           .orderBy('fullName')
           .get();
       final staffs = snap.docs
+          .where((d) => d.data()['status'] != 'retired')
           .map((d) => _StaffOption(id: d.id, name: d.data()['fullName']?.toString() ?? '—'))
           .toList();
       if (!mounted) return;

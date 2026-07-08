@@ -5,6 +5,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 
 class ErrorView extends StatefulWidget {
   final String paymentPeriodKey;
@@ -26,6 +27,7 @@ class ErrorView extends StatefulWidget {
 
 class _ErrorViewState extends State<ErrorView> {
   List<Map<String, dynamic>> _failedStaff = [];
+  Set<String> _retiredStaffNames = {};
   bool _loading = true;
 
   @override
@@ -35,18 +37,23 @@ class _ErrorViewState extends State<ErrorView> {
   }
 
   Future<void> _loadFailedStaff() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('monthlyPayroll')
-        .doc(widget.paymentPeriodKey)
-        .collection('payrollRuns')
-        .doc(widget.runId)
-        .collection('staffResults')
-        .where('taskStatus', isEqualTo: 'failed')
-        .get();
+    final results = await Future.wait([
+      FirebaseFirestore.instance
+          .collection('monthlyPayroll')
+          .doc(widget.paymentPeriodKey)
+          .collection('payrollRuns')
+          .doc(widget.runId)
+          .collection('staffResults')
+          .where('taskStatus', isEqualTo: 'failed')
+          .get(),
+      StaffRetiredUi.fetchRetiredStaffNames(),
+    ]);
 
     if (mounted) {
+      final snap = results[0] as QuerySnapshot<Map<String, dynamic>>;
       setState(() {
         _failedStaff = snap.docs.map((d) => d.data()).toList();
+        _retiredStaffNames = results[1] as Set<String>;
         _loading = false;
       });
     }
@@ -83,9 +90,21 @@ class _ErrorViewState extends State<ErrorView> {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text('・', style: TextStyle(fontSize: 16)),
-                      Expanded(child: Text('$name: $error')),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            StaffRetiredUi.nameWithRetiredBadge(
+                              name: name,
+                              isRetired: _retiredStaffNames.contains(name),
+                            ),
+                            Text(error, style: const TextStyle(fontSize: 13)),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 );

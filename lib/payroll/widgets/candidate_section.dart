@@ -3,6 +3,7 @@
 // 参照: 06_UI_SPEC §3-1
 
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 
 class CandidateEntry {
   final String attendanceId;
@@ -42,6 +43,7 @@ class CandidateSection extends StatelessWidget {
   final bool selectable;
   final bool requireConfirmToUncheck;
   final ValueChanged<int>? onToggle;
+  final Set<String> retiredStaffNames;
 
   const CandidateSection({
     super.key,
@@ -51,6 +53,7 @@ class CandidateSection extends StatelessWidget {
     this.selectable = true,
     this.requireConfirmToUncheck = false,
     this.onToggle,
+    this.retiredStaffNames = const {},
   });
 
   String _formatMinutes(int m) {
@@ -116,7 +119,16 @@ class CandidateSection extends StatelessWidget {
                         },
                       )
                     : const Icon(Icons.block, color: Colors.grey, size: 20),
-                title: Text('${entry.staffName}  ${entry.date}'),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: StaffRetiredUi.nameWithRetiredBadge(
+                        name: '${entry.staffName}  ${entry.date}',
+                        isRetired: retiredStaffNames.contains(entry.staffName),
+                      ),
+                    ),
+                  ],
+                ),
                 subtitle: Text(
                   '${entry.reasonLabel}  ${_formatMinutes(entry.actualWorkMinutes)}',
                   style: const TextStyle(fontSize: 12),

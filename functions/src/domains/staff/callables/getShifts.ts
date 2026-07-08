@@ -44,6 +44,11 @@ export const getShifts = onCall(
       }
       
       uid = userId;
+
+      if (request.auth && request.auth.uid === uid) {
+        const { assertActiveStaff } = await import("../helpers/staffStatus");
+        await assertActiveStaff(uid);
+      }
       
       await admin.firestore().collection("shifts").limit(1).get();
       

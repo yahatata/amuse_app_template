@@ -136,6 +136,7 @@
 | `processRefund` | `accounting` | |
 | `processStaffPayroll` | `payroll` | |
 | `processVisitByQR` | `user` | |
+| `reactivateStaffAccount` | `staff` | A-3 スタッフ退職処理 |
 | `registerDevice` | `device` | `shared/devices` |
 | `registerForSideGame` | `side_game` | |
 | `registerForTournament` | `tournament` | |
@@ -146,6 +147,7 @@
 | `resetAllSideGames` | `store` | |
 | `resetAllTables` | `store` | |
 | `resumeTournament` | `tournament` | |
+| `retireStaff` | `staff` | A-3 スタッフ退職処理 |
 | `retryFailedStaffTasks` | `payroll` | |
 | `rollbackAction` | `audit_log` | |
 | `reseatAllPlayers` | `tournament` | |
@@ -258,7 +260,7 @@
 - **scheduler**: `schedulerSupervisor`（同一 service の export 外分は §「export 外の functionEntry 対応表」）
 - **shift**: `calculateInsufficientDays`, `createRecruitments`, `finalizeDay`, `finalizeMonth`, `initShiftDaysForMonth`, `interimConfirmRequests`, `sendRecruitmentNotification`, `setSufficientOverride`, `updateDayAssignments`
 - **side_game**: `debugSideGame`（**重要度十分性の主対象外**・§4）、`depositChip`, `leaveSeat`, `registerForSideGame`, `withdrawChip`
-- **staff**: `confirmShiftRequest`, `createMultipleShifts`, `createStaffAccount`, `createStaffByApp`, `getShifts`, `scheduledCleanup`, `updateShiftRequest`, `updateStaffBankInfo`, `updateStaffHourlyWage`
+- **staff**: `confirmShiftRequest`, `createMultipleShifts`, `createStaffAccount`, `createStaffByApp`, `getShifts`, `reactivateStaffAccount`, `retireStaff`, `scheduledCleanup`, `updateShiftRequest`, `updateStaffBankInfo`, `updateStaffHourlyWage`
 - **store**: `applyCloseSnapshot`, `cleanupActiveStaysOnClose`, `closeAssessmentTask`, `closeStore`, `closeStoreTerminal`, `continueBusinessTerminal`, `createInitialStateDocCallable`, `finalizeUnsettledBillAfterAccounting`, `getCloseIntegrityData`, `getUnclockedStaffForClose`, `getUnclosedTournamentsForClose`, `getUnsettledBillsForClose`, `initializeStoreConfigCallable`, `openAssessmentTask`, `openStore`, `openStoreTerminal`, `resetAllSideGames`, `resetAllTables`, `temporaryUnlockAlreadyRunningDifferentDateTerminal`, `updateUnclockedAttendanceWithAuth`, `verifyUnclockedAttendanceEditPassword`, `weeklyPlanner`
 - **tournament**: `addTableToTournament`, `addon`, `applyOkibakeAddon`, `assignOkibakeTemporaryEntryToSeat`, `assignSeatToPlayer`, `bulkAddon`, `bustAndExit`, `bustAndReentry`, `bustOkibakeTemporaryEntry`, `createOkibakeTemporaryEntry`, `createTemporaryTable`, `endTournament`, `getAvailableTables`, `getPrizeData`, `getRankingData`, `getTodayTournaments`, `getUpcomingTournaments`, `linkOkibakeTemporaryEntryToBill`, `pauseTournament`, `registerForTournament`, `registerParticipants`, `removeTableFromTournament`, `resumeTournament`, `reseatAllPlayers`, `setPrizeData`, `setRankingData`, `updateOkibakeTemporaryEntryLinkedUser`, `validateEndTournament`
 - **tournament_schedule**: `archiveBlindTemplate`, `archiveTournamentTemplate`, `controlHookHttp`, `createBlindTemplate`, `createScheduledTournament`, `createTournamentRecurrence`, `createTournamentTemplate`, `deleteTournamentRecurrence`, `enqueueTournamentTasks`, `enqueueTournamentTasksByScheduler`, `generateRecurringTournaments`, `generateRecurringTournamentsByScheduler`, `getBlindTemplates`, `getScheduledTournamentsForEdit`, `getTournamentRecurrences`, `getTournamentTemplates`, `updateBlindTemplate`, `updateScheduledTournamentStartAt`, `updateScheduledTournamentStatus`, `updateTournamentRecurrence`, `updateTournamentTemplate`

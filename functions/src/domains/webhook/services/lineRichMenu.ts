@@ -79,6 +79,75 @@ export async function linkStaffRichMenu(lineUserId: string): Promise<boolean> {
  * @param lineUserId - LINE User ID
  * @returns Promise<boolean> - 成功時 true、失敗時 false
  */
+/**
+ * LINE Messaging API でユーザーのリッチメニューリンクを解除する
+ *
+ * @param lineUserId - LINE User ID
+ * @returns Promise<boolean> - 成功時 true、404（未リンク）も true（冪等）
+ */
+export async function unlinkRichMenu(lineUserId: string): Promise<boolean> {
+  try {
+    const lineConfig = await getLineConfig();
+    const channelAccessToken = lineConfig.channelAccessToken;
+
+    if (!channelAccessToken) {
+      logger.warn("unlinkRichMenu: line-config.channelAccessToken not set");
+      return false;
+    }
+
+    if (!lineUserId || !lineUserId.trim()) {
+      logger.warn("unlinkRichMenu: lineUserId is empty");
+      return false;
+    }
+
+    const response = await fetch(
+      `https://api.line.me/v2/bot/user/${lineUserId}/richmenu`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${channelAccessToken}`,
+        },
+      }
+    );
+
+    if (response.status === 404) {
+      return true;
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logOpsError({
+        message: "unlinkRichMenu: Failed to unlink rich menu",
+        functionEntry: "unlinkRichMenu",
+        operation: "unlinkRichMenuHttpFail",
+        context: {
+          lineUserId,
+          status: response.status,
+          lineApiErrorPreview: errorText.slice(0, 200),
+        },
+      });
+      return false;
+    }
+
+    logOpsSuccess({
+      message: "unlinkRichMenu 成功",
+      functionEntry: "unlinkRichMenu",
+      operation: "unlinkRichMenuHttp",
+      context: { lineUserId },
+    });
+    return true;
+  } catch (error) {
+    logOpsError({
+      message: "unlinkRichMenu: Error",
+      functionEntry: "unlinkRichMenu",
+      operation: "unlinkRichMenuCatch",
+      cause: error,
+      context: { lineUserId },
+    });
+    return false;
+  }
+}
+
 export async function linkUserRichMenu(lineUserId: string): Promise<boolean> {
   try {
     const lineConfig = await getLineConfig();

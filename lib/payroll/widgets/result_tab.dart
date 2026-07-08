@@ -13,6 +13,7 @@ import 'package:amuse_app_template/services/payroll_config_service.dart';
 
 import '../services/payroll_callable_service.dart';
 import '../utils/payment_date_utils.dart';
+import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 import 'result_summary.dart';
 import 'staff_card.dart';
 import 'staff_detail_page.dart';
@@ -34,6 +35,7 @@ class _ResultTabState extends State<ResultTab> {
   String _paymentPeriodKey = '';
   bool _periodKeyLoading = true;
   bool _mgmtPaymentRegisterBusy = false;
+  late final Future<Set<String>> _retiredStaffIdsFuture;
 
   /// 親 StreamBuilder の再ビルドのたびに `snapshots()` を渡し直すと、子 StreamBuilder が
   /// 別ストリーム扱いで再購読 → 一瞬 waiting → スクロール可能領域が消えてオフセットが 0 に戻る。
@@ -77,6 +79,7 @@ class _ResultTabState extends State<ResultTab> {
   @override
   void initState() {
     super.initState();
+    _retiredStaffIdsFuture = StaffRetiredUi.fetchRetiredStaffIds();
     _resolvePaymentPeriodKey();
   }
 
@@ -445,13 +448,21 @@ class _ResultTabState extends State<ResultTab> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final staffDocs = staffSnapshot.data?.docs ?? [];
-        final staffList = staffDocs
-            .map((doc) => StaffCardData.fromFirestore(
-                doc.id, doc.data() as Map<String, dynamic>))
-            .where((s) => s.grossPay != 0)
-            .toList()
-          ..sort((a, b) => b.grossPay.compareTo(a.grossPay));
+        return FutureBuilder<Set<String>>(
+          future: _retiredStaffIdsFuture,
+          builder: (context, retiredSnapshot) {
+            final retiredStaffIds = retiredSnapshot.data ?? const {};
+
+            final staffDocs = staffSnapshot.data?.docs ?? [];
+            final staffList = staffDocs
+                .map((doc) => StaffCardData.fromFirestore(
+                      doc.id,
+                      doc.data() as Map<String, dynamic>,
+                      isRetired: retiredStaffIds.contains(doc.id),
+                    ))
+                .where((s) => s.grossPay != 0)
+                .toList()
+              ..sort((a, b) => b.grossPay.compareTo(a.grossPay));
 
         final totalActualWork =
             staffList.fold<int>(0, (s, e) => s + e.totalActualWorkMinutes);
@@ -560,6 +571,8 @@ class _ResultTabState extends State<ResultTab> {
                 ),
             ],
           ),
+        );
+          },
         );
       },
     );

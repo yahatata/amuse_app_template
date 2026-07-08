@@ -118,6 +118,9 @@ export const clockOut = onCall(async (request: CallableRequest) => {
       throw new HttpsError('invalid-argument', 'staffId or docId is required');
     }
 
+    const { assertActiveStaff } = await import('../../staff/helpers/staffStatus');
+    await assertActiveStaff(String(attendanceData.staffId));
+
     Object.assign(logContext, {
       docId: attendanceRef.id,
       staffId: attendanceData.staffId,

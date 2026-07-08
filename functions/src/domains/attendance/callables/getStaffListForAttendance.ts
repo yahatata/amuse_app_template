@@ -56,15 +56,18 @@ export const getStaffListForAttendance = onCall(async (request: CallableRequest)
         .collection('staffs')
         .get();
 
-      const staffs = staffsSnapshot.docs.map(doc => {
+      const staffs = staffsSnapshot.docs
+        .map(doc => {
         const data = doc.data();
         return {
           uid: doc.id,
           fullName: data.fullName || '',
           fullNameKana: data.fullNameKana || '',
           position: data.position || 'スタッフ',
+          status: data.status as string | undefined,
         };
-      });
+      })
+        .filter((staff) => staff.status !== 'retired');
 
       // シフト情報を取得（CHANGESPEC 6-4: status≠running 時は翌日）
       const shiftsSnapshot = await admin.firestore()

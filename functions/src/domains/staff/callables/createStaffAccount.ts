@@ -116,6 +116,7 @@ export const createStaffAccount = onCall(
           phoneNumber: phoneNumber,
           birthMonthDay: birthMonthDay,
           loginId: loginId,
+          status: "active",
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           // QRコード情報を追加
           qrCodeUrl: qrCodeUrl,

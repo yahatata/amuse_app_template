@@ -48,6 +48,11 @@ export const createAttendanceCorrectionRequest = onCall(
         throw new Error("Required fields are missing.");
       }
 
+      if (request.auth.uid === staffId) {
+        const { assertActiveStaff } = await import("../../staff/helpers/staffStatus");
+        await assertActiveStaff(staffId);
+      }
+
       Object.assign(logContext, {
         staffId,
         date,

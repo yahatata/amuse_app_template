@@ -4,10 +4,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 
 class StaffCardData {
   final String staffId;
   final String staffName;
+  final bool isRetired;
   final int totalActualWorkMinutes;
   final int grossPay;             // 丸め後総支給額（整数）
   final double? grossPayRaw;      // 丸め前総支給額（nullable: 旧データ互換）
@@ -31,6 +33,7 @@ class StaffCardData {
   StaffCardData({
     required this.staffId,
     required this.staffName,
+    this.isRetired = false,
     required this.totalActualWorkMinutes,
     required this.grossPay,
     this.grossPayRaw,
@@ -52,10 +55,15 @@ class StaffCardData {
     this.paymentStatus,
   });
 
-  factory StaffCardData.fromFirestore(String staffId, Map<String, dynamic> data) {
+  factory StaffCardData.fromFirestore(
+    String staffId,
+    Map<String, dynamic> data, {
+    bool isRetired = false,
+  }) {
     return StaffCardData(
       staffId: staffId,
       staffName: data['staffNameSnapshot'] as String? ?? '',
+      isRetired: isRetired,
       totalActualWorkMinutes: (data['totalActualWorkMinutes'] as num?)?.toInt() ?? 0,
       grossPay: (data['grossPay'] as num?)?.toInt() ?? 0,
       grossPayRaw: (data['grossPayRaw'] as num?)?.toDouble(),
@@ -147,11 +155,12 @@ class StaffCard extends StatelessWidget {
                         child: Row(
                           children: [
                             Expanded(
-                              child: Text(
-                                data.staffName,
+                              child: StaffRetiredUi.nameWithRetiredBadge(
+                                name: data.staffName,
+                                isRetired: data.isRetired,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
+                                nameStyle: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
                                 ),

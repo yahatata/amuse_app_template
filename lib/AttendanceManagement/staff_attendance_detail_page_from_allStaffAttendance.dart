@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/AttendanceManagement/shift_detail_page_from_staffAttendanceDetail.dart';
 import 'package:amuse_app_template/AttendanceManagement/daily_attendance_detail_page_from_staffAttendanceDetail.dart';
+import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 
 class StaffAttendanceDetailPage extends StatefulWidget {
   final String staffId;
   final String staffName;
+  final bool isRetired;
   final Map<String, dynamic>? existingAttendanceData;
   final Map<String, dynamic>? monthData;
   final List<Map<String, dynamic>>? shiftsData;
@@ -17,6 +19,7 @@ class StaffAttendanceDetailPage extends StatefulWidget {
     super.key,
     required this.staffId,
     required this.staffName,
+    this.isRetired = false,
     this.existingAttendanceData,
     this.monthData,
     this.shiftsData,
@@ -61,7 +64,11 @@ class _StaffAttendanceDetailPageState extends State<StaffAttendanceDetailPage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.staffName}の勤怠詳細'),
+        title: StaffRetiredUi.nameWithRetiredBadge(
+          name: '${widget.staffName}の勤怠詳細',
+          isRetired: widget.isRetired,
+          nameStyle: const TextStyle(fontSize: 18),
+        ),
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         bottom: TabBar(
@@ -627,7 +634,10 @@ class _StaffAttendanceDetailPageState extends State<StaffAttendanceDetailPage>
                               const SizedBox(width: 16.0),
                               const Icon(Icons.person, size: 16, color: Colors.blue),
                               const SizedBox(width: 4.0),
-                              Text('${widget.staffName}'),
+                              StaffRetiredUi.nameWithRetiredBadge(
+                                name: widget.staffName,
+                                isRetired: widget.isRetired,
+                              ),
                             ],
                           ),
                         ] else ...[

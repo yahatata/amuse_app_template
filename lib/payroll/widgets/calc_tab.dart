@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/services/payroll_config_service.dart';
+import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 import '../models/payroll_display_context.dart';
 import '../services/payroll_callable_service.dart';
 import '../utils/payroll_calc_window.dart';
@@ -39,6 +40,8 @@ class _CalcTabState extends State<CalcTab> {
   List<CandidateEntry> _group1 = [];
   List<CandidateEntry> _group2 = [];
   List<CandidateEntry> _group3 = [];
+
+  Set<String> _retiredStaffNames = {};
 
   String? _runId;
 
@@ -114,10 +117,14 @@ class _CalcTabState extends State<CalcTab> {
         e.selected = true;
       }
 
+      final retiredNames = await StaffRetiredUi.fetchRetiredStaffNames();
+
+      if (!mounted) return;
       setState(() {
         _group1 = g1;
         _group2 = g2;
         _group3 = g3;
+        _retiredStaffNames = retiredNames;
         _state = CalcTabState.candidatesLoaded;
       });
     } catch (e) {
@@ -696,11 +703,13 @@ class _CalcTabState extends State<CalcTab> {
               groupKey: 'group3',
               entries: _group3,
               selectable: false,
+              retiredStaffNames: _retiredStaffNames,
             ),
             CandidateSection(
               title: '前期以前の未反映データ（キャリーオーバー）',
               groupKey: 'group2',
               entries: _group2,
+              retiredStaffNames: _retiredStaffNames,
               onToggle: (idx) {
                 setState(() => _group2[idx].selected = !_group2[idx].selected);
               },
@@ -710,6 +719,7 @@ class _CalcTabState extends State<CalcTab> {
               groupKey: 'group1',
               entries: _group1,
               requireConfirmToUncheck: true,
+              retiredStaffNames: _retiredStaffNames,
               onToggle: (idx) {
                 setState(() => _group1[idx].selected = !_group1[idx].selected);
               },

@@ -3,6 +3,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { linkStaffRichMenu } from "../services/lineRichMenu";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { isActiveStaff } from "../../staff/helpers/staffStatus";
 
 /**
  * 提案C-B: スタッフ＋ユーザー登録アカウントのリッチメニューをスタッフ用に整える
@@ -36,6 +37,15 @@ export const ensureStaffRichMenu = onCall(async (request) => {
 
       // スタッフでない場合は何もしない（成功として返す）
       return { success: true, updated: false, reason: "not_staff" };
+    }
+
+    if (!isActiveStaff(staffDoc.data())) {
+      logOpsSuccess({
+        message: "ensureStaffRichMenu 成功",
+        functionEntry: "ensureStaffRichMenu",
+        context: { uid, outcome: "not_active_staff" },
+      });
+      return { success: true, updated: false, reason: "not_active_staff" };
     }
 
     // LIFF ユーザーでは uid = LINE User ID
