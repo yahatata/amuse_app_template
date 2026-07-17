@@ -86,6 +86,7 @@ describe('updateOkibakeTemporaryEntryLinkedUser', () => {
 
   async function seedUser(userId: string, pokerName?: string | null) {
     await db.collection('users').doc(userId).set({
+      userType: 'line',
       pokerName,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });

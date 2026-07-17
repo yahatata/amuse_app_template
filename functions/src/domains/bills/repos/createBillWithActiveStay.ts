@@ -35,6 +35,7 @@ import {
   buildInitialSettlementSnapshot,
 } from '../services/parentSummary';
 import { buildInitialCycleDoc, INITIAL_SETTLEMENT_CYCLE } from '../services/settlementCycles';
+import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
 
 /**
  * リクエストペイロードの正規化ハッシュを生成
@@ -92,6 +93,13 @@ export async function createBillWithActiveStay(
   }
 
   const db = getFirestore();
+
+  // 二重防波堤: users がある場合は移行済みを拒否（未作成 doc は従来どおり許容）
+  const userSnap = await db.collection('users').doc(userId).get();
+  if (userSnap.exists) {
+    assertUserNotMigrated(userSnap.data()!);
+  }
+
   const idempotencyKeyFull = `${billId}:createBill:${idempotencyKey}`;
   const idempotencyRef = db.collection('bills').doc(billId).collection('idempotency').doc(idempotencyKeyFull);
   const billRef = db.collection('bills').doc(billId);

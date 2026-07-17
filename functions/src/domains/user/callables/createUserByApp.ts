@@ -4,8 +4,33 @@ import * as admin from "firebase-admin";
 import * as bcrypt from "bcryptjs";
 import * as QRCode from "qrcode";
 import { initializeUserLogs } from "../services/logUtils";
+import { getCallerDeviceByUid, isActive } from "../../../shared/devices";
+import { USER_TYPE_STORE_MANAGED } from "../types/userType";
 
 export const createUserByApp = onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "認証が必要です", {
+      errorKey: "UNAUTHENTICATED",
+    });
+  }
+
+  const callerUid = request.auth.uid;
+  const device = await getCallerDeviceByUid(callerUid);
+  if (!device || !isActive(device.status)) {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "デバイスが見つからないか、アクティブではありません",
+      {errorKey: "PERMISSION_DENIED"},
+    );
+  }
+  if (device.role !== "admin") {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "ユーザーアカウントの作成には管理者権限が必要です",
+      {errorKey: "PERMISSION_DENIED"},
+    );
+  }
+
   const {pokerName, email, pin, birthMonthDay} = request.data;
 
   if (!pokerName || !pin || !birthMonthDay) {
@@ -47,6 +72,8 @@ export const createUserByApp = onCall(async (request) => {
     loginId,
     hashedPin,
     role: "user",
+    userType: USER_TYPE_STORE_MANAGED,
+    isMigrated: false,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     pointA: 0, // globalConstant.dart の pointTypes[0] フィールド
     pointB: 0, // globalConstant.dart の pointTypes[1] フィールド
@@ -81,4 +108,4 @@ export const createUserByApp = onCall(async (request) => {
   await initializeUserLogs(uid);
 
   return {success: true, uid, qrUrl: url};
-}); 
+});

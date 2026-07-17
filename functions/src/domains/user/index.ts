@@ -2,6 +2,8 @@
 export { getFirebaseCustomToken } from "./callables/getFirebaseCustomToken";
 export { createUserByApp } from "./callables/createUserByApp";
 export { createUserAccount } from "./callables/createUserAccount";
+export { setInitialUserBalances } from "./callables/setInitialUserBalances";
+export { migrateStoreManagedUserToLine } from "./callables/migrateStoreManagedUserToLine";
 export { generateQRCode } from "./callables/generateQRCode";
 export { verifyQRCode } from "./callables/verifyQRCode";
 export { getUserStatus } from "./callables/getUserStatus";

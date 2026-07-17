@@ -65,6 +65,8 @@
 | `createTournamentTemplate` | `tournament_schedule` | |
 | `createUserAccount` | `user` | |
 | `createUserByApp` | `user` | |
+| `setInitialUserBalances` | `user` | A-6 初期残高設定 |
+| `migrateStoreManagedUserToLine` | `user` | A-6 後日 LINE 化 |
 | `controlHookHttp` | `tournament_schedule` | `index.ts` → `shared/http/controlHook.ts`（トーナメント Cloud Tasks HTTP） |
 | `debugSideGame` | `side_game` | 開発・検証用。**`エラーログ_重要度判定要件定義.md` §4** に従い、本番運用向け重要度判定の十分性評価の**主対象外**（実装サマリ 業務本体 280 件のうち除外する 2 件の一方） |
 | `deletePayrollDemoData` | `payroll` | `demo_data`（給与デモ削除） |
@@ -264,7 +266,7 @@
 - **store**: `applyCloseSnapshot`, `cleanupActiveStaysOnClose`, `closeAssessmentTask`, `closeStore`, `closeStoreTerminal`, `continueBusinessTerminal`, `createInitialStateDocCallable`, `finalizeUnsettledBillAfterAccounting`, `getCloseIntegrityData`, `getUnclockedStaffForClose`, `getUnclosedTournamentsForClose`, `getUnsettledBillsForClose`, `initializeStoreConfigCallable`, `openAssessmentTask`, `openStore`, `openStoreTerminal`, `resetAllSideGames`, `resetAllTables`, `temporaryUnlockAlreadyRunningDifferentDateTerminal`, `updateUnclockedAttendanceWithAuth`, `verifyUnclockedAttendanceEditPassword`, `weeklyPlanner`
 - **tournament**: `addTableToTournament`, `addon`, `applyOkibakeAddon`, `assignOkibakeTemporaryEntryToSeat`, `assignSeatToPlayer`, `bulkAddon`, `bustAndExit`, `bustAndReentry`, `bustOkibakeTemporaryEntry`, `createOkibakeTemporaryEntry`, `createTemporaryTable`, `endTournament`, `getAvailableTables`, `getPrizeData`, `getRankingData`, `getTodayTournaments`, `getUpcomingTournaments`, `linkOkibakeTemporaryEntryToBill`, `pauseTournament`, `registerForTournament`, `registerParticipants`, `removeTableFromTournament`, `resumeTournament`, `reseatAllPlayers`, `setPrizeData`, `setRankingData`, `updateOkibakeTemporaryEntryLinkedUser`, `validateEndTournament`
 - **tournament_schedule**: `archiveBlindTemplate`, `archiveTournamentTemplate`, `controlHookHttp`, `createBlindTemplate`, `createScheduledTournament`, `createTournamentRecurrence`, `createTournamentTemplate`, `deleteTournamentRecurrence`, `enqueueTournamentTasks`, `enqueueTournamentTasksByScheduler`, `generateRecurringTournaments`, `generateRecurringTournamentsByScheduler`, `getBlindTemplates`, `getScheduledTournamentsForEdit`, `getTournamentRecurrences`, `getTournamentTemplates`, `updateBlindTemplate`, `updateScheduledTournamentStartAt`, `updateScheduledTournamentStatus`, `updateTournamentRecurrence`, `updateTournamentTemplate`
-- **user**: `createUserAccount`, `createUserByApp`, `generateQRCode`, `getFirebaseCustomToken`, `getUserStatus`, `manualCheckIn`, `processVisitByQR`, `verifyQRCode`
+- **user**: `createUserAccount`, `createUserByApp`, `generateQRCode`, `getFirebaseCustomToken`, `getUserStatus`, `manualCheckIn`, `migrateStoreManagedUserToLine`, `processVisitByQR`, `setInitialUserBalances`, `verifyQRCode`
 
 ### logOpsError 呼び出し数（service 別・参考）
 

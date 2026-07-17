@@ -4,6 +4,7 @@ import * as admin from "firebase-admin";
 import * as bcrypt from "bcryptjs";
 import { initializeUserLogs } from "../services/logUtils";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { USER_TYPE_LINE } from "../types/userType";
 
 /**
  * ユーザーアカウント作成関数
@@ -111,6 +112,7 @@ export const createUserAccount = onCall(
           pointB: 0, // globalConstant.dart の pointTypes[1] フィールド
           sideGameChip: 0, // globalConstant.dart の pointTypes[2] フィールド
           role: "user",
+          userType: USER_TYPE_LINE,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           currentTable: null,
           currentSeat: null,

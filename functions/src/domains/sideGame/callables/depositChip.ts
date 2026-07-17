@@ -17,6 +17,7 @@ import { assertSideGameOperationPermission } from '../lib/sideGameOperationPermi
 import { getActiveBillByUser } from '../../bills/repos/getActiveBillByUser';
 import { appendSideGameChip } from '../../bills/repos/appendSideGameChip';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
 
 export const depositChip = onCall(async (request) => {
   // 認証チェック
@@ -53,8 +54,11 @@ export const depositChip = onCall(async (request) => {
       throw new HttpsError('not-found', `User not found: ${userId}`);
     }
 
-    const userData = userDoc.data();
-    const currentChip = userData?.sideGameChip as number || 0;
+    const userData = userDoc.data()!;
+    // 移行済み店舗管理ユーザーは chip 預入不可（残高更新前）
+    assertUserNotMigrated(userData);
+
+    const currentChip = userData.sideGameChip as number || 0;
 
     console.log(`現在のchip残高: ${currentChip}`);
     console.log(`預入予定額（チップ枚数）: ${amount}`);

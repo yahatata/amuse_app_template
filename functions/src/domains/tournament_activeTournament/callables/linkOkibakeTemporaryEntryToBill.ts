@@ -22,6 +22,7 @@ import {
   assertOkibakeTournamentOperationPermission,
   assertTableDeviceCanAccessOkibakeEntry,
 } from '../lib/okibakeTableDevicePermission';
+import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
 
 const linkOkibakeSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId は必須です'),
@@ -166,6 +167,12 @@ export const linkOkibakeTemporaryEntryToBill = onCall(async (request) => {
         });
         return { success: true, replay: true, billId, okibakeEntryId };
       }
+    }
+
+    // 移行済み店舗管理ユーザーは伝票紐付け不可（tx 前）
+    const linkUserPreSnap = await db.collection('users').doc(userId).get();
+    if (linkUserPreSnap.exists) {
+      assertUserNotMigrated(linkUserPreSnap.data()!);
     }
 
     const txResult = await db.runTransaction(async (tx): Promise<TxOutcome> => {

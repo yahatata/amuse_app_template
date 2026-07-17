@@ -10,6 +10,7 @@ import { FunctionCustomError } from '../../../shared/logging/functionCustomError
 import { findOkibakeLinkedUserConflictInTx } from '../lib/okibakeLinkedUserConflict';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
+import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
 
 // 入力スキーマ
 const registerParticipantsSchema = z.object({
@@ -68,6 +69,15 @@ export const registerParticipants = onCall(async (request) => {
     const db = admin.firestore();
     const results: RegistrationResult[] = [];
     const successDetails: SuccessDetail[] = [];
+
+    // 1人でも移行済みなら全体拒否（部分登録禁止）
+    const uniqueUserIds = [...new Set(userIds.filter((id) => typeof id === 'string' && id.trim()))];
+    for (const uid of uniqueUserIds) {
+      const userSnap = await db.collection('users').doc(uid).get();
+      if (userSnap.exists) {
+        assertUserNotMigrated(userSnap.data()!);
+      }
+    }
 
     // トーナメント情報を事前取得
     const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
@@ -469,6 +479,10 @@ export const registerParticipants = onCall(async (request) => {
         error: '入力検証エラー',
         details: error.errors,
       };
+    }
+
+    if (error instanceof HttpsError) {
+      throw error;
     }
     
     return {

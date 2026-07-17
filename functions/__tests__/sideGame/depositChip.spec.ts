@@ -65,6 +65,7 @@ describe('depositChip', () => {
 
       // ユーザーを作成し、初期残高を設定
       await db.collection('users').doc(userId).set({
+        userType: 'line',
         sideGameChip: initialBalance,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -141,6 +142,7 @@ describe('depositChip', () => {
 
       // ユーザーを作成し、初期残高を設定
       await db.collection('users').doc(userId).set({
+        userType: 'line',
         sideGameChip: initialBalance,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -233,6 +235,7 @@ describe('depositChip', () => {
         idempotencyKey: 'idem_table_deposit_1',
       });
       await db.collection('users').doc(userId).set({
+        userType: 'line',
         sideGameChip: 500,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
