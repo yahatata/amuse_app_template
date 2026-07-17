@@ -15,6 +15,7 @@ import {
 import { validateAndNormalizeCustomPayment } from '../services/customPaymentValidator';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
 
 // 支払い方法の表示名を取得するヘルパー関数
 function _getPaymentMethodDisplayName(paymentMethod: string): string {
@@ -149,6 +150,22 @@ export const startAccounting = onCall(async (request) => {
     const storeConfig = await getStoreConfig();
     const chipRate = storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
 
+    // 会計開始前に bill と party.userId を確認し、移行済みユーザーを拒否
+    const billRef = db.collection('bills').doc(billId);
+    const billDoc = await billRef.get();
+    if (!billDoc.exists) {
+      throw new HttpsError('not-found', '指定された請求書が見つかりません');
+    }
+
+    const billData = billDoc.data()!;
+    const userId = billData.party?.userId as string | undefined;
+    if (userId) {
+      const userSnap = await db.collection('users').doc(userId).get();
+      if (userSnap.exists) {
+        assertUserNotMigrated(userSnap.data()!);
+      }
+    }
+
     // startAccounting ヘルパAPIを呼び出して bills のステータスとops更新
     const startAccountingResult = await startAccountingHelper({
       billId,
@@ -157,15 +174,7 @@ export const startAccounting = onCall(async (request) => {
     });
 
     // 既存の支払方法処理とユーザー残高差し引き処理を維持（P1-06のスコープ外）
-    // bills から情報を取得（todaysBills ではなく）
-    const billRef = db.collection('bills').doc(billId);
-    const billDoc = await billRef.get();
-    if (!billDoc.exists) {
-      throw new HttpsError('not-found', '指定された請求書が見つかりません');
-    }
-
-    const billData = billDoc.data()!;
-    const userId = billData.party?.userId;
+    // billRef / billData は上で取得済み
 
     // カテゴリごとの金額を計算（bills のサブコレクションから取得）
     const categoryAmounts: Record<string, number> = {};

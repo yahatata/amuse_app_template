@@ -1,8 +1,18 @@
+import 'package:amuse_app_template/user/user_type_display.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 /// 「未入店」を判定するためにまとめる users 一覧のフェッチ上限（Phase2 軽量実装）
 const int kOkibakeUsersFetchLimit = 500;
+
+/// 置きバケへ「新規紐付け」する候補として users ドキュメントを含めてよいか。
+///
+/// - 移行済み店舗管理（`store_managed` + `isMigrated == true`）のみ除外
+/// - LINE・未移行店舗管理・`userType` 未設定は含める（種別の推測・自動判定はしない）
+/// - クラッシュしないよう欠落フィールドは [isMigratedStoreManagedUser] 側で安全に扱う
+bool isEligibleForOkibakeNewLink(Map<String, dynamic> userData) {
+  return !isMigratedStoreManagedUser(userData);
+}
 
 /// 置きバケリンク候補（`users` ドキュメントに基づく）。表示・Callable 送信は [displayLabel] / [linkedPokerName] に統一。
 class OkibakeLinkCandidate {
@@ -62,6 +72,9 @@ Future<List<OkibakeLinkCandidate>> fetchOkibakeLinkCandidates() async {
   final list = <OkibakeLinkCandidate>[];
   for (final d in qs.docs) {
     final m = d.data();
+    if (!isEligibleForOkibakeNewLink(m)) {
+      continue;
+    }
     final pn = m['pokerName'];
     final trimmedPn = pn is String ? pn.trim() : '';
     final pokerName = trimmedPn.isNotEmpty ? trimmedPn : null;
@@ -126,6 +139,38 @@ List<OkibakeLinkCandidate> filterOkibakeLinkCandidatesUnusedByOkibake(
     ..sort(compareOkibakeLinkCandidates);
 }
 
+/// 管理者ユーザー一覧と同じ pokerName 検索（完全一致 → 前方一致 → 部分一致）。
+/// [searchQuery] が空のときは入力順を維持したコピーを返す。userId は検索対象外。
+List<OkibakeLinkCandidate> filterOkibakeLinkCandidatesBySearch(
+  List<OkibakeLinkCandidate> candidates,
+  String searchQuery,
+) {
+  final q = searchQuery.trim();
+  if (q.isEmpty) {
+    return List<OkibakeLinkCandidate>.from(candidates);
+  }
+
+  final exact = <OkibakeLinkCandidate>[];
+  final prefix = <OkibakeLinkCandidate>[];
+  final partial = <OkibakeLinkCandidate>[];
+
+  for (final c in candidates) {
+    final name = c.pokerName ?? '';
+    switch (pokerNameSearchMatch(name, q)) {
+      case AdminUserPokerNameSearchMatch.exact:
+        exact.add(c);
+      case AdminUserPokerNameSearchMatch.prefix:
+        prefix.add(c);
+      case AdminUserPokerNameSearchMatch.partial:
+        partial.add(c);
+      case AdminUserPokerNameSearchMatch.none:
+        break;
+    }
+  }
+
+  return [...exact, ...prefix, ...partial];
+}
+
 /// 置きバケリンク先ユーザーの一覧選択。検索用 [TextEditingController] はダイアログが破棄されるまで保持し、[State.dispose] で解放する。
 class OkibakeLinkUserPickerDialog extends StatefulWidget {
   const OkibakeLinkUserPickerDialog({
@@ -168,19 +213,8 @@ class _OkibakeLinkUserPickerDialogState
   }
 
   void _applyFilter(String q) {
-    final ql = q.trim().toLowerCase();
     setState(() {
-      if (ql.isEmpty) {
-        _filtered = List<OkibakeLinkCandidate>.from(widget.available);
-      } else {
-        _filtered = widget.available
-            .where(
-              (c) =>
-                  c.displayLabel.toLowerCase().contains(ql) ||
-                  c.userId.toLowerCase().contains(ql),
-            )
-            .toList();
-      }
+      _filtered = filterOkibakeLinkCandidatesBySearch(widget.available, q);
     });
   }
 
@@ -201,7 +235,7 @@ class _OkibakeLinkUserPickerDialogState
               controller: _queryController,
               autofocus: false,
               decoration: const InputDecoration(
-                labelText: '名前で絞り込み',
+                labelText: 'ポーカーネームで検索',
                 border: OutlineInputBorder(),
               ),
               onChanged: _applyFilter,

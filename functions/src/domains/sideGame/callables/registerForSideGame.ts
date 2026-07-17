@@ -14,6 +14,7 @@ import { HttpsError } from 'firebase-functions/v2/https';
 import { assertSideGameOperationPermission } from '../lib/sideGameOperationPermission';
 import { updatePlace } from '../../bills/repos/updatePlace';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
 
 export const registerForSideGame = onCall(async (request) => {
   // 認証チェック
@@ -42,6 +43,12 @@ export const registerForSideGame = onCall(async (request) => {
 
     if (typeof seatNumber !== 'number') {
       throw new HttpsError('invalid-argument', 'seatNumberは数値である必要があります');
+    }
+
+    // 移行済み店舗管理ユーザーはサイドゲーム着席不可（席更新前）
+    const userSnap = await db.collection('users').doc(userId).get();
+    if (userSnap.exists) {
+      assertUserNotMigrated(userSnap.data()!);
     }
 
     // 1. activeStaysから参加者情報を取得（存在チェックは本callable側の責務）

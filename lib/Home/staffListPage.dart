@@ -114,7 +114,6 @@ class _StaffListPageState extends State<StaffListPage> {
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('ID: ${staff.id}'),
                       if (data['email'] != null)
                         Text('Email: ${data['email']}'),
                       if (data['hourlyWage'] != null)

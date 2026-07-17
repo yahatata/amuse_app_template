@@ -12,6 +12,7 @@ import { getCurrentBusinessDateKeyOrThrow } from "../../storeMeta/repos/getCurre
 import { isRegEndAtPast } from "../../../shared/tournament/liffTournamentDateUtils";
 import { isTournamentStatusCancelled } from "../../../shared/tournament/mapScheduledTournamentForLiff";
 import { appendAvgStackToMainViewUpdate } from "../../../shared/tournament/calculateAvgStack";
+import { assertUserNotMigrated } from "../../user/helpers/assertUserNotMigrated";
 
 // 入力スキーマ
 const registerForTournamentSchema = z.object({
@@ -31,6 +32,12 @@ export const registerForTournament = onCall(async (request) => {
     const userId = request.auth.uid;
     
     const db = admin.firestore();
+
+    // 移行済み店舗管理ユーザーは新規参加登録不可（DB更新前）
+    const userSnap = await db.collection('users').doc(userId).get();
+    if (userSnap.exists) {
+      assertUserNotMigrated(userSnap.data()!);
+    }
 
     const storeConfig = await getStoreConfig(db);
     if (storeConfig.tournament?.liffRegistrationEnabled !== true) {

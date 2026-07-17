@@ -15,6 +15,7 @@ import {
   assertTableDeviceTournamentSeatAssignmentEnabled,
   extractBoundTableId,
 } from '../../../table_device/lib/shared';
+import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
 
 // 入力スキーマ
 const assignSeatToPlayerSchema = z.object({
@@ -64,6 +65,12 @@ export const assignSeatToPlayer = onCall(async (request) => {
       if (!hasPermission) {
         throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
       }
+    }
+
+    // 移行済み店舗管理ユーザーは着席不可（DB更新前）
+    const userSnap = await db.collection('users').doc(userId).get();
+    if (userSnap.exists) {
+      assertUserNotMigrated(userSnap.data()!);
     }
     
     console.log(`=== 待機者着席開始 ===`);

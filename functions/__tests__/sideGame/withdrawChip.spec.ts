@@ -65,6 +65,7 @@ describe('withdrawChip', () => {
 
       // ユーザーを作成し、初期残高を設定
       await db.collection('users').doc(userId).set({
+        userType: 'line',
         sideGameChip: initialBalance,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -141,6 +142,7 @@ describe('withdrawChip', () => {
 
       // ユーザーを作成し、初期残高を設定
       await db.collection('users').doc(userId).set({
+        userType: 'line',
         sideGameChip: initialBalance,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),

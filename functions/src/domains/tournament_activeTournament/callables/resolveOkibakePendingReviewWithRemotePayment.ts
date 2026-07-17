@@ -9,7 +9,10 @@ import {
   type DeviceDoc,
 } from '../../../shared/devices';
 import { logOpsSuccess } from '../../../shared/logging/logOpsError';
-import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import {
+  assertOkibakePendingReviewResolvable,
+  assertTournamentExistsForPendingReviewResolution,
+} from '../lib/assertOkibakePendingReviewResolvable';
 import { getCurrentBusinessDateKeyOrThrow } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
 import {
   buildDraftAccountingInput,
@@ -95,12 +98,10 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
   const opRef = db.collection('operationLogs').doc(operationId);
   const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
   const tournamentSnap = await tournamentRef.get();
-  if (!tournamentSnap.exists) {
-    throw new HttpsError('not-found', 'トーナメントが存在しません');
-  }
-  assertTournamentAllowsMutation({
+  // 終了済みでも来店なし入金は許可する（要対応精算）。存在確認のみ。
+  assertTournamentExistsForPendingReviewResolution({
     tournamentId,
-    status: tournamentSnap.data()?.status as string | undefined,
+    exists: tournamentSnap.exists,
   });
   const entryRef = tournamentRef.collection('okibakeTemporaryEntries').doc(okibakeEntryId);
   const billRef = db.collection('bills').doc();
@@ -165,7 +166,10 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
     }
 
     const tSnap = await tx.get(tournamentRef);
-    if (!tSnap.exists) throw new HttpsError('not-found', 'トーナメントが存在しません');
+    assertTournamentExistsForPendingReviewResolution({
+      tournamentId,
+      exists: tSnap.exists,
+    });
     const tData = tSnap.data() ?? {};
     const templateId =
       typeof tData.templateId === 'string' && tData.templateId.trim().length > 0
@@ -174,27 +178,11 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
     if (!templateId) throw new HttpsError('failed-precondition', 'templateId がありません');
 
     const entrySnap = await tx.get(entryRef);
-    if (!entrySnap.exists) throw new HttpsError('not-found', '置きバケが見つかりません');
+    const {linkedUserId, linkedUserPokerName} = assertOkibakePendingReviewResolvable({
+      exists: entrySnap.exists,
+      entryData: entrySnap.data(),
+    });
     const e = (entrySnap.data() ?? {}) as Record<string, unknown>;
-    const billLinkStatus = typeof e.billLinkStatus === 'string' ? e.billLinkStatus : '';
-    if (billLinkStatus !== 'pending_review') {
-      throw new HttpsError('failed-precondition', 'pending_review のみ処理できます');
-    }
-    const entryStatus = typeof e.entryStatus === 'string' ? e.entryStatus : '';
-    if (!['registered', 'seated', 'busted'].includes(entryStatus)) {
-      throw new HttpsError('failed-precondition', 'entryStatus が不正です');
-    }
-    const linkedUserId =
-      typeof e.linkedUserId === 'string' && e.linkedUserId.trim().length > 0
-        ? e.linkedUserId.trim()
-        : null;
-    const linkedUserPokerName =
-      typeof e.linkedUserPokerName === 'string' && e.linkedUserPokerName.trim().length > 0
-        ? e.linkedUserPokerName.trim()
-        : linkedUserId;
-    if (!linkedUserId || !linkedUserPokerName) {
-      throw new HttpsError('failed-precondition', 'linkedUserId が未設定です');
-    }
 
     const snapshot = (tData.snapshot ?? {}) as Record<string, unknown>;
     const nowLiteral = Timestamp.now();

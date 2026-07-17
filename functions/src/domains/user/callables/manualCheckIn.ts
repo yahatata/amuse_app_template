@@ -13,6 +13,7 @@ import {
   collectOkibakeLoginPromptTargets,
   resolveOkibakeLoginPromptMode,
 } from "../services/okibakeLoginPrompt";
+import { assertUserNotMigrated } from "../helpers/assertUserNotMigrated";
 
 /**
  * 手動チェックイン（店舗端末でのログインID + PIN 認証）
@@ -103,6 +104,9 @@ export const manualCheckIn = onCall(async (request) => {
       loginId,
       targetUid: uid,
     });
+
+    // 移行済み店舗管理ユーザーは新規入店不可（DB更新前）
+    assertUserNotMigrated(userData);
 
     // 2. activeStays の存在確認
     const activeStayRef = db.collection('activeStays').doc(uid);
@@ -208,6 +212,9 @@ export const manualCheckIn = onCall(async (request) => {
     };
 
   } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
     if (error instanceof FunctionCustomError) {
       return {
         success: false,

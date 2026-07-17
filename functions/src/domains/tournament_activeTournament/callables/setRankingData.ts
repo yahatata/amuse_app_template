@@ -6,6 +6,7 @@ import { writeSingleOperationLog } from '../../logs/lib/operationLog';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
 
 export interface RankingEntryForRollback {
   playerUid: string;
@@ -85,6 +86,21 @@ export const setRankingData = onCall(async (request) => {
     }
 
     console.log('cleanRankingData:', JSON.stringify(cleanRankingData, null, 2));
+
+    // 賞品付与対象 UID（*stPlayerUid）は移行済みを拒否。順位・残高の部分更新を防ぐため更新前に全件検査。
+    const prizePlayerUids = [
+      ...new Set(
+        Object.entries(cleanRankingData)
+          .filter(([key, value]) => key.endsWith('stPlayerUid') && typeof value === 'string' && value.trim())
+          .map(([, value]) => (value as string).trim())
+      ),
+    ];
+    for (const playerUid of prizePlayerUids) {
+      const userSnap = await db.collection('users').doc(playerUid).get();
+      if (userSnap.exists) {
+        assertUserNotMigrated(userSnap.data()!);
+      }
+    }
 
     const updateData = {
       ...cleanRankingData,

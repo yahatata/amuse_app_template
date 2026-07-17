@@ -13,6 +13,7 @@ import {
   collectOkibakeLoginPromptTargets,
   resolveOkibakeLoginPromptMode,
 } from "../services/okibakeLoginPrompt";
+import { assertUserNotMigrated } from "../helpers/assertUserNotMigrated";
 
 /**
  * 入店処理（QRスキャン起点）
@@ -99,7 +100,8 @@ export const processVisitByQR = onCall(async (request) => {
         message: "ユーザーが見つかりません。",
       };
     }
-    const role = userSnap.data()?.role;
+    const userData = userSnap.data()!;
+    const role = userData.role;
     if (role !== "user") {
       return {
         success: false,
@@ -107,6 +109,9 @@ export const processVisitByQR = onCall(async (request) => {
         message: "ユーザーのロールが無効です（user ではありません）。",
       };
     }
+
+    // 移行済み店舗管理ユーザーは新規入店不可（lastCheckInAt / bill 作成前）
+    assertUserNotMigrated(userData);
 
     // activeStays の存在確認
     const activeStayRef = db.collection('activeStays').doc(parsed.uid);
@@ -255,6 +260,9 @@ export const processVisitByQR = onCall(async (request) => {
 
     return result;
   } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
     if (error instanceof FunctionCustomError) {
       return {
         success: false,

@@ -13,6 +13,7 @@ import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../..
 import { buildOkibakeTemporaryDisplayName } from '../lib/okibakeTemporaryDisplayName';
 import { appendAvgStackToMainViewUpdate } from '../../../shared/tournament/calculateAvgStack';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
 import type { OkibakeAddonIntent } from '../types/okibake';
 
 const createOkibakeSchema = z.object({
@@ -122,6 +123,14 @@ export const createOkibakeTemporaryEntry = onCall(async (request) => {
           'failed-precondition',
           'この operationId は失敗済みです。operationId を新しくして再度お試しください。'
         );
+      }
+    }
+
+    // linkedUserId 指定時: 移行済み店舗管理ユーザーは新規置きバケ紐付け不可（tx 前）
+    if (linkedUserId != null) {
+      const linkedUserSnap = await db.collection('users').doc(linkedUserId).get();
+      if (linkedUserSnap.exists) {
+        assertUserNotMigrated(linkedUserSnap.data()!);
       }
     }
 

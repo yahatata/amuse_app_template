@@ -125,6 +125,7 @@ describe('processVisitByQR okibakeLoginPrompt', () => {
       loginId: 'qr-user',
       pokerName: 'QR User',
       role: 'user',
+      userType: 'line',
     });
     await db.collection('storeMeta').doc('config').set({
       okibake: { loginPromptMode: 'notice_only' },
@@ -163,6 +164,7 @@ describe('processVisitByQR okibakeLoginPrompt', () => {
       loginId: 'qr-user',
       pokerName: 'QR User',
       role: 'user',
+      userType: 'line',
     });
     collectPromptMock.mockRejectedValueOnce(new Error('prompt fetch failed'));
 
@@ -176,5 +178,34 @@ describe('processVisitByQR okibakeLoginPrompt', () => {
       count: 0,
       entries: [],
     });
+  });
+
+  it('isMigrated: true の店舗管理ユーザーは USER_MIGRATED で拒否される', async () => {
+    const callerUid = 'device-qr-migrated';
+    await seedDevice(callerUid);
+    await db.collection('users').doc('guest-qr-migrated').set({
+      uid: 'guest-qr-migrated',
+      loginId: 'qr-migrated',
+      pokerName: 'Migrated QR',
+      role: 'user',
+      userType: 'store_managed',
+      isMigrated: true,
+      migratedToUserId: 'line-1',
+    });
+    parseQRDataMock.mockReturnValue({
+      type: 'user',
+      uid: 'guest-qr-migrated',
+      loginId: 'qr-migrated',
+    });
+
+    await expect(
+      (processVisitByQR as any).run({
+        auth: {uid: callerUid},
+        data: {qrData: '{"dummy":true}'},
+      })
+    ).rejects.toMatchObject({
+      details: expect.objectContaining({errorKey: 'USER_MIGRATED'}),
+    });
+    expect(createBillMock).not.toHaveBeenCalled();
   });
 });

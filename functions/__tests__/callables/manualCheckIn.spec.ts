@@ -124,6 +124,7 @@ describe('manualCheckIn lastCheckInAt', () => {
       pokerName: 'TestPlayer',
       hashedPin: bcrypt.hashSync(pin, 10),
       role: 'user',
+      userType: 'line',
       ...(lastCheckInAt !== undefined ? { lastCheckInAt } : {}),
     });
   }
@@ -303,5 +304,32 @@ describe('manualCheckIn lastCheckInAt', () => {
       count: 0,
       entries: [],
     });
+  });
+
+  it('isMigrated: true の店舗管理ユーザーは USER_MIGRATED で拒否される', async () => {
+    const callerUid = 'device-manual-migrated';
+    const guestUid = 'guest-manual-migrated';
+    const loginId = 'migratedUserMMDD';
+    await seedDevice(callerUid);
+    await db.collection('users').doc(guestUid).set({
+      uid: guestUid,
+      loginId,
+      pokerName: 'MigratedPlayer',
+      hashedPin: bcrypt.hashSync('1234', 10),
+      role: 'user',
+      userType: 'store_managed',
+      isMigrated: true,
+      migratedToUserId: 'line-target-1',
+    });
+
+    await expect(
+      (manualCheckIn as any).run({
+        data: {loginId, pin: '1234', entranceFee: 0},
+        auth: {uid: callerUid},
+      })
+    ).rejects.toMatchObject({
+      details: expect.objectContaining({errorKey: 'USER_MIGRATED'}),
+    });
+    expect(createBillMock).not.toHaveBeenCalled();
   });
 });

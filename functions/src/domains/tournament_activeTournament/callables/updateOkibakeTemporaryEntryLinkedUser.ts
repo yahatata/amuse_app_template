@@ -16,6 +16,7 @@ import {
   assertOkibakeTournamentOperationPermission,
   assertTableDeviceCanAccessOkibakeEntry,
 } from '../lib/okibakeTableDevicePermission';
+import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
 
 const updateLinkedUserSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId は必須です'),
@@ -179,6 +180,12 @@ export const updateOkibakeTemporaryEntryLinkedUser = onCall(async (request) => {
           linkedUserPokerName,
         };
       }
+    }
+
+    // 移行済み店舗管理ユーザーは対象ユーザー後付け不可（tx 前）
+    const linkedUserPreSnap = await userRef.get();
+    if (linkedUserPreSnap.exists) {
+      assertUserNotMigrated(linkedUserPreSnap.data()!);
     }
 
     const txResult = await db.runTransaction(async (tx): Promise<TxOutcome> => {

@@ -71,6 +71,7 @@ describe('accounting (startAccounting)', () => {
       pointA,
       pointB,
       sideGameChip,
+      userType: 'line',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -464,6 +465,47 @@ describe('accounting (startAccounting)', () => {
       expect(legacyDoc.exists).toBe(true);
       const legacyData = legacyDoc.data()!;
       expect(legacyData.status).toBe('open');
+    });
+  });
+
+  describe('A-6 Phase 4-1 migrated guard', () => {
+    it('isMigrated: true ユーザーの会計開始は USER_MIGRATED で拒否される', async () => {
+      const userId = 'user_test_migrated_start_001';
+      const billId = 'bill_test_migrated_start_001';
+      const adminId = 'admin_test_migrated_start_001';
+
+      await createAdminDevice(adminId);
+      await db.collection('users').doc(userId).set({
+        pointA: 100,
+        pointB: 0,
+        sideGameChip: 0,
+        userType: 'store_managed',
+        isMigrated: true,
+        migratedToUserId: 'line-other',
+      });
+      // users があるため createBill 自体が拒否される → 直接 bill を設置
+      await db.collection('bills').doc(billId).set({
+        billId,
+        status: 'open',
+        businessDate: '2026-07-15',
+        party: {userId, pokerName: 'Migrated'},
+        place: {table: null, seat: null},
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      await expect(
+        (startAccounting as any).run({
+          auth: {uid: adminId},
+          data: {
+            billId,
+            clientNonce: 'nonce_migrated_start',
+            paymentMethodsByAmount: {cash: 0},
+          },
+        })
+      ).rejects.toMatchObject({
+        details: expect.objectContaining({errorKey: 'USER_MIGRATED'}),
+      });
     });
   });
 });

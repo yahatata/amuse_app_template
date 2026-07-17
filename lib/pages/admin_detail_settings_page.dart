@@ -3,6 +3,8 @@
 // 参照: docs/config_migration/phase1/PHASE1_UPDATE_PATH_DESIGN.md
 
 import 'dart:async';
+import 'package:amuse_app_template/Home/adminInitialBalancePage.dart';
+import 'package:amuse_app_template/Home/adminStoreManagedToLineMigrationPage.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -410,6 +412,54 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
                         ),
                       ],
                     ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'ユーザーデータ移行',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.account_balance_wallet,
+                    color: Colors.deepPurple),
+                title: const Text('初期ポイント設定'),
+                subtitle: const Text(
+                  '導入前からユーザーが保有しているポイントを設定します',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AdminInitialBalancePage(),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.swap_horiz, color: Colors.deepPurple),
+                title: const Text('店舗管理ユーザーからLINEユーザーへの移行'),
+                subtitle: const Text(
+                  '店舗管理ユーザーのポイントおよび必要データをLINEユーザーへ移行します',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          const AdminStoreManagedToLineMigrationPage(),
+                    ),
+                  );
+                },
+              ),
             ),
             const SizedBox(height: 24),
             const Text(
