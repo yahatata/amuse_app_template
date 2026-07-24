@@ -683,6 +683,7 @@ class _RequireSpecialAttentionPageState
       case PrimaryActionType.collect:
         await showDialog<void>(
           context: context,
+          barrierDismissible: false,
           builder: (_) => PostSettlementCollectionDialog(
             billId: vm.billId,
             initialAmountIncl: vm.displayAmountIncl,
@@ -692,6 +693,7 @@ class _RequireSpecialAttentionPageState
       case PrimaryActionType.refund:
         await showDialog<void>(
           context: context,
+          barrierDismissible: false,
           builder: (_) => PostSettlementRefundDialog(
             billId: vm.billId,
             initialAmountIncl: vm.displayAmountIncl,

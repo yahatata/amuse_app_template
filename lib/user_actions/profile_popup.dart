@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:amuse_app_template/user/balance_display.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 
 /// プロフィール参照ポップアップ
 Future<void> showProfileDialog({
@@ -117,9 +118,7 @@ class _ProfileDialog extends StatelessWidget {
                   }
 
                   final userData = snapshot.data!.data() as Map<String, dynamic>;
-                  final pointA = userData['pointA'] as num? ?? 0;
-                  final pointB = userData['pointB'] as num? ?? 0;
-                  final sideGameChip = userData['sideGameChip'] as num? ?? 0;
+                  final enabledIds = enabledBalanceIdsFromStoreConfig();
                   final birthMonthDay = userData['birthMonthDay'] as String? ?? '';
                   final email = userData['email'] as String? ?? '';
                   final createdAt = userData['createdAt'] as Timestamp?;
@@ -138,12 +137,13 @@ class _ProfileDialog extends StatelessWidget {
                       children: [
                         _buildInfoRow('Poker Name', pokerName),
                         const SizedBox(height: 12),
-                        _buildInfoRow('Point A', pointA.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')),
-                        const SizedBox(height: 12),
-                        _buildInfoRow('Point B', pointB.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')),
-                        const SizedBox(height: 12),
-                        _buildInfoRow('SideGame Chip', sideGameChip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')),
-                        const SizedBox(height: 12),
+                        for (final id in enabledIds) ...[
+                          _buildInfoRow(
+                            balanceDisplayName(id),
+                            formatBalanceFieldDisplay(userData, id),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         _buildInfoRow('生年月日', birthMonthDay.isEmpty ? '未設定' : birthMonthDay),
                         const SizedBox(height: 12),
                         _buildInfoRow('Email', email.isEmpty ? '未設定' : email),

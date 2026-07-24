@@ -1,6 +1,6 @@
+import 'package:amuse_app_template/user/balance_display.dart';
+import 'package:amuse_app_template/user/side_game_chip_display.dart';
 import 'package:flutter/material.dart';
-import 'package:amuse_app_template/services/store_config_defaults.dart';
-import 'package:amuse_app_template/services/store_config_service.dart';
 
 class CustomerAccountingDetailPage extends StatelessWidget {
   final Map<String, dynamic> customer;
@@ -8,24 +8,9 @@ class CustomerAccountingDetailPage extends StatelessWidget {
   const CustomerAccountingDetailPage({Key? key, required this.customer})
     : super(key: key);
 
-  // 支払い方法の表示名を取得
+  // 支払い方法の表示名を取得（A-7: config displayName。未知は現金へ落とさない）
   String _getPaymentMethodName(String paymentMethod) {
-    switch (paymentMethod) {
-      case 'cash':
-        return '現金';
-      case 'credit_card':
-        return 'クレジットカード';
-      case 'electronic_money':
-        return '電子マネー';
-      case 'pointA':
-        return 'ポイントA';
-      case 'pointB':
-        return 'ポイントB';
-      case 'sideGameChip':
-        return 'サイドゲームチップ';
-      default:
-        return '現金';
-    }
+    return balanceDisplayName(paymentMethod);
   }
 
   // 支払い方法のアイコンを取得
@@ -551,10 +536,10 @@ class CustomerAccountingDetailPage extends StatelessWidget {
     // サイドゲームチップの場合は換算して表示
     String displayText;
     if (method == 'sideGameChip' && amount != null) {
-      final chipCount =
-          (amount / (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).round();
-      displayText =
-          '${_getPaymentMethodName(method)} チップ${chipCount}枚 (¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
+      displayText = formatSideGameChipPaymentFromReference(
+        amount,
+        methodLabel: _getPaymentMethodName(method),
+      );
     } else if (amount != null) {
       displayText =
           '${_getPaymentMethodName(method)} ¥${amount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';

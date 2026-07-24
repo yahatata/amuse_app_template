@@ -1,9 +1,9 @@
-import 'dart:async';
-
-import 'package:flutter/material.dart';
+import 'package:amuse_app_template/user/balance_display.dart';
+import 'package:amuse_app_template/user/point_ids.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 
-/// チップ・ポイント履歴参照ページ
+/// チップ・ポイント履歴参照ページ（A-7: pointLogs / sideGameChipLogs）
 class ChipPointLogsPage extends StatefulWidget {
   final String userId;
   final String pokerName;
@@ -19,427 +19,165 @@ class ChipPointLogsPage extends StatefulWidget {
 }
 
 class _ChipPointLogsPageState extends State<ChipPointLogsPage> {
-  String _selectedLogType = 'pointA'; // 'pointA', 'pointB', 'sideGameChip'
-  String? _selectedDate;
-
-  /// ログ種別ごとに日付一覧をキャッシュ（タブ切替のたびに再取得しない）
-  final Map<String, List<String>> _datesByLogType = {};
-  final Set<String> _loadingLogTypes = {};
-
-  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _todaySubscription;
-  String? _watchingLogType;
+  late List<String> _tabs;
+  late String _selectedLogType;
 
   @override
   void initState() {
     super.initState();
-    _ensureDatesLoaded(_selectedLogType);
+    _tabs = [
+      ...enabledBalanceIdsFromStoreConfig().where(isCurrencyPointId),
+      if (enabledBalanceIdsFromStoreConfig().contains(kSideGameChipId))
+        kSideGameChipId,
+    ];
+    // chip のみ有効な場合もある
+    if (_tabs.isEmpty) {
+      _tabs = enabledBalanceIdsFromStoreConfig();
+    }
+    _selectedLogType = _tabs.isNotEmpty ? _tabs.first : kCurrencyPointIds.first;
   }
 
-  @override
-  void dispose() {
-    _todaySubscription?.cancel();
-    super.dispose();
-  }
-
-  bool get _isLoadingDates => _loadingLogTypes.contains(_selectedLogType);
-
-  List<String> get _availableDates =>
-      _datesByLogType[_selectedLogType] ?? const [];
-
-  String _collectionNameForLogType(String logType) {
-    switch (logType) {
-      case 'pointA':
-        return 'pointALogs';
-      case 'pointB':
-        return 'pointBLogs';
-      case 'sideGameChip':
-        return 'sideGameChipLogs';
+  String _reasonLabel(String reasonType, {required bool isChip}) {
+    switch (reasonType) {
+      case 'accounting':
+        return '会計';
+      case 'post_settlement_refund':
+      case 'refund':
+        return '返金';
+      case 'post_settlement_collection':
+      case 'collection':
+        return '追加徴収';
+      case 'tournament_reward':
+        return 'トーナメント報酬';
+      case 'tournament_reward_reversal':
+        return '報酬取消';
+      case 'deposit':
+        return '預け入れ';
+      case 'withdraw':
+        return '引出し';
+      case 'purchase':
+      case 'sideGame':
+        return isChip ? '購入' : reasonType;
+      case 'manual':
+        return '手動調整';
+      case 'adjustment':
+        return '調整';
       default:
-        return 'pointALogs';
+        return reasonType.isEmpty ? '履歴' : reasonType;
     }
-  }
-
-  void _onLogTypeChanged(String logType) {
-    if (logType == _selectedLogType) return;
-
-    final cached = _datesByLogType[logType];
-    setState(() {
-      _selectedLogType = logType;
-      _selectedDate =
-          cached != null && cached.isNotEmpty ? cached.first : null;
-    });
-
-    _ensureDatesLoaded(logType);
-    _syncTodayWatch(logType);
-  }
-
-  Future<void> _ensureDatesLoaded(String logType) async {
-    if (_datesByLogType.containsKey(logType) ||
-        _loadingLogTypes.contains(logType)) {
-      return;
-    }
-
-    setState(() => _loadingLogTypes.add(logType));
-
-    try {
-      final dates = await _queryAvailableDates(logType);
-      if (!mounted) return;
-
-      setState(() {
-        _datesByLogType[logType] = dates;
-        _loadingLogTypes.remove(logType);
-        if (logType == _selectedLogType) {
-          _selectedDate = dates.isNotEmpty ? dates.first : null;
-        }
-      });
-
-      if (logType == _selectedLogType) {
-        _syncTodayWatch(logType);
-      }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _datesByLogType[logType] = [];
-        _loadingLogTypes.remove(logType);
-        if (logType == _selectedLogType) {
-          _selectedDate = null;
-        }
-      });
-    }
-  }
-
-  void _syncTodayWatch(String logType) {
-    if (_watchingLogType == logType) return;
-
-    _todaySubscription?.cancel();
-    _watchingLogType = logType;
-
-    final today = DateTime.now().toIso8601String().split('T')[0];
-    final collectionName = _collectionNameForLogType(logType);
-
-    _todaySubscription = FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.userId)
-        .collection(collectionName)
-        .doc(today)
-        .snapshots()
-        .listen((doc) {
-      if (!mounted || _selectedLogType != logType) return;
-
-      final current = List<String>.from(_datesByLogType[logType] ?? []);
-      var changed = false;
-
-      if (doc.exists && !current.contains(today)) {
-        current.insert(0, today);
-        if (current.length > 10) {
-          current.removeLast();
-        }
-        changed = true;
-      } else if (!doc.exists && current.contains(today)) {
-        current.remove(today);
-        changed = true;
-      }
-
-      if (!changed) return;
-
-      setState(() {
-        _datesByLogType[logType] = current;
-        if (logType == _selectedLogType) {
-          if (_selectedDate == null && current.isNotEmpty) {
-            _selectedDate = current.first;
-          } else if (_selectedDate == today && !current.contains(today)) {
-            _selectedDate = current.isNotEmpty ? current.first : null;
-          }
-        }
-      });
-    });
-  }
-
-  /// 利用可能な日付（直近10個）を取得
-  Future<List<String>> _queryAvailableDates(String logType) async {
-    final collectionName = _collectionNameForLogType(logType);
-
-    final dates = List.generate(30, (index) {
-      final date = DateTime.now().subtract(Duration(days: index));
-      return date.toIso8601String().split('T')[0];
-    });
-
-    final availableDates = <String>[];
-    for (final date in dates) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.userId)
-            .collection(collectionName)
-            .doc(date)
-            .get();
-
-        if (doc.exists) {
-          availableDates.add(date);
-          if (availableDates.length >= 10) {
-            break;
-          }
-        }
-      } catch (_) {
-        continue;
-      }
-    }
-
-    return availableDates;
-  }
-
-  Widget _buildDateSelector() {
-    if (_isLoadingDates) {
-      return const SizedBox(
-        height: 60,
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_availableDates.isEmpty) {
-      return const SizedBox(
-        height: 60,
-        child: Center(child: Text('利用可能な日付がありません')),
-      );
-    }
-
-    return Container(
-      height: 60,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: _availableDates.length,
-        itemBuilder: (context, index) {
-          final date = _availableDates[index];
-          final isSelected = _selectedDate == date;
-          final dateObj = DateTime.parse(date);
-          final displayText = '${dateObj.month}/${dateObj.day}';
-
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: ChoiceChip(
-              label: Text(displayText),
-              selected: isSelected,
-              onSelected: (selected) {
-                if (selected) {
-                  setState(() {
-                    _selectedDate = date;
-                  });
-                }
-              },
-              selectedColor: Colors.blue.shade100,
-              backgroundColor: Colors.grey.shade200,
-            ),
-          );
-        },
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_tabs.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: Text('${widget.pokerName} - 履歴')),
+        body: const Center(child: Text('表示可能なポイント履歴がありません')),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text('${widget.pokerName} - 履歴'),
       ),
       body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(16),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                Expanded(
-                  child: SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(
-                        value: 'pointA',
-                        label: Text('Point A'),
-                        icon: Icon(Icons.account_balance_wallet),
-                      ),
-                      ButtonSegment(
-                        value: 'pointB',
-                        label: Text('Point B'),
-                        icon: Icon(Icons.account_balance_wallet),
-                      ),
-                      ButtonSegment(
-                        value: 'sideGameChip',
-                        label: Text('SideGame Chip'),
-                        icon: Icon(Icons.casino),
-                      ),
-                    ],
-                    selected: {_selectedLogType},
-                    onSelectionChanged: (Set<String> newSelection) {
-                      _onLogTypeChanged(newSelection.first);
-                    },
+                for (final id in _tabs)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(balanceDisplayName(id)),
+                      selected: _selectedLogType == id,
+                      onSelected: (_) {
+                        setState(() => _selectedLogType = id);
+                      },
+                    ),
                   ),
-                ),
               ],
             ),
           ),
-          _buildDateSelector(),
           Expanded(
-            child: _buildLogsList(),
+            child: _selectedLogType == kSideGameChipId
+                ? _buildChipLogs()
+                : _buildCurrencyPointLogs(_selectedLogType),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildLogsList() {
-    if (_isLoadingDates) {
-      return const Center(child: CircularProgressIndicator());
-    }
+  Widget _buildCurrencyPointLogs(String pointType) {
+    // 読取系: 画面領域 CPI のみ
+    final query = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.userId)
+        .collection('pointLogs')
+        .where('pointType', isEqualTo: pointType)
+        .orderBy('createdAt', descending: true)
+        .limit(100);
 
-    if (_availableDates.isEmpty) {
-      return const Center(
-        child: Text('利用可能な日付がありません'),
-      );
-    }
-
-    if (_selectedDate == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    final collectionName = _collectionNameForLogType(_selectedLogType);
-
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.userId)
-          .collection(collectionName)
-          .doc(_selectedDate!)
-          .snapshots(),
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: query.snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-
         if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error, color: Colors.red, size: 48),
-                const SizedBox(height: 16),
-                Text(
-                  'エラーが発生しました',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.red[700],
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  snapshot.error.toString(),
-                  style: const TextStyle(fontSize: 14),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          );
+          return Center(child: Text('履歴の取得に失敗しました: ${snapshot.error}'));
         }
-
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return const Center(
-            child: Text('この日付の履歴がありません'),
-          );
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return const Center(child: Text('履歴がありません'));
         }
-
-        final docData = snapshot.data!.data()!;
-        final logs = docData['logs'] as Map<String, dynamic>? ?? {};
-
-        if (logs.isEmpty) {
-          return const Center(
-            child: Text('履歴がありません'),
-          );
-        }
-
-        final logEntries = logs.entries.map((entry) {
-          final entryData = entry.value as Map<String, dynamic>;
-          return {
-            'entryId': entry.key,
-            'actor': entryData['actor'] as String? ?? '',
-            'amountDelta': entryData['amountDelta'] as num? ?? 0,
-            'appliedAt': entryData['appliedAt'] as Timestamp?,
-            'category': entryData['category'] as String? ?? '',
-            'reasonType': entryData['reasonType'] as String? ?? '',
-          };
-        }).toList();
-
-        logEntries.sort((a, b) {
-          final aTime = a['appliedAt'] as Timestamp?;
-          final bTime = b['appliedAt'] as Timestamp?;
-          if (aTime == null && bTime == null) return 0;
-          if (aTime == null) return 1;
-          if (bTime == null) return -1;
-          return bTime.compareTo(aTime);
-        });
-
         return ListView.builder(
-          itemCount: logEntries.length,
+          itemCount: docs.length,
           itemBuilder: (context, index) {
-            final log = logEntries[index];
-            final amountDelta = log['amountDelta'] as num? ?? 0;
-            final appliedAt = log['appliedAt'] as Timestamp?;
-            final category = log['category'] as String? ?? '';
+            final data = docs[index].data();
+            final change = (data['changeAmount'] as num?)?.toInt() ?? 0;
+            final reason = data['reasonType'] as String? ?? '';
+            final before = data['balanceBefore'];
+            final after = data['balanceAfter'];
+            final relatedId = data['relatedId'] as String? ?? '';
+            final createdAt = data['createdAt'];
+            DateTime? when;
+            if (createdAt is Timestamp) when = createdAt.toDate();
 
-            String formattedDate = '日時不明';
-            if (appliedAt != null) {
-              final date = appliedAt.toDate();
-              formattedDate =
-                  '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-            }
-
-            Color amountColor = Colors.black;
-            IconData iconData = Icons.info;
-            if (category == 'income') {
-              amountColor = Colors.green;
-              iconData = Icons.arrow_upward;
-            } else if (category == 'expense') {
-              amountColor = Colors.red;
-              iconData = Icons.arrow_downward;
-            } else if (category == 'purchase') {
-              amountColor = Colors.orange;
-              iconData = Icons.shopping_cart;
-            }
-
-            String categoryDisplayName = category;
-            switch (category) {
-              case 'income':
-                categoryDisplayName =
-                    _selectedLogType == 'sideGameChip' ? '預け入れ' : '獲得';
-                break;
-              case 'expense':
-                categoryDisplayName =
-                    _selectedLogType == 'sideGameChip' ? '引出し' : '使用';
-                break;
-              case 'purchase':
-                categoryDisplayName = '購入';
-                break;
-            }
-
+            final color = change >= 0 ? Colors.green : Colors.red;
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: amountColor.withOpacity(0.1),
+                  backgroundColor: color.withValues(alpha: 0.12),
                   child: Icon(
-                    iconData,
-                    color: amountColor,
+                    change >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
+                    color: color,
                   ),
                 ),
                 title: Text(
-                  categoryDisplayName,
+                  _reasonLabel(reason, isChip: false),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                subtitle: Text(formattedDate),
+                subtitle: Text(
+                  [
+                    if (when != null)
+                      '${when.year}/${when.month.toString().padLeft(2, '0')}/${when.day.toString().padLeft(2, '0')} ${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}',
+                    if (before != null && after != null)
+                      '残高 $before → $after',
+                    if (relatedId.isNotEmpty) '関連: $relatedId',
+                  ].join('\n'),
+                ),
+                isThreeLine: true,
                 trailing: Text(
-                  '${amountDelta >= 0 ? '+' : ''}${amountDelta.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                  '${change >= 0 ? '+' : ''}$change',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: amountColor,
+                    color: color,
                   ),
                 ),
               ),
@@ -449,4 +187,151 @@ class _ChipPointLogsPageState extends State<ChipPointLogsPage> {
       },
     );
   }
+
+  Widget _buildChipLogs() {
+    return FutureBuilder<List<_ChipLogRow>>(
+      future: _loadChipLogs(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('履歴の取得に失敗しました: ${snapshot.error}'));
+        }
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) {
+          return const Center(child: Text('履歴がありません'));
+        }
+        return ListView.builder(
+          itemCount: rows.length,
+          itemBuilder: (context, index) {
+            final row = rows[index];
+            final color = row.changeAmount >= 0 ? Colors.green : Colors.red;
+            return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: color.withValues(alpha: 0.12),
+                  child: Icon(
+                    row.isPurchase
+                        ? Icons.shopping_cart
+                        : (row.changeAmount >= 0
+                            ? Icons.arrow_upward
+                            : Icons.arrow_downward),
+                    color: row.isPurchase ? Colors.orange : color,
+                  ),
+                ),
+                title: Text(
+                  _reasonLabel(row.reasonType, isChip: true),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  [
+                    if (row.when != null)
+                      '${row.when!.year}/${row.when!.month.toString().padLeft(2, '0')}/${row.when!.day.toString().padLeft(2, '0')} ${row.when!.hour.toString().padLeft(2, '0')}:${row.when!.minute.toString().padLeft(2, '0')}',
+                    if (row.balanceBefore != null && row.balanceAfter != null)
+                      '残高 ${row.balanceBefore} → ${row.balanceAfter}',
+                    if (row.isPurchase) '※購入明細（残高変動ログとは別）',
+                    if (row.relatedId != null && row.relatedId!.isNotEmpty)
+                      '関連: ${row.relatedId}',
+                  ].join('\n'),
+                ),
+                isThreeLine: true,
+                trailing: Text(
+                  '${row.changeAmount >= 0 ? '+' : ''}${row.changeAmount}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: row.isPurchase ? Colors.orange : color,
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<List<_ChipLogRow>> _loadChipLogs() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.userId)
+        .collection('sideGameChipLogs')
+        .get();
+
+    final rows = <_ChipLogRow>[];
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      // A-7 flat balance log
+      if (data.containsKey('changeAmount') && data.containsKey('reasonType')) {
+        final createdAt = data['createdAt'];
+        rows.add(
+          _ChipLogRow(
+            reasonType: data['reasonType'] as String? ?? '',
+            changeAmount: (data['changeAmount'] as num?)?.toInt() ?? 0,
+            balanceBefore: (data['balanceBefore'] as num?)?.toInt(),
+            balanceAfter: (data['balanceAfter'] as num?)?.toInt(),
+            relatedId: data['relatedId'] as String?,
+            when: createdAt is Timestamp ? createdAt.toDate() : null,
+            isPurchase: data['reasonType'] == 'purchase',
+          ),
+        );
+        continue;
+      }
+      // legacy daily nested logs (購入明細など)
+      final logs = data['logs'];
+      if (logs is Map) {
+        for (final entry in logs.entries) {
+          final e = entry.value;
+          if (e is! Map) continue;
+          final map = Map<String, dynamic>.from(e);
+          final category = map['category'] as String? ?? '';
+          final reason = map['reasonType'] as String? ?? category;
+          final delta = (map['amountDelta'] as num?)?.toInt() ?? 0;
+          final appliedAt = map['appliedAt'];
+          rows.add(
+            _ChipLogRow(
+              reasonType: reason == 'sideGame' && category == 'purchase'
+                  ? 'purchase'
+                  : reason,
+              changeAmount: delta,
+              when: appliedAt is Timestamp ? appliedAt.toDate() : null,
+              isPurchase: category == 'purchase' || reason == 'purchase',
+            ),
+          );
+        }
+      }
+    }
+
+    rows.sort((a, b) {
+      final at = a.when;
+      final bt = b.when;
+      if (at == null && bt == null) return 0;
+      if (at == null) return 1;
+      if (bt == null) return -1;
+      return bt.compareTo(at);
+    });
+    return rows;
+  }
+}
+
+class _ChipLogRow {
+  final String reasonType;
+  final int changeAmount;
+  final int? balanceBefore;
+  final int? balanceAfter;
+  final String? relatedId;
+  final DateTime? when;
+  final bool isPurchase;
+
+  const _ChipLogRow({
+    required this.reasonType,
+    required this.changeAmount,
+    this.balanceBefore,
+    this.balanceAfter,
+    this.relatedId,
+    this.when,
+    this.isPurchase = false,
+  });
 }

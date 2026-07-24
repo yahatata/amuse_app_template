@@ -4,8 +4,12 @@ import { logger } from "firebase-functions";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
 import { computeRegEndAt } from "../services/enqueueTournamentTasksCore";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import { validatePointConfigFromStoreConfig } from "../../../shared/config/validatePointConfig";
+import { assertRewardPointTypeForTemplate } from "../../tournament_activeTournament/helpers/rewardPointType";
 
 const updateTournamentTemplateSchema = z.object({
   templateId: z.string(),
@@ -50,6 +54,15 @@ export const updateTournamentTemplate = onCall(async (request) => {
       updateTournamentTemplateSchema.parse(request.data);
 
     const db = getFirestore();
+
+    if (updateData.pointType !== undefined) {
+      const storeConfig = await getStoreConfig(db);
+      const validatedConfig = validatePointConfigFromStoreConfig(storeConfig);
+      updateData.pointType = assertRewardPointTypeForTemplate(
+        updateData.pointType,
+        validatedConfig,
+      );
+    }
 
     const templateRef = db.collection('tournamentTemplates').doc(templateId);
     const existingTemplateSnap = await templateRef.get();
@@ -212,6 +225,12 @@ export const updateTournamentTemplate = onCall(async (request) => {
       cause: error,
       context: errContext,
     });
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+    if (error instanceof HttpsError) {
+      throw error;
+    }
     return {
       success: false,
       error: error instanceof Error ? error.message : '不明なエラーが発生しました',

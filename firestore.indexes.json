@@ -1,10 +1,8 @@
-{
-  "indexes": [
     {
-      "collectionGroup": "operationLogs",
+      "collectionGroup": "pointLogs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "tournamentId", "order": "ASCENDING" },
+        { "fieldPath": "pointType", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },

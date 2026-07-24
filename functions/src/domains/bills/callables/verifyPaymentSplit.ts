@@ -1,18 +1,26 @@
-import { logger } from 'firebase-functions';
+/**
+ * A-7: 自動充当の事前照合
+ *
+ * クライアント結果とサーバ再計算が不一致なら PAYMENT_SPLIT_MISMATCH で拒否する。
+ * サーバ結果を黙って採用して success 返却しない。
+ */
+
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getFirestore } from 'firebase-admin/firestore';
-import { calculatePaymentSplit } from '../services/paymentSplitCalculator';
 import { getStoreConfig } from '../../../shared/config/configLoader';
+import { validatePointConfigFromStoreConfig } from '../../../shared/config/validatePointConfig';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import {
-  DEFAULT_POINT_PRIORITY,
-  DEFAULT_POINT_AB_ROUNDING_UNIT,
-  DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
-} from '../../../shared/config/defaults';
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
-import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+  FunctionCustomError,
+  mapFunctionCustomErrorToHttpsCode,
+} from '../../../shared/logging/functionCustomError';
+import { ALL_BALANCE_IDS } from '../../user/types/pointIds';
+import { readBalanceOrZeroIfMissing } from '../../user/helpers/userBalances';
+import { calculateA7PaymentSplit } from '../services/a7PaymentSplit';
+import { loadBillCategoryAmounts } from '../services/billCategoryAmounts';
+import { throwPaymentSplitMismatch } from '../services/paymentMethodAggregation';
 
-// 入力スキーマ
 const VerifyPaymentSplitSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
   clientResult: z.object({
@@ -22,19 +30,15 @@ const VerifyPaymentSplitSchema = z.object({
       z.object({
         pointsUsed: z.number(),
         baseMethodAmount: z.number(),
-      })
+      }),
     ),
   }),
   selectedBaseMethod: z.enum(['cash', 'credit_card', 'electronic_money']),
-  pointPriority: z.array(z.string()).optional(), // デフォルト値を使用可能
+  /** 互換のため受け付けるが、照合の正本は config.pointPriority */
+  pointPriority: z.array(z.string()).optional(),
 });
 
-/**
- * 支払い分割計算の照合
- * クライアント側の計算結果を検証し、不一致の場合はサーバー側の結果を返す
- */
 export const verifyPaymentSplit = onCall(async (request) => {
-  // 認証チェック
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
@@ -43,160 +47,92 @@ export const verifyPaymentSplit = onCall(async (request) => {
 
   try {
     const db = getFirestore();
-    
-    // 入力検証
     const validatedData = VerifyPaymentSplitSchema.parse(request.data);
-    const config = await getStoreConfig();
     const { billId, clientResult, selectedBaseMethod } = validatedData;
-    const pointPriority = validatedData.pointPriority ?? config.billing?.paymentPolicy?.pointPriority ?? DEFAULT_POINT_PRIORITY;
 
-    // 請求書を取得
+    const config = await getStoreConfig();
+    const validatedPointConfig = validatePointConfigFromStoreConfig(config);
+
     const billRef = db.collection('bills').doc(billId);
     const billDoc = await billRef.get();
-
     if (!billDoc.exists) {
       throw new HttpsError('not-found', '指定された請求書が見つかりません');
     }
 
     const billData = billDoc.data()!;
     const userId = billData.party?.userId;
-
     if (!userId) {
       throw new HttpsError('invalid-argument', 'ユーザーIDが見つかりません');
     }
 
-    // ユーザーの残高を取得
-    const userRef = db.collection('users').doc(userId);
-    const userDoc = await userRef.get();
-
+    const userDoc = await db.collection('users').doc(userId).get();
     if (!userDoc.exists) {
       throw new HttpsError('not-found', 'ユーザー情報が見つかりません');
     }
+    const userData = userDoc.data() as Record<string, unknown>;
+    const balances: Record<string, number> = {};
+    for (const id of ALL_BALANCE_IDS) {
+      balances[id] = readBalanceOrZeroIfMissing(userData, id);
+    }
 
-    const userData = userDoc.data()!;
-    const balances: Record<string, number> = {
-      pointA: userData.pointA || 0,
-      pointB: userData.pointB || 0,
-      sideGameChip: userData.sideGameChip || 0,
-    };
+    const categoryAmounts = await loadBillCategoryAmounts(db, billId);
 
-    // カテゴリごとの金額を計算（Bills スキーマ準拠）
-    const categoryAmounts: Record<string, number> = {};
-
-    // extraCost → extras サブコレクションから取得
-    const extrasSnap = await billRef.collection('extras').get();
-    categoryAmounts['extraCost'] = extrasSnap.docs.reduce(
-      (sum, doc) => sum + (doc.data().amountIncl || 0),
-      0
-    );
-
-    // items → items サブコレクションから取得
-    const itemsSnap = await billRef.collection('items').get();
-    categoryAmounts['items'] = itemsSnap.docs
-      .filter((doc) => {
-        const data = doc.data();
-        // voided: true のアイテムは算出対象外
-        return data.voided !== true;
-      })
-      .reduce(
-        (sum, doc) => sum + (doc.data().totalPriceIncl || 0),
-        0
-      );
-
-    // sideGameChip → sideGameChips サブコレクションから取得（action='purchase'のみ）
-    const sideGameChipsSnap = await billRef.collection('sideGameChips').get();
-    categoryAmounts['sideGameChip'] = sideGameChipsSnap.docs
-      .filter(doc => doc.data().action === 'purchase')
-      .reduce((sum, doc) => sum + (doc.data().amountIncl || 0), 0);
-
-    // tournaments → tournaments サブコレクションから取得
-    const tournamentsSnap = await billRef.collection('tournaments').get();
-    categoryAmounts['tournaments'] = tournamentsSnap.docs.reduce((sum, doc) => {
-      const data = doc.data();
-      return sum + 
-        (data.entryFeeIncl || 0) * (data.entryCount || 0) +
-        (data.reentryFeeIncl || 0) * (data.reentryCount || 0) +
-        (data.addonFeeIncl || 0) * (data.addonCount || 0);
-    }, 0);
-
-    // キー名（"extraCost","tournaments","items","sideGameChip"）は従来のまま
-
-    // サーバー側で計算を実行
-    const serverResult = calculatePaymentSplit({
+    const serverResult = calculateA7PaymentSplit({
       selectedBaseMethod,
       bill: categoryAmounts,
       balances,
-      pointPriority,
-      categoryPaymentMethods: config.billing?.paymentPolicy?.categoryPaymentMethods,
-      sideGameChipExchangeRate: config.billing?.sideGameChipRate,
-      roundingUnits: {
-        pointAB:
-          config.billing?.paymentPolicy?.roundingUnits?.pointAB ??
-          DEFAULT_POINT_AB_ROUNDING_UNIT,
-        sideGameChip:
-          config.billing?.paymentPolicy?.roundingUnits?.sideGameChip ??
-          DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
-      },
+      pointPriority: validatedPointConfig.pointPriority,
+      categoryPaymentMethods: validatedPointConfig.categoryPaymentMethods,
+      categoryOrder: validatedPointConfig.categoryOrder,
+      balancePaymentSettings: validatedPointConfig.balancePaymentSettings,
     });
 
-    // クライアント側とサーバー側の結果を比較
-    const isMatch = compareResults(clientResult, serverResult);
-
-    if (isMatch) {
-      logOpsSuccess({
-        message: 'verifyPaymentSplit 成功',
-        functionEntry: 'verifyPaymentSplit',
-        operation: 'verifyPaymentSplitCallable',
-        context: { billId, verified: true, selectedBaseMethod, callerUid },
-      });
-      return {
-        success: true,
-        verified: true,
-        result: clientResult,
-        message: '計算結果が一致しました',
-      };
-    } else {
-      // 不一致の場合はサーバー側の結果を正として返す
-      logger.warn('verifyPaymentSplit: クライアントとサーバの支払い分割計算が不一致のためサーバ結果を返却しました', {
+    if (!compareA7SplitResults(clientResult, serverResult)) {
+      throwPaymentSplitMismatch({
         billId,
-        selectedBaseMethod,
-        callerUid,
-        verified: false,
-        ...buildPaymentSplitMismatchSummary(clientResult, serverResult),
+        side: 'verifyPaymentSplit',
+        clientCashLikeAmount: clientResult.cashLikeAmount,
+        serverCashLikeAmount: serverResult.cashLikeAmount,
       });
-
-      logOpsSuccess({
-        message: 'verifyPaymentSplit 成功（サーバー結果を採用）',
-        functionEntry: 'verifyPaymentSplit',
-        operation: 'verifyPaymentSplitCallable',
-        context: { billId, verified: false, selectedBaseMethod, callerUid },
-      });
-
-      return {
-        success: true,
-        verified: false,
-        result: serverResult,
-        message: '計算結果が不一致でした。サーバー側の計算結果を使用します。',
-        differences: {
-          clientUsedPoints: clientResult.usedPoints,
-          serverUsedPoints: serverResult.usedPoints,
-          clientCashLikeAmount: clientResult.cashLikeAmount,
-          serverCashLikeAmount: serverResult.cashLikeAmount,
-        },
-      };
     }
-  } catch (error: any) {
+
+    logOpsSuccess({
+      message: 'verifyPaymentSplit 成功',
+      functionEntry: 'verifyPaymentSplit',
+      operation: 'verifyPaymentSplitCallable',
+      context: { billId, verified: true, selectedBaseMethod, callerUid },
+    });
+
+    return {
+      success: true,
+      verified: true,
+      result: {
+        usedPoints: serverResult.usedPointsReference,
+        cashLikeAmount: serverResult.cashLikeAmount,
+        categoryBreakdown: serverResult.categoryBreakdown,
+      },
+      message: '計算結果が一致しました',
+    };
+  } catch (error: unknown) {
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
     }
     if (error instanceof FunctionCustomError) {
       logOpsError({
-        message: '支払い分割照合エラー:',
+        message: '支払い分割照合 業務エラー',
         functionEntry: 'verifyPaymentSplit',
-        operation: 'verifyPaymentSplitCatch',
+        operation: 'verifyPaymentSplitCustom',
         cause: error,
+        context: {
+          billId: (request.data as { billId?: string } | undefined)?.billId,
+          errorKey: error.errorKey,
+        },
       });
-      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+      throw new HttpsError(
+        mapFunctionCustomErrorToHttpsCode(error.errorKey),
+        error.message,
+        { errorKey: error.errorKey, context: error.context },
+      );
     }
     if (error instanceof HttpsError) {
       throw error;
@@ -207,130 +143,48 @@ export const verifyPaymentSplit = onCall(async (request) => {
       operation: 'verifyPaymentSplitGenericCatch',
       cause: error,
     });
-    throw new HttpsError('internal', '支払い分割照合に失敗しました', error.message);
+    throw new HttpsError(
+      'internal',
+      '支払い分割照合に失敗しました',
+      error instanceof Error ? error.message : String(error),
+    );
   }
 });
 
-/** ログ用: 巨大オブジェクトは載せずスカラー・件数中心のサマリのみ */
-function buildPaymentSplitMismatchSummary(
-  client: typeof VerifyPaymentSplitSchema._type.clientResult,
-  server: ReturnType<typeof calculatePaymentSplit>
-): Record<string, unknown> {
-  const clientPk = Object.keys(client.usedPoints);
-  const serverPk = Object.keys(server.usedPoints);
-  const clientPkSet = new Set(clientPk);
-  const serverPkSet = new Set(serverPk);
-  const pointsKeysOnlyInClient = clientPk.filter(k => !serverPkSet.has(k)).length;
-  const pointsKeysOnlyInServer = serverPk.filter(k => !clientPkSet.has(k)).length;
-  let pointsValueMismatchCount = 0;
-  for (const k of clientPk) {
-    if (
-      serverPkSet.has(k) &&
-      Math.abs(client.usedPoints[k] - server.usedPoints[k]) > 1
-    ) {
-      pointsValueMismatchCount++;
-    }
-  }
-  const clientCatKeys = Object.keys(client.categoryBreakdown);
-  const serverCatKeys = Object.keys(server.categoryBreakdown);
-  const clientCatSet = new Set(clientCatKeys);
-  const serverCatSet = new Set(serverCatKeys);
-  let categoryFieldMismatchCount = 0;
-  for (const c of clientCatKeys) {
-    if (!serverCatSet.has(c)) {
-      categoryFieldMismatchCount++;
-      continue;
-    }
-    const cc = client.categoryBreakdown[c];
-    const sc = server.categoryBreakdown[c];
-    if (
-      Math.abs(cc.pointsUsed - sc.pointsUsed) > 1 ||
-      Math.abs(cc.baseMethodAmount - sc.baseMethodAmount) > 1
-    ) {
-      categoryFieldMismatchCount++;
-    }
-  }
-  const categoryKeysOnlyInClient = clientCatKeys.filter(c => !serverCatSet.has(c)).length;
-  const categoryKeysOnlyInServer = serverCatKeys.filter(c => !clientCatSet.has(c)).length;
-
-  return {
-    clientCashLikeAmount: client.cashLikeAmount,
-    serverCashLikeAmount: server.cashLikeAmount,
-    cashLikeAmountAbsDelta: Math.abs(client.cashLikeAmount - server.cashLikeAmount),
-    usedPointsKeyCountClient: clientPk.length,
-    usedPointsKeyCountServer: serverPk.length,
-    pointsKeysOnlyInClient,
-    pointsKeysOnlyInServer,
-    pointsValueMismatchCount,
-    categoryKeyCountClient: clientCatKeys.length,
-    categoryKeyCountServer: serverCatKeys.length,
-    categoryKeysOnlyInClient,
-    categoryKeysOnlyInServer,
-    categoryFieldMismatchCount,
-  };
-}
-
-/**
- * クライアント側とサーバー側の計算結果を比較
- */
-function compareResults(
-  client: typeof VerifyPaymentSplitSchema._type.clientResult,
-  server: ReturnType<typeof calculatePaymentSplit>
+function compareA7SplitResults(
+  client: z.infer<typeof VerifyPaymentSplitSchema>['clientResult'],
+  server: ReturnType<typeof calculateA7PaymentSplit>,
 ): boolean {
-  // usedPointsの比較
   const clientPoints = client.usedPoints;
-  const serverPoints = server.usedPoints;
+  const serverPoints = server.usedPointsReference;
 
-  // キーの集合が同じか確認
-  const clientKeys = new Set(Object.keys(clientPoints));
-  const serverKeys = new Set(Object.keys(serverPoints));
-
-  if (clientKeys.size !== serverKeys.size) {
-    return false;
-  }
-
-  for (const key of clientKeys) {
-    if (!serverKeys.has(key)) {
-      return false;
-    }
-    // 数値の比較（浮動小数点誤差を考慮して1円以内の差は許容）
-    if (Math.abs(clientPoints[key] - serverPoints[key]) > 1) {
+  const keys = new Set([
+    ...Object.keys(clientPoints),
+    ...Object.keys(serverPoints),
+  ]);
+  for (const key of keys) {
+    if ((clientPoints[key] || 0) !== (serverPoints[key] || 0)) {
       return false;
     }
   }
 
-  // cashLikeAmountの比較
-  if (Math.abs(client.cashLikeAmount - server.cashLikeAmount) > 1) {
+  if (client.cashLikeAmount !== server.cashLikeAmount) {
     return false;
   }
 
-  // categoryBreakdownの比較
   const clientBreakdown = client.categoryBreakdown;
   const serverBreakdown = server.categoryBreakdown;
-
-  const clientCategoryKeys = new Set(Object.keys(clientBreakdown));
-  const serverCategoryKeys = new Set(Object.keys(serverBreakdown));
-
-  if (clientCategoryKeys.size !== serverCategoryKeys.size) {
-    return false;
-  }
-
-  for (const category of clientCategoryKeys) {
-    if (!serverCategoryKeys.has(category)) {
-      return false;
-    }
-
-    const clientCat = clientBreakdown[category];
-    const serverCat = serverBreakdown[category];
-
-    if (
-      Math.abs(clientCat.pointsUsed - serverCat.pointsUsed) > 1 ||
-      Math.abs(clientCat.baseMethodAmount - serverCat.baseMethodAmount) > 1
-    ) {
+  const categories = new Set([
+    ...Object.keys(clientBreakdown),
+    ...Object.keys(serverBreakdown),
+  ]);
+  for (const category of categories) {
+    const c = clientBreakdown[category] ?? { pointsUsed: 0, baseMethodAmount: 0 };
+    const s = serverBreakdown[category] ?? { pointsUsed: 0, baseMethodAmount: 0 };
+    if (c.pointsUsed !== s.pointsUsed || c.baseMethodAmount !== s.baseMethodAmount) {
       return false;
     }
   }
 
   return true;
 }
-

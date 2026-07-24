@@ -8,7 +8,6 @@ Future<void> showSideGameChipWithdrawDialog({
   required String userId,
   required String pokerName,
 }) async {
-  // 外側（ページ側）のコンテキストを退避。以降のUI操作は必ずこれを使う
   final outerCtx = context;
 
   if (userId.isEmpty) {
@@ -20,11 +19,23 @@ Future<void> showSideGameChipWithdrawDialog({
     return;
   }
 
-  await showDialog<void>(
+  final amount = await showDialog<int>(
     context: context,
     barrierDismissible: true,
     builder: (ctx) =>
         _SideGameChipWithdrawDialog(userId: userId, pokerName: pokerName),
+  );
+
+  if (amount == null || !outerCtx.mounted) return;
+
+  ScaffoldMessenger.of(outerCtx).showSnackBar(
+    SnackBar(
+      content: Text(
+        '引き出し処理が完了しました${pokerName}様に${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}のchipをお渡しください。',
+      ),
+      backgroundColor: Colors.green,
+      duration: const Duration(seconds: 5),
+    ),
   );
 }
 
@@ -47,14 +58,13 @@ class _SideGameChipWithdrawDialogState
   final TextEditingController _amountController = TextEditingController();
   bool _isLoading = false;
   num _currentChip = 0;
-  // ✅ ダイアログが開いている間は固定の clientNonce（画面セッションで固定）
   late final String _clientNonce;
 
   @override
   void initState() {
     super.initState();
-    // ダイアログが開いた時点で生成し、閉じるまで同じ値を使い回す
-    _clientNonce = 'withdraw_${DateTime.now().millisecondsSinceEpoch}_${widget.userId.substring(0, 8)}';
+    _clientNonce =
+        'withdraw_${DateTime.now().millisecondsSinceEpoch}_${widget.userId.substring(0, 8)}';
   }
 
   @override
@@ -65,133 +75,148 @@ class _SideGameChipWithdrawDialogState
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Row(
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isLoading,
+      child: Stack(
         children: [
-          const Icon(Icons.account_balance_wallet, color: Colors.red),
-          const SizedBox(width: 8),
-          const Text('chip引き出し'),
+          AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.account_balance_wallet, color: Colors.red),
+                SizedBox(width: 8),
+                Text('chip引き出し'),
+              ],
+            ),
+            content: SizedBox(
+              width: 300,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  StreamBuilder<DocumentSnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(widget.userId)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      if (snapshot.hasError ||
+                          !snapshot.hasData ||
+                          !snapshot.data!.exists) {
+                        return Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.red.shade200),
+                          ),
+                          child: const Column(
+                            children: [
+                              Icon(Icons.error, color: Colors.red, size: 32),
+                              SizedBox(height: 8),
+                              Text(
+                                'ユーザー情報の取得に失敗しました',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final userData =
+                          snapshot.data!.data() as Map<String, dynamic>;
+                      _currentChip = userData['sideGameChip'] as num? ?? 0;
+
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue.shade200),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(Icons.person, color: Colors.blue, size: 32),
+                            const SizedBox(height: 8),
+                            Text(
+                              widget.pokerName,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '現在の残高: ${_currentChip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chip',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _amountController,
+                    keyboardType: TextInputType.number,
+                    enabled: !_isLoading,
+                    decoration: const InputDecoration(
+                      labelText: '引き出し額',
+                      hintText: '引き出しするchip額を入力',
+                      suffixText: 'chip',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.money),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                child: const Text('キャンセル'),
+              ),
+              ElevatedButton(
+                onPressed: _isLoading || !_canWithdraw()
+                    ? null
+                    : _showConfirmDialog,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('引き出し確定'),
+              ),
+            ],
+          ),
+          if (_isLoading)
+            Positioned(
+              left: 0,
+              top: 0,
+              width: size.width,
+              height: size.height,
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+            ),
         ],
       ),
-      content: SizedBox(
-        width: 300,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // ユーザー情報と残高表示（StreamBuilderで分離）
-            StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(widget.userId)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (snapshot.hasError ||
-                    !snapshot.hasData ||
-                    !snapshot.data!.exists) {
-                  return Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red.shade200),
-                    ),
-                    child: const Column(
-                      children: [
-                        Icon(Icons.error, color: Colors.red, size: 32),
-                        SizedBox(height: 8),
-                        Text(
-                          'ユーザー情報の取得に失敗しました',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.red,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                final userData = snapshot.data!.data() as Map<String, dynamic>;
-                _currentChip = userData['sideGameChip'] as num? ?? 0;
-
-                return Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.shade200),
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(Icons.person, color: Colors.blue, size: 32),
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.pokerName,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '現在の残高: ${_currentChip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chip',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-
-            // 引き出し額入力（StreamBuilderの外に移動）
-            TextField(
-              controller: _amountController,
-              keyboardType: TextInputType.number,
-              enabled: !_isLoading,
-              decoration: const InputDecoration(
-                labelText: '引き出し額',
-                hintText: '引き出しするchip額を入力',
-                suffixText: 'chip',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.money),
-              ),
-              onChanged: (value) {
-                setState(() {}); // ボタンの有効/無効を更新
-              },
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading
-              ? null
-              : _canWithdraw()
-              ? _showConfirmDialog
-              : null,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('引き出し確定'),
-        ),
-      ],
     );
   }
 
@@ -205,6 +230,7 @@ class _SideGameChipWithdrawDialogState
 
     await showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('引き出し確認'),
         content: Text(
@@ -232,72 +258,36 @@ class _SideGameChipWithdrawDialogState
   }
 
   Future<void> _processWithdraw(int amount) async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
 
-    // 処理中ダイアログを表示
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const AlertDialog(
-        content: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('引き出し処理中...'),
-          ],
-        ),
-      ),
-    );
-
+    Object? error;
     try {
       final functions = FunctionsClient.instance;
-      final callable = functions.httpsCallable('withdrawChip');
-
-      final result = await callable.call({
+      await functions.httpsCallable('withdrawChip').call({
         'userId': widget.userId,
         'amount': amount,
-        'clientNonce': _clientNonce, // ✅ トップレベルに追加（ダイアログが開いている間は固定）
+        'clientNonce': _clientNonce,
       });
-
-      // 処理中ダイアログを閉じる
-      Navigator.of(context).pop();
-
-      if (mounted) {
-        // 引き出しポップアップを閉じる
-        Navigator.of(context).pop();
-
-        // 成功メッセージを表示
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '引き出し処理が完了しました${widget.pokerName}様に${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}のchipをお渡しください。',
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
     } catch (e) {
-      // 処理中ダイアログを閉じる
-      if (mounted) {
-        Navigator.of(context).pop();
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('引き出し処理に失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      error = e;
     } finally {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
     }
+
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('引き出し処理に失敗しました: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    Navigator.of(context).pop(amount);
   }
 }

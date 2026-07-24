@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_prize_participant_count.dart';
+import 'package:amuse_app_template/tournament/ranking_reward_point_candidates.dart';
 
 class PrizeSetupPage extends StatefulWidget {
   final String tournamentId;
@@ -689,24 +689,50 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _selectedPointType,
-              decoration: const InputDecoration(
-                labelText: 'ポイントタイプを選択',
-                border: OutlineInputBorder(),
-              ),
-              items: GlobalConstants.pointTypes.map((String pointType) {
-                return DropdownMenuItem<String>(
-                  value: pointType,
-                  child: Text(pointType),
-                );
-              }).toList(),
-              onChanged: (String? newValue) {
-                if (newValue != null) {
-                  setState(() {
-                    _selectedPointType = newValue;
+            Builder(
+              builder: (context) {
+                final candidates = rankingRewardPointCandidates();
+                final items = candidates.isEmpty
+                    ? <DropdownMenuItem<String>>[
+                        DropdownMenuItem(
+                          value: _selectedPointType,
+                          child: Text('$_selectedPointType（候補なし）'),
+                        ),
+                      ]
+                    : candidates
+                        .map(
+                          (c) => DropdownMenuItem<String>(
+                            value: c.id,
+                            child: Text('${c.displayName} (${c.id})'),
+                          ),
+                        )
+                        .toList();
+                final value = candidates.any((c) => c.id == _selectedPointType)
+                    ? _selectedPointType
+                    : (candidates.isNotEmpty
+                        ? candidates.first.id
+                        : _selectedPointType);
+                if (value != _selectedPointType) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      setState(() => _selectedPointType = value);
+                    }
                   });
                 }
+                return DropdownButtonFormField<String>(
+                  value: value,
+                  decoration: const InputDecoration(
+                    labelText: 'ポイントタイプを選択',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: items,
+                  onChanged: candidates.isEmpty
+                      ? null
+                      : (String? newValue) {
+                          if (newValue == null) return;
+                          setState(() => _selectedPointType = newValue);
+                        },
+                );
               },
             ),
           ],

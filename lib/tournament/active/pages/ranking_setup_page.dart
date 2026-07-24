@@ -23,6 +23,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
   Map<String, dynamic>? _mainViewData;
   List<Map<String, dynamic>> _bustedPlayers = [];
   bool _isLoading = true;
+  bool _isSubmitting = false;
   bool _isEndingTournament = false;
   String? _errorMessage;
   
@@ -192,12 +193,14 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
     );
     
     if (confirmed != true) return;
-    
+    if (_isSubmitting || _isEndingTournament) return;
+
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
+
     try {
-      setState(() {
-        _isLoading = true;
-      });
-      
       // 順位データを準備（選択された順位のみ）
       final rankingData = <String, dynamic>{};
       for (int rank = 1; rank <= prizeReceiverCount; rank++) {
@@ -220,7 +223,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
         'rankingData': rankingData,
         'grantIdempotencyKey': grantIdempotencyKey,
       });
-      
+
       if (result.data['success'] == true) {
         // 二度目の付与スキップ時は先にポップで表示
         if (result.data['prizeGrantSkipped'] == true) {
@@ -319,9 +322,11 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
         _errorMessage = 'エラーが発生しました: $e';
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
   }
   
@@ -365,8 +370,9 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
     final prizeReceiverCount = _mainViewData?['prizeReceiverCount'] as int? ?? 0;
     
     final size = MediaQuery.sizeOf(context);
+    final locked = _isSubmitting || _isEndingTournament;
     return PopScope(
-      canPop: !_isEndingTournament,
+      canPop: !locked,
       child: Stack(
         children: [
           Scaffold(
@@ -524,7 +530,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _isEndingTournament ? null : _confirmRanking,
+                onPressed: locked ? null : _confirmRanking,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
@@ -540,7 +546,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
         ),
       ),
           ),
-          if (_isEndingTournament)
+          if (locked)
             Positioned(
               left: 0,
               top: 0,

@@ -17,6 +17,7 @@ import {
   distributePaymentMethodsWithIssues,
   type PaymentDistributionIssue,
 } from './helpers';
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import { logOpsError } from '../../../shared/logging/logOpsError';
 
 /** analytics 集計ログの functionEntry は export 名（トリガ／Callable）に合わせる */
@@ -30,6 +31,9 @@ const ANALYTICS_VALID_PAYMENT_METHODS = [
   'electronic_money',
   'pointA',
   'pointB',
+  'pointC',
+  'pointD',
+  'pointE',
   'sideGameChip',
 ];
 
@@ -95,12 +99,8 @@ function logPaymentDistributionIssuesOnce(
           cause: new Error('payment_totals_empty_no_fallback'),
         });
         break;
-      case 'PAYMENT_TOTALS_INVALID_METHODS_NORMALIZED':
-        logger.warn('analytics: 無効な支払い方法キーを cash に正規化しました', {
-          ...commonCtx,
-          operation: 'analyticsPaymentTotalsInvalidMethodsNormalized',
-          invalidMethodCount: issue.invalidMethodCount,
-        });
+      case 'PAYMENT_TOTALS_UNKNOWN_METHODS':
+        // 到達時は呼び出し側で停止済み想定。二重計上を避けるためここでは出さない。
         break;
     }
   }
@@ -164,6 +164,28 @@ export async function processBillAnalyticsAtomically(
   const templateRefs = templateKeys.map(key =>
     monthlyRef.collection('byTemplateTournaments').doc(key)
   );
+
+  // A-7: 未知 method は cash へ落とさず、tx 前に停止（リトライ二重ログ防止）
+  const categoryAmountsPre = calculateCategoryAmounts(billData);
+  const grossSalesPre = Array.from(categoryAmountsPre.values()).reduce((sum, amount) => sum + amount, 0);
+  const fallbackCashAmountPre = billData.amounts?.grandTotalRounded || grossSalesPre;
+  const distPrecheck = distributePaymentMethodsWithIssues(billData.paymentTotals, {
+    fallbackCashAmount: fallbackCashAmountPre,
+    validMethods: [...ANALYTICS_VALID_PAYMENT_METHODS],
+  });
+  const unknownPre = distPrecheck.issues.find((i) => i.kind === 'PAYMENT_TOTALS_UNKNOWN_METHODS');
+  if (unknownPre) {
+    throw new FunctionCustomError({
+      errorKey: 'UNKNOWN_PAYMENT_METHOD',
+      message: 'UNKNOWN_PAYMENT_METHOD: analytics に未知の支払い方法が含まれています',
+      context: {
+        billId,
+        month,
+        businessDate,
+        unknownMethods: unknownPre.unknownMethods ?? [],
+      },
+    });
+  }
 
   // トランザクション開始（リトライ時に warn/Ops が二重にならないよう、ログはコミット成功後にのみ行う）
   const outcome = await db.runTransaction(async (tx): Promise<AnalyticsTxnOutcome> => {

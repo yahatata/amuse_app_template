@@ -75,6 +75,16 @@ describe('createUserAccount (A-6 Phase 1)', () => {
     expect(setPayload).not.toHaveProperty('migratedAt');
   });
 
+  it('initializes all 6 balances to 0', async () => {
+    await callCreate();
+    expect(setPayload?.pointA).toBe(0);
+    expect(setPayload?.pointB).toBe(0);
+    expect(setPayload?.pointC).toBe(0);
+    expect(setPayload?.pointD).toBe(0);
+    expect(setPayload?.pointE).toBe(0);
+    expect(setPayload?.sideGameChip).toBe(0);
+  });
+
   it('rejects duplicate pokerName', async () => {
     pokerNameQueryEmpty = false;
     await expect(callCreate()).rejects.toMatchObject({

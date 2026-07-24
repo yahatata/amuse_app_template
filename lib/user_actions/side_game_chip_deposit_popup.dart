@@ -10,7 +10,6 @@ Future<void> showSideGameChipDepositDialog({
   String? tableId,
   int? seatNumber,
 }) async {
-  // 外側（ページ側）のコンテキストを退避。以降のUI操作は必ずこれを使う
   final outerCtx = context;
 
   if (userId.isEmpty) {
@@ -22,7 +21,7 @@ Future<void> showSideGameChipDepositDialog({
     return;
   }
 
-  await showDialog<void>(
+  final result = await showDialog<_DepositResult>(
     context: context,
     barrierDismissible: true,
     builder: (ctx) => _SideGameChipDepositDialog(
@@ -32,6 +31,30 @@ Future<void> showSideGameChipDepositDialog({
       seatNumber: seatNumber,
     ),
   );
+
+  if (result == null || !outerCtx.mounted) return;
+
+  await showDialog<void>(
+    context: outerCtx,
+    builder: (ctx) => AlertDialog(
+      title: const Text('処理完了'),
+      content: Text(
+        '${pokerName}様の${result.amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chipの預入処理${result.leftSeat ? 'と退席処理' : ''}が完了しました。',
+      ),
+      actions: [
+        ElevatedButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _DepositResult {
+  final int amount;
+  final bool leftSeat;
+  const _DepositResult({required this.amount, required this.leftSeat});
 }
 
 class _SideGameChipDepositDialog extends StatefulWidget {
@@ -56,14 +79,13 @@ class _SideGameChipDepositDialogState extends State<_SideGameChipDepositDialog> 
   final TextEditingController _amountController = TextEditingController();
   bool _isLoading = false;
   num _currentChip = 0;
-  // ✅ ダイアログが開いている間は固定の clientNonce（画面セッションで固定）
   late final String _clientNonce;
 
   @override
   void initState() {
     super.initState();
-    // ダイアログが開いた時点で生成し、閉じるまで同じ値を使い回す
-    _clientNonce = 'deposit_${DateTime.now().millisecondsSinceEpoch}_${widget.userId.substring(0, 8)}';
+    _clientNonce =
+        'deposit_${DateTime.now().millisecondsSinceEpoch}_${widget.userId.substring(0, 8)}';
   }
 
   @override
@@ -74,145 +96,158 @@ class _SideGameChipDepositDialogState extends State<_SideGameChipDepositDialog> 
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Row(
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_isLoading,
+      child: Stack(
         children: [
-          const Icon(Icons.account_balance, color: Colors.green),
-          const SizedBox(width: 8),
-          const Text('chip預入'),
+          AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.account_balance, color: Colors.green),
+                SizedBox(width: 8),
+                Text('chip預入'),
+              ],
+            ),
+            content: SizedBox(
+              width: 300,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  StreamBuilder<DocumentSnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(widget.userId)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      if (snapshot.hasError ||
+                          !snapshot.hasData ||
+                          !snapshot.data!.exists) {
+                        return Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.red.shade200),
+                          ),
+                          child: const Column(
+                            children: [
+                              Icon(Icons.error, color: Colors.red, size: 32),
+                              SizedBox(height: 8),
+                              Text(
+                                'ユーザー情報の取得に失敗しました',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final userData =
+                          snapshot.data!.data() as Map<String, dynamic>;
+                      _currentChip = userData['sideGameChip'] as num? ?? 0;
+
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue.shade200),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(Icons.person, color: Colors.blue, size: 32),
+                            const SizedBox(height: 8),
+                            Text(
+                              widget.pokerName,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '現在の残高: ${_currentChip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chip',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _amountController,
+                    keyboardType: TextInputType.number,
+                    enabled: !_isLoading,
+                    decoration: const InputDecoration(
+                      labelText: '預入額',
+                      hintText: '預入するchip額を入力',
+                      suffixText: 'chip',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.money),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                child: const Text('キャンセル'),
+              ),
+              ElevatedButton(
+                onPressed: _isLoading || !_canDeposit()
+                    ? null
+                    : () => _showConfirmDialog(false),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('預入のみ'),
+              ),
+              ElevatedButton(
+                onPressed: _isLoading || !_canDeposit()
+                    ? null
+                    : () => _showConfirmDialog(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('預入と退席'),
+              ),
+            ],
+          ),
+          if (_isLoading)
+            Positioned(
+              left: 0,
+              top: 0,
+              width: size.width,
+              height: size.height,
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+            ),
         ],
       ),
-      content: SizedBox(
-        width: 300,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // ユーザー情報と残高表示（StreamBuilderで分離）
-            StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(widget.userId)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (snapshot.hasError ||
-                    !snapshot.hasData ||
-                    !snapshot.data!.exists) {
-                  return Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red.shade200),
-                    ),
-                    child: const Column(
-                      children: [
-                        Icon(Icons.error, color: Colors.red, size: 32),
-                        SizedBox(height: 8),
-                        Text(
-                          'ユーザー情報の取得に失敗しました',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.red,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                final userData = snapshot.data!.data() as Map<String, dynamic>;
-                _currentChip = userData['sideGameChip'] as num? ?? 0;
-
-                return Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.shade200),
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(Icons.person, color: Colors.blue, size: 32),
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.pokerName,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '現在の残高: ${_currentChip.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chip',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-
-            // 預入額入力（StreamBuilderの外に移動）
-            TextField(
-              controller: _amountController,
-              keyboardType: TextInputType.number,
-              enabled: !_isLoading,
-              decoration: const InputDecoration(
-                labelText: '預入額',
-                hintText: '預入するchip額を入力',
-                suffixText: 'chip',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.money),
-              ),
-              onChanged: (value) {
-                setState(() {}); // ボタンの有効/無効を更新
-              },
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-          child: const Text('キャンセル'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading
-              ? null
-              : _canDeposit()
-              ? () => _showConfirmDialog(false)
-              : null,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('預入のみ'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading
-              ? null
-              : _canDeposit()
-              ? () => _showConfirmDialog(true)
-              : null,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.orange,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('預入と退席'),
-        ),
-      ],
     );
   }
 
@@ -226,6 +261,7 @@ class _SideGameChipDepositDialogState extends State<_SideGameChipDepositDialog> 
 
     await showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('預入確認'),
         content: Text(
@@ -253,93 +289,49 @@ class _SideGameChipDepositDialogState extends State<_SideGameChipDepositDialog> 
   }
 
   Future<void> _processDeposit(int amount, bool shouldLeaveSeat) async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
 
-    // 処理中ダイアログを表示
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        content: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(width: 16),
-            Text(shouldLeaveSeat ? '預入と退席処理中...' : '預入処理中...'),
-          ],
-        ),
-      ),
-    );
-
+    Object? error;
     try {
       final functions = FunctionsClient.instance;
-      final callable = functions.httpsCallable('depositChip');
-
-      // 1. chip預入処理
-      await callable.call({
+      await functions.httpsCallable('depositChip').call({
         'userId': widget.userId,
         'amount': amount,
-        'clientNonce': _clientNonce, // ✅ トップレベルに追加（ダイアログが開いている間は固定）
+        'clientNonce': _clientNonce,
       });
 
-      // 2. 退席処理が必要な場合
       if (shouldLeaveSeat) {
-        if (widget.tableId != null && widget.seatNumber != null) {
-          final leaveSeatCallable = functions.httpsCallable('leaveSeat');
-          await leaveSeatCallable.call({
-            'tableId': widget.tableId,
-            'seatNumber': widget.seatNumber,
-            'userId': widget.userId,
-          });
-        } else {
+        if (widget.tableId == null || widget.seatNumber == null) {
           throw Exception('退席処理に必要な情報が不足しています（tableId, seatNumber）');
         }
-      }
-
-      // 処理中ダイアログを閉じる
-      Navigator.of(context).pop();
-
-      if (mounted) {
-        // 預入ポップアップを閉じる
-        Navigator.of(context).pop();
-
-        // 成功メッセージを表示
-        await showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('処理完了'),
-            content: Text(
-              '${widget.pokerName}様の${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chipの預入処理${shouldLeaveSeat ? 'と退席処理' : ''}が完了しました。',
-            ),
-            actions: [
-              ElevatedButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
-    } catch (e) {
-      // 処理中ダイアログを閉じる
-      if (mounted) {
-        Navigator.of(context).pop();
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('預入処理に失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
+        await functions.httpsCallable('leaveSeat').call({
+          'tableId': widget.tableId,
+          'seatNumber': widget.seatNumber,
+          'userId': widget.userId,
         });
       }
+    } catch (e) {
+      error = e;
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
+
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('預入処理に失敗しました: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _DepositResult(amount: amount, leftSeat: shouldLeaveSeat),
+    );
   }
 }

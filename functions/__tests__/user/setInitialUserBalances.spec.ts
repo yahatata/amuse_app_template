@@ -11,10 +11,12 @@ jest.mock('../../src/shared/logging/logOpsError', () => ({
 import * as admin from 'firebase-admin';
 import { getCallerDeviceByUid, isActive } from '../../src/shared/devices';
 import { setInitialUserBalances } from '../../src/domains/user/callables/setInitialUserBalances';
+import { a7StoreConfigDocument } from '../helpers/a7StoreConfig';
+import { __setMockConfig, __resetMockConfig } from '../helpers/mockStoreConfig';
 
 type UserState = Record<string, unknown>;
 
-describe('setInitialUserBalances (A-6 Phase 2)', () => {
+describe('setInitialUserBalances (A-6 / A-7 Phase 5)', () => {
   const adminUid = 'admin-device-uid';
   const targetUserId = 'user-target-001';
   let userData: UserState | null;
@@ -26,11 +28,13 @@ describe('setInitialUserBalances (A-6 Phase 2)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
+    __setMockConfig(a7StoreConfigDocument());
     userData = {
       uid: targetUserId,
       userType: 'line',
       pointA: 10,
       pointB: 20,
+      pointC: 777,
       sideGameChip: 30,
     };
     migrationLogs = {};
@@ -81,7 +85,6 @@ describe('setInitialUserBalances (A-6 Phase 2)', () => {
           pendingUpdates.push(() => {
             if (!userData) throw new Error('missing user');
             Object.assign(userData, data);
-            // serverTimestamp を解決
             if (data.initialBalanceSetAt) {
               userData.initialBalanceSetAt = admin.firestore.Timestamp.fromDate(
                 new Date('2026-07-15T00:00:00.000Z')
@@ -127,6 +130,10 @@ describe('setInitialUserBalances (A-6 Phase 2)', () => {
       }
       return result;
     });
+  });
+
+  afterEach(() => {
+    __resetMockConfig();
   });
 
   function makeUserDocRef(userId: string) {
@@ -185,16 +192,31 @@ describe('setInitialUserBalances (A-6 Phase 2)', () => {
   it('sets balances for LINE user and writes initial_import log without sourceUserId', async () => {
     const result = await callSet({note: '  導入時残高  '});
     expect(result.success).toBe(true);
-    expect(result.balances).toEqual({pointA: 100, pointB: 200, sideGameChip: 300});
+    expect(result.balances).toEqual({
+      pointA: 100,
+      pointB: 200,
+      pointC: 777,
+      pointD: 0,
+      pointE: 0,
+      sideGameChip: 300,
+    });
     expect(userData?.pointA).toBe(100);
     expect(userData?.pointB).toBe(200);
     expect(userData?.sideGameChip).toBe(300);
+    expect(userData?.pointC).toBe(777);
     expect(userData?.initialBalanceSetAt).toBeInstanceOf(admin.firestore.Timestamp);
     expect(result.initialBalanceSetAt).toBe('2026-07-15T00:00:00.000Z');
 
     const log = migrationLogs[result.migrationId];
     expect(log.migrationType).toBe('initial_import');
-    expect(log.balances).toEqual({pointA: 100, pointB: 200, sideGameChip: 300});
+    expect(log.balances).toEqual({
+      pointA: 100,
+      pointB: 200,
+      pointC: 777,
+      pointD: 0,
+      pointE: 0,
+      sideGameChip: 300,
+    });
     expect(log.note).toBe('導入時残高');
     expect(log).not.toHaveProperty('sourceUserId');
     expect(log).not.toHaveProperty('createdByUid');

@@ -34,7 +34,7 @@ describe('analytics helpers', () => {
       expect(result.issues.some(i => i.kind === 'PAYMENT_TOTALS_EMPTY_WITH_FALLBACK')).toBe(true);
     });
 
-    it('paymentTotals { cash: 500, weird: 300 } + validMethods -> cash=800 + INVALID_METHODS issue', () => {
+    it('A-7: 未知 method は cash へ混入せず UNKNOWN issue', () => {
       const result = distributePaymentMethodsWithIssues(
         { cash: 500, weird: 300 },
         {
@@ -43,11 +43,12 @@ describe('analytics helpers', () => {
       );
 
       expect(result.paymentTotalsMap.size).toBe(1);
-      expect(result.paymentTotalsMap.get('cash')).toBe(800);
+      expect(result.paymentTotalsMap.get('cash')).toBe(500);
       expect(result.paymentTotalsMap.has('weird')).toBe(false);
       expect(result.issues).toContainEqual({
-        kind: 'PAYMENT_TOTALS_INVALID_METHODS_NORMALIZED',
+        kind: 'PAYMENT_TOTALS_UNKNOWN_METHODS',
         invalidMethodCount: 1,
+        unknownMethods: ['weird'],
       });
     });
 
@@ -80,16 +81,19 @@ describe('analytics helpers', () => {
         cash: 1000,
         credit_card: 2000,
         pointA: 500,
+        pointC: 100,
+        sideGameChip: 50,
       });
 
-      expect(result.paymentTotalsMap.size).toBe(3);
       expect(result.paymentTotalsMap.get('cash')).toBe(1000);
       expect(result.paymentTotalsMap.get('credit_card')).toBe(2000);
       expect(result.paymentTotalsMap.get('pointA')).toBe(500);
+      expect(result.paymentTotalsMap.get('pointC')).toBe(100);
+      expect(result.paymentTotalsMap.get('sideGameChip')).toBe(50);
       expect(result.issues).toEqual([]);
     });
 
-    it('複数の無効methodが cash に寄せられる（invalidMethodCount は無効キー数）', () => {
+    it('複数の未知 method は cash に寄せず issue のみ', () => {
       const result = distributePaymentMethodsWithIssues(
         {
           cash: 1000,
@@ -102,10 +106,11 @@ describe('analytics helpers', () => {
       );
 
       expect(result.paymentTotalsMap.size).toBe(1);
-      expect(result.paymentTotalsMap.get('cash')).toBe(1500);
+      expect(result.paymentTotalsMap.get('cash')).toBe(1000);
       expect(result.issues).toContainEqual({
-        kind: 'PAYMENT_TOTALS_INVALID_METHODS_NORMALIZED',
+        kind: 'PAYMENT_TOTALS_UNKNOWN_METHODS',
         invalidMethodCount: 2,
+        unknownMethods: ['invalid1', 'invalid2'],
       });
     });
 

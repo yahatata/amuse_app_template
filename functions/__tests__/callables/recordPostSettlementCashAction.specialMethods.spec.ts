@@ -35,6 +35,8 @@ import {
   buildInitialCycleDoc,
   INITIAL_SETTLEMENT_CYCLE,
 } from '../../src/domains/bills/services/settlementCycles';
+import { seedA7StoreConfig, a7StoreConfigDocument } from '../helpers/a7StoreConfig';
+import { __setMockConfig, __resetMockConfig } from '../helpers/mockStoreConfig';
 
 describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
   let testEnv: RulesTestEnvironment;
@@ -42,12 +44,17 @@ describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
   // admin SDK の projectId に合わせることで clearFirestore が正しく機能する
   const projectId = 'test-default';
 
-  // デフォルト chipRate = 10（1chip = 10円）
-  const CHIP_RATE = 10;
+  // A-7 a7StoreConfig: sideGameChip 100円 = 1枚
+  const CHIP_REF_PER_BALANCE = 100;
 
   beforeAll(async () => {
     process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    process.env.GCLOUD_PROJECT = projectId;
     testEnv = await initializeTestEnvironment({ projectId });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map((a) => a?.delete()).filter(Boolean));
+    }
+    admin.initializeApp({ projectId });
     db = getFirestore();
   });
 
@@ -59,6 +66,12 @@ describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
+    await seedA7StoreConfig(db);
+    __setMockConfig(a7StoreConfigDocument());
+  });
+
+  afterEach(() => {
+    __resetMockConfig();
   });
 
   // ─── helpers ──────────────────────────────────────────────────────────────
@@ -83,10 +96,41 @@ describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
     opts: {
       userId?: string | null;
       paymentTotals?: Record<string, number>;
+      paymentMethodDetails?: Record<string, unknown>;
     } = {}
   ) {
     const userId = opts.userId !== undefined ? opts.userId : 'user-special-1';
     const paymentTotals = opts.paymentTotals ?? { cash: 5000 };
+    const paymentMethodDetails =
+      opts.paymentMethodDetails ??
+      Object.fromEntries(
+        Object.entries(paymentTotals)
+          .filter(([m]) => ['pointA', 'pointB', 'sideGameChip'].includes(m))
+          .map(([method, referenceAmount]) => {
+            if (method === 'sideGameChip') {
+              return [
+                method,
+                {
+                  referenceAmount,
+                  balanceAmount: Math.floor(referenceAmount / CHIP_REF_PER_BALANCE),
+                  conversion: { referenceUnits: CHIP_REF_PER_BALANCE, balanceUnits: 1 },
+                  usageUnit: CHIP_REF_PER_BALANCE,
+                  refundedBalanceAmount: 0,
+                },
+              ];
+            }
+            return [
+              method,
+              {
+                referenceAmount,
+                balanceAmount: referenceAmount,
+                conversion: { referenceUnits: 1, balanceUnits: 1 },
+                usageUnit: 1,
+                refundedBalanceAmount: 0,
+              },
+            ];
+          }),
+      );
 
     const initialCurrentSummary = {
       ...buildInitialCurrentSummary(),
@@ -111,7 +155,12 @@ describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
       currentSummary: initialCurrentSummary,
       postSettlementState: buildInitialPostSettlementState(),
       reopenSummary: initialReopenSummary,
-      meta: { schemaVersion: '1.3' },
+      meta: {
+        schemaVersion: '1.3',
+        ...(Object.keys(paymentMethodDetails).length > 0
+          ? { paymentMethodDetails }
+          : {}),
+      },
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -205,14 +254,14 @@ describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
   // ─── テストケース ──────────────────────────────────────────────────────────
 
   describe('[collection] sideGameChip 追加徴収', () => {
-    it('happy path: 3,000円 → 300枚分 users.sideGameChip が減算される', async () => {
+    it('happy path: 3,000円 → 30枚分 users.sideGameChip が減算される', async () => {
       const billId = 'bill-col-chip-1';
       const adminId = 'admin-col-chip-1';
       const userId = 'user-col-chip-1';
 
       await createAdminDevice(adminId);
       await createSettledBill(billId, { userId });
-      await createUser(userId, { sideGameChip: 500 }); // 500枚 = 5,000円相当
+      await createUser(userId, { sideGameChip: 500 });
       const adjustmentId = await createCollectionAdjustment(billId, adminId, 3000, 'col-chip-1');
 
       const result: any = await (recordPostSettlementCollection as any).run(
@@ -228,19 +277,19 @@ describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
 
       expect(result.success).toBe(true);
 
-      // users.sideGameChip が 500 - 300 = 200 になっていること
+      // users.sideGameChip が 500 - 30 = 470
       const userDoc = await db.collection('users').doc(userId).get();
-      expect(userDoc.data()?.sideGameChip).toBe(500 - 3000 / CHIP_RATE);
+      expect(userDoc.data()?.sideGameChip).toBe(500 - 3000 / CHIP_REF_PER_BALANCE);
     });
 
-    it('残高不足: users.sideGameChip が 100枚 しかない場合 300枚要求を拒否', async () => {
+    it('残高不足: users.sideGameChip が 10枚 しかない場合 30枚要求を拒否', async () => {
       const billId = 'bill-col-chip-insuf';
       const adminId = 'admin-col-chip-insuf';
       const userId = 'user-col-chip-insuf';
 
       await createAdminDevice(adminId);
       await createSettledBill(billId, { userId });
-      await createUser(userId, { sideGameChip: 100 }); // 100枚しかない
+      await createUser(userId, { sideGameChip: 10 });
       const adjustmentId = await createCollectionAdjustment(billId, adminId, 3000, 'col-chip-insuf');
 
       await expect(
@@ -256,9 +305,8 @@ describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
         )
       ).rejects.toMatchObject({ code: 'failed-precondition' });
 
-      // users.sideGameChip は変化していないこと
       const userDoc = await db.collection('users').doc(userId).get();
-      expect(userDoc.data()?.sideGameChip).toBe(100);
+      expect(userDoc.data()?.sideGameChip).toBe(10);
     });
 
     it('pointA: 1,000円 → users.pointA が 1,000 減算される', async () => {
@@ -312,7 +360,7 @@ describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
   });
 
   describe('[refund] sideGameChip / pointA 返金', () => {
-    it('sideGameChip 返金: 3,000円 → 300枚分 users.sideGameChip が加算される', async () => {
+    it('sideGameChip 返金: 3,000円 → 30枚分 users.sideGameChip が加算される', async () => {
       const billId = 'bill-ref-chip-1';
       const adminId = 'admin-ref-chip-1';
       const userId = 'user-ref-chip-1';
@@ -340,7 +388,7 @@ describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
 
       // users.sideGameChip が 100 + 300 = 400 になっていること
       const userDoc = await db.collection('users').doc(userId).get();
-      expect(userDoc.data()?.sideGameChip).toBe(100 + 3000 / CHIP_RATE);
+      expect(userDoc.data()?.sideGameChip).toBe(100 + 3000 / CHIP_REF_PER_BALANCE);
     });
 
     it('pointA 返金: 2,000円 → users.pointA が 2,000 加算される', async () => {
@@ -653,7 +701,7 @@ describe('recordPostSettlementCashAction: special methods (C-2.5)', () => {
 
       // users.sideGameChip: 500 - 30(col) + 80(ref) = 550
       const userDoc = await db.collection('users').doc(userId).get();
-      expect(userDoc.data()?.sideGameChip).toBe(500 - 300 / CHIP_RATE + 800 / CHIP_RATE);
+      expect(userDoc.data()?.sideGameChip).toBe(500 - 300 / CHIP_REF_PER_BALANCE + 800 / CHIP_REF_PER_BALANCE);
     });
 
     /**

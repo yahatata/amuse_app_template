@@ -80,7 +80,7 @@ import {
   DEFAULT_OKIBAKE_LOGIN_PROMPT_MODE,
 } from './defaults';
 
-import type { OkibakeLoginPromptMode, StoreConfig, StoreConfigRaw } from './types';
+import type { OkibakeLoginPromptMode, StoreConfig, StoreConfigRaw, PointSettings, SideGameChipSettings, BalancePaymentSettings } from './types';
 
 const MAX_RETRIES = 2;
 
@@ -493,6 +493,12 @@ export function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
         result.billing!.paymentPolicy!.categoryOrder = pp.categoryOrder as string[];
         fromConfig.push('billing.paymentPolicy.categoryOrder');
       } else fb('billing.paymentPolicy.categoryOrder', 'field_missing', result.billing!.paymentPolicy!.categoryOrder);
+      // A-7: balancePaymentSettings は default 補完しない（未設定は undefined のまま）
+      if (pp.balancePaymentSettings && typeof pp.balancePaymentSettings === 'object') {
+        result.billing!.paymentPolicy!.balancePaymentSettings =
+          pp.balancePaymentSettings as BalancePaymentSettings;
+        fromConfig.push('billing.paymentPolicy.balancePaymentSettings');
+      }
       const ru = pp.roundingUnits as Record<string, unknown> | undefined;
       if (ru && typeof ru === 'object') {
         if (typeof ru.pointAB === 'number') {
@@ -507,6 +513,17 @@ export function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
     }
   } else {
     fb('billing', 'field_missing', result.billing);
+  }
+
+  // A-7: pointSettings / sideGameChipSettings は default 補完しない
+  if (raw.pointSettings && typeof raw.pointSettings === 'object') {
+    result.pointSettings = raw.pointSettings as PointSettings;
+    fromConfig.push('pointSettings');
+  }
+  if (raw.sideGameChipSettings && typeof raw.sideGameChipSettings === 'object') {
+    result.sideGameChipSettings =
+      raw.sideGameChipSettings as SideGameChipSettings;
+    fromConfig.push('sideGameChipSettings');
   }
 
   // linePlan
@@ -636,6 +653,14 @@ export function mergeWithDefaults(raw: StoreConfigRaw): StoreConfig {
       fromConfig.push('tournament.liffCalendarEnabled');
     } else {
       fb('tournament.liffCalendarEnabled', 'field_missing', result.tournament!.liffCalendarEnabled);
+    }
+    // A-7: rankingRewardPointTypes は default 補完しない
+    if (Array.isArray(tRaw.rankingRewardPointTypes)) {
+      result.tournament!.rankingRewardPointTypes =
+        tRaw.rankingRewardPointTypes as NonNullable<
+          StoreConfig['tournament']
+        >['rankingRewardPointTypes'];
+      fromConfig.push('tournament.rankingRewardPointTypes');
     }
   } else {
     fb('tournament', 'field_missing', result.tournament);

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:intl/intl.dart';
-import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
+import 'package:amuse_app_template/tournament/ranking_reward_point_candidates.dart';
 
 class EditTournamentTemplatePage extends StatefulWidget {
   final String templateId;
@@ -482,25 +482,51 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
                             ),
                             const SizedBox(height: 16),
 
-                            // ポイントタイプ
-                            DropdownButtonFormField<String>(
-                              value: _selectedPointType,
-                              decoration: const InputDecoration(
-                                labelText: 'ポイントタイプ',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: GlobalConstants.pointTypes.map<DropdownMenuItem<String>>((pointType) {
-                                return DropdownMenuItem<String>(
-                                  value: pointType,
-                                  child: Text(pointType),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                if (value != null) {
-                                  setState(() {
-                                    _selectedPointType = value;
+                            // ポイントタイプ（rankingRewardPointTypes ∩ enabled）
+                            Builder(
+                              builder: (context) {
+                                final candidates = rankingRewardPointCandidates();
+                                final items = candidates.isEmpty
+                                    ? <DropdownMenuItem<String>>[
+                                        DropdownMenuItem(
+                                          value: _selectedPointType,
+                                          child: Text('$_selectedPointType（候補なし）'),
+                                        ),
+                                      ]
+                                    : candidates
+                                        .map(
+                                          (c) => DropdownMenuItem<String>(
+                                            value: c.id,
+                                            child: Text('${c.displayName} (${c.id})'),
+                                          ),
+                                        )
+                                        .toList();
+                                final value = candidates.any((c) => c.id == _selectedPointType)
+                                    ? _selectedPointType
+                                    : (candidates.isNotEmpty
+                                        ? candidates.first.id
+                                        : _selectedPointType);
+                                if (value != _selectedPointType) {
+                                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                                    if (mounted) {
+                                      setState(() => _selectedPointType = value);
+                                    }
                                   });
                                 }
+                                return DropdownButtonFormField<String>(
+                                  value: value,
+                                  decoration: const InputDecoration(
+                                    labelText: 'ポイントタイプ',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: items,
+                                  onChanged: candidates.isEmpty
+                                      ? null
+                                      : (v) {
+                                          if (v == null) return;
+                                          setState(() => _selectedPointType = v);
+                                        },
+                                );
                               },
                             ),
                           ],

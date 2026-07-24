@@ -548,6 +548,10 @@ class _PaymentBreakdownPageState extends ConsumerState<PaymentBreakdownPage>
         return Colors.purple;
       case 'pointB':
         return Colors.pink;
+      case 'pointC':
+      case 'pointD':
+      case 'pointE':
+        return Colors.deepPurple;
       case 'sideGameChip':
         return Colors.teal;
       default:
@@ -564,9 +568,11 @@ class _PaymentBreakdownPageState extends ConsumerState<PaymentBreakdownPage>
       case 'electronic_money':
         return Icons.phone_android;
       case 'pointA':
-        return Icons.stars;
       case 'pointB':
-        return Icons.star;
+      case 'pointC':
+      case 'pointD':
+      case 'pointE':
+        return Icons.stars;
       case 'sideGameChip':
         return Icons.casino;
    default:

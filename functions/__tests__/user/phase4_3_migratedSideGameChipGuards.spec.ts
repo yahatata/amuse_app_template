@@ -1,6 +1,9 @@
 /**
  * Phase 4-3: サイドゲーム参加・chip 預入/引出の移行済みガード
  */
+import { a7StoreConfigDocument } from '../helpers/a7StoreConfig';
+import { __setMockConfig, __resetMockConfig } from '../helpers/mockStoreConfig';
+
 jest.mock('../../src/domains/sideGame/lib/sideGameOperationPermission', () => ({
   assertSideGameOperationPermission: jest.fn().mockResolvedValue(undefined),
 }));
@@ -43,6 +46,7 @@ describe('Phase 4-3 migrated sideGame/chip guards', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
+    __setMockConfig(a7StoreConfigDocument());
     users = {};
     sideGameUpdate = jest.fn().mockResolvedValue(undefined);
     userUpdate = jest.fn().mockResolvedValue(undefined);
@@ -54,7 +58,8 @@ describe('Phase 4-3 migrated sideGame/chip guards', () => {
     });
     (appendSideGameChip as jest.Mock).mockResolvedValue({
       success: true,
-      diagnostics: {reused: false},
+      chipId: 'chip-1',
+      diagnostics: { reused: false },
     });
 
     const db = getFirestore();
@@ -64,9 +69,14 @@ describe('Phase 4-3 migrated sideGame/chip guards', () => {
           doc: (uid: string) => ({
             get: async () => ({
               exists: users[uid] != null,
-              data: () => (users[uid] ? {...users[uid]} : undefined),
+              data: () => (users[uid] ? { ...users[uid] } : undefined),
             }),
             update: userUpdate,
+            collection: () => ({
+              doc: () => ({
+                get: async () => ({ exists: false, data: () => undefined }),
+              }),
+            }),
           }),
         } as any;
       }
@@ -75,7 +85,7 @@ describe('Phase 4-3 migrated sideGame/chip guards', () => {
           doc: () => ({
             get: async () => ({
               exists: true,
-              data: () => ({billId: 'bill-1', pokerName: 'P', isActive: true}),
+              data: () => ({ billId: 'bill-1', pokerName: 'P', isActive: true }),
             }),
           }),
         } as any;
@@ -83,62 +93,84 @@ describe('Phase 4-3 migrated sideGame/chip guards', () => {
       if (name === 'sideGame') {
         return {
           doc: () => ({
-            get: async () => ({exists: true, data: () => ({seats: {}})}),
+            get: async () => ({ exists: true, data: () => ({ seats: {} }) }),
             update: sideGameUpdate,
           }),
         } as any;
       }
       throw new Error(`unexpected collection: ${name}`);
     });
+
+    jest.spyOn(db, 'runTransaction').mockImplementation(async (fn: any) => {
+      return fn({
+        get: async (ref: any) => {
+          if (ref && typeof ref.get === 'function') {
+            return ref.get();
+          }
+          return { exists: false, data: () => undefined };
+        },
+        set: jest.fn(),
+        update: (ref: any, data: Record<string, unknown>) => {
+          if (ref && typeof ref.update === 'function') {
+            return ref.update(data);
+          }
+          userUpdate(data);
+        },
+      });
+    });
+  });
+
+  afterEach(() => {
+    __resetMockConfig();
   });
 
   it('depositChip rejects migrated user before balance update', async () => {
-    users['u1'] = {userType: 'store_managed', isMigrated: true, sideGameChip: 10};
+    users['u1'] = { userType: 'store_managed', isMigrated: true, sideGameChip: 10 };
     await expect(
       (depositChip as any).run({
-        auth: {uid: callerUid, token: {}},
-        data: {userId: 'u1', amount: 5, clientNonce: 'n1'},
-      })
+        auth: { uid: callerUid, token: {} },
+        data: { userId: 'u1', amount: 5, clientNonce: 'n1' },
+      }),
     ).rejects.toMatchObject({
-      details: expect.objectContaining({errorKey: 'USER_MIGRATED'}),
+      details: expect.objectContaining({ errorKey: 'USER_MIGRATED' }),
     });
     expect(appendSideGameChip).not.toHaveBeenCalled();
     expect(userUpdate).not.toHaveBeenCalled();
   });
 
   it('withdrawChip rejects migrated user before balance update', async () => {
-    users['u1'] = {userType: 'store_managed', isMigrated: true, sideGameChip: 10};
+    users['u1'] = { userType: 'store_managed', isMigrated: true, sideGameChip: 10 };
     await expect(
       (withdrawChip as any).run({
-        auth: {uid: callerUid, token: {}},
-        data: {userId: 'u1', amount: 5, clientNonce: 'n1'},
-      })
+        auth: { uid: callerUid, token: {} },
+        data: { userId: 'u1', amount: 5, clientNonce: 'n1' },
+      }),
     ).rejects.toMatchObject({
-      details: expect.objectContaining({errorKey: 'USER_MIGRATED'}),
+      details: expect.objectContaining({ errorKey: 'USER_MIGRATED' }),
     });
     expect(appendSideGameChip).not.toHaveBeenCalled();
     expect(userUpdate).not.toHaveBeenCalled();
   });
 
   it('registerForSideGame rejects migrated user before seat update', async () => {
-    users['u1'] = {userType: 'store_managed', isMigrated: true};
+    users['u1'] = { userType: 'store_managed', isMigrated: true };
     await expect(
       (registerForSideGame as any).run({
-        auth: {uid: callerUid, token: {}},
-        data: {tableId: 't1', seatNumber: 1, userId: 'u1'},
-      })
+        auth: { uid: callerUid, token: {} },
+        data: { tableId: 't1', seatNumber: 1, userId: 'u1' },
+      }),
     ).rejects.toMatchObject({
-      details: expect.objectContaining({errorKey: 'USER_MIGRATED'}),
+      details: expect.objectContaining({ errorKey: 'USER_MIGRATED' }),
     });
     expect(sideGameUpdate).not.toHaveBeenCalled();
     expect(updatePlace).not.toHaveBeenCalled();
   });
 
   it('depositChip allows non-migrated line user past guard', async () => {
-    users['u1'] = {userType: 'line', sideGameChip: 10};
+    users['u1'] = { userType: 'line', sideGameChip: 10 };
     const result = await (depositChip as any).run({
-      auth: {uid: callerUid, token: {}},
-      data: {userId: 'u1', amount: 5, clientNonce: 'n2'},
+      auth: { uid: callerUid, token: {} },
+      data: { userId: 'u1', amount: 5, clientNonce: 'n2' },
     });
     expect(result.success).toBe(true);
     expect(appendSideGameChip).toHaveBeenCalled();

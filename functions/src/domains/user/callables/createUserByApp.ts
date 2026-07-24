@@ -6,6 +6,7 @@ import * as QRCode from "qrcode";
 import { initializeUserLogs } from "../services/logUtils";
 import { getCallerDeviceByUid, isActive } from "../../../shared/devices";
 import { USER_TYPE_STORE_MANAGED } from "../types/userType";
+import { initialZeroBalanceFields } from "../types/pointIds";
 
 export const createUserByApp = onCall(async (request) => {
   if (!request.auth) {
@@ -75,9 +76,7 @@ export const createUserByApp = onCall(async (request) => {
     userType: USER_TYPE_STORE_MANAGED,
     isMigrated: false,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    pointA: 0, // globalConstant.dart の pointTypes[0] フィールド
-    pointB: 0, // globalConstant.dart の pointTypes[1] フィールド
-    sideGameChip: 0, // globalConstant.dart の pointTypes[2] フィールド
+    ...initialZeroBalanceFields(),
     currentTable: null,
     currentSeat: null,
     qrCodeUrl: "",

@@ -5,8 +5,10 @@ import 'package:intl/intl.dart';
 
 import 'package:amuse_app_template/Utils/menuItemsManager.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
-import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
+import 'package:amuse_app_template/user/balance_display.dart';
+import 'package:amuse_app_template/user/point_ids.dart';
+import 'package:amuse_app_template/user/side_game_chip_display.dart';
 
 class PostSettlementOperationDetailPage extends StatefulWidget {
   final String billId;
@@ -919,9 +921,6 @@ class _PostSettlementOperationDetailPageState
   /// 即時徴収（increase）の場合は全手段を追加。
   List<DropdownMenuItem<String>> _buildImmediateMethodItems() {
     final fmt = NumberFormat('#,###');
-    final chipRate =
-        StoreConfigService.instance.latestData?.sideGameChipRate ??
-        kDefaultSideGameChipRate;
 
     final items = <DropdownMenuItem<String>>[
       const DropdownMenuItem(value: 'cash', child: Text('現金')),
@@ -949,48 +948,34 @@ class _PostSettlementOperationDetailPageState
 
       final balance = _immediateUserBalance[method] ?? 0;
       String label;
-      switch (method) {
-        case 'sideGameChip':
-          final chipYen = (balance * chipRate).toInt();
-          label =
-              'ゲームチップ（残高: ${fmt.format(balance)}枚 / ${fmt.format(chipYen)}円相当）';
-        case 'pointA':
-          label = 'ポイントA（残高: ¥${fmt.format(balance)}）';
-        case 'pointB':
-          label = 'ポイントB（残高: ¥${fmt.format(balance)}）';
-        default:
-          return;
+      if (method == 'sideGameChip') {
+        label =
+            '${balanceDisplayName(method)}（残高: ${formatSideGameChipBalanceDisplay(balance)}）';
+      } else if (isCurrencyPointId(method)) {
+        label = '${balanceDisplayName(method)}（残高: ¥${fmt.format(balance)}）';
+      } else {
+        return;
       }
       items.add(DropdownMenuItem(value: method, child: Text(label)));
     }
 
-    addSpecial('sideGameChip');
-    addSpecial('pointA');
-    addSpecial('pointB');
+    for (final id in enabledBalanceIdsFromStoreConfig()) {
+      addSpecial(id);
+    }
 
     return items;
   }
 
   String _methodLabel(String method) {
     switch (method) {
-      case 'cash':
-        return '現金';
-      case 'credit_card':
-        return 'クレジットカード';
-      case 'electronic_money':
-        return '電子マネー';
       case 'qr':
         return 'QR';
       case 'bank_transfer':
         return '銀行振込';
-      case 'sideGameChip':
-        return 'ゲームチップ';
-      case 'pointA':
-        return 'ポイントA';
-      case 'pointB':
-        return 'ポイントB';
+      case 'other':
+        return 'その他';
       default:
-        return method;
+        return balanceDisplayName(method);
     }
   }
 
@@ -998,22 +983,17 @@ class _PostSettlementOperationDetailPageState
   String _fmtNum(int amount) => NumberFormat('#,###').format(amount);
 
   /// 支払い方法 + 金額を表示用文字列に変換
-  /// sideGameChip / pointA / pointB は「枚数 (XXX円相当)」形式、それ以外は「ラベル ¥金額」形式
   String _formatMethodDisplay(String method, int amount) {
-    final chipRate =
-        StoreConfigService.instance.latestData?.sideGameChipRate ?? 10.0;
-
-    switch (method) {
-      case 'sideGameChip':
-        final chipCount = (amount / chipRate).floor();
-        return 'ゲームチップ $chipCount (${_fmtNum(amount)}円相当)';
-      case 'pointA':
-        return 'ポイントA ${_fmtNum(amount)} (${_fmtNum(amount)}円相当)';
-      case 'pointB':
-        return 'ポイントB ${_fmtNum(amount)} (${_fmtNum(amount)}円相当)';
-      default:
-        return '${_methodLabel(method)} ¥${_fmtNum(amount)}';
+    if (method == 'sideGameChip') {
+      return formatSideGameChipPaymentFromReference(
+        amount,
+        methodLabel: balanceDisplayName(method),
+      );
     }
+    if (isCurrencyPointId(method)) {
+      return '${balanceDisplayName(method)} ${_fmtNum(amount)} (${_fmtNum(amount)}円相当)';
+    }
+    return '${_methodLabel(method)} ¥${_fmtNum(amount)}';
   }
 
   /// paymentMethodsByCategory の key に対応する categoryBreakdown の金額を返す

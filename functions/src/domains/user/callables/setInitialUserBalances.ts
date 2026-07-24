@@ -1,19 +1,28 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { getCallerDeviceByUid, isActive } from "../../../shared/devices";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import { validatePointConfigFromStoreConfig } from "../../../shared/config/validatePointConfig";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import {
+  FunctionCustomError,
+  mapFunctionCustomErrorToHttpsCode,
+} from "../../../shared/logging/functionCustomError";
 import { assertUserNotMigrated } from "../helpers/assertUserNotMigrated";
 import {
-  balancesEqual,
-  validateBalanceTriple,
-  type BalanceTriple,
-} from "../helpers/validateBalanceTriple";
+  initialBalancePatchesEqual,
+  mergeBalancesAfterInitialPatch,
+  validateInitialBalancesPatchAgainstConfig,
+  type BalanceSet,
+  type InitialBalancesPatch,
+} from "../helpers/validateBalanceSet";
+import { ALL_BALANCE_IDS } from "../types/pointIds";
 import { MIGRATION_TYPE_INITIAL_IMPORT } from "../types/userType";
 
 const NOTE_MAX_LENGTH = 200;
 
 type IdempotencyDoc = {
-  balances: BalanceTriple;
+  balances: InitialBalancesPatch;
   migrationId: string;
 };
 
@@ -58,9 +67,18 @@ function toIsoTimestamp(value: unknown): string {
   return new Date().toISOString();
 }
 
+function throwMappedCustomError(error: FunctionCustomError): never {
+  throw new HttpsError(
+    mapFunctionCustomErrorToHttpsCode(error.errorKey),
+    error.message,
+    { errorKey: error.errorKey },
+  );
+}
+
 /**
- * 管理者端末からユーザーの初期残高（3 残高）を上書き設定する。
- * 履歴は balanceMigrationLogs（initial_import）にのみ残す。
+ * 管理者端末からユーザーの初期残高を上書き設定する。
+ * 有効スロットのみ更新。無効スロットは保持。
+ * 履歴は balanceMigrationLogs（initial_import）に全標準6残高を残す。
  */
 export const setInitialUserBalances = onCall(async (request) => {
   if (!request.auth) {
@@ -75,14 +93,14 @@ export const setInitialUserBalances = onCall(async (request) => {
     throw new HttpsError(
       "permission-denied",
       "デバイスが見つからないか、アクティブではありません",
-      {errorKey: "PERMISSION_DENIED"},
+      { errorKey: "PERMISSION_DENIED" },
     );
   }
   if (device.role !== "admin") {
     throw new HttpsError(
       "permission-denied",
       "初期残高の設定には管理者権限が必要です",
-      {errorKey: "PERMISSION_DENIED"},
+      { errorKey: "PERMISSION_DENIED" },
     );
   }
 
@@ -108,19 +126,42 @@ export const setInitialUserBalances = onCall(async (request) => {
   const targetUserId = targetUserIdRaw.trim();
 
   if (confirmOverwrite !== true) {
-    throw new HttpsError(
-      "invalid-argument",
-      "上書き確認が必要です",
-      {errorKey: "CONFIRMATION_REQUIRED"},
-    );
+    throw new HttpsError("invalid-argument", "上書き確認が必要です", {
+      errorKey: "CONFIRMATION_REQUIRED",
+    });
   }
 
-  const balances = validateBalanceTriple(balancesRaw);
+  const logContext: Record<string, unknown> = { targetUserId };
+  const db = admin.firestore();
+
+  let patch: InitialBalancesPatch;
+  try {
+    const storeConfig = await getStoreConfig(db);
+    const validatedConfig = validatePointConfigFromStoreConfig(storeConfig);
+    patch = validateInitialBalancesPatchAgainstConfig(balancesRaw, {
+      pointSettings: validatedConfig.pointSettings,
+      sideGameChipSettings: validatedConfig.sideGameChipSettings,
+    });
+  } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: "setInitialUserBalances validation failed",
+        functionEntry: "setInitialUserBalances",
+        operation: "setInitialValidation",
+        cause: error,
+        context: {
+          targetUserId,
+          errorKey: error.errorKey,
+        },
+      });
+      throwMappedCustomError(error);
+    }
+    throw error;
+  }
+
   const note = normalizeOptionalNote(noteRaw);
   const clientNonce = normalizeClientNonce(clientNonceRaw);
 
-  const logContext: Record<string, unknown> = {targetUserId};
-  const db = admin.firestore();
   const userRef = db.collection("users").doc(targetUserId);
   const logsCol = userRef.collection("balanceMigrationLogs");
   const migrationRef = logsCol.doc();
@@ -137,7 +178,7 @@ export const setInitialUserBalances = onCall(async (request) => {
         });
       }
 
-      const userData = userSnap.data()!;
+      const userData = userSnap.data() as Record<string, unknown>;
       assertUserNotMigrated(userData);
 
       if (idempotencyRef) {
@@ -149,38 +190,46 @@ export const setInitialUserBalances = onCall(async (request) => {
               errorKey: "IDEMPOTENCY_CONFLICT",
             });
           }
-          if (!balancesEqual(existing.balances, balances)) {
+          if (!initialBalancePatchesEqual(existing.balances, patch)) {
             throw new HttpsError(
               "aborted",
               "同一の再送キーで異なる残高が指定されています",
-              {errorKey: "IDEMPOTENCY_CONFLICT"},
+              { errorKey: "IDEMPOTENCY_CONFLICT" },
             );
           }
+          const reusedBalances = mergeBalancesAfterInitialPatch(userData, patch);
           return {
             reused: true as const,
             migrationId: existing.migrationId,
             initialBalanceSetAt: toIsoTimestamp(userData.initialBalanceSetAt),
+            balances: reusedBalances,
           };
         }
       }
 
       const migrationId = migrationRef.id;
       const serverTs = admin.firestore.FieldValue.serverTimestamp();
+      const afterBalances: BalanceSet = mergeBalancesAfterInitialPatch(
+        userData,
+        patch,
+      );
 
-      tx.update(userRef, {
-        pointA: balances.pointA,
-        pointB: balances.pointB,
-        sideGameChip: balances.sideGameChip,
+      const userUpdate: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
         initialBalanceSetAt: serverTs,
-      });
+      };
+      for (const [id, value] of Object.entries(patch)) {
+        userUpdate[id] = value;
+      }
+      tx.update(userRef, userUpdate);
+
+      const logBalances: Record<string, number> = {};
+      for (const id of ALL_BALANCE_IDS) {
+        logBalances[id] = afterBalances[id];
+      }
 
       const logDoc: Record<string, unknown> = {
         migrationType: MIGRATION_TYPE_INITIAL_IMPORT,
-        balances: {
-          pointA: balances.pointA,
-          pointB: balances.pointB,
-          sideGameChip: balances.sideGameChip,
-        },
+        balances: logBalances,
         createdAt: serverTs,
       };
       if (note !== undefined) {
@@ -190,11 +239,7 @@ export const setInitialUserBalances = onCall(async (request) => {
 
       if (idempotencyRef) {
         tx.set(idempotencyRef, {
-          balances: {
-            pointA: balances.pointA,
-            pointB: balances.pointB,
-            sideGameChip: balances.sideGameChip,
-          },
+          balances: { ...patch },
           migrationId,
           createdAt: serverTs,
         });
@@ -204,10 +249,10 @@ export const setInitialUserBalances = onCall(async (request) => {
         reused: false as const,
         migrationId,
         initialBalanceSetAt: new Date().toISOString(),
+        balances: afterBalances,
       };
     });
 
-    // serverTimestamp 確定後の表示用。reuse 時は tx 内の既存値を返す
     let initialBalanceSetAt = result.initialBalanceSetAt;
     if (!result.reused) {
       const after = await userRef.get();
@@ -228,18 +273,29 @@ export const setInitialUserBalances = onCall(async (request) => {
     return {
       success: true,
       targetUserId,
-      balances,
+      balances: result.balances,
       initialBalanceSetAt,
       migrationId: result.migrationId,
-      ...(result.reused ? {reused: true} : {}),
+      ...(result.reused ? { reused: true } : {}),
     };
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: "setInitialUserBalances failed",
+        functionEntry: "setInitialUserBalances",
+        operation: "setInitialTransaction",
+        cause: error,
+        context: { targetUserId, errorKey: error.errorKey },
+      });
+      throwMappedCustomError(error);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }
     logOpsError({
       message: "setInitialUserBalances エラー",
       functionEntry: "setInitialUserBalances",
+      operation: "setInitialMainCatch",
       cause: error,
       context: logContext,
     });

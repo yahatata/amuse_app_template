@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
-import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
+import 'package:amuse_app_template/tournament/ranking_reward_point_candidates.dart';
 
 class CreateTournamentTemplatePage extends StatefulWidget {
   final Map<String, dynamic>? existingTemplate;
@@ -492,25 +492,51 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
                             ),
                             const SizedBox(height: 16),
 
-                            // ポイントタイプ選択
-                            DropdownButtonFormField<String>(
-                              value: _selectedPointType,
-                              decoration: const InputDecoration(
-                                labelText: 'ポイントタイプ *',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: GlobalConstants.pointTypes.map((String pointType) {
-                                return DropdownMenuItem<String>(
-                                  value: pointType,
-                                  child: Text(pointType),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                if (value != null) {
-                                  setState(() {
-                                    _selectedPointType = value;
+                            // ポイントタイプ選択（rankingRewardPointTypes ∩ enabled）
+                            Builder(
+                              builder: (context) {
+                                final candidates = rankingRewardPointCandidates();
+                                final items = candidates.isEmpty
+                                    ? <DropdownMenuItem<String>>[
+                                        const DropdownMenuItem(
+                                          value: 'pointA',
+                                          child: Text('pointA（候補なし）'),
+                                        ),
+                                      ]
+                                    : candidates
+                                        .map(
+                                          (c) => DropdownMenuItem<String>(
+                                            value: c.id,
+                                            child: Text('${c.displayName} (${c.id})'),
+                                          ),
+                                        )
+                                        .toList();
+                                final value = candidates.any((c) => c.id == _selectedPointType)
+                                    ? _selectedPointType
+                                    : (candidates.isNotEmpty
+                                        ? candidates.first.id
+                                        : _selectedPointType);
+                                if (value != _selectedPointType) {
+                                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                                    if (mounted) {
+                                      setState(() => _selectedPointType = value);
+                                    }
                                   });
                                 }
+                                return DropdownButtonFormField<String>(
+                                  value: value,
+                                  decoration: const InputDecoration(
+                                    labelText: 'ポイントタイプ *',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: items,
+                                  onChanged: candidates.isEmpty
+                                      ? null
+                                      : (v) {
+                                          if (v == null) return;
+                                          setState(() => _selectedPointType = v);
+                                        },
+                                );
                               },
                             ),
                             const SizedBox(height: 16),

@@ -14,12 +14,12 @@ export interface LogEntry {
 /**
  * ユーザーのログサブコレクションにエントリを追加する
  * @param userId ユーザーID
- * @param logType ログタイプ（sideGameChipLogs, pointALogs, pointBLogs）
+ * @param logType ログタイプ（sideGameChipLogs のみ。通貨型は pointLogs を利用）
  * @param entry ログエントリ（entryIdは自動生成）
  */
 export async function addLogEntry(
   userId: string,
-  logType: 'sideGameChipLogs' | 'pointALogs' | 'pointBLogs',
+  logType: 'sideGameChipLogs',
   entry: Omit<LogEntry, 'entryId'>
 ): Promise<void> {
   const db = getFirestore();
@@ -62,33 +62,22 @@ export async function addLogEntry(
 
 /**
  * ユーザー作成時にログサブコレクションを初期化する
- * @param userId ユーザーID
+ * A-7: 通貨型は pointLogs（フラット）を利用するため pointALogs/pointBLogs は初期化しない。
+ * sideGameChipLogs のみ従来どおり当日空ドキュメントを用意する（購入明細等のレガシー形式用）。
  */
 export async function initializeUserLogs(userId: string): Promise<void> {
   const db = getFirestore();
   const today = new Date().toISOString().split('T')[0];
   const userRef = db.collection('users').doc(userId);
-  
-  // 3つのサブコレクションに当日のドキュメントを作成
-  const logTypes: ('sideGameChipLogs' | 'pointALogs' | 'pointBLogs')[] = [
-    'sideGameChipLogs',
-    'pointALogs', 
-    'pointBLogs'
-  ];
-  
-  const initPromises = logTypes.map(async (logType) => {
-    const logRef = userRef.collection(logType).doc(today);
-    const logDoc = await logRef.get();
-    
-    if (!logDoc.exists) {
-      await logRef.set({
-        logs: {},
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      console.log(`ログサブコレクション初期化: ${logType}/${today}`);
-    }
-  });
-  
-  await Promise.all(initPromises);
+
+  const logRef = userRef.collection('sideGameChipLogs').doc(today);
+  const logDoc = await logRef.get();
+
+  if (!logDoc.exists) {
+    await logRef.set({
+      logs: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
 }

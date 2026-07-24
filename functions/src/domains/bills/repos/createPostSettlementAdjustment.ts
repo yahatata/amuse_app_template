@@ -48,7 +48,31 @@ import {
 } from '../services/cashActions';
 import { calcBusinessDate } from './calcBusinessDate';
 import { getStoreConfig } from '../../../shared/config/configLoader';
-import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
+import { validatePointConfigFromStoreConfig } from '../../../shared/config/validatePointConfig';
+import type { ValidatedPointConfig } from '../../../shared/config/validatePointConfig';
+import {
+  applyCollectionDetailsMerge,
+  planCollectionBalanceMovements,
+  planRefundBalanceMovements,
+  type BalanceMethodSnapshot,
+  type CollectionLot,
+} from '../services/a7PostSettlementBalances';
+import type { PaymentMethodDetails } from '../services/paymentMethodAggregation';
+import {
+  isBalanceId,
+  isCurrencyPointId,
+  SIDE_GAME_CHIP_ID,
+  type BalanceId,
+} from '../../user/types/pointIds';
+import { readBalanceOrZeroIfMissing } from '../../user/helpers/userBalances';
+import {
+  collectionPointLogId,
+  collectionSideGameChipLogId,
+  refundPointLogId,
+  refundSideGameChipLogId,
+  writePostSettlementPointLogInTxWithSnap,
+  writePostSettlementSideGameChipLogInTxWithSnap,
+} from '../../user/services/pointLog';
 import { buildAdjustmentAnalyticsDelta } from '../../analytics/services/aggregator/adjustmentDelta';
 import { buildCashActionAnalyticsDelta } from '../../analytics/services/aggregator/cashActionDelta';
 import { processAdjustmentAnalyticsAtomically } from '../../analytics/services/applyAdjustmentToAnalytics';
@@ -233,29 +257,15 @@ export async function createPostSettlementAdjustment(
   const idempotencyRef = billRef.collection('idempotency').doc(idempotencyDocId);
 
   // Step07 changeSpec §5.6: feature flag を transaction 外で読み取る
-  const storeConfig = await getStoreConfig();
+  const storeConfig = await getStoreConfig(db);
   const analyticsEnabled = storeConfig.features?.settlementAggregatorEnabled === true;
   const reportingEnabled = storeConfig.features?.reportingAggregatorEnabled === true;
-  const chipRate = storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
 
-  const SPECIAL_METHODS = new Set(['sideGameChip', 'pointA', 'pointB']);
-
-  /** ユーザー残高フィールド名（Firestore 上の key）を返す */
-  function balanceField(method: string): string {
-    switch (method) {
-      case 'sideGameChip': return 'sideGameChip';
-      case 'pointA': return 'pointA';
-      case 'pointB': return 'pointB';
-      default: throw new Error(`Unknown special method: ${method}`);
-    }
-  }
-
-  /** special method の amount を「残高単位（枚 or ポイント）」に変換 */
-  function toBalanceUnit(method: string, amountIncl: number): number {
-    if (method === 'sideGameChip') {
-      return Math.round(amountIncl / chipRate);
-    }
-    return amountIncl; // pointA / pointB は 1pt = 1円
+  let validatedPointConfig: ValidatedPointConfig | null = null;
+  try {
+    validatedPointConfig = validatePointConfigFromStoreConfig(storeConfig);
+  } catch {
+    validatedPointConfig = null;
   }
 
   // Step07 changeSpec §5.3.1: transaction 内で組み立てた analytics delta を transaction 外で再利用するための capture
@@ -431,6 +441,28 @@ export async function createPostSettlementAdjustment(
       let finalNewRemaining = offsetResult.newAdjustmentRemaining;
       let finalNewState: AdjustmentState = offsetResult.newAdjustmentState;
 
+      let plannedImmediateRefund: ReturnType<typeof planRefundBalanceMovements> | null =
+        null;
+      let plannedImmediateCollection: ReturnType<
+        typeof planCollectionBalanceMovements
+      > | null = null;
+      let nextDetailsForBill: PaymentMethodDetails | null = null;
+      let cashActionBalanceDetails: Record<string, BalanceMethodSnapshot> | null =
+        null;
+      let immediateUserRef: DocumentReference | null = null;
+      let immediateUserData: Record<string, unknown> | null = null;
+      type ImmediateLogPrep = {
+        kind: 'point' | 'chip';
+        method: BalanceId;
+        ref: DocumentReference;
+        snap: FirebaseFirestore.DocumentSnapshot;
+        before: number;
+        delta: number;
+      };
+      const immediateLogPreps: ImmediateLogPrep[] = [];
+      let immediateExistingCashActionsSnap: FirebaseFirestore.QuerySnapshot | null =
+        null;
+
       if (isImmediate && finalNewRemaining > 0) {
         const cashActionType: CashActionType =
           adjustmentDoc.cashActionTypeAtCreation === 'refund' ? 'refund' : 'collection';
@@ -478,62 +510,187 @@ export async function createPostSettlementAdjustment(
         finalNewRemaining = 0;
         finalNewState = 'completed_by_cash_action';
 
-        // C-2.5: special method のユーザー残高バリデーション
-        if (SPECIAL_METHODS.has(usedMethod)) {
+        // A-7: 残高 method の検証・計画（write 前に read 完了）
+        if (isBalanceId(usedMethod)) {
           const userId = (billData.party?.userId as string | undefined) ?? null;
           if (!userId) {
             throw new FunctionCustomError({
               errorKey: 'ACCOUNTING_USER_NOT_FOUND',
-              message: `special method ${usedMethod} requires userId on bill.party, but not found`,
+              message: `balance method ${usedMethod} requires userId on bill.party, but not found`,
               context: { billId, method: usedMethod },
             });
           }
-          const userRef = db.collection('users').doc(userId);
-          const userSnap = await tx.get(userRef);
-          const userData = userSnap.exists ? userSnap.data()! : {};
-          const currentBalance: number = (userData[balanceField(usedMethod)] as number | undefined) ?? 0;
-          const requiredBalance = toBalanceUnit(usedMethod, cashActionDoc.amountIncl);
+          immediateUserRef = db.collection('users').doc(userId);
+          const userSnap = await tx.get(immediateUserRef);
+          if (!userSnap.exists) {
+            throw new FunctionCustomError({
+              errorKey: 'ACCOUNTING_USER_NOT_FOUND',
+              message: 'ユーザー情報が見つかりません',
+              context: { billId, userId },
+            });
+          }
+          immediateUserData = userSnap.data() as Record<string, unknown>;
 
-          if (cashActionType === 'collection') {
-            if (currentBalance < requiredBalance) {
-              throw new FunctionCustomError({
-                errorKey: 'ACCOUNTING_INSUFFICIENT_BALANCE',
-                message: `${usedMethod} の残高が不足しています。残高: ${currentBalance}、必要: ${requiredBalance}`,
-                context: { billId, method: usedMethod, currentBalance, requiredBalance },
-              });
+          const methodBreakdown = [
+            { method: usedMethod, amountIncl: cashActionDoc.amountIncl },
+          ];
+          const existingDetails = ((billData.meta as Record<string, unknown> | undefined)
+            ?.paymentMethodDetails || {}) as PaymentMethodDetails;
+
+          immediateExistingCashActionsSnap = await tx.get(cashActionsCollectionRef);
+          const collectionLots: CollectionLot[] = [];
+          let alreadyRefunded = 0;
+          let alreadyCollected = 0;
+          for (const caDoc of immediateExistingCashActionsSnap.docs) {
+            const ca = caDoc.data();
+            const mb =
+              (ca.methodBreakdown as
+                | Array<{ method: string; amountIncl: number }>
+                | undefined) ?? [];
+            for (const entry of mb) {
+              if (entry.method === usedMethod) {
+                if (ca.cashActionType === 'refund') {
+                  alreadyRefunded += entry.amountIncl;
+                } else if (ca.cashActionType === 'collection') {
+                  alreadyCollected += entry.amountIncl;
+                }
+              }
+            }
+            if (ca.cashActionType === 'collection') {
+              const snaps = (ca.balanceMethodDetails || {}) as Record<
+                string,
+                BalanceMethodSnapshot
+              >;
+              for (const [method, snap] of Object.entries(snaps)) {
+                if (!isBalanceId(method) || !snap) continue;
+                collectionLots.push({
+                  cashActionId: caDoc.id,
+                  sequenceNo: (ca.sequenceNo as number) ?? 0,
+                  method,
+                  snapshot: {
+                    referenceAmount: snap.referenceAmount,
+                    balanceAmount: snap.balanceAmount,
+                    conversion: snap.conversion,
+                    usageUnit: snap.usageUnit,
+                    refundedBalanceAmount: snap.refundedBalanceAmount ?? 0,
+                    mergedIntoBillDetails: snap.mergedIntoBillDetails === true,
+                  },
+                });
+              }
             }
           }
 
           if (cashActionType === 'refund') {
-            const paymentTotals = (billData.paymentTotals as Record<string, number> | undefined) ?? {};
+            const paymentTotals =
+              (billData.paymentTotals as Record<string, number> | undefined) ?? {};
             const originalPaid = paymentTotals[usedMethod] ?? 0;
-            if (originalPaid > 0) {
-              // 既存 cashActions から累計返金額・追加徴収額を計算
-              // 返金可能上限 = 最初の会計で支払った額 + 追加徴収で受け取った額 - すでに返金した額
-              const existingCashActionsSnap = await tx.get(cashActionsCollectionRef);
-              let alreadyRefunded = 0;
-              let alreadyCollected = 0;
-              for (const caDoc of existingCashActionsSnap.docs) {
-                const ca = caDoc.data();
-                const mb = (ca.methodBreakdown as Array<{ method: string; amountIncl: number }> | undefined) ?? [];
-                for (const entry of mb) {
-                  if (entry.method === usedMethod) {
-                    if (ca.cashActionType === 'refund') {
-                      alreadyRefunded += entry.amountIncl;
-                    } else if (ca.cashActionType === 'collection') {
-                      alreadyCollected += entry.amountIncl;
-                    }
-                  }
-                }
-              }
-              const maxRefundable = originalPaid + alreadyCollected - alreadyRefunded;
+            if (originalPaid > 0 || alreadyCollected > 0) {
+              const maxRefundable =
+                originalPaid + alreadyCollected - alreadyRefunded;
               if (cashActionDoc.amountIncl > maxRefundable) {
                 throw new FunctionCustomError({
                   errorKey: 'ACCOUNTING_REFUND_EXCEEDS_LIMIT',
                   message: `${usedMethod} の返金可能額を超えています。返金可能残額: ¥${maxRefundable}、要求額: ¥${cashActionDoc.amountIncl}`,
-                  context: { billId, method: usedMethod, originalPaid, alreadyCollected, alreadyRefunded, maxRefundable, requested: cashActionDoc.amountIncl },
+                  context: {
+                    billId,
+                    method: usedMethod,
+                    originalPaid,
+                    alreadyCollected,
+                    alreadyRefunded,
+                    maxRefundable,
+                    requested: cashActionDoc.amountIncl,
+                  },
                 });
               }
+            }
+
+            plannedImmediateRefund = planRefundBalanceMovements({
+              methodBreakdown,
+              paymentMethodDetails: existingDetails,
+              collectionLots,
+            });
+            nextDetailsForBill = plannedImmediateRefund.nextDetails;
+            cashActionBalanceDetails = {};
+            for (const mov of plannedImmediateRefund.movements) {
+              cashActionBalanceDetails[mov.method] = {
+                referenceAmount: mov.referenceAmount,
+                balanceAmount: mov.balanceAmount,
+                conversion: mov.conversion,
+                usageUnit: mov.usageUnit,
+                refundedBalanceAmount: 0,
+                mergedIntoBillDetails: false,
+              };
+            }
+          } else {
+            if (!validatedPointConfig) {
+              throw new FunctionCustomError({
+                errorKey: 'CONFIG_POINT_INVALID',
+                message: '追加徴収には有効なポイント設定が必要です',
+                context: { billId },
+              });
+            }
+            const userBalances: Record<string, number> = {
+              [usedMethod]: readBalanceOrZeroIfMissing(
+                immediateUserData,
+                usedMethod,
+              ),
+            };
+            plannedImmediateCollection = planCollectionBalanceMovements({
+              methodBreakdown,
+              validatedConfig: validatedPointConfig,
+              userBalances,
+            });
+            nextDetailsForBill = applyCollectionDetailsMerge({
+              existingDetails,
+              detailsMerge: plannedImmediateCollection.detailsMerge,
+              cashActionSnapshots: plannedImmediateCollection.cashActionSnapshots,
+            });
+            cashActionBalanceDetails = plannedImmediateCollection.cashActionSnapshots;
+          }
+
+          const movements =
+            cashActionType === 'refund'
+              ? plannedImmediateRefund?.movements ?? []
+              : plannedImmediateCollection?.movements ?? [];
+          for (const mov of movements) {
+            if (mov.balanceAmount <= 0) continue;
+            const before = readBalanceOrZeroIfMissing(immediateUserData, mov.method);
+            const delta =
+              cashActionType === 'collection'
+                ? -mov.balanceAmount
+                : mov.balanceAmount;
+            if (isCurrencyPointId(mov.method)) {
+              const logId =
+                cashActionType === 'refund'
+                  ? refundPointLogId(cashActionDocRef!.id, mov.method)
+                  : collectionPointLogId(cashActionDocRef!.id, mov.method);
+              const ref = immediateUserRef.collection('pointLogs').doc(logId);
+              const snap = await tx.get(ref);
+              immediateLogPreps.push({
+                kind: 'point',
+                method: mov.method,
+                ref,
+                snap,
+                before,
+                delta,
+              });
+            } else if (mov.method === SIDE_GAME_CHIP_ID) {
+              const logId =
+                cashActionType === 'refund'
+                  ? refundSideGameChipLogId(cashActionDocRef!.id)
+                  : collectionSideGameChipLogId(cashActionDocRef!.id);
+              const ref = immediateUserRef
+                .collection('sideGameChipLogs')
+                .doc(logId);
+              const snap = await tx.get(ref);
+              immediateLogPreps.push({
+                kind: 'chip',
+                method: mov.method,
+                ref,
+                snap,
+                before,
+                delta,
+              });
             }
           }
         }
@@ -679,19 +836,86 @@ export async function createPostSettlementAdjustment(
       }
 
       if (cashActionDocRef && cashActionDoc) {
-        tx.set(cashActionDocRef, cashActionDoc, { merge: false });
+        const cashActionWritePayload: CashActionDoc & {
+          balanceMethodDetails?: Record<string, BalanceMethodSnapshot>;
+        } = {
+          ...cashActionDoc,
+          ...(cashActionBalanceDetails
+            ? { balanceMethodDetails: cashActionBalanceDetails }
+            : {}),
+        };
+        tx.set(cashActionDocRef, cashActionWritePayload, { merge: false });
 
-        // C-2.5: special method ユーザー残高更新
-        const usedMethod = cashActionDoc.methodBreakdown[0]?.method ?? null;
-        if (usedMethod && SPECIAL_METHODS.has(usedMethod)) {
-          const userId = (billData.party?.userId as string | undefined) ?? null;
-          if (userId) {
-            const userRef = db.collection('users').doc(userId);
-            const delta = toBalanceUnit(usedMethod, cashActionDoc.amountIncl);
-            const increment = cashActionDoc.cashActionType === 'collection'
-              ? FieldValue.increment(-delta)
-              : FieldValue.increment(delta);
-            tx.update(userRef, { [balanceField(usedMethod)]: increment });
+        // A-7: 残高・ログ・Details
+        if (immediateUserRef && immediateUserData && immediateLogPreps.length > 0) {
+          const reasonType =
+            cashActionDoc.cashActionType === 'refund'
+              ? ('post_settlement_refund' as const)
+              : ('post_settlement_collection' as const);
+          const balanceUpdates: Record<string, FieldValue> = {
+            updatedAt: FieldValue.serverTimestamp(),
+          };
+          for (const prep of immediateLogPreps) {
+            balanceUpdates[prep.method] = FieldValue.increment(prep.delta);
+          }
+          tx.update(immediateUserRef, balanceUpdates);
+
+          for (const prep of immediateLogPreps) {
+            if (prep.kind === 'point' && isCurrencyPointId(prep.method)) {
+              writePostSettlementPointLogInTxWithSnap({
+                tx,
+                existingSnap: prep.snap,
+                ref: prep.ref,
+                cashActionId: cashActionDocRef.id,
+                pointType: prep.method,
+                balanceBefore: prep.before,
+                changeAmount: prep.delta,
+                balanceAfter: prep.before + prep.delta,
+                reasonType,
+              });
+            } else if (prep.kind === 'chip') {
+              writePostSettlementSideGameChipLogInTxWithSnap({
+                tx,
+                existingSnap: prep.snap,
+                ref: prep.ref,
+                cashActionId: cashActionDocRef.id,
+                balanceBefore: prep.before,
+                changeAmount: prep.delta,
+                balanceAfter: prep.before + prep.delta,
+                reasonType,
+              });
+            }
+          }
+
+          if (
+            cashActionDoc.cashActionType === 'refund' &&
+            plannedImmediateRefund &&
+            immediateExistingCashActionsSnap
+          ) {
+            for (const mov of plannedImmediateRefund.movements) {
+              for (const lotRefund of mov.lotRefunds) {
+                const lotRef = cashActionsCollectionRef.doc(lotRefund.cashActionId);
+                const lotSnap = immediateExistingCashActionsSnap.docs.find(
+                  (d) => d.id === lotRefund.cashActionId,
+                );
+                const lotData = lotSnap?.data();
+                const existingSnaps = (lotData?.balanceMethodDetails ||
+                  {}) as Record<string, BalanceMethodSnapshot>;
+                const prev = existingSnaps[mov.method];
+                if (!prev) continue;
+                tx.update(lotRef, {
+                  balanceMethodDetails: {
+                    ...existingSnaps,
+                    [mov.method]: {
+                      ...prev,
+                      refundedBalanceAmount:
+                        (prev.refundedBalanceAmount ?? 0) +
+                        lotRefund.refundedBalanceDelta,
+                    },
+                  },
+                });
+              }
+            }
           }
         }
       }
@@ -700,12 +924,16 @@ export async function createPostSettlementAdjustment(
         nextSequenceNo: nextSequenceNoAfter,
       });
 
-      tx.update(billRef, {
+      const billUpdate: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
         status: newStatus,
         currentSummary: newCurrentSummary,
         postSettlementState: newPostSettlementState,
         updatedAt: Timestamp.now(),
-      });
+      };
+      if (nextDetailsForBill) {
+        billUpdate['meta.paymentMethodDetails'] = nextDetailsForBill;
+      }
+      tx.update(billRef, billUpdate);
 
       const storedResult: IdempotencyStoredResult = {
         cycleNo: currentSettlementCycle,

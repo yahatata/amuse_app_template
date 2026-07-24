@@ -1,8 +1,12 @@
 import { logger } from "firebase-functions";
-import { onCall } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore } from "firebase-admin/firestore";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import { validatePointConfigFromStoreConfig } from "../../../shared/config/validatePointConfig";
+import { assertRewardPointTypeForTemplate } from "../../tournament_activeTournament/helpers/rewardPointType";
 
 export const createTournamentTemplate = onCall(async (request) => {
   const logContext: Record<string, unknown> = { callerUid: request.auth?.uid ?? null };
@@ -64,6 +68,13 @@ export const createTournamentTemplate = onCall(async (request) => {
     Object.assign(logContext, { name });
 
     const db = getFirestore();
+    const storeConfig = await getStoreConfig(db);
+    const validatedConfig = validatePointConfigFromStoreConfig(storeConfig);
+    const resolvedPointType = assertRewardPointTypeForTemplate(
+      pointType || 'pointA',
+      validatedConfig,
+    );
+
     const now = new Date();
 
     const tournamentTemplateData = {
@@ -80,7 +91,7 @@ export const createTournamentTemplate = onCall(async (request) => {
       blindStructure,
       prizeRatio,
       color,
-      pointType: pointType || 'pointA', // UIから送信されたpointTypeまたはデフォルト
+      pointType: resolvedPointType,
       updatedAt: now,
       isArchived: false,
     };
@@ -104,6 +115,12 @@ export const createTournamentTemplate = onCall(async (request) => {
       cause: error,
       context: logContext,
     });
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+    if (error instanceof HttpsError) {
+      throw error;
+    }
     return { success: false, error: 'トーナメントテンプレートの作成に失敗しました' };
   }
 });

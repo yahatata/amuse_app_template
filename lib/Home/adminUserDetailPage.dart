@@ -1,5 +1,5 @@
-import 'package:amuse_app_template/core/utils/formatters.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
+import 'package:amuse_app_template/user/balance_display.dart';
 import 'package:amuse_app_template/user/user_type_display.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -89,9 +89,7 @@ class AdminUserDetailPage extends StatelessWidget {
       return const Center(child: Text('ユーザーが見つかりません'));
     }
 
-    final pointALabel = Formatters.getPaymentMethodDisplayName('pointA');
-    final pointBLabel = Formatters.getPaymentMethodDisplayName('pointB');
-    final chipLabel = Formatters.getPaymentMethodDisplayName('sideGameChip');
+    final enabledIds = enabledBalanceIdsFromStoreConfig();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -157,25 +155,21 @@ class AdminUserDetailPage extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    '所持ポイント',
+                    '所持残高',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _buildInfoRow(
-                    pointALabel,
-                    formatUserBalance(data['pointA']),
-                  ),
-                  _buildInfoRow(
-                    pointBLabel,
-                    formatUserBalance(data['pointB']),
-                  ),
-                  _buildInfoRow(
-                    chipLabel,
-                    formatUserBalance(data['sideGameChip']),
-                  ),
+                  if (enabledIds.isEmpty)
+                    const Text('表示可能な残高がありません')
+                  else
+                    for (final id in enabledIds)
+                      _buildInfoRow(
+                        balanceDisplayName(id),
+                        formatBalanceFieldDisplay(data, id),
+                      ),
                 ],
               ),
             ),

@@ -5,6 +5,9 @@ import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shar
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
+import { getStoreConfig } from '../../../shared/config/configLoader';
+import { validatePointConfigFromStoreConfig } from '../../../shared/config/validatePointConfig';
+import { assertRewardPointTypeForTemplate } from '../helpers/rewardPointType';
 
 const setPrizeDataSchema = z.object({
   tournamentId: z.string().min(1, 'tournamentId is required'),
@@ -37,8 +40,17 @@ export const setPrizeData = onCall(async (request) => {
 
     // 入力検証
     const { tournamentId, prizeData } = setPrizeDataSchema.parse(request.data);
-    
+
     const db = getFirestore();
+
+    if (prizeData.pointType !== undefined && prizeData.pointType !== null) {
+      const storeConfig = await getStoreConfig(db);
+      const validatedConfig = validatePointConfigFromStoreConfig(storeConfig);
+      prizeData.pointType = assertRewardPointTypeForTemplate(
+        prizeData.pointType,
+        validatedConfig,
+      );
+    }
     
     // トーナメントが存在するかチェック
     const tournamentDoc = await db.collection('scheduledTournaments').doc(tournamentId).get();

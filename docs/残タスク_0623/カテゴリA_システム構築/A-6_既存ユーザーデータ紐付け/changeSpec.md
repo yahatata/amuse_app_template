@@ -6,7 +6,7 @@
 > 対象: 実装者、レビュー担当者、保守担当者
 > 更新区分: 変更時
 > 参照元: `詳細仕様.md`; `概要.md`
-> 参照先: `詳細_背景と検討事項.md`
+> 参照先: `詳細_背景と検討事項.md`; [A-7 changeSpec](../A-7_ポイントタイプ変更/changeSpec.md)
 
 ## 1. 文書情報
 
@@ -15,7 +15,7 @@
 | タスクID | A-6 |
 | タスク名 | 導入時の既存ユーザーデータ紐付け |
 | 作成日 | 2026-07-15 |
-| 最終更新日 | 2026-07-17 |
+| 最終更新日 | 2026-07-24 |
 | ステータス | 実装・自動テスト・実機確認完了 |
 | 本書の位置づけ | 完成した実装仕様・実装内容の正本 |
 
@@ -55,6 +55,18 @@
 - 後日 LINE 化は別 uid 作成＋残高上書き（Auth/ドキュメント統合なし）
 - CSV・本番互換フォールバック・店舗運用向け一括補正は作らない
 
+### A-7 実装による追記（2026-07-24）
+
+A-7 Phase 5 で A-6 Callable/UI を拡張した。本書の A-6 完成時記述（3 残高・`validateBalanceTriple`）は履歴として残し、**現行コードの正本は A-7 changeSpec** とする。
+
+| 項目 | A-6 完成時 | A-7 以降（現行） |
+|------|-----------|------------------|
+| ユーザー残高 | `pointA` / `pointB` / `sideGameChip` | `pointA`〜`pointE` + `sideGameChip` |
+| 初期残高検証 | `validateBalanceTriple`（3 キー） | `validateInitialBalancesPatch`（有効 ID のみ）等。移行は `validateBalanceSet`（6 キー） |
+| 初期残高 UI/更新 | 3 項目固定 | config で有効な通貨型 + 有効 chip のみ。無効残高は 0 上書きしない |
+| LINE 移行 | 3 残高コピー | 標準 6 残高すべてコピー（UI は有効分中心） |
+| 移行ログ | `balanceMigrationLogs` のみ | 同左。`pointLogs` へは書かない |
+
 ---
 
 ## 4. 変更概要
@@ -80,7 +92,7 @@
 |----------|------|
 | `functions/src/domains/user/types/userType.ts` | `UserType` / migration 定数 |
 | `functions/src/domains/user/helpers/assertUserNotMigrated.ts` | `isMigrated === true` 拒否 |
-| `functions/src/domains/user/helpers/validateBalanceTriple.ts` | 3 残高の整数検証 |
+| `functions/src/domains/user/helpers/validateBalanceTriple.ts` | 3 残高の整数検証（A-7 以降は新経路で `validateBalanceSet` / `validateInitialBalancesPatch` を使用。本ファイルはレガシー参照可） |
 | `functions/src/domains/user/helpers/assertUserFreeForMigration.ts` | 進行中業務検査 |
 | `functions/src/domains/user/callables/setInitialUserBalances.ts` | 初期残高設定 |
 | `functions/src/domains/user/callables/migrateStoreManagedUserToLine.ts` | 後日 LINE 化 |
