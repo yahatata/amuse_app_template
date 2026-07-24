@@ -9,6 +9,9 @@
  * - エラーハンドリング（権限不足、billId不存在、statusがopen/in_progress以外）
  * - 支払方法処理とユーザー残高差し引きが現状維持で動作すること
  * - DualWrite ON/OFFで todaysBills.status が正しく更新されること
+ *
+ * A-7: store config（pointSettings 等）と paymentMethodsByCategory が必須。
+ * fixture は共通 a7StoreConfig を利用する。
  */
 
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
@@ -17,6 +20,9 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { startAccounting } from '../../src/domains/bills/callables/accounting';
 import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
 import { appendItem } from '../../src/domains/bills/repos/appendItem';
+import { a7StoreConfigDocument, seedA7StoreConfig } from '../helpers/a7StoreConfig';
+import { __setMockConfig, __resetMockConfig } from '../helpers/mockStoreConfig';
+
 describe('accounting (startAccounting)', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
@@ -37,6 +43,12 @@ describe('accounting (startAccounting)', () => {
   beforeEach(async () => {
     await testEnv.clearFirestore();
     delete process.env.WRITE_TODAYS_BILLS_IN_PARALLEL;
+    await seedA7StoreConfig(db);
+    __setMockConfig(a7StoreConfigDocument());
+  });
+
+  afterEach(() => {
+    __resetMockConfig();
   });
 
   // テスト用のヘルパ関数: 管理者デバイスを作成
@@ -108,11 +120,14 @@ describe('accounting (startAccounting)', () => {
       });
 
       // startAccounting を呼び出し
+      // A-7: ByCategory 必須（cash のみの手動指定）
+      const paymentMethodsByCategory = { items: 'cash' as const };
       const mockRequest = {
         auth: { uid: adminId },
         data: {
           billId,
           clientNonce,
+          paymentMethodsByCategory,
           paymentMethodsByAmount: {
             cash: 2000,
           },
@@ -134,9 +149,11 @@ describe('accounting (startAccounting)', () => {
       expect(billData.status).toBe('settling');
       expect(billData.ops?.accountingStartedAt).toBeDefined();
       expect(billData.ops?.accountingStartedBy).toBe(adminId);
+      // A-7: 解決済み ByCategory / ByAmount / Details を draft に保存
       expect(billData.draftAccountingInput).toEqual({
-        paymentMethodsByCategory: null,
+        paymentMethodsByCategory,
         paymentMethodsByAmount: { cash: 2000 },
+        paymentMethodDetails: {},
       });
     });
 
@@ -169,10 +186,9 @@ describe('accounting (startAccounting)', () => {
         idempotencyKey: `appendItem:${billId}:nonce_item_meta_001`,
       });
 
-      // startAccounting を呼び出し（paymentMethodsByCategory を指定）
+      // A-7: 金額>0 のカテゴリのみ ByCategory に残る（items のみ）
       const paymentMethodsByCategory = {
-        items: 'cash',
-        extraCost: 'credit_card',
+        items: 'cash' as const,
       };
 
       const mockRequest = {
@@ -196,6 +212,7 @@ describe('accounting (startAccounting)', () => {
       expect(billData.draftAccountingInput).toEqual({
         paymentMethodsByCategory,
         paymentMethodsByAmount: { cash: 2000 },
+        paymentMethodDetails: {},
       });
     });
   });
@@ -325,11 +342,13 @@ describe('accounting (startAccounting)', () => {
       });
 
       // startAccounting を呼び出し（pointA で支払い）
+      // A-7: ByCategory 必須（手動で pointA 指定）
       const mockRequest = {
         auth: { uid: adminId },
         data: {
           billId,
           clientNonce,
+          paymentMethodsByCategory: { items: 'pointA' },
           paymentMethodsByAmount: {
             pointA: 1000,
           },
@@ -394,6 +413,7 @@ describe('accounting (startAccounting)', () => {
         data: {
           billId,
           clientNonce,
+          paymentMethodsByCategory: { items: 'cash' },
           paymentMethodsByAmount: {
             cash: 1000,
           },
@@ -452,6 +472,7 @@ describe('accounting (startAccounting)', () => {
         data: {
           billId,
           clientNonce,
+          paymentMethodsByCategory: { items: 'cash' },
           paymentMethodsByAmount: {
             cash: 1000,
           },

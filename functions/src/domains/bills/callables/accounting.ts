@@ -160,6 +160,42 @@ export const startAccounting = onCall(async (request) => {
       };
     }
 
+    // A-7: 支払確定済み（meta/draft に ByAmount あり）の再送は、残高再計算・再減算しない
+    const billAfterStart = await billRef.get();
+    const billAfterData = billAfterStart.exists
+      ? (billAfterStart.data() as Record<string, unknown>)
+      : {};
+    const existingByAmount =
+      ((billAfterData.meta as Record<string, unknown> | undefined)
+        ?.paymentMethodsByAmount as Record<string, number> | undefined) ??
+      ((billAfterData.draftAccountingInput as Record<string, unknown> | undefined)
+        ?.paymentMethodsByAmount as Record<string, number> | undefined);
+    if (existingByAmount && Object.keys(existingByAmount).length > 0) {
+      logOpsSuccess({
+        message: "startAccounting 成功（支払済み・冪等）",
+        functionEntry: "startAccounting",
+        operation: "startAccountingCallable",
+        context: {
+          billId,
+          adminId,
+          zeroYen: false,
+          status: startAccountingResult.status,
+          paymentReused: true,
+        },
+      });
+      return {
+        success: true,
+        message: '会計を開始しました',
+        billId,
+        status: startAccountingResult.status,
+        ops: startAccountingResult.ops,
+        diagnostics: {
+          ...(startAccountingResult.diagnostics ?? {}),
+          reused: true,
+        },
+      };
+    }
+
     const validatedPointConfig = validatePointConfigFromStoreConfig(storeConfig);
 
     if (!userId) {
