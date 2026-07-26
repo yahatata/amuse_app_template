@@ -10,6 +10,11 @@ import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated'
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { validatePointConfigFromStoreConfig } from '../../../shared/config/validatePointConfig';
 import { assertRewardPointTypeForGrant } from '../helpers/rewardPointType';
+import {
+  convertPrizeReferenceToBalance,
+  parseSavedPrizeConversion,
+  type PrizeConversion,
+} from '../helpers/prizeConversion';
 import { readBalanceOrZeroIfMissing } from '../../user/helpers/userBalances';
 import type { CurrencyPointId } from '../../user/types/pointIds';
 import {
@@ -22,7 +27,11 @@ export interface RankingEntryForRollback {
   /** 表示用（操作履歴でランキングと名前を表示するため） */
   playerName?: string;
   rank: string;
-  prizeAmount: number;
+  /** プライズ基準値量（views/main の NstPrize） */
+  prizeReferenceAmount: number;
+  /** 実際に加算した残高量 */
+  awardedBalanceAmount: number;
+  conversion: PrizeConversion;
   entryId: string;
   pointType: CurrencyPointId;
   /** legacy: 旧 pointALogs/pointBLogs 日付。A-7 では未使用だが操作ログ互換のため残す */
@@ -227,7 +236,7 @@ export const setRankingData = onCall(async (request) => {
 
 /**
  * 同一 grantIdempotencyKey では付与を1回だけ行う（冪等）。
- * 保存済み pointType を正本とし、現在 config で付与可否を検証する。
+ * 保存済み pointType / prizeConversion を正本とし、現在 config で付与可否のみ検証する。
  */
 async function _awardPrizes(
   db: ReturnType<typeof getFirestore>,
@@ -256,17 +265,37 @@ async function _awardPrizes(
   const validatedConfig = validatePointConfigFromStoreConfig(storeConfig);
   const pointType = assertRewardPointTypeForGrant(savedPointTypeRaw, validatedConfig);
 
-  const prizeAwards: { playerUid: string; rank: string; prizeAmount: number }[] = [];
+  const prizeConversion = parseSavedPrizeConversion(
+    mainViewData?.prizeConversion ?? mainViewBefore?.prizeConversion,
+    { tournamentId, pointType },
+  );
+
+  const prizeAwards: {
+    playerUid: string;
+    rank: string;
+    prizeReferenceAmount: number;
+    awardedBalanceAmount: number;
+  }[] = [];
   for (const [key, value] of Object.entries(rankingData)) {
     if (typeof key === 'string' && key.endsWith('stPlayerUid') && value) {
       const rank = key.replace('stPlayerUid', '');
       const prizeKey = `${rank}stPrize`;
-      const prizeAmount = mainViewData?.[prizeKey];
-      if (prizeAmount && prizeAmount > 0) {
+      const prizeReferenceRaw = mainViewData?.[prizeKey];
+      if (
+        typeof prizeReferenceRaw === 'number' &&
+        Number.isInteger(prizeReferenceRaw) &&
+        prizeReferenceRaw > 0
+      ) {
+        const awardedBalanceAmount = convertPrizeReferenceToBalance(
+          prizeReferenceRaw,
+          prizeConversion,
+          { tournamentId, pointType, rankKey: prizeKey },
+        );
         prizeAwards.push({
           playerUid: value as string,
           rank,
-          prizeAmount: Number(prizeAmount),
+          prizeReferenceAmount: prizeReferenceRaw,
+          awardedBalanceAmount,
         });
       }
     }
@@ -327,7 +356,7 @@ async function _awardPrizes(
 
         const userData = userSnap.data() as Record<string, unknown>;
         const balanceBefore = readBalanceOrZeroIfMissing(userData, pointType);
-        const balanceAfter = balanceBefore + award.prizeAmount;
+        const balanceAfter = balanceBefore + award.awardedBalanceAmount;
 
         tx.update(db.collection('users').doc(award.playerUid), {
           [pointType]: balanceAfter,
@@ -344,7 +373,9 @@ async function _awardPrizes(
           playerUid: award.playerUid,
           playerName: playerName || undefined,
           rank: award.rank,
-          prizeAmount: award.prizeAmount,
+          prizeReferenceAmount: award.prizeReferenceAmount,
+          awardedBalanceAmount: award.awardedBalanceAmount,
+          conversion: prizeConversion,
           entryId,
           pointType,
           logDate: today,
@@ -357,7 +388,7 @@ async function _awardPrizes(
           tournamentId,
           pointType,
           balanceBefore,
-          changeAmount: award.prizeAmount,
+          changeAmount: award.awardedBalanceAmount,
           balanceAfter,
           reasonType: 'tournament_reward',
         });
@@ -366,12 +397,15 @@ async function _awardPrizes(
       tx.set(grantRecordRef, {
         tournamentId,
         pointType,
+        conversion: prizeConversion,
         grantIdempotencyKey,
         appliedAt: FieldValue.serverTimestamp(),
         awards: rankingEntries.map((e) => ({
           playerUid: e.playerUid,
           rank: e.rank,
-          prizeAmount: e.prizeAmount,
+          prizeReferenceAmount: e.prizeReferenceAmount,
+          awardedBalanceAmount: e.awardedBalanceAmount,
+          conversion: e.conversion,
           entryId: e.entryId,
         })),
       });

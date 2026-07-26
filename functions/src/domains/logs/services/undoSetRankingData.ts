@@ -11,11 +11,13 @@ import {
 
 export interface RankingEntryForUndo {
   playerUid: string;
-  prizeAmount: number;
+  /** 実際に減算する残高量（付与時の awardedBalanceAmount） */
+  awardedBalanceAmount: number;
   entryId: string;
   pointType: CurrencyPointId | 'pointA' | 'pointB';
   /** legacy 互換。A-7 では pointLogs 固定 ID を使う */
   logDate?: string;
+  prizeReferenceAmount?: number;
 }
 
 export interface UndoSetRankingDataParams {
@@ -28,10 +30,10 @@ export interface UndoSetRankingDataParams {
 /**
  * ランキングデータ設定を巻き戻す。
  * - main を beforeMainView に復元
- * - 付与したポイントを減算
+ * - 付与したポイントを減算（awardedBalanceAmount 正本）
  * - 元の pointLogs は削除せず、tournament_reward_reversal を追加
  * - grantRecord 削除、SetedRanking を false
- * - 現在 config の enabled に依存しない（保存済み実績が正本）
+ * - 現在 config の enabled / conversion に依存しない
  */
 export async function undoSetRankingData(params: UndoSetRankingDataParams): Promise<void> {
   const db = getFirestore();
@@ -136,6 +138,22 @@ export async function undoSetRankingData(params: UndoSetRankingDataParams): Prom
       const entry = params.rankingEntries[i];
       const { userDoc, reversalLogDoc, rewardLogDoc, pointType } = entryReads[i];
 
+      const awardedBalanceAmount = entry.awardedBalanceAmount;
+      if (
+        typeof awardedBalanceAmount !== 'number' ||
+        !Number.isInteger(awardedBalanceAmount) ||
+        awardedBalanceAmount < 0
+      ) {
+        throw new FunctionCustomError({
+          errorKey: 'INVALID_ARGUMENT',
+          message: '取消対象の awardedBalanceAmount が不正です',
+          context: {
+            playerUid: entry.playerUid,
+            tournamentId: params.tournamentId,
+          },
+        });
+      }
+
       if (!userDoc.exists) {
         throw new FunctionCustomError({
           errorKey: 'NOT_FOUND',
@@ -146,7 +164,7 @@ export async function undoSetRankingData(params: UndoSetRankingDataParams): Prom
 
       const userData = userDoc.data() as Record<string, unknown>;
       const balanceBefore = readBalanceOrZeroIfMissing(userData, pointType);
-      if (balanceBefore < entry.prizeAmount) {
+      if (balanceBefore < awardedBalanceAmount) {
         throw new FunctionCustomError({
           errorKey: 'ACCOUNTING_INSUFFICIENT_BALANCE',
           message: '取消に必要な残高が不足しています',
@@ -154,18 +172,18 @@ export async function undoSetRankingData(params: UndoSetRankingDataParams): Prom
             playerUid: entry.playerUid,
             pointType,
             balanceBefore,
-            prizeAmount: entry.prizeAmount,
+            awardedBalanceAmount,
           },
         });
       }
-      const balanceAfter = balanceBefore - entry.prizeAmount;
+      const balanceAfter = balanceBefore - awardedBalanceAmount;
 
       transaction.update(db.collection('users').doc(entry.playerUid), {
         [pointType]: balanceAfter,
         updatedAt: now,
       });
 
-      // 元の reward ログは削除しない（存在確認のみ。無くても取消は続行可＝旧データ互換は非対象だが防御）
+      // 元の reward ログは削除しない
       void rewardLogDoc;
 
       const reversalRef = db
@@ -181,7 +199,7 @@ export async function undoSetRankingData(params: UndoSetRankingDataParams): Prom
         tournamentId: params.tournamentId,
         pointType,
         balanceBefore,
-        changeAmount: -entry.prizeAmount,
+        changeAmount: -awardedBalanceAmount,
         balanceAfter,
         reasonType: 'tournament_reward_reversal',
       });

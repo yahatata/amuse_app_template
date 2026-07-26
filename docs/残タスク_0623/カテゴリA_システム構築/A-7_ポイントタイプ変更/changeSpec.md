@@ -12,8 +12,8 @@
 |------|------|
 | タスクID | A-7 |
 | 作成日 | 2026-07-23 |
-| 最終更新日 | 2026-07-24 |
-| ステータス | Phase 1〜6 コード完了（未コミット／レビュー待ち）。全差分レビューで表示換算統一・chip replay 補強済み。Emulator一連・実機は未確認 |
+| 最終更新日 | 2026-07-26 |
+| ステータス | **完了**（Phase 1〜6・追加修正・デプロイ・実機確認済。店舗向け設定UIは仕様どおり未作成） |
 | 本書の位置づけ | 実装仕様の正本（業務方針の再検討はしない） |
 
 ### 正本の優先順位
@@ -697,18 +697,52 @@ type PointLog = {
 
 ## 14. トーナメント順位報酬
 
+### 14.0 単位（追加決定）
+
+| 項目 | 定義 |
+|------|------|
+| `prizePool` / `1stPrize` / `2stPrize` … | **基準値量**（売上由来の `¥` 表示を維持） |
+| 実付与・取消量 | **ポイント残高量** = 保存済み conversion で換算した値 |
+| conversion 正本時点 | **プライズ確定時**（`setPrizeData`）。順位確定時に現在 config で再換算しない |
+
+`views/main` に少なくとも次を保存する:
+
+```ts
+pointType: CurrencyPointId;
+prizeConversion: { referenceUnits: number; balanceUnits: number };
+// 1stPrize / 2stPrize / prizePool は基準値量
+```
+
+付与:
+
+```ts
+awardedBalanceAmount = convertReferenceToBalance(prizeReferenceAmount, prizeConversion)
+balanceAfter = balanceBefore + awardedBalanceAmount
+```
+
+- 非整数換算・overflow は **プライズ確定時に拒否**（順位確定まで持ち越さない）
+- `prizeConversion` 欠損はデータ不整合として付与拒否（現在 config からの fallback なし）
+- `grantRecords` / 操作実績は各受賞者ごとに `prizeReferenceAmount` / `awardedBalanceAmount` / `conversion` を保持
+- `pointLogs.changeAmount` は **実残高変動量**（基準値ではない）
+- 取消は `awardedBalanceAmount` 正本（再換算しない）。config 無効後も取消可
+
 ### 14.1 タイミング別検証（採用）
 
 | 段階 | 検証 |
 |------|------|
 | テンプレート作成・編集 | 現在configで厳格: 通貨型・enabled・許可一覧・chip不可 |
 | 個別トーナメント生成 | テンプレートの `pointType` をsnapshot保存 |
-| 付与 `setRankingData` | **保存済みpointType**を使用。現在configで `enabled:false` または許可一覧外なら **付与拒否**（`REWARD_POINT_TYPE_INACTIVE`）。chipなら拒否 |
-| 取消 | **保存済み付与実績**で残高戻し+reversalログ。現在configが無効でも取消可 |
+| プライズ確定 `setPrizeData` | pointType 検証 + `balancePaymentSettings[pointType].conversion` を snapshot。各順位基準値が整数残高へ換算可能か検証 |
+| 付与 `setRankingData` | **保存済み pointType / prizeConversion** で換算付与。現在configで `enabled:false` または許可一覧外なら **付与拒否**（`REWARD_POINT_TYPE_INACTIVE`）。chipなら拒否 |
+| 取消 | **保存済み awardedBalanceAmount** で残高戻し+reversalログ。現在configが無効でも取消可 |
 
 ### 14.2 UI
 
 `GlobalConstants.pointTypes` からのchip混在をやめ、`rankingRewardPointTypes ∩ enabled` のみ。
+
+- `¥` は基準値表示として維持
+- 選択中ポイントの `displayName` を表示（raw ID のみの表示を避ける）
+- 各順位に **付与予定残高量** を補助表示（確定前 conversion / 確定後は snapshot）
 
 ### 14.3 冪等
 
@@ -953,20 +987,22 @@ A-7は上記を維持する。返金で `paymentTotals` を減算する変更は
 12. 表示名動的化
 13. LIFF
 14. 総合テスト・開発config更新
-15. 概要ステータス等の文書更新（実装完了時）— **2026-07-24 反映済**
+15. 概要ステータス等の文書更新（実装完了時）— **2026-07-24 反映済** / クローズ更新 **2026-07-26**
 
-### 23.1 実装状況（2026-07-24）
+### 23.1 実装状況（2026-07-26）
 
 | 項目 | 内容 |
 |------|------|
 | Phase 1〜5 | コード完了（config・会計・返金・トーナメント/chip・A-6） |
 | Phase 6 | コード完了（表示名・履歴UI・analytics・LIFF・index） |
-| コミット | 未コミット。レビュー・デプロイ・実機確認は未実施 |
+| 追加修正 | 順位報酬の基準値換算・テンプレ編集 color null・LIFF 残高をプロフィールへ |
+| デプロイ・実機 | `amuse-app-template` へ反映済み。Emulator・実機確認完了 |
 | 通貨型履歴 UI | `users/{uid}/pointLogs` を読取。`firestore.indexes.json` に `pointType` + `createdAt` |
 | chip 履歴 | `sideGameChipLogs` のまま（統合しない） |
 | analytics | 未知支払手段を cash に正規化しない。会計経路で停止（§16・⑥） |
 | 店舗向け設定 UI | 作らない（仕様どおり） |
 | A-6 ログ | 初期/LINE移行は `balanceMigrationLogs` のみ。`pointLogs` は使わない |
+| タスク状態 | **完了**（カテゴリA `進捗管理.md` も更新） |
 
 ---
 

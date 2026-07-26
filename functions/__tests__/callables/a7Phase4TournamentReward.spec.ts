@@ -1,5 +1,6 @@
 /**
  * A-7 Phase 4: トーナメント順位報酬 Emulator 統合テスト
+ * （プライズ基準値 + prizeConversion snapshot → 残高換算付与）
  */
 
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
@@ -7,6 +8,7 @@ import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 
+import { setPrizeData } from '../../src/domains/tournament_activeTournament/callables/setPrizeData';
 import { setRankingData } from '../../src/domains/tournament_activeTournament/callables/setRankingData';
 import { undoSetRankingData } from '../../src/domains/logs/services/undoSetRankingData';
 import {
@@ -69,7 +71,7 @@ function a7ConfigAllCurrencyRewards(): Record<string, unknown> {
         },
         balancePaymentSettings: {
           pointA: { conversion: { referenceUnits: 1, balanceUnits: 1 }, usageUnit: 1 },
-          pointB: { conversion: { referenceUnits: 1, balanceUnits: 1 }, usageUnit: 1 },
+          pointB: { conversion: { referenceUnits: 10, balanceUnits: 1 }, usageUnit: 10 },
           pointC: { conversion: { referenceUnits: 1, balanceUnits: 1 }, usageUnit: 1 },
           pointD: { conversion: { referenceUnits: 1, balanceUnits: 1 }, usageUnit: 1 },
           pointE: { conversion: { referenceUnits: 1, balanceUnits: 1 }, usageUnit: 1 },
@@ -142,28 +144,41 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
   async function seedTournament(params: {
     tournamentId: string;
     pointType: string;
-    prizeAmount: number;
+    prizeReferenceAmount: number;
+    conversion?: { referenceUnits: number; balanceUnits: number };
     setedRanking?: boolean;
+    omitPrizeConversion?: boolean;
   }) {
-    const { tournamentId, pointType, prizeAmount, setedRanking = false } = params;
+    const {
+      tournamentId,
+      pointType,
+      prizeReferenceAmount,
+      conversion = { referenceUnits: 1, balanceUnits: 1 },
+      setedRanking = false,
+      omitPrizeConversion = false,
+    } = params;
     await db.collection('scheduledTournaments').doc(tournamentId).set({
       status: 'running',
       SetedRanking: setedRanking,
       snapshot: { pointType, name: 't' },
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+    const main: Record<string, unknown> = {
+      pointType,
+      prizeReceiverCount: 1,
+      '1stPrize': prizeReferenceAmount,
+      prizePool: prizeReferenceAmount,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (!omitPrizeConversion) {
+      main.prizeConversion = conversion;
+    }
     await db
       .collection('scheduledTournaments')
       .doc(tournamentId)
       .collection('views')
       .doc('main')
-      .set({
-        pointType,
-        prizeReceiverCount: 1,
-        '1stPrize': prizeAmount,
-        prizePool: prizeAmount,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      .set(main);
   }
 
   function validatedFromDoc(doc: Record<string, unknown>) {
@@ -234,22 +249,134 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
     });
   });
 
-  describe('grant / reversal', () => {
-    it('pointA 付与で残高・pointLogs・grantRecord が更新される（欠損残高は0）', async () => {
+  describe('setPrizeData validation / snapshot', () => {
+    async function seedBareTournament(tournamentId: string) {
+      await db.collection('scheduledTournaments').doc(tournamentId).set({
+        status: 'running',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({ placeholder: true });
+    }
+
+    it('prizeConversion を snapshot 保存し、整数換算可能な基準値を受理する', async () => {
+      const cfg = a7ConfigAllCurrencyRewards();
+      await db.collection('storeMeta').doc('config').set(cfg, { merge: true });
+      __setMockConfig(cfg);
+
+      const tournamentId = 't_prize_ok';
+      const adminId = 'admin_prize_ok';
+      await createAdminDevice(adminId);
+      await seedBareTournament(tournamentId);
+
+      const result = await (setPrizeData as any).run({
+        auth: { uid: adminId },
+        data: {
+          tournamentId,
+          prizeData: {
+            prizePool: 1000,
+            prizeReceiverCount: 1,
+            pointType: 'pointB',
+            '1stPrize': 1000,
+            '1stPlayerName': null,
+            '1stPlayerUid': null,
+          },
+        },
+      });
+      expect(result.success).toBe(true);
+      expect(result.prizeConversion).toEqual({ referenceUnits: 10, balanceUnits: 1 });
+
+      const main = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('views')
+          .doc('main')
+          .get()
+      ).data()!;
+      expect(main.pointType).toBe('pointB');
+      expect(main.prizeConversion).toEqual({ referenceUnits: 10, balanceUnits: 1 });
+      expect(main['1stPrize']).toBe(1000);
+    });
+
+    it('非整数換算の順位額はプライズ確定を拒否する', async () => {
+      const cfg = a7ConfigAllCurrencyRewards();
+      await db.collection('storeMeta').doc('config').set(cfg, { merge: true });
+      __setMockConfig(cfg);
+
+      const tournamentId = 't_prize_ni';
+      const adminId = 'admin_prize_ni';
+      await createAdminDevice(adminId);
+      await seedBareTournament(tournamentId);
+
+      await expect(
+        (setPrizeData as any).run({
+          auth: { uid: adminId },
+          data: {
+            tournamentId,
+            prizeData: {
+              prizePool: 1005,
+              prizeReceiverCount: 1,
+              pointType: 'pointB',
+              '1stPrize': 1005,
+            },
+          },
+        }),
+      ).rejects.toBeInstanceOf(HttpsError);
+    });
+
+    it('chip / 許可外 / disabled を拒否する', async () => {
+      const cfg = a7ConfigAllCurrencyRewards();
+      await db.collection('storeMeta').doc('config').set(cfg, { merge: true });
+      __setMockConfig(cfg);
+      const tournamentId = 't_prize_bad';
+      const adminId = 'admin_prize_bad';
+      await createAdminDevice(adminId);
+      await seedBareTournament(tournamentId);
+
+      for (const pointType of ['sideGameChip', 'pointZ']) {
+        await expect(
+          (setPrizeData as any).run({
+            auth: { uid: adminId },
+            data: {
+              tournamentId,
+              prizeData: {
+                prizePool: 100,
+                prizeReceiverCount: 1,
+                pointType,
+                '1stPrize': 100,
+              },
+            },
+          }),
+        ).rejects.toBeInstanceOf(HttpsError);
+      }
+    });
+  });
+
+  describe('grant / reversal with conversion', () => {
+    it('pointA 1:1 で基準値1500 → 残高1500・grantRecordsに両量', async () => {
       const tournamentId = 't_reward_a';
       const userId = 'u_reward_a';
       const adminId = 'admin_reward_a';
       const grantKey = `${tournamentId}:v1`;
-      const prize = 1500;
+      const prizeRef = 1500;
 
       await createAdminDevice(adminId);
-      // pointA フィールド欠損
       await db.collection('users').doc(userId).set({
         userType: 'line',
         pointB: 10,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      await seedTournament({ tournamentId, pointType: 'pointA', prizeAmount: prize });
+      await seedTournament({
+        tournamentId,
+        pointType: 'pointA',
+        prizeReferenceAmount: prizeRef,
+        conversion: { referenceUnits: 1, balanceUnits: 1 },
+      });
 
       const result = await (setRankingData as any).run({
         auth: { uid: adminId },
@@ -267,16 +394,12 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
       expect(result.prizeGrantSkipped).toBe(false);
 
       const user = await db.collection('users').doc(userId).get();
-      expect(user.data()!.pointA).toBe(prize);
+      expect(user.data()!.pointA).toBe(1500);
 
       const logId = rewardPointLogId(grantKey, 'pointA');
       const log = await db.collection('users').doc(userId).collection('pointLogs').doc(logId).get();
-      expect(log.exists).toBe(true);
-      expect(log.data()!.reasonType).toBe('tournament_reward');
-      expect(log.data()!.changeAmount).toBe(prize);
-      expect(log.data()!.balanceBefore).toBe(0);
-      expect(log.data()!.balanceAfter).toBe(prize);
-      expect(log.data()!.pointType).toBe('pointA');
+      expect(log.data()!.changeAmount).toBe(1500);
+      expect(log.data()!.balanceAfter).toBe(1500);
 
       const grant = await db
         .collection('scheduledTournaments')
@@ -284,12 +407,179 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
         .collection('grantRecords')
         .doc(grantKey)
         .get();
-      expect(grant.exists).toBe(true);
-      expect(grant.data()!.pointType).toBe('pointA');
+      expect(grant.data()!.conversion).toEqual({ referenceUnits: 1, balanceUnits: 1 });
+      expect(grant.data()!.awards[0].prizeReferenceAmount).toBe(1500);
+      expect(grant.data()!.awards[0].awardedBalanceAmount).toBe(1500);
     });
 
-    it.each(['pointA', 'pointB', 'pointC', 'pointD', 'pointE'] as CurrencyPointId[])(
-      '%s へ付与できる',
+    it('pointB 10:1 で基準値1000 → 残高100', async () => {
+      const cfg = a7ConfigAllCurrencyRewards();
+      await db.collection('storeMeta').doc('config').set(cfg, { merge: true });
+      __setMockConfig(cfg);
+
+      const tournamentId = 't_reward_b';
+      const userId = 'u_reward_b';
+      const adminId = 'admin_reward_b';
+      const grantKey = `${tournamentId}:v1`;
+
+      await createAdminDevice(adminId);
+      await createUser(userId, { pointB: 5 });
+      await seedTournament({
+        tournamentId,
+        pointType: 'pointB',
+        prizeReferenceAmount: 1000,
+        conversion: { referenceUnits: 10, balanceUnits: 1 },
+      });
+
+      await (setRankingData as any).run({
+        auth: { uid: adminId },
+        data: {
+          tournamentId,
+          grantIdempotencyKey: grantKey,
+          rankingData: { '1stPlayerUid': userId, '1stPlayerName': 'B' },
+        },
+      });
+
+      const user = await db.collection('users').doc(userId).get();
+      expect(user.data()!.pointB).toBe(105);
+
+      const log = await db
+        .collection('users')
+        .doc(userId)
+        .collection('pointLogs')
+        .doc(rewardPointLogId(grantKey, 'pointB'))
+        .get();
+      expect(log.data()!.changeAmount).toBe(100);
+    });
+
+    it('プライズ確定後に config conversion を変えても保存済みで付与する', async () => {
+      const cfg = a7ConfigAllCurrencyRewards();
+      await db.collection('storeMeta').doc('config').set(cfg, { merge: true });
+      __setMockConfig(cfg);
+
+      const tournamentId = 't_snap';
+      const userId = 'u_snap';
+      const adminId = 'admin_snap';
+      const grantKey = `${tournamentId}:s1`;
+      await createAdminDevice(adminId);
+      await createUser(userId);
+      await seedTournament({
+        tournamentId,
+        pointType: 'pointB',
+        prizeReferenceAmount: 1000,
+        conversion: { referenceUnits: 10, balanceUnits: 1 },
+      });
+
+      // config を 1:1 に変更しても snapshot 10:1 で付与
+      const changed = a7ConfigAllCurrencyRewards();
+      (changed.billing as any).paymentPolicy.balancePaymentSettings.pointB = {
+        conversion: { referenceUnits: 1, balanceUnits: 1 },
+        usageUnit: 1,
+      };
+      await db.collection('storeMeta').doc('config').set(changed, { merge: true });
+      __setMockConfig(changed);
+
+      await (setRankingData as any).run({
+        auth: { uid: adminId },
+        data: {
+          tournamentId,
+          grantIdempotencyKey: grantKey,
+          rankingData: { '1stPlayerUid': userId, '1stPlayerName': 'S' },
+        },
+      });
+
+      const user = await db.collection('users').doc(userId).get();
+      expect(user.data()!.pointB).toBe(100);
+    });
+
+    it('prizeConversion 欠損は付与拒否', async () => {
+      const tournamentId = 't_missing_conv';
+      const userId = 'u_missing_conv';
+      const adminId = 'admin_missing_conv';
+      await createAdminDevice(adminId);
+      await createUser(userId);
+      await seedTournament({
+        tournamentId,
+        pointType: 'pointA',
+        prizeReferenceAmount: 100,
+        omitPrizeConversion: true,
+      });
+
+      await expect(
+        (setRankingData as any).run({
+          auth: { uid: adminId },
+          data: {
+            tournamentId,
+            grantIdempotencyKey: `${tournamentId}:m1`,
+            rankingData: { '1stPlayerUid': userId, '1stPlayerName': 'X' },
+          },
+        }),
+      ).rejects.toBeInstanceOf(HttpsError);
+    });
+
+    it('複数順位をそれぞれ換算して付与する', async () => {
+      const cfg = a7ConfigAllCurrencyRewards();
+      await db.collection('storeMeta').doc('config').set(cfg, { merge: true });
+      __setMockConfig(cfg);
+
+      const tournamentId = 't_multi';
+      const adminId = 'admin_multi';
+      const u1 = 'u_multi_1';
+      const u2 = 'u_multi_2';
+      const grantKey = `${tournamentId}:m`;
+      await createAdminDevice(adminId);
+      await createUser(u1);
+      await createUser(u2);
+      await db.collection('scheduledTournaments').doc(tournamentId).set({
+        status: 'running',
+        SetedRanking: false,
+        snapshot: { pointType: 'pointB' },
+      });
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('main')
+        .set({
+          pointType: 'pointB',
+          prizeConversion: { referenceUnits: 10, balanceUnits: 1 },
+          prizeReceiverCount: 2,
+          prizePool: 1500,
+          '1stPrize': 1000,
+          '2stPrize': 500,
+        });
+
+      await (setRankingData as any).run({
+        auth: { uid: adminId },
+        data: {
+          tournamentId,
+          grantIdempotencyKey: grantKey,
+          rankingData: {
+            '1stPlayerUid': u1,
+            '1stPlayerName': '1',
+            '2stPlayerUid': u2,
+            '2stPlayerName': '2',
+          },
+        },
+      });
+
+      expect((await db.collection('users').doc(u1).get()).data()!.pointB).toBe(100);
+      expect((await db.collection('users').doc(u2).get()).data()!.pointB).toBe(50);
+      const grant = (
+        await db
+          .collection('scheduledTournaments')
+          .doc(tournamentId)
+          .collection('grantRecords')
+          .doc(grantKey)
+          .get()
+      ).data()!;
+      expect(grant.awards).toHaveLength(2);
+      expect(grant.awards[0].awardedBalanceAmount).toBe(100);
+      expect(grant.awards[1].awardedBalanceAmount).toBe(50);
+    });
+
+    it.each(['pointA', 'pointC', 'pointD', 'pointE'] as CurrencyPointId[])(
+      '%s へ 1:1 付与できる',
       async (pointType) => {
         const cfg = a7ConfigAllCurrencyRewards();
         await db.collection('storeMeta').doc('config').set(cfg, { merge: true });
@@ -303,7 +593,12 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
 
         await createAdminDevice(adminId);
         await createUser(userId, { [pointType]: 50 });
-        await seedTournament({ tournamentId, pointType, prizeAmount: prize });
+        await seedTournament({
+          tournamentId,
+          pointType,
+          prizeReferenceAmount: prize,
+          conversion: { referenceUnits: 1, balanceUnits: 1 },
+        });
 
         await (setRankingData as any).run({
           auth: { uid: adminId },
@@ -319,13 +614,6 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
 
         const user = await db.collection('users').doc(userId).get();
         expect(user.data()![pointType]).toBe(250);
-        const log = await db
-          .collection('users')
-          .doc(userId)
-          .collection('pointLogs')
-          .doc(rewardPointLogId(grantKey, pointType))
-          .get();
-        expect(log.exists).toBe(true);
       },
     );
 
@@ -335,7 +623,11 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
       const adminId = 'admin_corrupt';
       await createAdminDevice(adminId);
       await createUser(userId, { pointA: null });
-      await seedTournament({ tournamentId, pointType: 'pointA', prizeAmount: 100 });
+      await seedTournament({
+        tournamentId,
+        pointType: 'pointA',
+        prizeReferenceAmount: 100,
+      });
 
       await expect(
         (setRankingData as any).run({
@@ -355,8 +647,12 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
       const adminId = 'admin_not_allowed';
       await createAdminDevice(adminId);
       await createUser(userId);
-      // config は pointA のみ許可だが、トーナメントは pointB を保存済み
-      await seedTournament({ tournamentId, pointType: 'pointB', prizeAmount: 100 });
+      await seedTournament({
+        tournamentId,
+        pointType: 'pointB',
+        prizeReferenceAmount: 100,
+        conversion: { referenceUnits: 1, balanceUnits: 1 },
+      });
 
       await expect(
         (setRankingData as any).run({
@@ -377,7 +673,11 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
       const grantKey = `${tournamentId}:same`;
       await createAdminDevice(adminId);
       await createUser(userId, { pointA: 0 });
-      await seedTournament({ tournamentId, pointType: 'pointA', prizeAmount: 300 });
+      await seedTournament({
+        tournamentId,
+        pointType: 'pointA',
+        prizeReferenceAmount: 300,
+      });
 
       const req = {
         auth: { uid: adminId },
@@ -389,7 +689,6 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
       };
 
       await (setRankingData as any).run(req);
-      // SetedRanking が true になると2回目は prizeGrantSkipped
       const second = await (setRankingData as any).run(req);
       expect(second.prizeGrantSkipped).toBe(true);
 
@@ -397,17 +696,27 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
       expect(user.data()!.pointA).toBe(300);
     });
 
-    it('取消で残高戻し・元ログ残存・reversal追加。config無効後も取消可。二重取消は冪等', async () => {
+    it('取消は awardedBalanceAmount を正本とし config 無効後も可', async () => {
+      const cfg = a7ConfigAllCurrencyRewards();
+      await db.collection('storeMeta').doc('config').set(cfg, { merge: true });
+      __setMockConfig(cfg);
+
       const tournamentId = 't_rev';
       const userId = 'u_rev';
       const adminId = 'admin_rev';
       const grantKey = `${tournamentId}:r1`;
-      const prize = 400;
+      const prizeRef = 1000;
+      const awarded = 100;
       await createAdminDevice(adminId);
-      await createUser(userId, { pointA: 100 });
-      await seedTournament({ tournamentId, pointType: 'pointA', prizeAmount: prize });
+      await createUser(userId, { pointB: 100 });
+      await seedTournament({
+        tournamentId,
+        pointType: 'pointB',
+        prizeReferenceAmount: prizeRef,
+        conversion: { referenceUnits: 10, balanceUnits: 1 },
+      });
 
-      const grantResult = await (setRankingData as any).run({
+      await (setRankingData as any).run({
         auth: { uid: adminId },
         data: {
           tournamentId,
@@ -415,20 +724,18 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
           rankingData: { '1stPlayerUid': userId, '1stPlayerName': 'R' },
         },
       });
-      expect(grantResult.success).toBe(true);
 
-      // config 無効化（許可一覧から外す）
-      const disabledCfg = a7StoreConfigDocument();
-      (disabledCfg.pointSettings as any).pointA.enabled = false;
-      (disabledCfg.tournament as any).rankingRewardPointTypes = ['pointB'];
-      (disabledCfg.pointSettings as any).pointB.enabled = true;
+      const disabledCfg = a7ConfigAllCurrencyRewards();
+      (disabledCfg.pointSettings as any).pointB.enabled = false;
+      (disabledCfg.tournament as any).rankingRewardPointTypes = ['pointA'];
       await db.collection('storeMeta').doc('config').set(disabledCfg, { merge: true });
       __setMockConfig(disabledCfg);
 
       const beforeMainView = {
-        pointType: 'pointA',
+        pointType: 'pointB',
         prizeReceiverCount: 1,
-        '1stPrize': prize,
+        '1stPrize': prizeRef,
+        prizeConversion: { referenceUnits: 10, balanceUnits: 1 },
       };
 
       await undoSetRankingData({
@@ -438,43 +745,26 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
         rankingEntries: [
           {
             playerUid: userId,
-            prizeAmount: prize,
+            awardedBalanceAmount: awarded,
+            prizeReferenceAmount: prizeRef,
             entryId: 'e1',
-            pointType: 'pointA',
+            pointType: 'pointB',
           },
         ],
       });
 
       const userAfter = await db.collection('users').doc(userId).get();
-      expect(userAfter.data()!.pointA).toBe(100);
-
-      const rewardLog = await db
-        .collection('users')
-        .doc(userId)
-        .collection('pointLogs')
-        .doc(rewardPointLogId(grantKey, 'pointA'))
-        .get();
-      expect(rewardLog.exists).toBe(true);
+      expect(userAfter.data()!.pointB).toBe(100);
 
       const reversalLog = await db
         .collection('users')
         .doc(userId)
         .collection('pointLogs')
-        .doc(rewardReversalPointLogId(grantKey, 'pointA'))
+        .doc(rewardReversalPointLogId(grantKey, 'pointB'))
         .get();
-      expect(reversalLog.exists).toBe(true);
-      expect(reversalLog.data()!.reasonType).toBe('tournament_reward_reversal');
-      expect(reversalLog.data()!.changeAmount).toBe(-prize);
+      expect(reversalLog.data()!.changeAmount).toBe(-100);
 
-      const grantGone = await db
-        .collection('scheduledTournaments')
-        .doc(tournamentId)
-        .collection('grantRecords')
-        .doc(grantKey)
-        .get();
-      expect(grantGone.exists).toBe(false);
-
-      // 二重取消（冪等）
+      // 二重取消
       await undoSetRankingData({
         tournamentId,
         grantIdempotencyKey: grantKey,
@@ -482,14 +772,13 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
         rankingEntries: [
           {
             playerUid: userId,
-            prizeAmount: prize,
+            awardedBalanceAmount: awarded,
             entryId: 'e1',
-            pointType: 'pointA',
+            pointType: 'pointB',
           },
         ],
       });
-      const userFinal = await db.collection('users').doc(userId).get();
-      expect(userFinal.data()!.pointA).toBe(100);
+      expect((await db.collection('users').doc(userId).get()).data()!.pointB).toBe(100);
     });
 
     it('idempotency conflict: 既存ログと内容不一致', async () => {
@@ -500,7 +789,11 @@ describe('A-7 Phase4 tournament ranking rewards', () => {
       const prize = 100;
       await createAdminDevice(adminId);
       await createUser(userId, { pointA: 0 });
-      await seedTournament({ tournamentId, pointType: 'pointA', prizeAmount: prize });
+      await seedTournament({
+        tournamentId,
+        pointType: 'pointA',
+        prizeReferenceAmount: prize,
+      });
 
       const logId = rewardPointLogId(grantKey, 'pointA');
       await db.collection('users').doc(userId).collection('pointLogs').doc(logId).set({

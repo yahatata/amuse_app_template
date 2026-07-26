@@ -25,7 +25,7 @@ const updateTournamentTemplateSchema = z.object({
   addonLimitPerPlayer: z.number().optional(),
   blindStructure: z.string().optional(),
   prizeRatio: z.number().optional(),
-  color: z.string().optional(),
+  color: z.string().nullish(),
   pointType: z.string().optional(),
   selectedTournamentIds: z.array(z.string()),
 });
@@ -104,7 +104,9 @@ export const updateTournamentTemplate = onCall(async (request) => {
       updatedAt: new Date(),
     };
     const sanitizedTemplatePayload = Object.fromEntries(
-      Object.entries(templateFields).filter(([, value]) => value !== undefined),
+      Object.entries(templateFields).filter(
+        ([, value]) => value !== undefined && value !== null,
+      ),
     );
 
     batch.update(templateRef, sanitizedTemplatePayload);
@@ -162,10 +164,16 @@ export const updateTournamentTemplate = onCall(async (request) => {
           updatedAt: new Date(),
         };
 
-        // nullでない値のみを更新
-        const filteredSnapshotData = Object.fromEntries(
-          Object.entries(snapshotUpdateData).filter(([_, value]) => value !== undefined)
+        // null/undefined でない値のみをマージ（未変更の color 等で既存 snapshot を消さない）
+        const filteredSnapshotPatch = Object.fromEntries(
+          Object.entries(snapshotUpdateData).filter(
+            ([, value]) => value !== undefined && value !== null,
+          ),
         );
+        const filteredSnapshotData = {
+          ...existingSnapshot,
+          ...filteredSnapshotPatch,
+        };
 
         const tournamentUpdateData: any = {
           snapshot: filteredSnapshotData,

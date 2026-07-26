@@ -165,11 +165,45 @@ class AdminUserDetailPage extends StatelessWidget {
                   if (enabledIds.isEmpty)
                     const Text('表示可能な残高がありません')
                   else
-                    for (final id in enabledIds)
-                      _buildInfoRow(
-                        balanceDisplayName(id),
-                        formatBalanceFieldDisplay(data, id),
-                      ),
+                    // 名前は省略せず全表示し、数値列は最長名幅に揃えて左寄せ
+                    Table(
+                      columnWidths: const {
+                        0: IntrinsicColumnWidth(),
+                        1: FlexColumnWidth(),
+                      },
+                      defaultVerticalAlignment:
+                          TableCellVerticalAlignment.middle,
+                      children: [
+                        for (final id in enabledIds)
+                          TableRow(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 4,
+                                  bottom: 4,
+                                  right: 12,
+                                ),
+                                child: Text(
+                                  '${balanceDisplayName(id)}:',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 4),
+                                child: Text(
+                                  formatBalanceFieldDisplay(data, id),
+                                  style: const TextStyle(
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
                 ],
               ),
             ),

@@ -250,7 +250,7 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
 
     try {
       final callable = _functions.httpsCallable('updateTournamentTemplate');
-      final result = await callable.call({
+      final payload = <String, dynamic>{
         'templateId': widget.templateId,
         'name': _nameController.text,
         'entryFee': _entryFee,
@@ -264,12 +264,15 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
         'addonLimitPerPlayer': _isAddon ? _addonLimitPerPlayer : 0,
         'blindStructure': _selectedBlindTemplateId,
         'prizeRatio': _prizeRatio,
-        'color': _selectedColor != _originalColor 
-            ? '#${_selectedColor.value.toRadixString(16).substring(2).toUpperCase()}'
-            : null, // 変更されていない場合はnullを送信（上書きしない）
         'pointType': _selectedPointType,
         'selectedTournamentIds': _selectedTournamentIds,
-      });
+      };
+      // 未変更時に color:null を送ると Zod(z.string().optional) が落ちるため、変更時のみ送る
+      if (_selectedColor != _originalColor) {
+        payload['color'] =
+            '#${_selectedColor.value.toRadixString(16).substring(2).toUpperCase()}';
+      }
+      final result = await callable.call(payload);
       final response = result.data;
 
       if (response['success'] == true) {

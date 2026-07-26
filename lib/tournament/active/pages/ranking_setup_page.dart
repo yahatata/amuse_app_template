@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_end_okibake_guard.dart';
+import 'package:amuse_app_template/tournament/prize_conversion_preview.dart';
 
 class RankingSetupPage extends StatefulWidget {
   final String tournamentId;
@@ -194,6 +195,17 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
     
     if (confirmed != true) return;
     if (_isSubmitting || _isEndingTournament) return;
+
+    if (prizeConversionFromMainView(_mainViewData) == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('prizeConversion がありません。プライズを再確定してください。'),
+          ),
+        );
+      }
+      return;
+    }
 
     setState(() {
       _isSubmitting = true;
@@ -398,9 +410,19 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    Text('プライズプール: ¥${(_mainViewData?['prizePool'] as int? ?? 0).toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
+                    Text('プライズプール（基準値）: ¥${(_mainViewData?['prizePool'] as int? ?? 0).toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
                     const SizedBox(height: 4),
-                    Text('プライズタイプ: ${_mainViewData?['pointType'] ?? 'pointA'}'),
+                    Text(
+                      '付与ポイント: ${rewardPointDisplayName(_mainViewData?['pointType'] as String? ?? 'pointA')}',
+                    ),
+                    if (prizeConversionFromMainView(_mainViewData) == null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'prizeConversion がありません。プライズを再確定してください。',
+                          style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -411,6 +433,10 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
             ...List.generate(prizeReceiverCount, (index) {
               final rank = index + 1;
               final prizeAmount = _getPrizeAmount(rank);
+              final conversion = prizeConversionFromMainView(_mainViewData);
+              final pointType = _mainViewData?['pointType'] as String? ?? 'pointA';
+              final displayName = rewardPointDisplayName(pointType);
+              final awarded = previewAwardedBalanceAmount(prizeAmount, conversion);
               final isSelected = _isPlayerSelected(rank);
               final isLocked = _isRankLocked(rank);
               final selectedPlayerId = _selectedPlayers[rank];
@@ -448,6 +474,18 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
                             Icon(Icons.lock, color: Colors.grey[600], size: 16),
                           ],
                         ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        awarded != null
+                            ? '付与予定: $displayName $awardedポイント'
+                            : '付与予定: 換算不可（プライズ再確定が必要）',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: awarded != null
+                              ? Colors.blueGrey.shade700
+                              : Colors.red.shade700,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       

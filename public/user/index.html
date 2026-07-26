@@ -812,47 +812,6 @@
             
             // データの存在確認と安全なアクセス
             const pokerName = userData?.pokerName || '未設定';
-
-            // A-7: storeMeta/config から有効残高のみ表示（displayName）。欠損は0、corruptは不整合表示。
-            let balancesHtml = '';
-            try {
-              const configRef = doc(db, 'storeMeta', 'config');
-              const configSnap = await getDoc(configRef);
-              const cfg = configSnap.exists() ? (configSnap.data() || {}) : {};
-              const pointSettings = cfg.pointSettings || {};
-              const chipSettings = cfg.sideGameChipSettings || {};
-              const currencyIds = ['pointA', 'pointB', 'pointC', 'pointD', 'pointE'];
-              const rows = [];
-              for (const id of currencyIds) {
-                const slot = pointSettings[id];
-                if (!slot || slot.enabled !== true) continue;
-                const name = (typeof slot.displayName === 'string' && slot.displayName.trim())
-                  ? slot.displayName.trim()
-                  : `${id}（名称未設定）`;
-                rows.push({ id, name });
-              }
-              if (chipSettings && chipSettings.enabled === true) {
-                const name = (typeof chipSettings.displayName === 'string' && chipSettings.displayName.trim())
-                  ? chipSettings.displayName.trim()
-                  : 'sideGameChip（名称未設定）';
-                rows.push({ id: 'sideGameChip', name });
-              }
-              const formatBal = (raw) => {
-                if (raw === undefined) return '0';
-                if (raw === null) return 'データ不整合';
-                if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0) {
-                  return raw.toLocaleString('ja-JP');
-                }
-                return 'データ不整合';
-              };
-              if (rows.length > 0) {
-                balancesHtml = `<div style="margin-top:16px;text-align:left;max-width:320px;margin-left:auto;margin-right:auto;">`
-                  + rows.map(r => `<div style="display:flex;justify-content:space-between;padding:4px 0;"><span>${r.name}</span><strong>${formatBal(userData?.[r.id])}</strong></div>`).join('')
-                  + `</div>`;
-              }
-            } catch (cfgErr) {
-              balancesHtml = `<p style="margin-top:12px;color:#c62828;font-size:0.9rem;">残高表示の設定取得に失敗しました</p>`;
-            }
             
             // 入店状態は getUserStatus（activeStays 参照）で取得するため、初期表示は未入店として表示し updateCheckinStatusUI で更新
             const isStaying = false;
@@ -879,7 +838,6 @@
                 <span id="status-not-staying" style="${notStayingStyle}">未入店</span>
               </div>
               <p id="status-description" style="margin-top: 8px; font-size: 0.9rem; color: #666; background: transparent; border: none; box-shadow: none; padding: 0; text-align: center;">${descriptionText}</p>
-              ${balancesHtml}
             `;
             
                       // ホームページに遷移した際の処理
@@ -2182,6 +2140,54 @@
         loadProfile();
       };
 
+      /** A-7: 有効残高のみを項目ごとに表示（プロフィール用・控えめ） */
+      async function buildProfileBalancesHtml(userData) {
+        try {
+          const { db } = window.Firebase;
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const configSnap = await getDoc(doc(db, 'storeMeta', 'config'));
+          const cfg = configSnap.exists() ? (configSnap.data() || {}) : {};
+          const pointSettings = cfg.pointSettings || {};
+          const chipSettings = cfg.sideGameChipSettings || {};
+          const currencyIds = ['pointA', 'pointB', 'pointC', 'pointD', 'pointE'];
+          const rows = [];
+          for (const id of currencyIds) {
+            const slot = pointSettings[id];
+            if (!slot || slot.enabled !== true) continue;
+            const name = (typeof slot.displayName === 'string' && slot.displayName.trim())
+              ? slot.displayName.trim()
+              : `${id}（名称未設定）`;
+            rows.push({ id, name });
+          }
+          if (chipSettings && chipSettings.enabled === true) {
+            const name = (typeof chipSettings.displayName === 'string' && chipSettings.displayName.trim())
+              ? chipSettings.displayName.trim()
+              : 'sideGameChip（名称未設定）';
+            rows.push({ id: 'sideGameChip', name });
+          }
+          const formatBal = (raw) => {
+            if (raw === undefined) return '0';
+            if (raw === null) return 'データ不整合';
+            if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0) {
+              return raw.toLocaleString('ja-JP');
+            }
+            return 'データ不整合';
+          };
+          if (rows.length === 0) {
+            return '';
+          }
+          return `
+            <div class="profile-balances" style="margin-top:12px;">
+              ${rows.map((r) =>
+                `<p style="margin:4px 0;"><strong>${r.name}:</strong> ${formatBal(userData?.[r.id])}</p>`
+              ).join('')}
+            </div>
+          `;
+        } catch (e) {
+          return `<p style="margin-top:12px;color:#c62828;font-size:0.9rem;">残高表示の設定取得に失敗しました</p>`;
+        }
+      }
+
       async function loadProfile() {
         const profileInfo = document.getElementById('profile-info');
         profileInfo.innerHTML = '<div class="spinner"></div>';
@@ -2193,12 +2199,14 @@
           
           if (userDoc.exists()) {
             const userData = userDoc.data();
+            const balancesHtml = await buildProfileBalancesHtml(userData);
             profileInfo.innerHTML = `
               <div class="profile-details">
                 <h3>基本情報</h3>
                 <p><strong>pokerName:</strong> ${userData.pokerName || '未設定'}</p>
                 <p><strong>メール:</strong> ${userData.email || '未設定'}</p>
                 <p><strong>誕生日:</strong> ${userData.birthMonthDay || '未設定'}</p>
+                ${balancesHtml}
               </div>
             `;
           }

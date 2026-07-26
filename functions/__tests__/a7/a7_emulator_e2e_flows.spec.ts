@@ -786,6 +786,7 @@ describe('A-7 Emulator E2E flows', () => {
           prizeReceiverCount: 1,
           '1stPrize': prize,
           prizePool: prize,
+          prizeConversion: { referenceUnits: 1, balanceUnits: 1 },
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
@@ -827,11 +828,13 @@ describe('A-7 Emulator E2E flows', () => {
           pointType: 'pointA',
           prizeReceiverCount: 1,
           '1stPrize': prize,
+          prizeConversion: { referenceUnits: 1, balanceUnits: 1 },
         },
         rankingEntries: [
           {
             playerUid: userId,
-            prizeAmount: prize,
+            awardedBalanceAmount: prize,
+            prizeReferenceAmount: prize,
             entryId: 'e1',
             pointType: 'pointA',
           },
@@ -858,11 +861,13 @@ describe('A-7 Emulator E2E flows', () => {
           pointType: 'pointA',
           prizeReceiverCount: 1,
           '1stPrize': prize,
+          prizeConversion: { referenceUnits: 1, balanceUnits: 1 },
         },
         rankingEntries: [
           {
             playerUid: userId,
-            prizeAmount: prize,
+            awardedBalanceAmount: prize,
+            prizeReferenceAmount: prize,
             entryId: 'e1',
             pointType: 'pointA',
           },

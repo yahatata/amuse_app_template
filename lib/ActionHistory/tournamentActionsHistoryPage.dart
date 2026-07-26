@@ -633,8 +633,13 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
           if (e is! Map) continue;
           final rank = e['rank']?.toString() ?? '';
           final name = e['playerName']?.toString() ?? e['playerUid']?.toString() ?? '不明';
-          final prize = e['prizeAmount'];
-          if (rank.isNotEmpty) parts.add('${rank}位: $name${prize != null ? ' (${prize}pt)' : ''}');
+          final awarded = e['awardedBalanceAmount'] ?? e['prizeAmount'];
+          final reference = e['prizeReferenceAmount'];
+          if (rank.isNotEmpty) {
+            final awardedText = awarded != null ? ' (${awarded}pt)' : '';
+            final refText = reference != null ? ' [基準値¥$reference]' : '';
+            parts.add('${rank}位: $name$awardedText$refText');
+          }
         }
         if (parts.isNotEmpty) return parts.join(', ');
       }
@@ -679,9 +684,11 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
       if (e is! Map) continue;
       final rank = e['rank']?.toString() ?? '';
       final name = e['playerName']?.toString() ?? e['playerUid']?.toString() ?? '不明';
-      final prize = e['prizeAmount'];
-      final prizeStr = prize != null ? ' (${prize}pt)' : '';
-      if (rank.isNotEmpty) lines.add('${rank}位: $name$prizeStr');
+      final awarded = e['awardedBalanceAmount'] ?? e['prizeAmount'];
+      final reference = e['prizeReferenceAmount'];
+      final awardedStr = awarded != null ? ' (${awarded}pt)' : '';
+      final refStr = reference != null ? ' [基準値¥$reference]' : '';
+      if (rank.isNotEmpty) lines.add('${rank}位: $name$awardedStr$refStr');
     }
     if (lines.isEmpty) return const Text('設定ランキング: （なし）');
     return Text('設定ランキング: ${lines.join(', ')}');
