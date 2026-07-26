@@ -41,11 +41,12 @@ export function resolveBusinessDate(createdAt: Date, storeCloseHour: number): st
 export type PaymentDistributionIssueKind =
   | 'PAYMENT_TOTALS_EMPTY_WITH_FALLBACK'
   | 'PAYMENT_TOTALS_EMPTY_NO_FALLBACK'
-  | 'PAYMENT_TOTALS_INVALID_METHODS_NORMALIZED';
+  | 'PAYMENT_TOTALS_UNKNOWN_METHODS';
 
 export interface PaymentDistributionIssue {
   kind: PaymentDistributionIssueKind;
   invalidMethodCount?: number;
+  unknownMethods?: string[];
   fallbackCashAmount?: number;
 }
 
@@ -60,11 +61,15 @@ const DEFAULT_VALID_METHODS = [
   'electronic_money',
   'pointA',
   'pointB',
+  'pointC',
+  'pointD',
+  'pointE',
   'sideGameChip',
 ] as const;
 
 /**
- * 支払い方法の配賦を計算し、フォールバック・正規化の issue を返す（ログは呼び出し側）
+ * 支払い方法の配賦を計算し、フォールバック・未知methodの issue を返す（ログは呼び出し側）
+ * A-7: 未知methodは cash へ混入させない（issue のみ。呼び出し側で停止すること）
  */
 export function distributePaymentMethodsWithIssues(
   paymentTotals: Record<string, number> | undefined | null,
@@ -90,7 +95,7 @@ export function distributePaymentMethodsWithIssues(
     return { paymentTotalsMap, issues };
   }
 
-  let invalidMethodCount = 0;
+  const unknownMethods: string[] = [];
   for (const [method, amount] of Object.entries(paymentTotals)) {
     if (amount <= 0) {
       continue;
@@ -99,18 +104,15 @@ export function distributePaymentMethodsWithIssues(
     if (validMethods.includes(method)) {
       paymentTotalsMap.set(method, (paymentTotalsMap.get(method) || 0) + amount);
     } else {
-      paymentTotalsMap.set(
-        defaultPaymentMethod,
-        (paymentTotalsMap.get(defaultPaymentMethod) || 0) + amount
-      );
-      invalidMethodCount++;
+      unknownMethods.push(method);
     }
   }
 
-  if (invalidMethodCount > 0) {
+  if (unknownMethods.length > 0) {
     issues.push({
-      kind: 'PAYMENT_TOTALS_INVALID_METHODS_NORMALIZED',
-      invalidMethodCount,
+      kind: 'PAYMENT_TOTALS_UNKNOWN_METHODS',
+      invalidMethodCount: unknownMethods.length,
+      unknownMethods,
     });
   }
 

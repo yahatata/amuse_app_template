@@ -7,21 +7,38 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertTournamentAllowsMutation } from '../lib/assertTournamentAllowsMutation';
 import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
+import { getStoreConfig } from '../../../shared/config/configLoader';
+import { validatePointConfigFromStoreConfig } from '../../../shared/config/validatePointConfig';
+import { assertRewardPointTypeForGrant } from '../helpers/rewardPointType';
+import {
+  convertPrizeReferenceToBalance,
+  parseSavedPrizeConversion,
+  type PrizeConversion,
+} from '../helpers/prizeConversion';
+import { readBalanceOrZeroIfMissing } from '../../user/helpers/userBalances';
+import type { CurrencyPointId } from '../../user/types/pointIds';
+import {
+  rewardPointLogId,
+  writeTournamentRewardPointLogInTxWithSnap,
+} from '../../user/services/pointLog';
 
 export interface RankingEntryForRollback {
   playerUid: string;
   /** 表示用（操作履歴でランキングと名前を表示するため） */
   playerName?: string;
   rank: string;
-  prizeAmount: number;
+  /** プライズ基準値量（views/main の NstPrize） */
+  prizeReferenceAmount: number;
+  /** 実際に加算した残高量 */
+  awardedBalanceAmount: number;
+  conversion: PrizeConversion;
   entryId: string;
-  pointType: 'pointA' | 'pointB';
-  /** pointALogs/pointBLogs のドキュメントID（YYYY-MM-DD） */
+  pointType: CurrencyPointId;
+  /** legacy: 旧 pointALogs/pointBLogs 日付。A-7 では未使用だが操作ログ互換のため残す */
   logDate: string;
 }
 
 export const setRankingData = onCall(async (request) => {
-  // 認証チェック
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
@@ -29,7 +46,6 @@ export const setRankingData = onCall(async (request) => {
   const callerUid = request.auth.uid;
 
   try {
-    // デバイス権限の確認（role: admin または options.tournament: true）
     const device = await getCallerDeviceByUid(callerUid);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
@@ -40,16 +56,16 @@ export const setRankingData = onCall(async (request) => {
       throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
     }
 
-    const { tournamentId, rankingData, grantIdempotencyKey } = request.data as { tournamentId?: string; rankingData?: unknown; grantIdempotencyKey?: string };
-    
-    console.log('=== setRankingData 開始 ===');
-    console.log('tournamentId:', tournamentId);
-    console.log('rankingData:', JSON.stringify(rankingData, null, 2));
-    
+    const { tournamentId, rankingData, grantIdempotencyKey } = request.data as {
+      tournamentId?: string;
+      rankingData?: unknown;
+      grantIdempotencyKey?: string;
+    };
+
     if (!tournamentId) {
       throw new HttpsError('invalid-argument', 'tournamentId is required');
     }
-    
+
     if (!rankingData || typeof rankingData !== 'object') {
       throw new HttpsError('invalid-argument', 'rankingData is required');
     }
@@ -74,20 +90,16 @@ export const setRankingData = onCall(async (request) => {
       .collection('views')
       .doc('main');
 
-    // 更新前の main を取得（取り消し用）
     const mainViewDocBefore = await mainViewRef.get();
     const beforeMainView = mainViewDocBefore.exists ? mainViewDocBefore.data() ?? {} : {};
 
-    const cleanRankingData: Record<string, any> = {};
-    for (const [key, value] of Object.entries(rankingData)) {
+    const cleanRankingData: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(rankingData as Record<string, unknown>)) {
       if (value !== null && value !== undefined) {
         cleanRankingData[key] = value;
       }
     }
 
-    console.log('cleanRankingData:', JSON.stringify(cleanRankingData, null, 2));
-
-    // 賞品付与対象 UID（*stPlayerUid）は移行済みを拒否。順位・残高の部分更新を防ぐため更新前に全件検査。
     const prizePlayerUids = [
       ...new Set(
         Object.entries(cleanRankingData)
@@ -102,21 +114,24 @@ export const setRankingData = onCall(async (request) => {
       }
     }
 
-    const updateData = {
+    await mainViewRef.update({
       ...cleanRankingData,
       updatedAt: new Date(),
-    };
-
-    await mainViewRef.update(updateData);
+    });
 
     const tournamentSnap = await db.collection('scheduledTournaments').doc(tournamentId).get();
     const alreadySet = tournamentSnap.data()?.SetedRanking === true;
     let rankingEntries: RankingEntryForRollback[] = [];
     if (!alreadySet) {
-      const awardResult = await _awardPrizes(db, tournamentId, cleanRankingData, grantIdempotencyKey.trim());
+      const awardResult = await _awardPrizes(
+        db,
+        tournamentId,
+        cleanRankingData,
+        grantIdempotencyKey.trim(),
+        tournamentSnap.data(),
+        mainViewDocBefore.data(),
+      );
       rankingEntries = awardResult.rankingEntries ?? [];
-    } else {
-      console.log('SetedRanking が既に true のためプライズ付与をスキップ', { tournamentId });
     }
 
     const mainViewDoc = await mainViewRef.get();
@@ -135,19 +150,18 @@ export const setRankingData = onCall(async (request) => {
       }
 
       if (allRanksFilled) {
-        const tournamentRef = db.collection('scheduledTournaments').doc(tournamentId);
-        await tournamentRef.update({
+        await db.collection('scheduledTournaments').doc(tournamentId).update({
           SetedRanking: true,
           updatedAt: new Date(),
         });
-        console.log('全ての順位が確定しました。SetedRanking: trueを格納しました。');
       }
     }
 
-    // 2回目以降（SetedRanking 済みで付与スキップした場合）は操作ログを書かない
     let operationId: string | undefined;
     if (!alreadySet) {
-      const pointType = (mainViewDocBefore.data()?.pointType || tournamentSnap.data()?.snapshot?.pointType || 'pointA') as 'pointA' | 'pointB';
+      const savedPointType = (mainViewDocBefore.data()?.pointType ||
+        tournamentSnap.data()?.snapshot?.pointType ||
+        'pointA') as string;
       operationId = crypto.randomUUID();
       await writeSingleOperationLog({
         operationId,
@@ -158,7 +172,7 @@ export const setRankingData = onCall(async (request) => {
         payload: {
           tournamentId,
           grantIdempotencyKey: grantIdempotencyKey.trim(),
-          pointType,
+          pointType: savedPointType,
           beforeMainView,
           rankingEntries,
         },
@@ -185,36 +199,52 @@ export const setRankingData = onCall(async (request) => {
       prizeGrantSkipped: alreadySet,
       ...(operationId != null ? { operationId } : {}),
     };
-    
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'setRankingData failed',
+        functionEntry: 'setRankingData',
+        operation: 'setRankingDataRankings',
+        cause: error,
+        context: {
+          callerUid,
+          tournamentId: (request.data as { tournamentId?: string })?.tournamentId,
+          errorKey: error.errorKey,
+        },
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+
     logOpsError({
-      message: '=== setRankingData エラー ===',
+      message: 'setRankingData failed',
       functionEntry: 'setRankingData',
-      operation: 'setRankingDataRankings',
+      operation: 'setRankingDataMainCatch',
       cause: error,
+      context: {
+        callerUid,
+        tournamentId: (request.data as { tournamentId?: string })?.tournamentId,
+      },
     });
 
     if (error instanceof HttpsError) {
       throw error;
     }
 
-    if (error instanceof FunctionCustomError) {
-      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
-    }
-    
     throw new HttpsError('internal', 'Internal server error');
   }
 });
 
 /**
  * 同一 grantIdempotencyKey では付与を1回だけ行う（冪等）。
- * 戻り値: スキップ有無と取り消し用の rankingEntries。
+ * 保存済み pointType / prizeConversion を正本とし、現在 config で付与可否のみ検証する。
  */
 async function _awardPrizes(
   db: ReturnType<typeof getFirestore>,
   tournamentId: string,
-  rankingData: Record<string, any>,
-  grantIdempotencyKey: string
+  rankingData: Record<string, unknown>,
+  grantIdempotencyKey: string,
+  tournamentData: FirebaseFirestore.DocumentData | undefined,
+  mainViewBefore: FirebaseFirestore.DocumentData | undefined,
 ): Promise<{ skipped: boolean; rankingEntries: RankingEntryForRollback[] }> {
   const mainViewRef = db
     .collection('scheduledTournaments')
@@ -224,30 +254,57 @@ async function _awardPrizes(
 
   const mainViewDoc = await mainViewRef.get();
   const mainViewData = mainViewDoc.data();
-  const pointType = (mainViewData?.pointType || 'pointA') as 'pointA' | 'pointB';
 
-  const prizeAwards: { playerUid: string; rank: string; prizeAmount: number }[] = [];
+  const savedPointTypeRaw =
+    mainViewData?.pointType ||
+    mainViewBefore?.pointType ||
+    tournamentData?.snapshot?.pointType ||
+    'pointA';
+
+  const storeConfig = await getStoreConfig(db);
+  const validatedConfig = validatePointConfigFromStoreConfig(storeConfig);
+  const pointType = assertRewardPointTypeForGrant(savedPointTypeRaw, validatedConfig);
+
+  const prizeConversion = parseSavedPrizeConversion(
+    mainViewData?.prizeConversion ?? mainViewBefore?.prizeConversion,
+    { tournamentId, pointType },
+  );
+
+  const prizeAwards: {
+    playerUid: string;
+    rank: string;
+    prizeReferenceAmount: number;
+    awardedBalanceAmount: number;
+  }[] = [];
   for (const [key, value] of Object.entries(rankingData)) {
     if (typeof key === 'string' && key.endsWith('stPlayerUid') && value) {
       const rank = key.replace('stPlayerUid', '');
       const prizeKey = `${rank}stPrize`;
-      const prizeAmount = mainViewData?.[prizeKey];
-      if (prizeAmount && prizeAmount > 0) {
+      const prizeReferenceRaw = mainViewData?.[prizeKey];
+      if (
+        typeof prizeReferenceRaw === 'number' &&
+        Number.isInteger(prizeReferenceRaw) &&
+        prizeReferenceRaw > 0
+      ) {
+        const awardedBalanceAmount = convertPrizeReferenceToBalance(
+          prizeReferenceRaw,
+          prizeConversion,
+          { tournamentId, pointType, rankKey: prizeKey },
+        );
         prizeAwards.push({
           playerUid: value as string,
           rank,
-          prizeAmount: Number(prizeAmount),
+          prizeReferenceAmount: prizeReferenceRaw,
+          awardedBalanceAmount,
         });
       }
     }
   }
 
   if (prizeAwards.length === 0) {
-    console.log('付与対象なし');
     return { skipped: false, rankingEntries: [] };
   }
 
-  const logType = pointType === 'pointA' ? 'pointALogs' : 'pointBLogs';
   const today = new Date().toISOString().split('T')[0];
 
   try {
@@ -260,7 +317,6 @@ async function _awardPrizes(
 
       const grantRecordSnap = await tx.get(grantRecordRef);
       if (grantRecordSnap.exists) {
-        console.log('同一 grantIdempotencyKey で既に付与済みのためスキップ', { grantIdempotencyKey });
         return { skipped: true, rankingEntries: [] as RankingEntryForRollback[] };
       }
 
@@ -268,7 +324,11 @@ async function _awardPrizes(
         prizeAwards.map((a) => tx.get(db.collection('users').doc(a.playerUid)))
       );
       const pointLogRefs = prizeAwards.map((a) =>
-        db.collection('users').doc(a.playerUid).collection(logType).doc(today)
+        db
+          .collection('users')
+          .doc(a.playerUid)
+          .collection('pointLogs')
+          .doc(rewardPointLogId(grantIdempotencyKey, pointType))
       );
       const pointLogSnaps = await Promise.all(pointLogRefs.map((ref) => tx.get(ref)));
 
@@ -281,31 +341,25 @@ async function _awardPrizes(
         const logSnap = pointLogSnaps[i];
 
         if (!userSnap.exists) {
-          logOpsError({
-            message:
-              'setRankingData: 賞品・ポイント付与対象ユーザーが存在せず、該当ランクのみスキップしました',
-            functionEntry: 'setRankingData',
-            operation: 'setRankingDataGrantTargetUserNotFound',
+          throw new FunctionCustomError({
             errorKey: 'TOURNAMENT_RANKING_GRANT_USER_NOT_FOUND',
+            message: '賞品付与対象ユーザーが見つかりません',
             context: {
               tournamentId,
               playerUid: award.playerUid,
               rank: award.rank,
-              prizeAmount: award.prizeAmount,
               grantIdempotencyKey,
               pointType,
             },
-            cause: new Error('ranking_grant_user_not_found'),
           });
-          continue;
         }
 
-        const userData = userSnap.data();
-        const currentPoints = (userData as any)?.[pointType] ?? 0;
-        const newPoints = currentPoints + award.prizeAmount;
+        const userData = userSnap.data() as Record<string, unknown>;
+        const balanceBefore = readBalanceOrZeroIfMissing(userData, pointType);
+        const balanceAfter = balanceBefore + award.awardedBalanceAmount;
 
         tx.update(db.collection('users').doc(award.playerUid), {
-          [pointType]: newPoints,
+          [pointType]: balanceAfter,
           updatedAt: FieldValue.serverTimestamp(),
         });
 
@@ -319,56 +373,57 @@ async function _awardPrizes(
           playerUid: award.playerUid,
           playerName: playerName || undefined,
           rank: award.rank,
-          prizeAmount: award.prizeAmount,
+          prizeReferenceAmount: award.prizeReferenceAmount,
+          awardedBalanceAmount: award.awardedBalanceAmount,
+          conversion: prizeConversion,
           entryId,
           pointType,
           logDate: today,
         });
 
-        const logEntry = {
-          entryId,
-          appliedAt: new Date(),
-          category: 'income',
-          amountDelta: award.prizeAmount,
-          reasonType: 'tournamentId' as const,
-          actor: 'tablet_front',
-          grantIdempotencyKey,
-        };
-
-        if (!logSnap.exists) {
-          tx.set(logRef, {
-            logs: { [entryId]: logEntry },
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-        } else {
-          tx.update(logRef, {
-            [`logs.${entryId}`]: logEntry,
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-        }
+        writeTournamentRewardPointLogInTxWithSnap({
+          tx,
+          existingSnap: logSnap,
+          ref: logRef,
+          tournamentId,
+          pointType,
+          balanceBefore,
+          changeAmount: award.awardedBalanceAmount,
+          balanceAfter,
+          reasonType: 'tournament_reward',
+        });
       }
 
       tx.set(grantRecordRef, {
         tournamentId,
+        pointType,
+        conversion: prizeConversion,
+        grantIdempotencyKey,
         appliedAt: FieldValue.serverTimestamp(),
+        awards: rankingEntries.map((e) => ({
+          playerUid: e.playerUid,
+          rank: e.rank,
+          prizeReferenceAmount: e.prizeReferenceAmount,
+          awardedBalanceAmount: e.awardedBalanceAmount,
+          conversion: e.conversion,
+          entryId: e.entryId,
+        })),
       });
 
       return { skipped: false, rankingEntries };
     });
 
-    if (result.skipped) {
-      console.log('=== プライズ付与処理スキップ（冪等） ===');
-    } else {
-      console.log('=== プライズ付与処理完了 ===');
-    }
     return result;
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      throw error;
+    }
     logOpsError({
-      message: '=== プライズ付与処理エラー ===',
+      message: 'setRankingData prize grant failed',
       functionEntry: 'setRankingData',
       operation: 'setRankingDataPrizeGrant',
       cause: error,
+      context: { tournamentId, grantIdempotencyKey, pointType },
     });
     throw error;
   }

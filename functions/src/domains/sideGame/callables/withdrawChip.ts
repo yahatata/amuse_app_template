@@ -1,32 +1,33 @@
 /**
  * withdrawChip
  *
- * サイドゲームチップの引き出し処理
- *
- * 新スキーマ対応:
- * - getActiveBillByUser で billId を取得
- * - appendSideGameChip で /bills/{billId}/sideGameChips/{chipId} に追加
- * - DualWrite: todaysBills.sideGameChip 配列への複写（トランザクション外でベストエフォート）
+ * A-7: sideGameChipSettings.enabled ゲート + 残高健全性 + before/after ログ
  */
 
 import { onCall } from 'firebase-functions/v2/https';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { addLogEntry } from '../../user/services/logUtils';
 import { assertSideGameOperationPermission } from '../lib/sideGameOperationPermission';
 import { getActiveBillByUser } from '../../bills/repos/getActiveBillByUser';
 import { appendSideGameChip } from '../../bills/repos/appendSideGameChip';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
+import { getStoreConfig } from '../../../shared/config/configLoader';
+import { validatePointConfigFromStoreConfig } from '../../../shared/config/validatePointConfig';
+import { readBalanceOrZeroIfMissing } from '../../user/helpers/userBalances';
+import { SIDE_GAME_CHIP_ID } from '../../user/types/pointIds';
+import {
+  withdrawSideGameChipLogId,
+  writeSideGameChipBalanceLogInTxWithSnap,
+} from '../../user/services/pointLog';
 
 export const withdrawChip = onCall(async (request) => {
-  // 認証チェック
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
 
   const callerUid = request.auth.uid;
-
   const db = getFirestore();
   const { userId, amount, clientNonce } = request.data;
   let billId: string | undefined;
@@ -34,12 +35,6 @@ export const withdrawChip = onCall(async (request) => {
   try {
     await assertSideGameOperationPermission({ callerUid });
 
-    console.log(`=== withdrawChip開始 ===`);
-    console.log(`userId: ${userId}`);
-    console.log(`amount: ${amount}`);
-    console.log(`clientNonce: ${clientNonce}`);
-
-    // パラメータの検証
     if (!userId || amount === undefined || amount === null || !clientNonce) {
       throw new HttpsError('invalid-argument', 'userId, amount, clientNonce are required');
     }
@@ -48,67 +43,95 @@ export const withdrawChip = onCall(async (request) => {
       throw new HttpsError('invalid-argument', 'amount must be a positive integer (chip quantity)');
     }
 
-    // usersコレクションから対象ユーザーのドキュメントを取得
-    const userDoc = await db.collection('users').doc(userId).get();
+    const storeConfig = await getStoreConfig(db);
+    const validatedConfig = validatePointConfigFromStoreConfig(storeConfig);
+    if (!validatedConfig.sideGameChipSettings.enabled) {
+      throw new FunctionCustomError({
+        errorKey: 'SIDE_GAME_CHIP_DISABLED',
+        message: 'サイドゲームチップ機能は現在無効です',
+      });
+    }
+
+    const userRef = db.collection('users').doc(userId);
+    const userDoc = await userRef.get();
     if (!userDoc.exists) {
       throw new HttpsError('not-found', `User not found: ${userId}`);
     }
 
-    const userData = userDoc.data()!;
-    // 移行済み店舗管理ユーザーは chip 引出不可（残高更新前）
+    const userData = userDoc.data() as Record<string, unknown>;
     assertUserNotMigrated(userData);
+    const currentChip = readBalanceOrZeroIfMissing(userData, SIDE_GAME_CHIP_ID);
 
-    const currentChip = userData.sideGameChip as number || 0;
-
-    console.log(`現在のchip残高: ${currentChip}`);
-    console.log(`引き出し予定額（チップ枚数）: ${amount}`);
-
-    // 残高チェック
     if (amount > currentChip) {
       throw new HttpsError('failed-precondition', 'Insufficient chip balance');
     }
 
-    // 1. getActiveBillByUser で billId を取得
     const active = await getActiveBillByUser(userId);
     billId = active.billId;
 
-    // 2. appendSideGameChip ヘルパを呼び出す（deterministic idempotencyKey）
     const op = 'withdrawChip';
     const idempotencyKey = `${billId}:${op}:${clientNonce}`;
     const appendResult = await appendSideGameChip({
       billId,
       action: 'withdraw',
-      chipQty: amount, // amount をそのまま使用（チップ枚数）
-      amountIncl: null, // withdraw は課金イベントではない
+      chipQty: amount,
+      amountIncl: null,
       menuItemId: null,
       name: null,
       idempotencyKey,
     });
 
-    // 3. idempotent replay チェック（reused のときはユーザ残高とログを更新しない）
     const isReplay = appendResult.diagnostics?.reused === true;
+    const chipId = appendResult.chipId;
 
-    if (!isReplay) {
-      // 3-1. chipを引き出し（初回のみ実行）
-      const newChipAmount = currentChip - amount;
-      await db.collection('users').doc(userId).update({
-        sideGameChip: newChipAmount,
-        updatedAt: new Date(),
-      });
+    // append と残高更新は別段階。残高ログ未作成なら（append reused でも）残高を適用する。
+    const logRef = userRef
+      .collection('sideGameChipLogs')
+      .doc(withdrawSideGameChipLogId(chipId));
+    const existingBalanceLog = await logRef.get();
+    const balanceAlreadyApplied = existingBalanceLog.exists;
 
-      // 3-2. ログ記録を追加（初回のみ実行）
-      await addLogEntry(userId, 'sideGameChipLogs', {
-        appliedAt: new Date(),
-        category: 'expense',
-        amountDelta: -amount, // 負の値
-        reasonType: 'sideGame',
-        actor: 'tablet_front', // 実際の端末IDに置き換え可能
+    if (!balanceAlreadyApplied) {
+      await db.runTransaction(async (tx) => {
+        const freshUser = await tx.get(userRef);
+        if (!freshUser.exists) {
+          throw new HttpsError('not-found', `User not found: ${userId}`);
+        }
+        const freshData = freshUser.data() as Record<string, unknown>;
+        const balanceBefore = readBalanceOrZeroIfMissing(freshData, SIDE_GAME_CHIP_ID);
+        if (amount > balanceBefore) {
+          throw new HttpsError('failed-precondition', 'Insufficient chip balance');
+        }
+        const balanceAfter = balanceBefore - amount;
+
+        const logSnap = await tx.get(logRef);
+        if (logSnap.exists) {
+          return;
+        }
+
+        tx.update(userRef, {
+          sideGameChip: balanceAfter,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        writeSideGameChipBalanceLogInTxWithSnap({
+          tx,
+          existingSnap: logSnap,
+          ref: logRef,
+          relatedId: chipId,
+          balanceBefore,
+          changeAmount: -amount,
+          balanceAfter,
+          reasonType: 'withdraw',
+        });
       });
     }
 
-    // レスポンス用に現在の残高を取得
-    const userDocFinal = await db.collection('users').doc(userId).get();
-    const finalBalance = userDocFinal.data()?.sideGameChip as number || 0;
+    const userDocFinal = await userRef.get();
+    const finalBalance = readBalanceOrZeroIfMissing(
+      userDocFinal.data() as Record<string, unknown>,
+      SIDE_GAME_CHIP_ID,
+    );
 
     logOpsSuccess({
       message: 'withdrawChip 成功',
@@ -118,7 +141,7 @@ export const withdrawChip = onCall(async (request) => {
         billId,
         amount,
         reused: isReplay,
-        chipId: appendResult.chipId,
+        chipId,
         finalBalance,
         previousBalance: currentChip,
       },
@@ -132,15 +155,31 @@ export const withdrawChip = onCall(async (request) => {
         withdrawAmount: amount,
         previousBalance: currentChip,
         newBalance: finalBalance,
-        chipId: appendResult.chipId, // 内部識別子（デバッグ用、クライアントには返さない想定）
+        chipId,
         reused: isReplay || false,
       },
     };
-
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: 'withdrawChip failed',
+        functionEntry: 'withdrawChip',
+        operation: 'withdrawChipTransaction',
+        cause: error,
+        context: {
+          callerUid,
+          userId,
+          billId,
+          errorKey: error.errorKey,
+        },
+      });
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+
     logOpsError({
       message: 'withdrawChipエラー:',
       functionEntry: 'withdrawChip',
+      operation: 'withdrawChipMainCatch',
       cause: error,
       context: {
         callerUid,

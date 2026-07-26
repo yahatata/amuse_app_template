@@ -2,11 +2,17 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { getCallerDeviceByUid, isActive } from "../../../shared/devices";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import {
+  FunctionCustomError,
+  mapFunctionCustomErrorToHttpsCode,
+} from "../../../shared/logging/functionCustomError";
 import { assertUserFreeForMigration } from "../helpers/assertUserFreeForMigration";
 import {
-  balancesEqual,
-  type BalanceTriple,
-} from "../helpers/validateBalanceTriple";
+  balanceSetsEqual,
+  type BalanceSet,
+} from "../helpers/validateBalanceSet";
+import { readAllStandardBalancesForMigration } from "../helpers/userBalances";
+import { ALL_BALANCE_IDS } from "../types/pointIds";
 import {
   isUserType,
   MIGRATION_TYPE_STORE_MANAGED_TO_LINE,
@@ -20,7 +26,7 @@ type MigrateIdempotencyDoc = {
   sourceUserId: string;
   targetUserId: string;
   migrationId: string;
-  balances: BalanceTriple;
+  balances: BalanceSet;
 };
 
 function normalizeOptionalNote(note: unknown): string | undefined {
@@ -74,32 +80,36 @@ function toIsoTimestamp(value: unknown): string {
   return new Date().toISOString();
 }
 
-function readBalanceTriple(data: FirebaseFirestore.DocumentData): BalanceTriple {
-  const pointA = data.pointA;
-  const pointB = data.pointB;
-  const sideGameChip = data.sideGameChip;
-  if (
-    typeof pointA !== "number" ||
-    typeof pointB !== "number" ||
-    typeof sideGameChip !== "number" ||
-    !Number.isInteger(pointA) ||
-    !Number.isInteger(pointB) ||
-    !Number.isInteger(sideGameChip) ||
-    pointA < 0 ||
-    pointB < 0 ||
-    sideGameChip < 0
-  ) {
-    throw new HttpsError(
-      "failed-precondition",
-      "移行元の残高が不正です",
-      {errorKey: "INVALID_BALANCE"},
-    );
+function throwMappedCustomError(error: FunctionCustomError): never {
+  throw new HttpsError(
+    mapFunctionCustomErrorToHttpsCode(error.errorKey),
+    error.message,
+    { errorKey: error.errorKey },
+  );
+}
+
+function flatBalanceSet(balances: BalanceSet): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const id of ALL_BALANCE_IDS) {
+    out[id] = balances[id];
   }
-  return {pointA, pointB, sideGameChip};
+  return out;
+}
+
+function readBalancesFromUserData(data: Record<string, unknown>): BalanceSet {
+  try {
+    return readAllStandardBalancesForMigration(data);
+  } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      throwMappedCustomError(error);
+    }
+    throw error;
+  }
 }
 
 /**
  * 店舗管理ユーザーの残高を LINE ユーザーへ上書き移行する。
+ * 常に全標準 6 残高をコピーする（config enabled に依存しない）。
  */
 export const migrateStoreManagedUserToLine = onCall(async (request) => {
   if (!request.auth) {
@@ -114,14 +124,14 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
     throw new HttpsError(
       "permission-denied",
       "デバイスが見つからないか、アクティブではありません",
-      {errorKey: "PERMISSION_DENIED"},
+      { errorKey: "PERMISSION_DENIED" },
     );
   }
   if (device.role !== "admin") {
     throw new HttpsError(
       "permission-denied",
       "後日LINE化には管理者権限が必要です",
-      {errorKey: "PERMISSION_DENIED"},
+      { errorKey: "PERMISSION_DENIED" },
     );
   }
 
@@ -148,7 +158,7 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
     throw new HttpsError(
       "invalid-argument",
       "移行元と移行先は異なるユーザーである必要があります",
-      {errorKey: "INVALID_ARGUMENT"},
+      { errorKey: "INVALID_ARGUMENT" },
     );
   }
 
@@ -156,20 +166,20 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
     throw new HttpsError(
       "invalid-argument",
       "同一人物確認が必要です",
-      {errorKey: "CONFIRMATION_REQUIRED"},
+      { errorKey: "CONFIRMATION_REQUIRED" },
     );
   }
   if (confirmOverwrite !== true) {
     throw new HttpsError(
       "invalid-argument",
       "上書き確認が必要です",
-      {errorKey: "CONFIRMATION_REQUIRED"},
+      { errorKey: "CONFIRMATION_REQUIRED" },
     );
   }
 
   const note = normalizeOptionalNote(noteRaw);
   const clientNonce = normalizeClientNonce(clientNonceRaw);
-  const logContext: Record<string, unknown> = {sourceUserId, targetUserId};
+  const logContext: Record<string, unknown> = { sourceUserId, targetUserId };
   const db = admin.firestore();
   const sourceRef = db.collection("users").doc(sourceUserId);
   const targetRef = db.collection("users").doc(targetUserId);
@@ -184,7 +194,9 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
         sourcePre.migratedToUserId === targetUserId
       ) {
         const targetPreSnap = await targetRef.get();
-        const targetPre = targetPreSnap.exists ? targetPreSnap.data()! : {};
+        const targetPre = targetPreSnap.exists
+          ? (targetPreSnap.data() as Record<string, unknown>)
+          : {};
         let migrationId = "reused";
         const existingLog = await targetRef
           .collection("balanceMigrationLogs")
@@ -195,22 +207,17 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
         if (!existingLog.empty) {
           migrationId = existingLog.docs[0].id;
         }
-        const balances = {
-          pointA: typeof targetPre.pointA === "number" ? targetPre.pointA : 0,
-          pointB: typeof targetPre.pointB === "number" ? targetPre.pointB : 0,
-          sideGameChip:
-            typeof targetPre.sideGameChip === "number" ? targetPre.sideGameChip : 0,
-        };
+        const balances = readBalancesFromUserData(targetPre);
         logOpsSuccess({
           message: "migrateStoreManagedUserToLine 成功（reused）",
           functionEntry: "migrateStoreManagedUserToLine",
-          context: {sourceUserId, targetUserId, migrationId, reused: true},
+          context: { sourceUserId, targetUserId, migrationId, reused: true },
         });
         return {
           success: true,
           sourceUserId,
           targetUserId,
-          balances,
+          balances: flatBalanceSet(balances),
           migrationId,
           migratedAt: toIsoTimestamp(sourcePre.migratedAt),
           reused: true,
@@ -218,9 +225,8 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
       }
     }
 
-    // tx 前のフル進行中業務検査（双方）
-    await assertUserFreeForMigration(sourceUserId, {db});
-    await assertUserFreeForMigration(targetUserId, {db});
+    await assertUserFreeForMigration(sourceUserId, { db });
+    await assertUserFreeForMigration(targetUserId, { db });
 
     const migrationRef = targetRef.collection("balanceMigrationLogs").doc();
     const idempotencyRef = clientNonce
@@ -230,8 +236,12 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
     const result = await db.runTransaction(async (tx) => {
       const sourceSnap = await tx.get(sourceRef);
       const targetSnap = await tx.get(targetRef);
-      const sourceStaySnap = await tx.get(db.collection("activeStays").doc(sourceUserId));
-      const targetStaySnap = await tx.get(db.collection("activeStays").doc(targetUserId));
+      const sourceStaySnap = await tx.get(
+        db.collection("activeStays").doc(sourceUserId),
+      );
+      const targetStaySnap = await tx.get(
+        db.collection("activeStays").doc(targetUserId),
+      );
 
       if (!sourceSnap.exists) {
         throw new HttpsError("not-found", "移行元ユーザーが見つかりません", {
@@ -244,28 +254,28 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
         });
       }
 
-      const sourceData = sourceSnap.data()!;
-      const targetData = targetSnap.data()!;
+      const sourceData = sourceSnap.data() as Record<string, unknown>;
+      const targetData = targetSnap.data() as Record<string, unknown>;
 
       if (!isUserType(sourceData.userType)) {
         throw new HttpsError(
           "failed-precondition",
           "移行元のユーザー種別が不正、または未設定です",
-          {errorKey: "INVALID_USER_TYPE"},
+          { errorKey: "INVALID_USER_TYPE" },
         );
       }
       if (sourceData.userType !== USER_TYPE_STORE_MANAGED) {
         throw new HttpsError(
           "failed-precondition",
           "移行元は店舗管理ユーザーである必要があります",
-          {errorKey: "SOURCE_USER_NOT_STORE_MANAGED"},
+          { errorKey: "SOURCE_USER_NOT_STORE_MANAGED" },
         );
       }
       if (typeof sourceData.isMigrated !== "boolean") {
         throw new HttpsError(
           "failed-precondition",
           "移行元のユーザー種別が不正、または未設定です",
-          {errorKey: "INVALID_USER_TYPE"},
+          { errorKey: "INVALID_USER_TYPE" },
         );
       }
 
@@ -273,26 +283,20 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
         throw new HttpsError(
           "failed-precondition",
           "移行先のユーザー種別が不正、または未設定です",
-          {errorKey: "INVALID_USER_TYPE"},
+          { errorKey: "INVALID_USER_TYPE" },
         );
       }
       if (targetData.userType !== USER_TYPE_LINE) {
         throw new HttpsError(
           "failed-precondition",
           "移行先はLINEユーザーである必要があります",
-          {errorKey: "TARGET_USER_NOT_LINE"},
+          { errorKey: "TARGET_USER_NOT_LINE" },
         );
       }
 
-      // 冪等: 同一 source → 同一 target
       if (sourceData.isMigrated === true) {
         if (sourceData.migratedToUserId === targetUserId) {
-          const balances = {
-            pointA: typeof targetData.pointA === "number" ? targetData.pointA : 0,
-            pointB: typeof targetData.pointB === "number" ? targetData.pointB : 0,
-            sideGameChip:
-              typeof targetData.sideGameChip === "number" ? targetData.sideGameChip : 0,
-          };
+          const balances = readAllStandardBalancesForMigration(targetData);
           return {
             reused: true as const,
             migrationId: "reused",
@@ -303,9 +307,13 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
         throw new HttpsError(
           "failed-precondition",
           "この店舗管理ユーザーは既に別のLINEユーザーへ移行済みです",
-          {errorKey: "USER_ALREADY_MIGRATED"},
+          { errorKey: "USER_ALREADY_MIGRATED" },
         );
       }
+
+      const balances = readAllStandardBalancesForMigration(sourceData);
+      // target 側の corrupt も拒否（上書き前に健全性確認）
+      readAllStandardBalancesForMigration(targetData);
 
       if (idempotencyRef) {
         const idemSnap = await tx.get(idempotencyRef);
@@ -315,7 +323,7 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
             existing?.sourceUserId === sourceUserId &&
             existing?.targetUserId === targetUserId &&
             existing?.balances &&
-            balancesEqual(existing.balances, readBalanceTriple(sourceData));
+            balanceSetsEqual(existing.balances, balances);
           if (samePayload) {
             return {
               reused: true as const,
@@ -327,12 +335,11 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
           throw new HttpsError(
             "aborted",
             "同一の再送キーで異なる移行内容が指定されています",
-            {errorKey: "IDEMPOTENCY_CONFLICT"},
+            { errorKey: "IDEMPOTENCY_CONFLICT" },
           );
         }
       }
 
-      // tx 内再検査（レース抑止）
       await assertUserFreeForMigration(sourceUserId, {
         db,
         includeRemoteScans: false,
@@ -346,24 +353,16 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
         activeStaySnapshot: targetStaySnap,
       });
 
-      const balances = readBalanceTriple(sourceData);
       const migrationId = migrationRef.id;
       const serverTs = admin.firestore.FieldValue.serverTimestamp();
+      const flat = flatBalanceSet(balances);
 
-      tx.update(targetRef, {
-        pointA: balances.pointA,
-        pointB: balances.pointB,
-        sideGameChip: balances.sideGameChip,
-      });
+      tx.update(targetRef, { ...flat });
 
       const logDoc: Record<string, unknown> = {
         migrationType: MIGRATION_TYPE_STORE_MANAGED_TO_LINE,
         sourceUserId,
-        balances: {
-          pointA: balances.pointA,
-          pointB: balances.pointB,
-          sideGameChip: balances.sideGameChip,
-        },
+        balances: flat,
         createdAt: serverTs,
       };
       if (note !== undefined) {
@@ -382,11 +381,7 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
           sourceUserId,
           targetUserId,
           migrationId,
-          balances: {
-            pointA: balances.pointA,
-            pointB: balances.pointB,
-            sideGameChip: balances.sideGameChip,
-          },
+          balances: flat,
           createdAt: serverTs,
         });
       }
@@ -405,7 +400,6 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
       const sourceAfter = await sourceRef.get();
       migratedAt = toIsoTimestamp(sourceAfter.data()?.migratedAt);
     } else if (migrationId === "reused") {
-      // 同一移行済みの最小復元: 既存ログがあればその ID を返す
       const existingLog = await targetRef
         .collection("balanceMigrationLogs")
         .where("migrationType", "==", MIGRATION_TYPE_STORE_MANAGED_TO_LINE)
@@ -433,18 +427,33 @@ export const migrateStoreManagedUserToLine = onCall(async (request) => {
       success: true,
       sourceUserId,
       targetUserId,
-      balances: result.balances,
+      balances: flatBalanceSet(result.balances),
       migrationId,
       migratedAt,
-      ...(result.reused ? {reused: true} : {}),
+      ...(result.reused ? { reused: true } : {}),
     };
   } catch (error) {
+    if (error instanceof FunctionCustomError) {
+      logOpsError({
+        message: "migrateStoreManagedUserToLine failed",
+        functionEntry: "migrateStoreManagedUserToLine",
+        operation: "migrateTransaction",
+        cause: error,
+        context: {
+          sourceUserId,
+          targetUserId,
+          errorKey: error.errorKey,
+        },
+      });
+      throwMappedCustomError(error);
+    }
     if (error instanceof HttpsError) {
       throw error;
     }
     logOpsError({
       message: "migrateStoreManagedUserToLine エラー",
       functionEntry: "migrateStoreManagedUserToLine",
+      operation: "migrateMainCatch",
       cause: error,
       context: logContext,
     });

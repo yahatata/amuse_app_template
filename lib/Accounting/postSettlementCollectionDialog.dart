@@ -3,8 +3,9 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import 'package:amuse_app_template/services/store_config_defaults.dart';
-import 'package:amuse_app_template/services/store_config_service.dart';
+import 'package:amuse_app_template/user/balance_display.dart';
+import 'package:amuse_app_template/user/point_ids.dart';
+import 'package:amuse_app_template/user/side_game_chip_display.dart';
 
 /// 会計後追加徴収ダイアログ。
 ///
@@ -106,6 +107,9 @@ class _PostSettlementCollectionDialogState
           'sideGameChip': (userData['sideGameChip'] as num?)?.toInt() ?? 0,
           'pointA': (userData['pointA'] as num?)?.toInt() ?? 0,
           'pointB': (userData['pointB'] as num?)?.toInt() ?? 0,
+          'pointC': (userData['pointC'] as num?)?.toInt() ?? 0,
+          'pointD': (userData['pointD'] as num?)?.toInt() ?? 0,
+          'pointE': (userData['pointE'] as num?)?.toInt() ?? 0,
         };
       }
 
@@ -181,8 +185,6 @@ class _PostSettlementCollectionDialogState
   }
 
   List<DropdownMenuItem<String>> _buildMethodItems() {
-    final chipRate = StoreConfigService.instance.latestData?.sideGameChipRate ??
-        kDefaultSideGameChipRate;
     final fmt = NumberFormat('#,###');
 
     final items = <DropdownMenuItem<String>>[
@@ -196,25 +198,25 @@ class _PostSettlementCollectionDialogState
     ];
 
     if (_userId != null) {
-      final chipBalance = _userBalance['sideGameChip'] ?? 0;
-      final chipYen = (chipBalance * chipRate).toInt();
-      items.add(DropdownMenuItem(
-        value: 'sideGameChip',
-        child: Text(
-            'ゲームチップ（残高: ${fmt.format(chipBalance)}枚 / ${fmt.format(chipYen)}円相当）'),
-      ));
+      final enabled = enabledBalanceIdsFromStoreConfig().toSet();
 
-      final pointABalance = _userBalance['pointA'] ?? 0;
-      items.add(DropdownMenuItem(
-        value: 'pointA',
-        child: Text('ポイントA（残高: ¥${fmt.format(pointABalance)}）'),
-      ));
+      if (enabled.contains(kSideGameChipId)) {
+        final chipBalance = _userBalance['sideGameChip'] ?? 0;
+        items.add(DropdownMenuItem(
+          value: 'sideGameChip',
+          child: Text(
+              '${balanceDisplayName(kSideGameChipId)}（残高: ${formatSideGameChipBalanceDisplay(chipBalance)}）'),
+        ));
+      }
 
-      final pointBBalance = _userBalance['pointB'] ?? 0;
-      items.add(DropdownMenuItem(
-        value: 'pointB',
-        child: Text('ポイントB（残高: ¥${fmt.format(pointBBalance)}）'),
-      ));
+      for (final p in kCurrencyPointIds) {
+        if (!enabled.contains(p)) continue;
+        final bal = _userBalance[p] ?? 0;
+        items.add(DropdownMenuItem(
+          value: p,
+          child: Text('${balanceDisplayName(p)}（残高: ¥${fmt.format(bal)}）'),
+        ));
+      }
     }
 
     return items;
@@ -223,15 +225,21 @@ class _PostSettlementCollectionDialogState
   /// 選択中メソッドの残高上限を「円」で返す（ガイド表示用）
   int? _selectedMethodMaxYen() {
     if (_userId == null) return null;
-    final chipRate = StoreConfigService.instance.latestData?.sideGameChipRate ??
-        kDefaultSideGameChipRate;
     switch (_method) {
       case 'sideGameChip':
-        return ((_userBalance['sideGameChip'] ?? 0) * chipRate).toInt();
+        return sideGameChipBalanceToReferenceYen(
+          _userBalance['sideGameChip'] ?? 0,
+        );
       case 'pointA':
         return _userBalance['pointA'] ?? 0;
       case 'pointB':
         return _userBalance['pointB'] ?? 0;
+      case 'pointC':
+        return _userBalance['pointC'] ?? 0;
+      case 'pointD':
+        return _userBalance['pointD'] ?? 0;
+      case 'pointE':
+        return _userBalance['pointE'] ?? 0;
       default:
         return null;
     }
@@ -239,7 +247,9 @@ class _PostSettlementCollectionDialogState
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return PopScope(
+      canPop: !_submitting,
+      child: AlertDialog(
       title: const Text('追加徴収'),
       content: _loading
           ? const SizedBox(
@@ -265,6 +275,7 @@ class _PostSettlementCollectionDialogState
                   TextField(
                     controller: _amountCtrl,
                     keyboardType: TextInputType.number,
+                    enabled: !_submitting,
                     decoration: InputDecoration(
                       labelText: '徴収額（円・税込）',
                       helperText: () {
@@ -319,6 +330,7 @@ class _PostSettlementCollectionDialogState
               : const Text('徴収する'),
         ),
       ],
+    ),
     );
   }
 }

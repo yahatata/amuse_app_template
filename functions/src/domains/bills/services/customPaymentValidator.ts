@@ -1,19 +1,25 @@
 /**
- * カスタム支払い（paymentMethodsByCategory）の検証と正規化
+ * A-7: 手動支払い（paymentMethodsByCategory）の検証と正規化
+ *
+ * 自動充当では上書きしない。ByAmount はサーバ集計の派生値。
  */
 
 import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
 import {
-  computeMaxRoundedPointYen,
-  DEFAULT_ROUNDING_UNITS,
-  isChipCountAlignedToUnit,
-  isPointYenAlignedToUnit,
-  PointLikeMethod,
-  RoundingUnits,
-} from './paymentRounding';
-
-const CASH_LIKE_METHODS = new Set(['cash', 'credit_card', 'electronic_money']);
-const POINT_METHODS = new Set(['pointA', 'pointB', 'sideGameChip']);
+  isBalanceId,
+  isCashLikeMethod,
+} from '../../user/types/pointIds';
+import { assertUsableBalanceValue } from '../../user/helpers/userBalances';
+import type { BalancePaymentSettings } from '../../../shared/config/types';
+import { referenceToBalanceAmount } from './pointConversion';
+import {
+  aggregatePaymentMethodsByAmountFromCategory,
+  buildPaymentMethodDetails,
+  paymentMethodsByAmountEqual,
+  throwPaymentSplitMismatch,
+  type PaymentMethodDetails,
+} from './paymentMethodAggregation';
+import type { PaymentMethodValue } from './paymentMethodsInference';
 
 export type CategoryPaymentSplit = { method: string; amount: number };
 export type CategoryPaymentValue = string | CategoryPaymentSplit[];
@@ -23,26 +29,17 @@ export interface ValidateCustomPaymentParams {
   paymentMethodsByCategory: Record<string, CategoryPaymentValue>;
   categoryPaymentMethods: Record<string, string[]>;
   balances: Record<string, number>;
-  chipRate: number;
-  roundingUnits?: RoundingUnits;
+  balancePaymentSettings: BalancePaymentSettings;
+  /** enabled map: balanceId -> enabled */
+  balanceEnabled: Record<string, boolean>;
   clientPaymentMethodsByAmount?: Record<string, number>;
 }
 
 export interface ValidateCustomPaymentResult {
+  paymentMethodsByCategory: Record<string, PaymentMethodValue>;
   paymentMethodsByAmount: Record<string, number>;
-}
-
-function isPointMethod(method: string): method is PointLikeMethod {
-  return POINT_METHODS.has(method);
-}
-
-function addToAmount(
-  target: Record<string, number>,
-  method: string,
-  yen: number,
-): void {
-  if (yen <= 0) return;
-  target[method] = (target[method] || 0) + Math.floor(yen);
+  paymentMethodDetails: PaymentMethodDetails;
+  usedBalanceAmounts: Record<string, number>;
 }
 
 function validateMethodAllowed(
@@ -52,205 +49,88 @@ function validateMethodAllowed(
 ): void {
   if (!allowedMethods.includes(method)) {
     throw new FunctionCustomError({
-      errorKey: 'CUSTOM_PAYMENT_METHOD_NOT_ALLOWED',
+      errorKey: 'PAYMENT_METHOD_NOT_ALLOWED',
       message: `カテゴリ「${category}」では支払い方法「${method}」は使用できません`,
       context: { category, method, allowedMethods },
     });
   }
 }
 
-function validateCategoryStringPayment(params: {
-  category: string;
-  categoryAmount: number;
-  method: string;
-  allowedMethods: string[];
-  remainingBalances: Record<string, number>;
-  chipRate: number;
-  roundingUnits: RoundingUnits;
-  normalized: Record<string, number>;
-  pointUsage: Record<string, number>;
-}): void {
-  const {
-    category,
-    categoryAmount,
-    method,
-    allowedMethods,
-    remainingBalances,
-    chipRate,
-    roundingUnits,
-    normalized,
-    pointUsage,
-  } = params;
-
-  validateMethodAllowed(category, method, allowedMethods);
-
-  if (CASH_LIKE_METHODS.has(method)) {
-    addToAmount(normalized, method, categoryAmount);
-    return;
-  }
-
-  if (!isPointMethod(method)) {
+function assertBalanceEnabled(method: string, balanceEnabled: Record<string, boolean>): void {
+  if (isBalanceId(method) && balanceEnabled[method] !== true) {
     throw new FunctionCustomError({
-      errorKey: 'CUSTOM_PAYMENT_INVALID_METHOD',
-      message: `未対応の支払い方法です: ${method}`,
-      context: { category, method },
+      errorKey: 'BALANCE_TYPE_DISABLED',
+      message: `${method} は無効です`,
+      context: { method },
     });
-  }
-
-  const roundedYen = computeMaxRoundedPointYen({
-    method,
-    categoryAmountYen: categoryAmount,
-    balance: remainingBalances[method] || 0,
-    chipRate,
-    roundingUnits,
-  });
-
-  if (roundedYen < categoryAmount) {
-    throw new FunctionCustomError({
-      errorKey: 'CUSTOM_PAYMENT_ROUNDING_REMAINDER_REQUIRES_SPLIT',
-      message:
-        `カテゴリ「${category}」は丸め単位のため単一の${method}では全額払えません。` +
-        `使用可能: ${roundedYen}円、カテゴリ金額: ${categoryAmount}円。分割支払いを指定してください`,
-      context: { category, method, roundedYen, categoryAmount },
-    });
-  }
-
-  if (roundedYen !== categoryAmount) {
-    throw new FunctionCustomError({
-      errorKey: 'CUSTOM_PAYMENT_AMOUNT_MISMATCH',
-      message: `カテゴリ「${category}」の${method}支払い額が一致しません`,
-      context: { category, method, roundedYen, categoryAmount },
-    });
-  }
-
-  if (method === 'sideGameChip') {
-    const chipsUsed = Math.floor(roundedYen / chipRate);
-    if ((remainingBalances.sideGameChip || 0) < chipsUsed) {
-      throw new FunctionCustomError({
-        errorKey: 'ACCOUNTING_INSUFFICIENT_BALANCE',
-        message: `sideGameChipの残高が不足しています（カテゴリ: ${category}）`,
-        context: {
-          category,
-          balance: remainingBalances.sideGameChip,
-          required: chipsUsed,
-        },
-      });
-    }
-    addToAmount(normalized, method, roundedYen);
-    pointUsage.sideGameChip = (pointUsage.sideGameChip || 0) + chipsUsed;
-    remainingBalances.sideGameChip = (remainingBalances.sideGameChip || 0) - chipsUsed;
-  } else {
-    if ((remainingBalances[method] || 0) < roundedYen) {
-      throw new FunctionCustomError({
-        errorKey: 'ACCOUNTING_INSUFFICIENT_BALANCE',
-        message: `${method}の残高が不足しています（カテゴリ: ${category}）`,
-        context: { category, balance: remainingBalances[method], required: roundedYen },
-      });
-    }
-    addToAmount(normalized, method, roundedYen);
-    pointUsage[method] = (pointUsage[method] || 0) + roundedYen;
-    remainingBalances[method] = (remainingBalances[method] || 0) - roundedYen;
   }
 }
 
-function validateCategorySplitPayment(params: {
-  category: string;
-  categoryAmount: number;
-  splits: CategoryPaymentSplit[];
-  allowedMethods: string[];
-  chipRate: number;
-  roundingUnits: RoundingUnits;
-  normalized: Record<string, number>;
-  pointUsage: Record<string, number>;
+function consumeBalanceReference(params: {
+  method: string;
+  referenceAmount: number;
   remainingBalances: Record<string, number>;
+  balancePaymentSettings: BalancePaymentSettings;
+  usedBalanceAmounts: Record<string, number>;
+  category: string;
 }): void {
   const {
-    category,
-    categoryAmount,
-    splits,
-    allowedMethods,
-    chipRate,
-    roundingUnits,
-    normalized,
-    pointUsage,
+    method,
+    referenceAmount,
     remainingBalances,
+    balancePaymentSettings,
+    usedBalanceAmounts,
+    category,
   } = params;
 
-  let splitTotalYen = 0;
-
-  for (const split of splits) {
-    const method = split.method;
-    const amount = Math.floor(Number(split.amount) || 0);
-    if (amount <= 0) continue;
-
-    validateMethodAllowed(category, method, allowedMethods);
-
-    if (method === 'sideGameChip') {
-      if (!isChipCountAlignedToUnit(amount, roundingUnits.sideGameChip)) {
-        throw new FunctionCustomError({
-          errorKey: 'CUSTOM_PAYMENT_CHIP_NOT_ALIGNED',
-          message: `チップ枚数は${roundingUnits.sideGameChip}枚単位である必要があります（カテゴリ: ${category}）`,
-          context: { category, amount, unit: roundingUnits.sideGameChip },
-        });
-      }
-      const yenAmount = Math.floor(amount * chipRate);
-      if ((remainingBalances.sideGameChip || 0) < amount) {
-        throw new FunctionCustomError({
-          errorKey: 'ACCOUNTING_INSUFFICIENT_BALANCE',
-          message: `sideGameChipの残高が不足しています（カテゴリ: ${category}）`,
-          context: {
-            category,
-            balance: remainingBalances.sideGameChip,
-            required: amount,
-          },
-        });
-      }
-      addToAmount(normalized, method, yenAmount);
-      pointUsage.sideGameChip = (pointUsage.sideGameChip || 0) + amount;
-      remainingBalances.sideGameChip = (remainingBalances.sideGameChip || 0) - amount;
-      splitTotalYen += yenAmount;
-    } else if (method === 'pointA' || method === 'pointB') {
-      if (!isPointYenAlignedToUnit(amount, roundingUnits.pointAB)) {
-        throw new FunctionCustomError({
-          errorKey: 'CUSTOM_PAYMENT_POINT_NOT_ALIGNED',
-          message: `ポイント使用額は${roundingUnits.pointAB}円単位である必要があります（カテゴリ: ${category}）`,
-          context: { category, amount, unit: roundingUnits.pointAB },
-        });
-      }
-      if ((remainingBalances[method] || 0) < amount) {
-        throw new FunctionCustomError({
-          errorKey: 'ACCOUNTING_INSUFFICIENT_BALANCE',
-          message: `${method}の残高が不足しています（カテゴリ: ${category}）`,
-          context: { category, balance: remainingBalances[method], required: amount },
-        });
-      }
-      addToAmount(normalized, method, amount);
-      pointUsage[method] = (pointUsage[method] || 0) + amount;
-      remainingBalances[method] = (remainingBalances[method] || 0) - amount;
-      splitTotalYen += amount;
-    } else if (CASH_LIKE_METHODS.has(method)) {
-      addToAmount(normalized, method, amount);
-      splitTotalYen += amount;
-    } else {
-      throw new FunctionCustomError({
-        errorKey: 'CUSTOM_PAYMENT_INVALID_METHOD',
-        message: `未対応の支払い方法です: ${method}`,
-        context: { category, method },
-      });
-    }
-  }
-
-  if (splitTotalYen !== categoryAmount) {
+  if (!Number.isInteger(referenceAmount) || referenceAmount < 0) {
     throw new FunctionCustomError({
-      errorKey: 'CUSTOM_PAYMENT_CATEGORY_TOTAL_MISMATCH',
-      message: `カテゴリ「${category}」の支払い合計が一致しません。合計: ${splitTotalYen}円、期待: ${categoryAmount}円`,
-      context: { category, splitTotalYen, categoryAmount },
+      errorKey: 'INVALID_ARGUMENT',
+      message: '基準値量は非負整数である必要があります',
+      context: { category, method, referenceAmount },
     });
   }
+  if (referenceAmount === 0) return;
+
+  const setting = balancePaymentSettings[method as keyof BalancePaymentSettings];
+  if (!setting) {
+    throw new FunctionCustomError({
+      errorKey: 'CONFIG_POINT_INVALID',
+      message: `${method} の balancePaymentSettings がありません`,
+      context: { method },
+    });
+  }
+  if (referenceAmount % setting.usageUnit !== 0) {
+    throw new FunctionCustomError({
+      errorKey: 'USAGE_UNIT_VIOLATION',
+      message: `${method} の利用単位（${setting.usageUnit}）に合いません`,
+      context: { method, referenceAmount, usageUnit: setting.usageUnit },
+    });
+  }
+
+  const conv = referenceToBalanceAmount(referenceAmount, setting.conversion);
+  if (!conv.ok) {
+    throw new FunctionCustomError({
+      errorKey: conv.errorKey,
+      message: conv.message,
+      context: { method, referenceAmount },
+    });
+  }
+  const balanceUse = conv.amount;
+  const available = remainingBalances[method] || 0;
+  if (available < balanceUse) {
+    throw new FunctionCustomError({
+      errorKey: 'ACCOUNTING_INSUFFICIENT_BALANCE',
+      message: `${method} の残高が不足しています`,
+      context: { method, available, required: balanceUse, category },
+    });
+  }
+  remainingBalances[method] = available - balanceUse;
+  usedBalanceAmounts[method] = (usedBalanceAmounts[method] || 0) + balanceUse;
 }
 
 /**
- * カスタム支払いを検証し、paymentMethodsByAmount をサーバー側で算出する
+ * 手動支払いを検証し、ByAmount・Details をサーバ側で算出する。
  */
 export function validateAndNormalizeCustomPayment(
   params: ValidateCustomPaymentParams,
@@ -260,22 +140,17 @@ export function validateAndNormalizeCustomPayment(
     paymentMethodsByCategory,
     categoryPaymentMethods,
     balances,
-    chipRate,
-    roundingUnits = DEFAULT_ROUNDING_UNITS,
+    balancePaymentSettings,
+    balanceEnabled,
     clientPaymentMethodsByAmount,
   } = params;
 
-  const normalized: Record<string, number> = {};
-  const pointUsage: Record<string, number> = {
-    pointA: 0,
-    pointB: 0,
-    sideGameChip: 0,
-  };
-  const remainingBalances: Record<string, number> = {
-    pointA: balances.pointA || 0,
-    pointB: balances.pointB || 0,
-    sideGameChip: balances.sideGameChip || 0,
-  };
+  const remainingBalances: Record<string, number> = {};
+  for (const [id, value] of Object.entries(balances)) {
+    remainingBalances[id] = assertUsableBalanceValue(value, { balanceId: id });
+  }
+  const usedBalanceAmounts: Record<string, number> = {};
+  const normalizedCategory: Record<string, PaymentMethodValue> = {};
 
   for (const [category, categoryAmount] of Object.entries(categoryAmounts)) {
     if (categoryAmount <= 0) continue;
@@ -292,29 +167,71 @@ export function validateAndNormalizeCustomPayment(
     const allowedMethods = categoryPaymentMethods[category] || [];
 
     if (typeof paymentValue === 'string') {
-      validateCategoryStringPayment({
-        category,
-        categoryAmount,
-        method: paymentValue,
-        allowedMethods,
-        remainingBalances,
-        chipRate,
-        roundingUnits,
-        normalized,
-        pointUsage,
-      });
+      const method = paymentValue;
+      if (!isCashLikeMethod(method) && !isBalanceId(method)) {
+        throw new FunctionCustomError({
+          errorKey: 'UNKNOWN_PAYMENT_METHOD',
+          message: `未知の支払い方法です: ${method}`,
+          context: { category, method },
+        });
+      }
+      validateMethodAllowed(category, method, allowedMethods);
+      assertBalanceEnabled(method, balanceEnabled);
+      if (isBalanceId(method)) {
+        consumeBalanceReference({
+          method,
+          referenceAmount: categoryAmount,
+          remainingBalances,
+          balancePaymentSettings,
+          usedBalanceAmounts,
+          category,
+        });
+      }
+      normalizedCategory[category] = method;
     } else if (Array.isArray(paymentValue)) {
-      validateCategorySplitPayment({
-        category,
-        categoryAmount,
-        splits: paymentValue,
-        allowedMethods,
-        chipRate,
-        roundingUnits,
-        normalized,
-        pointUsage,
-        remainingBalances,
-      });
+      let splitSum = 0;
+      const splits: CategoryPaymentSplit[] = [];
+      for (const split of paymentValue) {
+        const method = split.method;
+        const amount = Math.floor(Number(split.amount) || 0);
+        if (!isCashLikeMethod(method) && !isBalanceId(method)) {
+          throw new FunctionCustomError({
+            errorKey: 'UNKNOWN_PAYMENT_METHOD',
+            message: `未知の支払い方法です: ${method}`,
+            context: { category, method },
+          });
+        }
+        validateMethodAllowed(category, method, allowedMethods);
+        assertBalanceEnabled(method, balanceEnabled);
+        if (amount < 0 || !Number.isInteger(Number(split.amount))) {
+          throw new FunctionCustomError({
+            errorKey: 'INVALID_ARGUMENT',
+            message: '分割金額は非負整数である必要があります',
+            context: { category, method, amount: split.amount },
+          });
+        }
+        if (amount === 0) continue;
+        splitSum += amount;
+        if (isBalanceId(method)) {
+          consumeBalanceReference({
+            method,
+            referenceAmount: amount,
+            remainingBalances,
+            balancePaymentSettings,
+            usedBalanceAmounts,
+            category,
+          });
+        }
+        splits.push({ method, amount });
+      }
+      if (splitSum !== categoryAmount) {
+        throw new FunctionCustomError({
+          errorKey: 'ACCOUNTING_PAYMENT_TOTAL_MISMATCH',
+          message: `カテゴリ「${category}」の分割合計が一致しません`,
+          context: { category, splitSum, categoryAmount },
+        });
+      }
+      normalizedCategory[category] = splits;
     } else {
       throw new FunctionCustomError({
         errorKey: 'CUSTOM_PAYMENT_INVALID_FORMAT',
@@ -324,8 +241,13 @@ export function validateAndNormalizeCustomPayment(
     }
   }
 
+  const paymentMethodsByAmount = aggregatePaymentMethodsByAmountFromCategory({
+    paymentMethodsByCategory: normalizedCategory,
+    categoryAmounts,
+  });
+
   const totalExpected = Object.values(categoryAmounts).reduce((s, v) => s + v, 0);
-  const totalPaid = Object.values(normalized).reduce((s, v) => s + v, 0);
+  const totalPaid = Object.values(paymentMethodsByAmount).reduce((s, v) => s + v, 0);
   if (totalPaid !== totalExpected) {
     throw new FunctionCustomError({
       errorKey: 'ACCOUNTING_PAYMENT_TOTAL_MISMATCH',
@@ -335,31 +257,24 @@ export function validateAndNormalizeCustomPayment(
   }
 
   if (clientPaymentMethodsByAmount) {
-    for (const [method, amount] of Object.entries(clientPaymentMethodsByAmount)) {
-      const serverAmount = normalized[method] || 0;
-      if (Math.floor(amount) !== serverAmount) {
-        throw new FunctionCustomError({
-          errorKey: 'CUSTOM_PAYMENT_CLIENT_SERVER_MISMATCH',
-          message: `クライアントとサーバーの支払い内訳が一致しません（${method}）`,
-          context: {
-            method,
-            clientAmount: Math.floor(amount),
-            serverAmount,
-          },
-        });
-      }
-    }
-    for (const [method, serverAmount] of Object.entries(normalized)) {
-      const clientAmount = Math.floor(clientPaymentMethodsByAmount[method] || 0);
-      if (clientAmount !== serverAmount) {
-        throw new FunctionCustomError({
-          errorKey: 'CUSTOM_PAYMENT_CLIENT_SERVER_MISMATCH',
-          message: `クライアントとサーバーの支払い内訳が一致しません（${method}）`,
-          context: { method, clientAmount, serverAmount },
-        });
-      }
+    if (!paymentMethodsByAmountEqual(clientPaymentMethodsByAmount, paymentMethodsByAmount)) {
+      throwPaymentSplitMismatch({
+        client: clientPaymentMethodsByAmount,
+        server: paymentMethodsByAmount,
+      });
     }
   }
 
-  return { paymentMethodsByAmount: normalized };
+  const paymentMethodDetails = buildPaymentMethodDetails({
+    paymentMethodsByAmount,
+    usedBalanceAmounts,
+    balancePaymentSettings,
+  });
+
+  return {
+    paymentMethodsByCategory: normalizedCategory,
+    paymentMethodsByAmount,
+    paymentMethodDetails,
+    usedBalanceAmounts,
+  };
 }

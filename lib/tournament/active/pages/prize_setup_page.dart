@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/globalConstant.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_prize_participant_count.dart';
+import 'package:amuse_app_template/tournament/prize_conversion_preview.dart';
+import 'package:amuse_app_template/tournament/ranking_reward_point_candidates.dart';
+import 'package:amuse_app_template/user/point_conversion.dart';
 
 class PrizeSetupPage extends StatefulWidget {
   final String tournamentId;
@@ -31,8 +33,28 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
   double _prizeRatio = 0.0; // プライズに回す比率
   int _prizeReceiverCount = 0; // プライズ受け取り人数
   List<double> _prizePercentages = []; // 各順位の配分比率
-  List<int> _prizeAmounts = []; // 各順位の金額
+  List<int> _prizeAmounts = []; // 各順位の基準値量（¥表示）
   String _selectedPointType = 'pointA'; // 選択されたポイントタイプ
+
+  BalanceConversion? get _selectedConversion =>
+      prizeConversionForPointType(_selectedPointType);
+
+  String get _selectedDisplayName =>
+      rewardPointDisplayName(_selectedPointType);
+
+  bool get _allPrizesConvertible {
+    final conversion = _selectedConversion;
+    if (conversion == null) return false;
+    if (previewAwardedBalanceAmount(_totalPrizePool, conversion) == null) {
+      return false;
+    }
+    for (final amount in _prizeAmounts) {
+      if (previewAwardedBalanceAmount(amount, conversion) == null) {
+        return false;
+      }
+    }
+    return true;
+  }
   
   // 計算結果
   int _totalRevenue = 0; // 売上合計
@@ -315,8 +337,40 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
         }
         return;
       }
+
+      if (!_allPrizesConvertible) {
+        if (mounted) {
+          final conversion = _selectedConversion;
+          String detail = '選択ポイントの換算設定を確認してください。';
+          if (conversion != null) {
+            for (var i = 0; i < _prizeAmounts.length; i++) {
+              final err = conversionErrorMessage(_prizeAmounts[i], conversion);
+              if (err != null) {
+                detail = '${i + 1}位（¥${_prizeAmounts[i]}）: $err';
+                break;
+              }
+            }
+          }
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('換算できないプライズ額があります'),
+              content: Text(
+                'プライズ額は基準値量として、選択ポイントの換算で整数の残高になる必要があります。\n\n$detail',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
       
-      // プライズデータを準備
+      // プライズデータを準備（金額は基準値量。conversion snapshot は Functions が保存）
       Map<String, dynamic> prizeData = {
         'prizePool': _totalPrizePool,
         'prizeReceiverCount': _prizeReceiverCount,
@@ -432,10 +486,11 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _savePrizeData,
+                          onPressed: _allPrizesConvertible ? _savePrizeData : null,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
                             foregroundColor: Colors.white,
+                            disabledBackgroundColor: Colors.grey.shade400,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                           ),
                           child: const Text(
@@ -444,6 +499,13 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
                           ),
                         ),
                       ),
+                      if (!_allPrizesConvertible) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          '換算できない順位額があるため確定できません（基準値量が選択ポイントの換算で整数残高になる必要があります）',
+                          style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -465,7 +527,12 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
             const SizedBox(height: 12),
             Text('売上合計: ¥${_totalRevenue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
             const SizedBox(height: 8),
-            Text('プライズプール: ¥${_totalPrizePool.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
+            Text('プライズプール（基準値）: ¥${_totalPrizePool.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}'),
+            const SizedBox(height: 4),
+            Text(
+              '付与ポイント: $_selectedDisplayName',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+            ),
           ],
         ),
       ),
@@ -570,51 +637,83 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'プライズ配分',
+              'プライズ配分（基準値）',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '¥表示は基準値量です。付与は $_selectedDisplayName の換算後残高になります。',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
             ),
             const SizedBox(height: 12),
             ...List.generate(_prizeReceiverCount, (index) {
+              final referenceAmount = _prizeAmounts[index];
+              final awarded = previewAwardedBalanceAmount(
+                referenceAmount,
+                _selectedConversion,
+              );
+              final err = awarded == null
+                  ? conversionErrorMessage(referenceAmount, _selectedConversion)
+                  : null;
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      width: 60,
-                      child: Text(
-                        '${index + 1}位:',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 60,
+                          child: Text(
+                            '${index + 1}位:',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        Expanded(
+                          child: Slider(
+                            value: _prizePercentages[index],
+                            min: 0.0,
+                            max: 100.0,
+                            divisions: 1000,
+                            label: '${_prizePercentages[index].toStringAsFixed(1)}%',
+                            onChanged: (value) {
+                              setState(() {
+                                _prizePercentages[index] = value;
+                                _updatePrizeDistribution();
+                              });
+                            },
+                          ),
+                        ),
+                        SizedBox(
+                          width: 80,
+                          child: Text(
+                            '${_prizePercentages[index].toStringAsFixed(1)}%',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        SizedBox(
+                          width: 100,
+                          child: Text(
+                            '¥${referenceAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                            textAlign: TextAlign.right,
+                          ),
+                        ),
+                      ],
                     ),
-                    Expanded(
-                      child: Slider(
-                        value: _prizePercentages[index],
-                        min: 0.0,
-                        max: 100.0,
-                        divisions: 1000,
-                        label: '${_prizePercentages[index].toStringAsFixed(1)}%',
-                        onChanged: (value) {
-                          setState(() {
-                            _prizePercentages[index] = value;
-                            _updatePrizeDistribution();
-                          });
-                        },
-                      ),
-                    ),
-                    SizedBox(
-                      width: 80,
+                    Padding(
+                      padding: const EdgeInsets.only(left: 60, top: 2),
                       child: Text(
-                        '${_prizePercentages[index].toStringAsFixed(1)}%',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    SizedBox(
-                      width: 100,
-                      child: Text(
-                        '¥${_prizeAmounts[index].toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-                        textAlign: TextAlign.right,
+                        awarded != null
+                            ? '付与予定: $_selectedDisplayName $awardedポイント'
+                            : '付与予定: 換算不可${err != null ? '（$err）' : ''}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: awarded != null
+                              ? Colors.blueGrey.shade700
+                              : Colors.red.shade700,
+                        ),
                       ),
                     ),
                   ],
@@ -689,24 +788,50 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _selectedPointType,
-              decoration: const InputDecoration(
-                labelText: 'ポイントタイプを選択',
-                border: OutlineInputBorder(),
-              ),
-              items: GlobalConstants.pointTypes.map((String pointType) {
-                return DropdownMenuItem<String>(
-                  value: pointType,
-                  child: Text(pointType),
-                );
-              }).toList(),
-              onChanged: (String? newValue) {
-                if (newValue != null) {
-                  setState(() {
-                    _selectedPointType = newValue;
+            Builder(
+              builder: (context) {
+                final candidates = rankingRewardPointCandidates();
+                final items = candidates.isEmpty
+                    ? <DropdownMenuItem<String>>[
+                        DropdownMenuItem(
+                          value: _selectedPointType,
+                          child: Text('$_selectedPointType（候補なし）'),
+                        ),
+                      ]
+                    : candidates
+                        .map(
+                          (c) => DropdownMenuItem<String>(
+                            value: c.id,
+                            child: Text('${c.displayName} (${c.id})'),
+                          ),
+                        )
+                        .toList();
+                final value = candidates.any((c) => c.id == _selectedPointType)
+                    ? _selectedPointType
+                    : (candidates.isNotEmpty
+                        ? candidates.first.id
+                        : _selectedPointType);
+                if (value != _selectedPointType) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      setState(() => _selectedPointType = value);
+                    }
                   });
                 }
+                return DropdownButtonFormField<String>(
+                  value: value,
+                  decoration: const InputDecoration(
+                    labelText: 'ポイントタイプを選択',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: items,
+                  onChanged: candidates.isEmpty
+                      ? null
+                      : (String? newValue) {
+                          if (newValue == null) return;
+                          setState(() => _selectedPointType = newValue);
+                        },
+                );
               },
             ),
           ],

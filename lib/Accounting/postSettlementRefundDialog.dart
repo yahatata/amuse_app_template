@@ -3,8 +3,9 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import 'package:amuse_app_template/services/store_config_defaults.dart';
-import 'package:amuse_app_template/services/store_config_service.dart';
+import 'package:amuse_app_template/user/balance_display.dart';
+import 'package:amuse_app_template/user/point_ids.dart';
+import 'package:amuse_app_template/user/side_game_chip_display.dart';
 
 /// 会計後返金ダイアログ。
 ///
@@ -49,25 +50,23 @@ class _PostSettlementRefundDialogState
     'bank_transfer',
   ];
 
-  static const _specialMethods = ['pointA', 'pointB', 'sideGameChip'];
-
-  static const _methodLabels = {
-    'cash': '現金',
-    'credit_card': 'クレジットカード',
-    'electronic_money': '電子マネー',
-    'qr': 'QR',
-    'bank_transfer': '銀行振込',
-    'other': 'その他',
-    'pointA': 'ポイントA',
-    'pointB': 'ポイントB',
-    'sideGameChip': 'ゲームチップ',
-  };
+  static const _specialMethods = [
+    'pointA',
+    'pointB',
+    'pointC',
+    'pointD',
+    'pointE',
+    'sideGameChip',
+  ];
 
   /// 元の支払い手段別金額（paymentTotals）
   Map<String, int> _paymentTotals = {};
 
   /// 当 cycle で既に返金済みの手段別金額
   Map<String, int> _alreadyRefundedByMethod = {};
+
+  /// 当 cycle で既に追加徴収済みの手段別金額
+  Map<String, int> _alreadyCollectedByMethod = {};
 
   /// 返金手段の選択肢（元の支払いがあり、まだ返金可能残額がある手段）
   List<String> _availableMethods = [];
@@ -117,24 +116,30 @@ class _PostSettlementRefundDialogState
           .get();
 
       final alreadyRefunded = <String, int>{};
+      final alreadyCollected = <String, int>{};
       for (final doc in cashActionsSnap.docs) {
         final data = doc.data();
-        if (data['cashActionType'] != 'refund') continue;
+        final type = data['cashActionType'];
         final breakdown = data['methodBreakdown'] as List<dynamic>? ?? [];
         for (final entry in breakdown) {
           if (entry is! Map) continue;
           final m = (entry['method'] as String?) ?? '';
           final amt = (entry['amountIncl'] as num?)?.toInt() ?? 0;
-          alreadyRefunded[m] = (alreadyRefunded[m] ?? 0) + amt;
+          if (type == 'refund') {
+            alreadyRefunded[m] = (alreadyRefunded[m] ?? 0) + amt;
+          } else if (type == 'collection') {
+            alreadyCollected[m] = (alreadyCollected[m] ?? 0) + amt;
+          }
         }
       }
 
-      // 返金可能手段：元の支払いがあり、残額 > 0 のもの
-      // non-special 優先で並べ、その後 special を追加
+      // 返金可能手段：元の支払い+追加徴収があり、残額 > 0 のもの
       final allMethods = [..._nonSpecialMethods, ..._specialMethods];
       final available = allMethods
-          .where((m) => _remainingRefundable(
+          .where((m) =>
+              _remainingRefundable(
                 paymentTotals[m] ?? 0,
+                alreadyCollected[m] ?? 0,
                 alreadyRefunded[m] ?? 0,
               ) >
               0)
@@ -164,6 +169,7 @@ class _PostSettlementRefundDialogState
       setState(() {
         _paymentTotals = paymentTotals;
         _alreadyRefundedByMethod = alreadyRefunded;
+        _alreadyCollectedByMethod = alreadyCollected;
         _availableMethods = available;
         _method = available.isNotEmpty ? available.first : null;
         _effectiveAdjustments = list;
@@ -178,11 +184,12 @@ class _PostSettlementRefundDialogState
     }
   }
 
-  int _remainingRefundable(int paid, int alreadyRefunded) =>
-      paid - alreadyRefunded;
+  int _remainingRefundable(int paid, int collected, int alreadyRefunded) =>
+      paid + collected - alreadyRefunded;
 
   int _maxRefundableForMethod(String method) => _remainingRefundable(
         _paymentTotals[method] ?? 0,
+        _alreadyCollectedByMethod[method] ?? 0,
         _alreadyRefundedByMethod[method] ?? 0,
       );
 
@@ -254,24 +261,32 @@ class _PostSettlementRefundDialogState
     }
   }
 
-  String _methodLabel(String method) => _methodLabels[method] ?? method;
+  String _methodLabel(String method) {
+    switch (method) {
+      case 'qr':
+        return 'QR';
+      case 'bank_transfer':
+        return '銀行振込';
+      case 'other':
+        return 'その他';
+      default:
+        return balanceDisplayName(method);
+    }
+  }
 
   /// 支払い手段と金額を表示用文字列に変換（特殊メソッドは枚数/pt + 円相当）
   String _formatMethodAmount(String method, int yenAmount) {
-    final chipRate = StoreConfigService.instance.latestData?.sideGameChipRate ??
-        kDefaultSideGameChipRate;
     final fmt = NumberFormat('#,###');
-    switch (method) {
-      case 'sideGameChip':
-        final chips = (yenAmount / chipRate).floor();
-        return 'ゲームチップ: $chips (${fmt.format(yenAmount)}円相当)';
-      case 'pointA':
-        return 'ポイントA: ${fmt.format(yenAmount)} (${fmt.format(yenAmount)}円相当)';
-      case 'pointB':
-        return 'ポイントB: ${fmt.format(yenAmount)} (${fmt.format(yenAmount)}円相当)';
-      default:
-        return '${_methodLabel(method)}: ¥${fmt.format(yenAmount)}';
+    if (method == 'sideGameChip') {
+      return formatSideGameChipPaymentFromReference(
+        yenAmount,
+        methodLabel: '${balanceDisplayName(method)}:',
+      );
     }
+    if (isCurrencyPointId(method)) {
+      return '${balanceDisplayName(method)}: ${fmt.format(yenAmount)} (${fmt.format(yenAmount)}円相当)';
+    }
+    return '${_methodLabel(method)}: ¥${fmt.format(yenAmount)}';
   }
 
   /// 選択中メソッドの最大返金額を helperText 用文字列で返す
@@ -279,12 +294,9 @@ class _PostSettlementRefundDialogState
     if (_method == null) return null;
     final max = _maxRefundableForMethod(_method!);
     if (max <= 0) return null;
-    final chipRate = StoreConfigService.instance.latestData?.sideGameChipRate ??
-        kDefaultSideGameChipRate;
     final fmt = NumberFormat('#,###');
     if (_method == 'sideGameChip') {
-      final chips = (max / chipRate).floor();
-      return '最大返金: $chips枚 (${fmt.format(max)}円相当)';
+      return '最大返金: ${formatSideGameChipPaymentFromReference(max, methodLabel: balanceDisplayName(kSideGameChipId))}';
     }
     return '最大返金: ¥${fmt.format(max)}';
   }
@@ -292,25 +304,21 @@ class _PostSettlementRefundDialogState
   /// ドロップダウン用ラベル（最大返金額つき）
   String _dropdownLabel(String method) {
     final max = _maxRefundableForMethod(method);
-    final chipRate = StoreConfigService.instance.latestData?.sideGameChipRate ??
-        kDefaultSideGameChipRate;
     final fmt = NumberFormat('#,###');
-    switch (method) {
-      case 'sideGameChip':
-        final chips = (max / chipRate).floor();
-        return 'ゲームチップ（最大: $chips枚 / ${fmt.format(max)}円相当）';
-      case 'pointA':
-        return 'ポイントA（最大: ¥${fmt.format(max)}）';
-      case 'pointB':
-        return 'ポイントB（最大: ¥${fmt.format(max)}）';
-      default:
-        return '${_methodLabel(method)}（最大: ¥${fmt.format(max)}）';
+    if (method == 'sideGameChip') {
+      return '${balanceDisplayName(method)}（最大: ${formatSideGameChipPaymentFromReference(max, methodLabel: balanceDisplayName(method))}）';
     }
+    if (isCurrencyPointId(method)) {
+      return '${balanceDisplayName(method)}（最大: ¥${fmt.format(max)}）';
+    }
+    return '${_methodLabel(method)}（最大: ¥${fmt.format(max)}）';
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return PopScope(
+      canPop: !_submitting,
+      child: AlertDialog(
       title: const Text('返金'),
       content: _loading
           ? const SizedBox(
@@ -446,6 +454,7 @@ class _PostSettlementRefundDialogState
               : const Text('返金する'),
         ),
       ],
+    ),
     );
   }
 }

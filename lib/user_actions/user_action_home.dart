@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
+import 'package:amuse_app_template/tournament/ranking_reward_point_candidates.dart';
 import 'order_from_user_action_popup.dart';
 import 'bust_and_reentry_popup.dart';
 import 'bust_and_exit_popup.dart';
@@ -147,8 +148,18 @@ List<_UserActionItem> _buildActionsForSource({
   }
 
   // sideGameTableHome からの呼び出し時は 6 ブロックを表示
+  // A-7: sideGameChipSettings.enabled=false のとき引出(N)・預入(O)は出さない
   if (sourcePage == 'sideGameTableHome') {
-    return _buildActionsFromBlocks(blockIds: const ['L', 'M', 'N', 'O', 'P', 'Q'], user: user);
+    final chipEnabled = isSideGameChipEnabled();
+    final blockIds = <String>[
+      'L',
+      'M',
+      if (chipEnabled) 'N',
+      if (chipEnabled) 'O',
+      'P',
+      'Q',
+    ];
+    return _buildActionsFromBlocks(blockIds: blockIds, user: user);
   }
 
   // 将来: 他の呼び出し元ごとのメニュー構成はここに追加する

@@ -1,7 +1,8 @@
+import 'package:amuse_app_template/user/balance_display.dart';
+import 'package:amuse_app_template/user/point_ids.dart';
 import 'package:flutter/material.dart';
 
-/// 支払い方法選択ダイアログ
-/// 会計開始時に支払い方法を選択するためのダイアログ
+/// 支払い方法選択ダイアログ（A-7: 有効残高は config 表示名）
 class PaymentMethodDialog extends StatelessWidget {
   final Function(String) onSelected;
 
@@ -9,6 +10,7 @@ class PaymentMethodDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final enabled = enabledBalanceIdsFromStoreConfig();
     return AlertDialog(
       title: const Text('支払い方法を選択'),
       content: SingleChildScrollView(
@@ -18,7 +20,7 @@ class PaymentMethodDialog extends StatelessWidget {
             _buildPaymentMethodTile(
               context,
               icon: Icons.attach_money,
-              title: '現金',
+              title: balanceDisplayName('cash'),
               paymentMethod: 'cash',
               color: Colors.green,
             ),
@@ -26,7 +28,7 @@ class PaymentMethodDialog extends StatelessWidget {
             _buildPaymentMethodTile(
               context,
               icon: Icons.credit_card,
-              title: 'クレジットカード',
+              title: balanceDisplayName('credit_card'),
               paymentMethod: 'credit_card',
               color: Colors.blue,
             ),
@@ -34,34 +36,20 @@ class PaymentMethodDialog extends StatelessWidget {
             _buildPaymentMethodTile(
               context,
               icon: Icons.qr_code,
-              title: '電子マネー',
+              title: balanceDisplayName('electronic_money'),
               paymentMethod: 'electronic_money',
               color: Colors.orange,
             ),
-            const Divider(),
-            _buildPaymentMethodTile(
-              context,
-              icon: Icons.star,
-              title: 'ポイントA',
-              paymentMethod: 'pointA',
-              color: Colors.purple,
-            ),
-            const Divider(),
-            _buildPaymentMethodTile(
-              context,
-              icon: Icons.stars,
-              title: 'ポイントB',
-              paymentMethod: 'pointB',
-              color: Colors.deepPurple,
-            ),
-            const Divider(),
-            _buildPaymentMethodTile(
-              context,
-              icon: Icons.casino,
-              title: 'サイドゲームチップ',
-              paymentMethod: 'sideGameChip',
-              color: Colors.teal,
-            ),
+            for (final id in enabled) ...[
+              const Divider(),
+              _buildPaymentMethodTile(
+                context,
+                icon: id == kSideGameChipId ? Icons.casino : Icons.star,
+                title: balanceDisplayName(id),
+                paymentMethod: id,
+                color: id == kSideGameChipId ? Colors.teal : Colors.purple,
+              ),
+            ],
           ],
         ),
       ),

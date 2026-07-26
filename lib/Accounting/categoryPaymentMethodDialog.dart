@@ -3,6 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/Accounting/payment_rounding.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
+import 'package:amuse_app_template/user/balance_display.dart';
+import 'package:amuse_app_template/user/point_ids.dart';
+import 'package:amuse_app_template/user/user_balances.dart';
+import 'package:amuse_app_template/user/validate_point_config.dart';
 
 class CategoryPaymentMethodDialog extends StatefulWidget {
   final Map<String, dynamic> bill;
@@ -20,22 +24,37 @@ class _CategoryPaymentMethodDialogState
   // カテゴリごとに選択された支払い方法を保持
   final Map<String, String?> _selectedPaymentMethods = {};
 
-  // ユーザーの残高を保持
-  int _pointABalance = 0;
-  int _pointBBalance = 0;
-  int _sideGameChipBalance = 0;
+  // ユーザーの残高（pointA〜E, sideGameChip）を保持
+  Map<String, int> _balances = {for (final id in kAllBalanceIds) id: 0};
   bool _isLoadingBalance = true;
   bool _isLoadingCategories = true;
   Map<String, int> _categoriesWithAmounts = {};
 
+  // A-7: config 検証結果。categoryOrder は本ダイアログでは不要だが、
+  // balancePaymentSettings / categoryPaymentMethods（enabled 済み）はここで使う。
+  PointConfigValidationResult? _configResult;
+
   @override
   void initState() {
     super.initState();
+    _configResult = StoreConfigService.instance.latestData
+        ?.validatePointConfigA7();
     // カテゴリごとの金額を取得（非同期）
     _loadCategoriesWithAmounts();
     // ユーザーの残高を取得
     _loadUserBalance();
   }
+
+  ValidatedPointConfig? get _validatedConfig =>
+      (_configResult != null && _configResult!.ok) ? _configResult!.value : null;
+
+  Map<String, BalancePaymentSetting> get _balancePaymentSettings =>
+      _validatedConfig?.balancePaymentSettings ?? const {};
+
+  Map<String, List<String>> get _categoryPaymentMethods =>
+      _validatedConfig?.categoryPaymentMethods ??
+      (StoreConfigService.instance.latestData?.categoryPaymentMethods ??
+          kDefaultCategoryPaymentMethods);
 
   // カテゴリごとの金額を取得（billsスキーマ対応）
   Future<void> _loadCategoriesWithAmounts() async {
@@ -114,14 +133,14 @@ class _CategoryPaymentMethodDialogState
         _isLoadingCategories = false;
       });
     } catch (e) {
-      print('カテゴリ金額取得エラー: $e');
+      debugPrint('カテゴリ金額取得エラー: $e');
       setState(() {
         _isLoadingCategories = false;
       });
     }
   }
 
-  // ユーザーの残高を取得
+  // ユーザーの残高を取得（pointA〜E, sideGameChip 全て）
   Future<void> _loadUserBalance() async {
     // billsスキーマでは party.userId から取得
     final party = widget.bill['party'] as Map<String, dynamic>?;
@@ -139,22 +158,14 @@ class _CategoryPaymentMethodDialogState
           .doc(userId)
           .get();
 
-      if (userDoc.exists) {
-        final userData = userDoc.data()!;
-        setState(() {
-          _pointABalance = (userData['pointA'] as num? ?? 0).toInt();
-          _pointBBalance = (userData['pointB'] as num? ?? 0).toInt();
-          _sideGameChipBalance = (userData['sideGameChip'] as num? ?? 0)
-              .toInt();
-          _isLoadingBalance = false;
-        });
-      } else {
-        setState(() {
-          _isLoadingBalance = false;
-        });
-      }
+      final data = userDoc.exists ? userDoc.data() : null;
+      final balances = readAllStandardBalancesForMigration(data);
+      setState(() {
+        _balances = balances;
+        _isLoadingBalance = false;
+      });
     } catch (e) {
-      print('残高取得エラー: $e');
+      debugPrint('残高取得エラー: $e');
       setState(() {
         _isLoadingBalance = false;
       });
@@ -182,24 +193,9 @@ class _CategoryPaymentMethodDialogState
     }
   }
 
-  // 支払い方法の表示名を取得
+  // 支払い方法の表示名を取得（A-7: config displayName）
   String _getPaymentMethodName(String paymentMethod) {
-    switch (paymentMethod) {
-      case 'cash':
-        return '現金';
-      case 'credit_card':
-        return 'クレジットカード';
-      case 'electronic_money':
-        return '電子マネー';
-      case 'pointA':
-        return 'ポイントA';
-      case 'pointB':
-        return 'ポイントB';
-      case 'sideGameChip':
-        return 'サイドゲームチップ';
-      default:
-        return paymentMethod;
-    }
+    return balanceDisplayName(paymentMethod);
   }
 
   // 支払い方法のアイコンを取得
@@ -215,6 +211,10 @@ class _CategoryPaymentMethodDialogState
         return Icons.star;
       case 'pointB':
         return Icons.stars;
+      case 'pointC':
+      case 'pointD':
+      case 'pointE':
+        return Icons.star_border;
       case 'sideGameChip':
         return Icons.casino;
       default:
@@ -257,8 +257,7 @@ class _CategoryPaymentMethodDialogState
     Set<String>? commonMethods;
 
     for (final category in categories.keys) {
-      final availableMethods =
-          (StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods)[category] ?? [];
+      final availableMethods = _categoryPaymentMethods[category] ?? [];
       final methodsSet = availableMethods.toSet();
 
       if (commonMethods == null) {
@@ -315,6 +314,30 @@ class _CategoryPaymentMethodDialogState
       );
     }
 
+    // A-7: categoryOrder 等を含む config が不整合な場合、ポイント系の計算・選択を
+    // 進めるとサーバ側 startAccounting で必ず拒否されるため、ここで明示的に止める。
+    if (_configResult != null && !_configResult!.ok) {
+      return AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.red),
+            SizedBox(width: 8),
+            Text('会計設定エラー'),
+          ],
+        ),
+        content: Text(
+          'ポイント関連の会計設定に不備があります。店舗設定を確認してください。\n\n'
+          '詳細: ${_configResult!.message}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('閉じる'),
+          ),
+        ],
+      );
+    }
+
     final totalAmount = categoriesWithAmounts.values.fold(
       0,
       (sum, amount) => sum + amount,
@@ -334,57 +357,12 @@ class _CategoryPaymentMethodDialogState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 一括支払いセクション（共通の支払い方法がある場合のみ表示）
-              // 将来、複数の共通支払い方法が使える場合に有効化
-              /* 
-              if (commonPaymentMethods.isNotEmpty) ...[
-                const Text(
-                  '一括支払い',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                ...commonPaymentMethods.map((paymentMethod) {
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ElevatedButton.icon(
-                      onPressed: () => _setAllCategoriesToPaymentMethod(paymentMethod),
-                      icon: Icon(_getPaymentMethodIcon(paymentMethod), size: 24),
-                      label: Text(
-                        '全て${_getPaymentMethodName(paymentMethod)}で支払う',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                        minimumSize: const Size(double.infinity, 50),
-                        backgroundColor: Colors.green.shade600,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  );
-                }).toList(),
-                const Divider(thickness: 2),
-                const SizedBox(height: 8),
-                const Text(
-                  '個別選択',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-              */
               // 各カテゴリの支払い方法選択
               ...categoriesWithAmounts.entries.map((entry) {
                 final category = entry.key;
                 final amount = entry.value;
                 final availablePaymentMethods =
-                    (StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods)[category] ?? [];
+                    _categoryPaymentMethods[category] ?? [];
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -552,7 +530,7 @@ class _CategoryPaymentMethodDialogState
     );
   }
 
-  // 支払い方法を処理（残高不足チェック + 自動分割）
+  // 支払い方法を処理（A-7: usageUnit + 整数比換算での残高チェック + 自動分割）
   Future<Map<String, dynamic>?> _processPaymentMethods() async {
     final categoriesWithAmounts = _getCategoriesWithAmounts();
     final result = <String, dynamic>{};
@@ -564,66 +542,41 @@ class _CategoryPaymentMethodDialogState
 
       if (selectedMethod == null) continue;
 
-      // ポイント/サイドゲームチップの場合、残高・丸め単位チェック
-      if (selectedMethod == 'pointA' ||
-          selectedMethod == 'pointB' ||
-          selectedMethod == 'sideGameChip') {
-        final chipRate =
-            (StoreConfigService.instance.latestData?.sideGameChipRate ??
-                    kDefaultSideGameChipRate)
-                .toInt();
+      if (isBalanceId(selectedMethod)) {
+        final setting = _balancePaymentSettings[selectedMethod];
+        final balance = _balances[selectedMethod] ?? 0;
 
-        int balance = 0;
-        switch (selectedMethod) {
-          case 'pointA':
-            balance = _pointABalance;
-            break;
-          case 'pointB':
-            balance = _pointBBalance;
-            break;
-          case 'sideGameChip':
-            balance = _sideGameChipBalance;
-            break;
-        }
-
-        final roundedYen = computeMaxRoundedPointYen(
-          method: selectedMethod,
-          categoryAmountYen: categoryAmount,
-          balance: balance,
-          chipRate: chipRate,
+        final usableReferenceAmount = computeMaxUsableReferenceAmount(
+          categoryAmountReference: categoryAmount,
+          availableBalance: balance,
+          setting: setting,
         );
 
-        if (roundedYen >= categoryAmount) {
+        if (usableReferenceAmount >= categoryAmount) {
           result[category] = selectedMethod;
-        } else if (roundedYen > 0) {
-          final firstPartAmount = selectedMethod == 'sideGameChip'
-              ? (roundedYen / chipRate).round()
-              : roundedYen;
-
+        } else if (usableReferenceAmount > 0) {
           final shortfallMethod = await _showShortfallPaymentDialog(
             category,
             selectedMethod,
-            firstPartAmount,
             categoryAmount,
-            roundedYenUsed: roundedYen,
+            usableReferenceAmount,
           );
 
           if (shortfallMethod == null) {
             return null;
           }
 
-          final remainingAmount = categoryAmount - roundedYen;
+          final remainingAmount = categoryAmount - usableReferenceAmount;
           result[category] = [
-            {'method': selectedMethod, 'amount': firstPartAmount},
+            {'method': selectedMethod, 'amount': usableReferenceAmount},
             {'method': shortfallMethod, 'amount': remainingAmount},
           ];
         } else {
           final shortfallMethod = await _showShortfallPaymentDialog(
             category,
             selectedMethod,
-            0,
             categoryAmount,
-            roundedYenUsed: 0,
+            0,
           );
 
           if (shortfallMethod == null) {
@@ -647,36 +600,19 @@ class _CategoryPaymentMethodDialogState
   Future<String?> _showShortfallPaymentDialog(
     String category,
     String originalMethod,
-    int availableChips,
-    int totalAmount, {
-    int? roundedYenUsed,
-  }) async {
-    final chipRate =
-        (StoreConfigService.instance.latestData?.sideGameChipRate ??
-                kDefaultSideGameChipRate)
-            .toInt();
+    int totalAmount,
+    int usableReferenceAmount,
+  ) async {
+    final shortfall = totalAmount - usableReferenceAmount;
+    final isRoundingRemainder = usableReferenceAmount > 0;
+    final availableMethods = _categoryPaymentMethods[category] ?? [];
 
-    final availableYen = roundedYenUsed ??
-        (originalMethod == 'sideGameChip'
-            ? availableChips * chipRate
-            : availableChips);
-
-    final shortfall = totalAmount - availableYen;
-    final isRoundingRemainder =
-        roundedYenUsed != null && availableYen < totalAmount;
-    final availableMethods =
-        (StoreConfigService.instance.latestData?.categoryPaymentMethods ?? kDefaultCategoryPaymentMethods)[category] ?? [];
-
-    // 不足分に使える支払い方法（元の方法とポイント系を除外）
+    // 不足分に使える支払い方法（元の方法とポイント/残高系を除外）
     final shortfallOptions = availableMethods
-        .where(
-          (method) =>
-              method != originalMethod &&
-              method != 'pointA' &&
-              method != 'pointB' &&
-              method != 'sideGameChip',
-        )
+        .where((method) => method != originalMethod && !isBalanceId(method))
         .toList();
+
+    final setting = _balancePaymentSettings[originalMethod];
 
     return showDialog<String>(
       context: context,
@@ -686,7 +622,7 @@ class _CategoryPaymentMethodDialogState
           children: [
             Icon(Icons.warning_amber, color: Colors.orange),
             const SizedBox(width: 8),
-            Text(isRoundingRemainder ? '丸め単位による端数' : '残高不足'),
+            Text(isRoundingRemainder ? '利用単位による端数' : '残高不足'),
           ],
         ),
         content: Column(
@@ -700,7 +636,7 @@ class _CategoryPaymentMethodDialogState
             const SizedBox(height: 16),
             Text(
               isRoundingRemainder
-                  ? '${roundingUnitHint(originalMethod)}。${_getPaymentMethodName(originalMethod)}だけでは全額払えないため、残りは別の支払い方法が必要です。'
+                  ? '${usageUnitHint(_getPaymentMethodName(originalMethod), setting)}。${_getPaymentMethodName(originalMethod)}だけでは全額払えないため、残りは別の支払い方法が必要です。'
                   : '${_getPaymentMethodName(originalMethod)}の残高が不足しています。',
               style: const TextStyle(fontSize: 14),
             ),
@@ -717,22 +653,13 @@ class _CategoryPaymentMethodDialogState
                   Text(
                     '必要金額: ¥${totalAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
                   ),
-                  if (originalMethod == 'sideGameChip')
-                    Text(
-                      '${_getPaymentMethodName(originalMethod)}で使用: ${availableChips}枚 (¥${availableYen.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})',
-                      style: TextStyle(
-                        color: Colors.green.shade700,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    )
-                  else
-                    Text(
-                      '${_getPaymentMethodName(originalMethod)}で使用: ¥${availableYen.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                      style: TextStyle(
-                        color: Colors.green.shade700,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  Text(
+                    '${_getPaymentMethodName(originalMethod)}で使用: ¥${usableReferenceAmount.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
+                    style: TextStyle(
+                      color: Colors.green.shade700,
+                      fontWeight: FontWeight.bold,
                     ),
+                  ),
                   const Divider(),
                   Text(
                     '不足分: ¥${shortfall.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
@@ -788,35 +715,33 @@ class _CategoryPaymentMethodDialogState
     );
   }
 
-  // 残高を表示すべき支払い方法かどうか
-  bool _shouldShowBalance(String paymentMethod) {
-    return paymentMethod == 'pointA' ||
-        paymentMethod == 'pointB' ||
-        paymentMethod == 'sideGameChip';
-  }
+  // 残高を表示すべき支払い方法かどうか（pointA〜E, sideGameChip）
+  bool _shouldShowBalance(String paymentMethod) => isBalanceId(paymentMethod);
+
+  static String _formatNumber(int value) => value
+      .toString()
+      .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},');
 
   // 残高のテキストを取得
+  // 換算比が 1:1（referenceUnits == balanceUnits）なら残高量そのものを金額として表示し、
+  // それ以外（例: sideGameChip の枚数換算）は「単位数 (¥基準値換算)」の形で表示する。
   String _getBalanceText(String paymentMethod) {
     if (_isLoadingBalance) {
       return '残高: 読込中...';
     }
 
-    int balance = 0;
-    switch (paymentMethod) {
-      case 'pointA':
-        balance = _pointABalance;
-        return '残高: ¥${balance.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
-      case 'pointB':
-        balance = _pointBBalance;
-        return '残高: ¥${balance.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}';
-      case 'sideGameChip':
-        balance = _sideGameChipBalance;
-        final chipValue =
-            (balance * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate)).toInt();
-        return '残高: ${balance.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}枚 (¥${chipValue.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')})';
-      default:
-        return '残高: ¥0';
+    final balance = _balances[paymentMethod] ?? 0;
+    final setting = _balancePaymentSettings[paymentMethod];
+    final referenceEquivalent = approxBalanceAsReferenceAmount(balance, setting);
+
+    final isOneToOne = setting == null ||
+        setting.conversion.referenceUnits == setting.conversion.balanceUnits;
+    if (isOneToOne) {
+      return '残高: ¥${_formatNumber(referenceEquivalent)}';
     }
+
+    final unitLabel = paymentMethod == kSideGameChipId ? '枚' : '単位';
+    return '残高: ${_formatNumber(balance)}$unitLabel (¥${_formatNumber(referenceEquivalent)})';
   }
 
   // 残高の色を取得（残高不足の場合は赤色）
@@ -825,31 +750,20 @@ class _CategoryPaymentMethodDialogState
       return Colors.grey;
     }
 
-    final categoriesWithAmounts = _getCategoriesWithAmounts();
-    final requiredAmount = categoriesWithAmounts[category] ?? 0;
-
-    int balance = 0;
-    double availableValue = 0;
-
-    switch (paymentMethod) {
-      case 'pointA':
-        balance = _pointABalance;
-        availableValue = balance.toDouble();
-        break;
-      case 'pointB':
-        balance = _pointBBalance;
-        availableValue = balance.toDouble();
-        break;
-      case 'sideGameChip':
-        balance = _sideGameChipBalance;
-        availableValue = balance * (StoreConfigService.instance.latestData?.sideGameChipRate ?? kDefaultSideGameChipRate);
-        break;
-      default:
-        return Colors.grey.shade600;
+    if (!isBalanceId(paymentMethod)) {
+      return Colors.grey.shade600;
     }
 
+    final categoriesWithAmounts = _getCategoriesWithAmounts();
+    final requiredAmount = categoriesWithAmounts[category] ?? 0;
+    final balance = _balances[paymentMethod] ?? 0;
+    final availableReferenceValue = approxBalanceAsReferenceAmount(
+      balance,
+      _balancePaymentSettings[paymentMethod],
+    );
+
     // 残高が足りない場合は赤色、足りる場合は緑色
-    return availableValue >= requiredAmount
+    return availableReferenceValue >= requiredAmount
         ? Colors.green.shade700
         : Colors.red.shade700;
   }

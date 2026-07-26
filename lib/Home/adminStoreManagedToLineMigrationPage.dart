@@ -1,8 +1,9 @@
 import 'dart:math';
 
-import 'package:amuse_app_template/core/utils/formatters.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/user/a6_callable_errors.dart';
+import 'package:amuse_app_template/user/balance_display.dart';
+import 'package:amuse_app_template/user/user_balances.dart';
 import 'package:amuse_app_template/user/user_type_display.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -264,12 +265,14 @@ class _AdminStoreManagedToLineMigrationPageState
       return;
     }
 
-    final sourceBalances = _readBalances(source.data);
-    final targetBalances = _readBalances(target.data);
+    final enabledIds = enabledBalanceIdsFromStoreConfig();
+    final sourceBalances = _readEnabledBalances(source.data, enabledIds);
+    final targetBalances = _readEnabledBalances(target.data, enabledIds);
     final afterBalances = sourceBalances;
 
     final confirmed = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
           title: const Text('ポイントを上書きして移行します'),
@@ -286,35 +289,30 @@ class _AdminStoreManagedToLineMigrationPageState
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                const SizedBox(height: 8),
+                const Text(
+                  '※ データ上は有効・無効にかかわらず全標準残高がコピーされます。',
+                  style: TextStyle(fontSize: 12),
+                ),
                 const SizedBox(height: 12),
                 Text('移行元: ${displayOrUnset(source.data['pokerName'])}'),
                 Text('移行先: ${displayOrUnset(target.data['pokerName'])}'),
                 const SizedBox(height: 12),
-                const Text('移行先の現在のポイント',
+                const Text('移行先の現在のポイント（有効分）',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('pointA')}: ${formatUserBalance(targetBalances.$1)}',
-                ),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('pointB')}: ${formatUserBalance(targetBalances.$2)}',
-                ),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('sideGameChip')}: ${formatUserBalance(targetBalances.$3)}',
-                ),
+                for (final id in enabledIds)
+                  Text(
+                    '${balanceDisplayName(id)}: ${formatUserBalance(targetBalances[id])}',
+                  ),
                 const SizedBox(height: 8),
                 const Text('↓', style: TextStyle(fontSize: 18)),
                 const SizedBox(height: 8),
-                const Text('移行後のポイント',
+                const Text('移行後のポイント（有効分）',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('pointA')}: ${formatUserBalance(afterBalances.$1)}',
-                ),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('pointB')}: ${formatUserBalance(afterBalances.$2)}',
-                ),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('sideGameChip')}: ${formatUserBalance(afterBalances.$3)}',
-                ),
+                for (final id in enabledIds)
+                  Text(
+                    '${balanceDisplayName(id)}: ${formatUserBalance(afterBalances[id])}',
+                  ),
               ],
             ),
           ),
@@ -394,12 +392,16 @@ class _AdminStoreManagedToLineMigrationPageState
     );
   }
 
-  (int, int, int) _readBalances(Map<String, dynamic> data) {
-    return (
-      readUserBalanceInt(data['pointA']),
-      readUserBalanceInt(data['pointB']),
-      readUserBalanceInt(data['sideGameChip']),
-    );
+  Map<String, int> _readEnabledBalances(
+    Map<String, dynamic> data,
+    List<String> enabledIds,
+  ) {
+    final out = <String, int>{};
+    for (final id in enabledIds) {
+      final result = readBalanceField(data, id);
+      out[id] = result.displayValue ?? 0;
+    }
+    return out;
   }
 
   bool get _canExecute {
@@ -718,33 +720,32 @@ class _AdminStoreManagedToLineMigrationPageState
   Widget _buildComparisonCard() {
     final source = _selectedSource!;
     final target = _selectedTarget!;
-    final sourceBalances = _readBalances(source.data);
-    final targetBalances = _readBalances(target.data);
+    final enabledIds = enabledBalanceIdsFromStoreConfig();
+    final sourceBalances = _readEnabledBalances(source.data, enabledIds);
+    final targetBalances = _readEnabledBalances(target.data, enabledIds);
     final afterBalances = sourceBalances;
 
-    Widget balanceRows((int, int, int) balances, {bool highlightDiff = false}) {
-      final targetB = targetBalances;
+    Widget balanceRows(
+      Map<String, int> balances, {
+      bool highlightDiff = false,
+    }) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _balanceRow(
-            'pointA',
-            balances.$1,
-            highlightDiff: highlightDiff && balances.$1 != targetB.$1,
-          ),
-          _balanceRow(
-            'pointB',
-            balances.$2,
-            highlightDiff: highlightDiff && balances.$2 != targetB.$2,
-          ),
-          _balanceRow(
-            'sideGameChip',
-            balances.$3,
-            highlightDiff: highlightDiff && balances.$3 != targetB.$3,
-          ),
+          for (final id in enabledIds)
+            _balanceRow(
+              id,
+              balances[id] ?? 0,
+              highlightDiff:
+                  highlightDiff && (balances[id] ?? 0) != (targetBalances[id] ?? 0),
+            ),
         ],
       );
     }
+
+    final hasDiff = enabledIds.any(
+      (id) => (targetBalances[id] ?? 0) != (afterBalances[id] ?? 0),
+    );
 
     return Card(
       color: Colors.deepPurple.withValues(alpha: 0.04),
@@ -759,9 +760,12 @@ class _AdminStoreManagedToLineMigrationPageState
               '移行元: ${displayOrUnset(source.data['pokerName'])}',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            const Text('移行元のポイント',
+            const Text('移行元のポイント（有効分）',
                 style: TextStyle(fontWeight: FontWeight.w600)),
-            balanceRows(sourceBalances),
+            if (enabledIds.isEmpty)
+              const Text('表示可能な有効ポイントがありません')
+            else
+              balanceRows(sourceBalances),
             const SizedBox(height: 12),
             const Center(child: Text('↓', style: TextStyle(fontSize: 20))),
             const SizedBox(height: 12),
@@ -769,18 +773,22 @@ class _AdminStoreManagedToLineMigrationPageState
               '移行先: ${displayOrUnset(target.data['pokerName'])}',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            const Text('移行先の現在のポイント',
+            const Text('移行先の現在のポイント（有効分）',
                 style: TextStyle(fontWeight: FontWeight.w600)),
-            balanceRows(targetBalances),
+            if (enabledIds.isEmpty)
+              const Text('表示可能な有効ポイントがありません')
+            else
+              balanceRows(targetBalances),
             const SizedBox(height: 12),
             const Center(child: Text('↓', style: TextStyle(fontSize: 20))),
             const SizedBox(height: 12),
-            const Text('移行後のポイント',
+            const Text('移行後のポイント（有効分）',
                 style: TextStyle(fontWeight: FontWeight.bold)),
-            balanceRows(afterBalances, highlightDiff: true),
-            if (targetBalances.$1 != afterBalances.$1 ||
-                targetBalances.$2 != afterBalances.$2 ||
-                targetBalances.$3 != afterBalances.$3)
+            if (enabledIds.isEmpty)
+              const Text('表示可能な有効ポイントがありません')
+            else
+              balanceRows(afterBalances, highlightDiff: true),
+            if (hasDiff)
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
@@ -798,7 +806,7 @@ class _AdminStoreManagedToLineMigrationPageState
     final style = highlightDiff
         ? const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)
         : null;
-    final label = Formatters.getPaymentMethodDisplayName(key);
+    final label = balanceDisplayName(key);
     return Text('$label: ${formatUserBalance(value)}', style: style);
   }
 }

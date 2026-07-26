@@ -1,8 +1,8 @@
 import 'dart:math';
 
-import 'package:amuse_app_template/core/utils/formatters.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/user/a6_callable_errors.dart';
+import 'package:amuse_app_template/user/balance_display.dart';
 import 'package:amuse_app_template/user/user_type_display.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -41,30 +41,31 @@ class _AdminInitialPointSettingPageState
     extends State<AdminInitialPointSettingPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseFunctions _functions = FunctionsClient.instance;
-  final TextEditingController _pointAController = TextEditingController();
-  final TextEditingController _pointBController = TextEditingController();
-  final TextEditingController _chipController = TextEditingController();
   final TextEditingController _noteController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   final _random = Random();
 
   late Map<String, dynamic> _data;
+  late List<String> _enabledIds;
+  late Map<String, TextEditingController> _controllers;
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
     _data = Map<String, dynamic>.from(widget.initialData);
-    _pointAController.text = _balanceEditText(_data['pointA']);
-    _pointBController.text = _balanceEditText(_data['pointB']);
-    _chipController.text = _balanceEditText(_data['sideGameChip']);
+    _enabledIds = enabledBalanceIdsFromStoreConfig();
+    _controllers = {
+      for (final id in _enabledIds)
+        id: TextEditingController(text: _balanceEditText(_data[id])),
+    };
   }
 
   @override
   void dispose() {
-    _pointAController.dispose();
-    _pointBController.dispose();
-    _chipController.dispose();
+    for (final c in _controllers.values) {
+      c.dispose();
+    }
     _noteController.dispose();
     super.dispose();
   }
@@ -87,10 +88,23 @@ class _AdminInitialPointSettingPageState
     final data = snap.data() ?? {};
     setState(() {
       _data = data;
-      _pointAController.text = _balanceEditText(data['pointA']);
-      _pointBController.text = _balanceEditText(data['pointB']);
-      _chipController.text = _balanceEditText(data['sideGameChip']);
+      for (final id in _enabledIds) {
+        _controllers[id]?.text = _balanceEditText(data[id]);
+      }
     });
+  }
+
+  Map<String, int>? _parseBalancesFromForm() {
+    final out = <String, int>{};
+    for (final id in _enabledIds) {
+      final raw = _controllers[id]?.text ?? '';
+      // 空は 0
+      final trimmed = raw.trim();
+      final value = trimmed.isEmpty ? 0 : parseNonNegativeIntInput(trimmed);
+      if (value == null) return null;
+      out[id] = value;
+    }
+    return out;
   }
 
   Future<void> _onSavePressed() async {
@@ -99,24 +113,24 @@ class _AdminInitialPointSettingPageState
       _showSnack(kA6ErrorKeyMessages['USER_MIGRATED']!, Colors.red);
       return;
     }
+    if (_enabledIds.isEmpty) {
+      _showSnack('有効なポイントがありません。店舗設定を確認してください。', Colors.red);
+      return;
+    }
     if (!_formKey.currentState!.validate()) return;
 
-    final pointA = parseNonNegativeIntInput(_pointAController.text);
-    final pointB = parseNonNegativeIntInput(_pointBController.text);
-    final chip = parseNonNegativeIntInput(_chipController.text);
-    if (pointA == null || pointB == null || chip == null) {
+    final balances = _parseBalancesFromForm();
+    if (balances == null) {
       _showSnack('ポイントは0以上の整数で入力してください', Colors.red);
       return;
     }
 
-    final currentA = _data['pointA'];
-    final currentB = _data['pointB'];
-    final currentChip = _data['sideGameChip'];
     final hasInitial = _data['initialBalanceSetAt'] != null;
     final pokerName = displayOrUnset(_data['pokerName']);
 
     final confirmed = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
           title: Text(hasInitial ? '初期ポイントを上書きします' : '初期ポイントを設定します'),
@@ -139,34 +153,22 @@ class _AdminInitialPointSettingPageState
                   const Text('次のポイントで初期設定します（上書きとして適用されます）。'),
                 const SizedBox(height: 12),
                 const Text(
-                  '現在のポイント',
+                  '現在のポイント（有効分）',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('pointA')}: ${formatUserBalance(currentA)}',
-                ),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('pointB')}: ${formatUserBalance(currentB)}',
-                ),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('sideGameChip')}: ${formatUserBalance(currentChip)}',
-                ),
+                for (final id in _enabledIds)
+                  Text(
+                    '${balanceDisplayName(id)}: ${formatUserBalance(_data[id])}',
+                  ),
                 const SizedBox(height: 12),
                 const Text('↓', style: TextStyle(fontSize: 18)),
                 const SizedBox(height: 8),
                 const Text(
-                  '設定後のポイント',
+                  '設定後のポイント（有効分）',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('pointA')}: $pointA',
-                ),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('pointB')}: $pointB',
-                ),
-                Text(
-                  '${Formatters.getPaymentMethodDisplayName('sideGameChip')}: $chip',
-                ),
+                for (final id in _enabledIds)
+                  Text('${balanceDisplayName(id)}: ${balances[id]}'),
               ],
             ),
           ),
@@ -186,18 +188,10 @@ class _AdminInitialPointSettingPageState
     );
 
     if (confirmed != true || !mounted) return;
-    await _submit(
-      pointA: pointA,
-      pointB: pointB,
-      sideGameChip: chip,
-    );
+    await _submit(balances);
   }
 
-  Future<void> _submit({
-    required int pointA,
-    required int pointB,
-    required int sideGameChip,
-  }) async {
+  Future<void> _submit(Map<String, int> balances) async {
     setState(() => _isLoading = true);
     final note = _noteController.text.trim();
     String? successMessage;
@@ -206,11 +200,7 @@ class _AdminInitialPointSettingPageState
       final callable = _functions.httpsCallable('setInitialUserBalances');
       final result = await callable.call({
         'targetUserId': widget.uid,
-        'balances': {
-          'pointA': pointA,
-          'pointB': pointB,
-          'sideGameChip': sideGameChip,
-        },
+        'balances': balances,
         if (note.isNotEmpty) 'note': note,
         'clientNonce': _newClientNonce(),
         'confirmOverwrite': true,
@@ -250,7 +240,9 @@ class _AdminInitialPointSettingPageState
   }
 
   String? _balanceValidator(String? value) {
-    if (parseNonNegativeIntInput(value ?? '') == null) {
+    final trimmed = (value ?? '').trim();
+    if (trimmed.isEmpty) return null; // 空は 0
+    if (parseNonNegativeIntInput(trimmed) == null) {
       return '0以上の整数を入力';
     }
     return null;
@@ -293,15 +285,16 @@ class _AdminInitialPointSettingPageState
                               style: TextStyle(color: Colors.red),
                             ),
                           const SizedBox(height: 8),
-                          Text(
-                            '現在のポイントA: ${formatUserBalance(_data['pointA'])}',
-                          ),
-                          Text(
-                            '現在のポイントB: ${formatUserBalance(_data['pointB'])}',
-                          ),
-                          Text(
-                            '現在のサイドゲームチップ: ${formatUserBalance(_data['sideGameChip'])}',
-                          ),
+                          if (_enabledIds.isEmpty)
+                            const Text(
+                              '有効なポイントがありません。',
+                              style: TextStyle(color: Colors.red),
+                            )
+                          else
+                            for (final id in _enabledIds)
+                              Text(
+                                '現在の${balanceDisplayName(id)}: ${formatUserBalance(_data[id])}',
+                              ),
                           Text(
                             '初期ポイント設定日時: ${formatUserTimestamp(_data['initialBalanceSetAt'])}',
                           ),
@@ -310,25 +303,14 @@ class _AdminInitialPointSettingPageState
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _balanceField(
-                    controller: _pointAController,
-                    label: Formatters.getPaymentMethodDisplayName('pointA'),
-                    enabled: !migrated,
-                  ),
-                  const SizedBox(height: 12),
-                  _balanceField(
-                    controller: _pointBController,
-                    label: Formatters.getPaymentMethodDisplayName('pointB'),
-                    enabled: !migrated,
-                  ),
-                  const SizedBox(height: 12),
-                  _balanceField(
-                    controller: _chipController,
-                    label:
-                        Formatters.getPaymentMethodDisplayName('sideGameChip'),
-                    enabled: !migrated,
-                  ),
-                  const SizedBox(height: 12),
+                  for (final id in _enabledIds) ...[
+                    _balanceField(
+                      controller: _controllers[id]!,
+                      label: balanceDisplayName(id),
+                      enabled: !migrated,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   TextFormField(
                     controller: _noteController,
                     enabled: !_isLoading && !migrated,
@@ -340,7 +322,9 @@ class _AdminInitialPointSettingPageState
                   ),
                   const SizedBox(height: 20),
                   ElevatedButton(
-                    onPressed: (_isLoading || migrated) ? null : _onSavePressed,
+                    onPressed: (_isLoading || migrated || _enabledIds.isEmpty)
+                        ? null
+                        : _onSavePressed,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.deepPurple,
                       foregroundColor: Colors.white,
@@ -380,7 +364,7 @@ class _AdminInitialPointSettingPageState
       decoration: InputDecoration(
         labelText: label,
         border: const OutlineInputBorder(),
-        helperText: '0以上の整数（空欄・負数・小数不可）',
+        helperText: '0以上の整数（空欄は0・負数・小数不可）',
       ),
     );
   }

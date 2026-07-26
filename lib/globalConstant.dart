@@ -29,8 +29,8 @@ class GlobalConstants {
     return hour % 24;
   }
   
-  // ポイントタイプ選択肢（フィールド名のみ）
-  static const List<String> pointTypes = ['pointA', 'pointB', 'sideGameChip'];//createUserAccount.tsやcreateUserByApp.tsについては直接コード内で修正する必要がある
+  // ポイントタイプ選択肢は A-7 の config（pointSettings / sideGameChipSettings）を正本とする
+  // （旧 GlobalConstants.pointTypes は削除）
 
   /// 管理者が直接作成したシフト（Weekly Planner 経由でない）を識別するための sourceRequestId の値。
   /// 【意義】この値を持つアサインは「管理者が直接作成したもの」とみなし、Weekly Planner 由来と区別する。

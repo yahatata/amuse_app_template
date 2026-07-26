@@ -1,12 +1,7 @@
 /**
- * withdrawChip の統合テスト
+ * withdrawChip の統合テスト（A-7: flat sideGameChipLogs）
  *
- * ChangeSpec P1-03 に準拠
  * Firestore Emulator を使用
- *
- * テスト観点:
- * - 正常系（初回呼び出し）: appendSideGameChip 成功、ユーザ残高減少、sideGameChipLogs 追加
- * - idempotent replay: 同じ clientNonce で2回呼び出し、残高とログが1回分のみ
  */
 
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
@@ -14,6 +9,9 @@ import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { withdrawChip } from '../../src/domains/sideGame/callables/withdrawChip';
 import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
+import { a7StoreConfigDocument, seedA7StoreConfig } from '../helpers/a7StoreConfig';
+import { __setMockConfig, __resetMockConfig } from '../helpers/mockStoreConfig';
+import { withdrawSideGameChipLogId } from '../../src/domains/user/services/pointLog';
 
 describe('withdrawChip', () => {
   let testEnv: RulesTestEnvironment;
@@ -22,19 +20,30 @@ describe('withdrawChip', () => {
 
   beforeAll(async () => {
     process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
+    process.env.GCLOUD_PROJECT = projectId;
     testEnv = await initializeTestEnvironment({ projectId });
+    if (admin.apps.length > 0) {
+      await Promise.all(admin.apps.map((a) => a?.delete()).filter(Boolean));
+    }
+    admin.initializeApp({ projectId });
     db = getFirestore();
   });
 
   afterAll(async () => {
     await testEnv.cleanup();
-    await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
+    await Promise.all(admin.apps.map((a) => a?.delete()).filter(Boolean));
     delete process.env.FIRESTORE_EMULATOR_HOST;
   });
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
     delete process.env.WRITE_TODAYS_BILLS_IN_PARALLEL;
+    await seedA7StoreConfig(db);
+    __setMockConfig(a7StoreConfigDocument());
+  });
+
+  afterEach(() => {
+    __resetMockConfig();
   });
 
   async function createAdminDevice(uid: string) {
@@ -55,7 +64,6 @@ describe('withdrawChip', () => {
       const clientNonce = 'withdraw_nonce_001';
       const initialBalance = 1000;
 
-      // テストデータ準備
       await createBillWithActiveStay({
         billId,
         userId,
@@ -63,7 +71,6 @@ describe('withdrawChip', () => {
         idempotencyKey: 'idem_test_withdraw_001',
       });
 
-      // ユーザーを作成し、初期残高を設定
       await db.collection('users').doc(userId).set({
         userType: 'line',
         sideGameChip: initialBalance,
@@ -74,7 +81,6 @@ describe('withdrawChip', () => {
       const adminId = 'admin_test_withdraw_001';
       await createAdminDevice(adminId);
 
-      // withdrawChip を呼び出す
       const mockRequest = {
         auth: { uid: adminId },
         data: {
@@ -93,34 +99,29 @@ describe('withdrawChip', () => {
       expect(result.data.newBalance).toBe(initialBalance - amount);
       expect(result.data.reused).toBe(false);
 
-      // /bills/{billId}/sideGameChips に withdraw の doc が1件作成されている
-      const chipsSnapshot = await db.collection('bills').doc(billId)
-        .collection('sideGameChips').get();
+      const chipsSnapshot = await db
+        .collection('bills')
+        .doc(billId)
+        .collection('sideGameChips')
+        .get();
       expect(chipsSnapshot.size).toBe(1);
-      const chipDoc = chipsSnapshot.docs[0];
-      const chipData = chipDoc.data();
-      expect(chipData.action).toBe('withdraw');
-      expect(chipData.chipQty).toBe(amount);
+      expect(chipsSnapshot.docs[0].data().action).toBe('withdraw');
+      expect(chipsSnapshot.docs[0].data().chipQty).toBe(amount);
 
-      // users/{userId}.sideGameChip が amount 分だけ減少している
       const userDoc = await db.collection('users').doc(userId).get();
-      const finalBalance = userDoc.data()!.sideGameChip as number;
-      expect(finalBalance).toBe(initialBalance - amount);
+      expect(userDoc.data()!.sideGameChip).toBe(initialBalance - amount);
 
-      // users/{userId}/sideGameChipLogs に 1件 の expense ログが追加されている
-      const today = new Date().toISOString().split('T')[0];
-      const logsDoc = await db.collection('users').doc(userId)
-        .collection('sideGameChipLogs').doc(today).get();
-      expect(logsDoc.exists).toBe(true);
-      const logsData = logsDoc.data()!;
-      expect(logsData.logs).toBeDefined();
-      const logEntries = Object.values(logsData.logs || {});
-      const expenseLogs = logEntries.filter((log: any) => log.category === 'expense');
-      expect(expenseLogs.length).toBe(1);
-      const expenseLog = expenseLogs[0] as any;
-      expect(expenseLog.category).toBe('expense');
-      expect(expenseLog.amountDelta).toBe(-amount);
-      expect(expenseLog.reasonType).toBe('sideGame');
+      const log = await db
+        .collection('users')
+        .doc(userId)
+        .collection('sideGameChipLogs')
+        .doc(withdrawSideGameChipLogId(result.data.chipId))
+        .get();
+      expect(log.exists).toBe(true);
+      expect(log.data()!.reasonType).toBe('withdraw');
+      expect(log.data()!.balanceBefore).toBe(initialBalance);
+      expect(log.data()!.changeAmount).toBe(-amount);
+      expect(log.data()!.balanceAfter).toBe(initialBalance - amount);
     });
   });
 
@@ -132,7 +133,6 @@ describe('withdrawChip', () => {
       const clientNonce = 'withdraw_nonce_idemp_001';
       const initialBalance = 1000;
 
-      // テストデータ準備
       await createBillWithActiveStay({
         billId,
         userId,
@@ -140,7 +140,6 @@ describe('withdrawChip', () => {
         idempotencyKey: 'idem_test_withdraw_idempotent_001',
       });
 
-      // ユーザーを作成し、初期残高を設定
       await db.collection('users').doc(userId).set({
         userType: 'line',
         sideGameChip: initialBalance,
@@ -160,47 +159,31 @@ describe('withdrawChip', () => {
         },
       } as any;
 
-      // 1回目の実行
       const result1 = await (withdrawChip as any).run(mockRequest);
       expect(result1.success).toBe(true);
       expect(result1.data.reused).toBe(false);
 
-      // 1回目後の残高を確認
-      const userDoc1 = await db.collection('users').doc(userId).get();
-      const balance1 = userDoc1.data()!.sideGameChip as number;
-      expect(balance1).toBe(initialBalance - amount);
-
-      // 1回目後のログ件数を確認
-      const today = new Date().toISOString().split('T')[0];
-      const logsDoc1 = await db.collection('users').doc(userId)
-        .collection('sideGameChipLogs').doc(today).get();
-      const logsData1 = logsDoc1.data()!;
-      const logEntries1 = Object.values(logsData1.logs || {});
-      const expenseLogs1 = logEntries1.filter((log: any) => log.category === 'expense');
-      expect(expenseLogs1.length).toBe(1);
-
-      // 2回目の実行（同一 clientNonce）
       const result2 = await (withdrawChip as any).run(mockRequest);
       expect(result2.success).toBe(true);
-      expect(result2.data.reused).toBe(true); // 2回目は reused: true
+      expect(result2.data.reused).toBe(true);
 
-      // 2回目後の残高を確認（1回分だけ減少したまま）
       const userDoc2 = await db.collection('users').doc(userId).get();
-      const balance2 = userDoc2.data()!.sideGameChip as number;
-      expect(balance2).toBe(initialBalance - amount); // 増えていない
+      expect(userDoc2.data()!.sideGameChip).toBe(initialBalance - amount);
 
-      // 2回目後のログ件数を確認（1件のまま）
-      const logsDoc2 = await db.collection('users').doc(userId)
-        .collection('sideGameChipLogs').doc(today).get();
-      const logsData2 = logsDoc2.data()!;
-      const logEntries2 = Object.values(logsData2.logs || {});
-      const expenseLogs2 = logEntries2.filter((log: any) => log.category === 'expense');
-      expect(expenseLogs2.length).toBe(1); // 2回目で増えていない
-
-      // /bills/{billId}/sideGameChips の doc 数は1つのまま
-      const chipsSnapshot = await db.collection('bills').doc(billId)
-        .collection('sideGameChips').get();
+      const chipsSnapshot = await db
+        .collection('bills')
+        .doc(billId)
+        .collection('sideGameChips')
+        .get();
       expect(chipsSnapshot.size).toBe(1);
+
+      const logs = await db
+        .collection('users')
+        .doc(userId)
+        .collection('sideGameChipLogs')
+        .get();
+      const withdrawLogs = logs.docs.filter((d) => d.id.startsWith('withdraw_'));
+      expect(withdrawLogs.length).toBe(1);
     });
   });
 });

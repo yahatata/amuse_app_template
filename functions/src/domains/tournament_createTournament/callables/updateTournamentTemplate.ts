@@ -4,8 +4,12 @@ import { logger } from "firebase-functions";
 import { z } from "zod";
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from "../../../shared/logging/functionCustomError";
 import { resolveAddonLimitPerPlayer } from "../../../shared/tournament/resolveAddonLimitPerPlayer";
 import { computeRegEndAt } from "../services/enqueueTournamentTasksCore";
+import { getStoreConfig } from "../../../shared/config/configLoader";
+import { validatePointConfigFromStoreConfig } from "../../../shared/config/validatePointConfig";
+import { assertRewardPointTypeForTemplate } from "../../tournament_activeTournament/helpers/rewardPointType";
 
 const updateTournamentTemplateSchema = z.object({
   templateId: z.string(),
@@ -21,7 +25,7 @@ const updateTournamentTemplateSchema = z.object({
   addonLimitPerPlayer: z.number().optional(),
   blindStructure: z.string().optional(),
   prizeRatio: z.number().optional(),
-  color: z.string().optional(),
+  color: z.string().nullish(),
   pointType: z.string().optional(),
   selectedTournamentIds: z.array(z.string()),
 });
@@ -50,6 +54,15 @@ export const updateTournamentTemplate = onCall(async (request) => {
       updateTournamentTemplateSchema.parse(request.data);
 
     const db = getFirestore();
+
+    if (updateData.pointType !== undefined) {
+      const storeConfig = await getStoreConfig(db);
+      const validatedConfig = validatePointConfigFromStoreConfig(storeConfig);
+      updateData.pointType = assertRewardPointTypeForTemplate(
+        updateData.pointType,
+        validatedConfig,
+      );
+    }
 
     const templateRef = db.collection('tournamentTemplates').doc(templateId);
     const existingTemplateSnap = await templateRef.get();
@@ -91,7 +104,9 @@ export const updateTournamentTemplate = onCall(async (request) => {
       updatedAt: new Date(),
     };
     const sanitizedTemplatePayload = Object.fromEntries(
-      Object.entries(templateFields).filter(([, value]) => value !== undefined),
+      Object.entries(templateFields).filter(
+        ([, value]) => value !== undefined && value !== null,
+      ),
     );
 
     batch.update(templateRef, sanitizedTemplatePayload);
@@ -149,10 +164,16 @@ export const updateTournamentTemplate = onCall(async (request) => {
           updatedAt: new Date(),
         };
 
-        // nullでない値のみを更新
-        const filteredSnapshotData = Object.fromEntries(
-          Object.entries(snapshotUpdateData).filter(([_, value]) => value !== undefined)
+        // null/undefined でない値のみをマージ（未変更の color 等で既存 snapshot を消さない）
+        const filteredSnapshotPatch = Object.fromEntries(
+          Object.entries(snapshotUpdateData).filter(
+            ([, value]) => value !== undefined && value !== null,
+          ),
         );
+        const filteredSnapshotData = {
+          ...existingSnapshot,
+          ...filteredSnapshotPatch,
+        };
 
         const tournamentUpdateData: any = {
           snapshot: filteredSnapshotData,
@@ -212,6 +233,12 @@ export const updateTournamentTemplate = onCall(async (request) => {
       cause: error,
       context: errContext,
     });
+    if (error instanceof FunctionCustomError) {
+      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+    }
+    if (error instanceof HttpsError) {
+      throw error;
+    }
     return {
       success: false,
       error: error instanceof Error ? error.message : '不明なエラーが発生しました',

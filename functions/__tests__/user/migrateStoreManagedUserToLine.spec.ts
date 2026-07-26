@@ -16,10 +16,12 @@ import * as admin from 'firebase-admin';
 import { getCallerDeviceByUid, isActive } from '../../src/shared/devices';
 import { assertUserFreeForMigration } from '../../src/domains/user/helpers/assertUserFreeForMigration';
 import { migrateStoreManagedUserToLine } from '../../src/domains/user/callables/migrateStoreManagedUserToLine';
+import { a7StoreConfigDocument } from '../helpers/a7StoreConfig';
+import { __setMockConfig, __resetMockConfig } from '../helpers/mockStoreConfig';
 
 type UserState = Record<string, unknown>;
 
-describe('migrateStoreManagedUserToLine (A-6 Phase 3)', () => {
+describe('migrateStoreManagedUserToLine (A-6 / A-7 Phase 5)', () => {
   const adminUid = 'admin-device-uid';
   const sourceUserId = 'store-user-001';
   const targetUserId = 'line-user-001';
@@ -35,6 +37,7 @@ describe('migrateStoreManagedUserToLine (A-6 Phase 3)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
+    __setMockConfig(a7StoreConfigDocument());
     (assertUserFreeForMigration as jest.Mock).mockResolvedValue(undefined);
 
     sourceData = {
@@ -43,6 +46,7 @@ describe('migrateStoreManagedUserToLine (A-6 Phase 3)', () => {
       isMigrated: false,
       pointA: 100,
       pointB: 200,
+      pointC: 333,
       sideGameChip: 300,
       initialBalanceSetAt: admin.firestore.Timestamp.fromDate(
         new Date('2026-01-01T00:00:00.000Z')
@@ -53,6 +57,7 @@ describe('migrateStoreManagedUserToLine (A-6 Phase 3)', () => {
       userType: 'line',
       pointA: 1,
       pointB: 2,
+      pointC: 3,
       sideGameChip: 3,
       initialBalanceSetAt: admin.firestore.Timestamp.fromDate(
         new Date('2026-02-01T00:00:00.000Z')
@@ -169,6 +174,10 @@ describe('migrateStoreManagedUserToLine (A-6 Phase 3)', () => {
     });
   });
 
+  afterEach(() => {
+    __resetMockConfig();
+  });
+
   function makeUserDocRef(userId: string) {
     return {
       __kind: 'user',
@@ -241,13 +250,23 @@ describe('migrateStoreManagedUserToLine (A-6 Phase 3)', () => {
     });
   }
 
+  const fullSourceBalances = {
+    pointA: 100,
+    pointB: 200,
+    pointC: 333,
+    pointD: 0,
+    pointE: 0,
+    sideGameChip: 300,
+  };
+
   it('migrates balances from source to target and marks source migrated', async () => {
     const targetInitialAt = targetData!.initialBalanceSetAt;
     const result = await callMigrate({note: ' メモ '});
     expect(result.success).toBe(true);
-    expect(result.balances).toEqual({pointA: 100, pointB: 200, sideGameChip: 300});
+    expect(result.balances).toEqual(fullSourceBalances);
     expect(targetData?.pointA).toBe(100);
     expect(targetData?.pointB).toBe(200);
+    expect(targetData?.pointC).toBe(333);
     expect(targetData?.sideGameChip).toBe(300);
     expect(targetData?.initialBalanceSetAt).toEqual(targetInitialAt);
     expect(targetData).not.toHaveProperty('migratedFromUserId');
@@ -259,7 +278,7 @@ describe('migrateStoreManagedUserToLine (A-6 Phase 3)', () => {
     const log = migrationLogs[result.migrationId];
     expect(log.migrationType).toBe('store_managed_to_line');
     expect(log.sourceUserId).toBe(sourceUserId);
-    expect(log.balances).toEqual({pointA: 100, pointB: 200, sideGameChip: 300});
+    expect(log.balances).toEqual(fullSourceBalances);
     expect(log.note).toBe('メモ');
     expect(log).not.toHaveProperty('createdByUid');
   });
@@ -401,7 +420,7 @@ describe('migrateStoreManagedUserToLine (A-6 Phase 3)', () => {
       sourceUserId,
       targetUserId,
       migrationId: 'seeded-mig',
-      balances: {pointA: 100, pointB: 200, sideGameChip: 300},
+      balances: fullSourceBalances,
     };
     const result = await callMigrate({clientNonce: 'n1'});
     expect(result.reused).toBe(true);
@@ -414,7 +433,14 @@ describe('migrateStoreManagedUserToLine (A-6 Phase 3)', () => {
       sourceUserId: 'other-source',
       targetUserId,
       migrationId: 'seeded-mig',
-      balances: {pointA: 1, pointB: 2, sideGameChip: 3},
+      balances: {
+        pointA: 1,
+        pointB: 2,
+        pointC: 0,
+        pointD: 0,
+        pointE: 0,
+        sideGameChip: 3,
+      },
     };
     await expect(callMigrate({clientNonce: 'n1'})).rejects.toMatchObject({
       details: expect.objectContaining({errorKey: 'IDEMPOTENCY_CONFLICT'}),

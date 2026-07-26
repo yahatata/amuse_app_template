@@ -7,7 +7,20 @@
 
 import * as crypto from 'crypto';
 import * as admin from 'firebase-admin';
-import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
+import { itemLineAmountIncl } from './billCategoryAmounts';
+
+const SETTLEMENT_KNOWN_PAYMENT_METHODS = [
+  'cash',
+  'credit_card',
+  'electronic_money',
+  'pointA',
+  'pointB',
+  'pointC',
+  'pointD',
+  'pointE',
+  'sideGameChip',
+] as const;
 
 // itemsSnapshot 圧縮閾値（schema_plan.md に記載の「700KB 超は Top50 + その他合算に圧縮」に準拠）
 // テストで差し替え可能にするため export（テスト時のみ使用）
@@ -45,22 +58,10 @@ export function calculateAmounts(params: CalculateAmountsParams): Amounts {
     extraCostMonetary += amountIncl;
   }
 
-  // items の計算（getBillPreviewTotals.ts 92-99行目と同等）
+  // items の計算（billCategoryAmounts.itemLineAmountIncl と同式）
   let itemsMonetary = 0;
   for (const doc of items) {
-    const data = doc.data();
-    // voided: true のアイテムは算出対象外
-    if (data.voided === true) {
-      continue;
-    }
-    // totalPriceIncl があればそれを使い、なければ price * quantity で計算
-    if (data.totalPriceIncl !== undefined) {
-      itemsMonetary += (data.totalPriceIncl as number) ?? 0;
-    } else {
-      const price = (data.unitPriceIncl as number | undefined) ?? 0;
-      const quantity = (data.quantity as number | undefined) ?? 0;
-      itemsMonetary += price * quantity;
-    }
+    itemsMonetary += itemLineAmountIncl(doc.data() as Record<string, unknown>);
   }
 
   // sideGameChips の計算（getBillPreviewTotals.ts 103-120行目と同等、action == 'purchase' のみ）
@@ -124,18 +125,7 @@ export function calculateCategoryBreakdown(params: CalculateAmountsParams): Cate
   // items
   let itemsTotal = 0;
   for (const doc of items) {
-    const data = doc.data();
-    // voided: true のアイテムは算出対象外
-    if (data.voided === true) {
-      continue;
-    }
-    if (data.totalPriceIncl !== undefined) {
-      itemsTotal += (data.totalPriceIncl as number) ?? 0;
-    } else {
-      const price = (data.unitPriceIncl as number | undefined) ?? 0;
-      const quantity = (data.quantity as number | undefined) ?? 0;
-      itemsTotal += price * quantity;
-    }
+    itemsTotal += itemLineAmountIncl(doc.data() as Record<string, unknown>);
   }
 
   // extraCost
@@ -500,7 +490,14 @@ export interface PaymentsSummary {
 }
 
 export function calculatePaymentTotals(params: CalculatePaymentTotalsParams): PaymentTotals {
-  const { paymentsDocs, metaPaymentMethodsByCategory, metaPaymentMethodsByAmount, categoryBreakdown, sideGameChipExchangeRate = DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } = params;
+  const {
+    paymentsDocs,
+    metaPaymentMethodsByCategory,
+    metaPaymentMethodsByAmount,
+    categoryBreakdown,
+  } = params;
+  // sideGameChipExchangeRate は A-7 では ByCategory/ByAmount が既に基準値のため未使用（API互換で params に残置）
+  void params.sideGameChipExchangeRate;
 
   // /payments が存在する場合は優先
   if (paymentsDocs.length > 0) {
@@ -530,38 +527,41 @@ export function calculatePaymentTotals(params: CalculatePaymentTotalsParams): Pa
     return totals;
   }
 
-  // meta.paymentMethodsByCategory から計算（normalizePaymentMethods と同等の処理）
+  // meta.paymentMethodsByCategory から計算（A-7: amount は基準値＝円換算値）
   if (metaPaymentMethodsByCategory && Object.keys(metaPaymentMethodsByCategory).length > 0) {
     const totals: PaymentTotals = {};
-    const defaultPaymentMethod = 'cash';
 
     for (const [category, paymentValue] of Object.entries(metaPaymentMethodsByCategory)) {
       const categoryAmount = categoryBreakdown[category as keyof CategoryBreakdown] || 0;
       if (categoryAmount <= 0) continue;
 
       if (typeof paymentValue === 'string') {
-        // 文字列形式: カテゴリ全体の金額をその method に配賦
-        const validMethods = ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'];
-        const validMethod = validMethods.includes(paymentValue) ? paymentValue : defaultPaymentMethod;
-        totals[validMethod] = (totals[validMethod] || 0) + categoryAmount;
+        if (
+          !(SETTLEMENT_KNOWN_PAYMENT_METHODS as readonly string[]).includes(paymentValue)
+        ) {
+          throw new FunctionCustomError({
+            errorKey: 'UNKNOWN_PAYMENT_METHOD',
+            message: `未知の支払い方法です: ${paymentValue}`,
+            context: { category, method: paymentValue },
+          });
+        }
+        totals[paymentValue] = (totals[paymentValue] || 0) + categoryAmount;
       } else if (Array.isArray(paymentValue)) {
-        // 配列形式: 各 split の method と amount を使用
         for (const split of paymentValue) {
           if (!split || typeof split !== 'object') continue;
           const method = split.method;
           const amount = Number(split.amount) || 0;
           if (amount <= 0) continue;
 
-          const validMethods = ['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip'];
-          const validMethod = validMethods.includes(method) ? method : defaultPaymentMethod;
-          
-          // sideGameChipの場合、split.amountはチップ枚数なので円換算値に変換
-          if (method === 'sideGameChip') {
-            const yenAmount = Math.floor(amount * sideGameChipExchangeRate);
-            totals[validMethod] = (totals[validMethod] || 0) + yenAmount;
-          } else {
-            totals[validMethod] = (totals[validMethod] || 0) + amount;
+          if (!(SETTLEMENT_KNOWN_PAYMENT_METHODS as readonly string[]).includes(method)) {
+            throw new FunctionCustomError({
+              errorKey: 'UNKNOWN_PAYMENT_METHOD',
+              message: `未知の支払い方法です: ${method}`,
+              context: { category, method },
+            });
           }
+          // A-7: ByCategory の amount は基準値量（円）。chipRate 換算しない。
+          totals[method] = (totals[method] || 0) + amount;
         }
       }
     }

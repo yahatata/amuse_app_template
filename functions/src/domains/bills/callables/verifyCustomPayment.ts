@@ -1,38 +1,47 @@
-import { logger } from 'firebase-functions';
+/**
+ * A-7: 手動支払いの事前検証
+ */
+
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStoreConfig } from '../../../shared/config/configLoader';
-import {
-  DEFAULT_CATEGORY_PAYMENT_METHODS,
-  DEFAULT_POINT_AB_ROUNDING_UNIT,
-  DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE,
-  DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
-} from '../../../shared/config/defaults';
+import { validatePointConfigFromStoreConfig } from '../../../shared/config/validatePointConfig';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
-import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import {
+  FunctionCustomError,
+  mapFunctionCustomErrorToHttpsCode,
+} from '../../../shared/logging/functionCustomError';
+import { ALL_BALANCE_IDS, SIDE_GAME_CHIP_ID } from '../../user/types/pointIds';
+import { readBalanceOrZeroIfMissing } from '../../user/helpers/userBalances';
 import { validateAndNormalizeCustomPayment } from '../services/customPaymentValidator';
 import { loadBillCategoryAmounts } from '../services/billCategoryAmounts';
 
+const PaymentMethodEnum = z.enum([
+  'cash',
+  'credit_card',
+  'electronic_money',
+  'pointA',
+  'pointB',
+  'pointC',
+  'pointD',
+  'pointE',
+  'sideGameChip',
+]);
+
 const CategoryPaymentSplitSchema = z.object({
-  method: z.enum(['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip']),
+  method: PaymentMethodEnum,
   amount: z.number().nonnegative(),
 });
 
 const VerifyCustomPaymentSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
   paymentMethodsByCategory: z.record(
-    z.union([
-      z.enum(['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip']),
-      z.array(CategoryPaymentSplitSchema),
-    ]),
+    z.union([PaymentMethodEnum, z.array(CategoryPaymentSplitSchema)]),
   ),
   paymentMethodsByAmount: z.record(z.number().nonnegative()).optional(),
 });
 
-/**
- * カスタム支払いの検証（店舗ルール・丸め単位・残高・合計一致）
- */
 export const verifyCustomPayment = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
@@ -41,22 +50,13 @@ export const verifyCustomPayment = onCall(async (request) => {
   try {
     const db = getFirestore();
     const validatedData = VerifyCustomPaymentSchema.parse(request.data);
-    const { billId, paymentMethodsByCategory, paymentMethodsByAmount } = validatedData;
+    const { billId, paymentMethodsByCategory, paymentMethodsByAmount } =
+      validatedData;
 
     const config = await getStoreConfig();
-    const chipRate = config.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
-    const categoryPaymentMethods =
-      config.billing?.paymentPolicy?.categoryPaymentMethods ?? DEFAULT_CATEGORY_PAYMENT_METHODS;
-    const roundingUnits = {
-      pointAB:
-        config.billing?.paymentPolicy?.roundingUnits?.pointAB ?? DEFAULT_POINT_AB_ROUNDING_UNIT,
-      sideGameChip:
-        config.billing?.paymentPolicy?.roundingUnits?.sideGameChip ??
-        DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
-    };
+    const validatedPointConfig = validatePointConfigFromStoreConfig(config);
 
-    const billRef = db.collection('bills').doc(billId);
-    const billDoc = await billRef.get();
+    const billDoc = await db.collection('bills').doc(billId).get();
     if (!billDoc.exists) {
       throw new HttpsError('not-found', '指定された請求書が見つかりません');
     }
@@ -71,22 +71,30 @@ export const verifyCustomPayment = onCall(async (request) => {
     if (!userDoc.exists) {
       throw new HttpsError('not-found', 'ユーザー情報が見つかりません');
     }
-    const userData = userDoc.data()!;
-    const balances: Record<string, number> = {
-      pointA: userData.pointA || 0,
-      pointB: userData.pointB || 0,
-      sideGameChip: userData.sideGameChip || 0,
-    };
+    const userData = userDoc.data() as Record<string, unknown>;
+    const balances: Record<string, number> = {};
+    for (const id of ALL_BALANCE_IDS) {
+      balances[id] = readBalanceOrZeroIfMissing(userData, id);
+    }
+
+    const balanceEnabled: Record<string, boolean> = {};
+    for (const id of ALL_BALANCE_IDS) {
+      if (id === SIDE_GAME_CHIP_ID) {
+        balanceEnabled[id] = validatedPointConfig.sideGameChipSettings.enabled;
+      } else {
+        balanceEnabled[id] = validatedPointConfig.pointSettings[id].enabled;
+      }
+    }
 
     const categoryAmounts = await loadBillCategoryAmounts(db, billId);
 
-    const { paymentMethodsByAmount: serverAmounts } = validateAndNormalizeCustomPayment({
+    const validated = validateAndNormalizeCustomPayment({
       categoryAmounts,
       paymentMethodsByCategory,
-      categoryPaymentMethods,
+      categoryPaymentMethods: validatedPointConfig.categoryPaymentMethods,
       balances,
-      chipRate,
-      roundingUnits,
+      balancePaymentSettings: validatedPointConfig.balancePaymentSettings,
+      balanceEnabled,
       clientPaymentMethodsByAmount: paymentMethodsByAmount,
     });
 
@@ -94,31 +102,39 @@ export const verifyCustomPayment = onCall(async (request) => {
       message: 'verifyCustomPayment 成功',
       functionEntry: 'verifyCustomPayment',
       operation: 'verifyCustomPaymentCallable',
-      context: { billId, paymentMethodsByAmount: serverAmounts },
+      context: { billId },
     });
 
     return {
       success: true,
-      paymentMethodsByAmount: serverAmounts,
+      paymentMethodsByAmount: validated.paymentMethodsByAmount,
+      paymentMethodsByCategory: validated.paymentMethodsByCategory,
       categoryAmounts,
     };
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
+    }
     if (error instanceof FunctionCustomError) {
       logOpsError({
-        message: 'verifyCustomPayment 検証エラー',
+        message: 'verifyCustomPayment 業務エラー',
         functionEntry: 'verifyCustomPayment',
-        operation: 'verifyCustomPaymentValidation',
+        operation: 'verifyCustomPaymentCustom',
         cause: error,
+        context: {
+          billId: (request.data as { billId?: string } | undefined)?.billId,
+          errorKey: error.errorKey,
+        },
       });
-      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message, {
-        errorKey: error.errorKey,
-        context: error.context,
-      });
+      throw new HttpsError(
+        mapFunctionCustomErrorToHttpsCode(error.errorKey),
+        error.message,
+        { errorKey: error.errorKey, context: error.context },
+      );
     }
     if (error instanceof HttpsError) {
       throw error;
     }
-    logger.error('verifyCustomPayment 予期しないエラー', error);
     logOpsError({
       message: 'verifyCustomPayment 予期しないエラー',
       functionEntry: 'verifyCustomPayment',

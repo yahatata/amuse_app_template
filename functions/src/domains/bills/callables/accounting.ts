@@ -6,102 +6,52 @@ import { buildDraftAccountingInputUpdate, startAccounting as startAccountingHelp
 import * as crypto from 'crypto';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStoreConfig } from '../../../shared/config/configLoader';
-import {
-  DEFAULT_CATEGORY_PAYMENT_METHODS,
-  DEFAULT_POINT_AB_ROUNDING_UNIT,
-  DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE,
-  DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
-} from '../../../shared/config/defaults';
-import { validateAndNormalizeCustomPayment } from '../services/customPaymentValidator';
+import { validatePointConfigFromStoreConfig } from '../../../shared/config/validatePointConfig';
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { assertUserNotMigrated } from '../../user/helpers/assertUserNotMigrated';
+import { ALL_BALANCE_IDS } from '../../user/types/pointIds';
+import { readBalanceOrZeroIfMissing } from '../../user/helpers/userBalances';
+import { loadBillCategoryAmounts, assertPaymentTotalMatchesCategoryTotal } from '../services/billCategoryAmounts';
+import { resolveA7AccountingPayment } from '../services/resolveA7AccountingPayment';
+import { commitA7AccountingPayment } from '../services/commitA7AccountingPayment';
+import type { PaymentMethodValue } from '../services/paymentMethodsInference';
 
-// 支払い方法の表示名を取得するヘルパー関数
-function _getPaymentMethodDisplayName(paymentMethod: string): string {
-  switch (paymentMethod) {
-    case 'pointA':
-      return 'ポイントA';
-    case 'pointB':
-      return 'ポイントB';
-    case 'sideGameChip':
-      return 'サイドゲームチップ';
-    default:
-      return paymentMethod;
-  }
-}
-
-function normalizePaymentMethods(options: {
-  paymentMethodsByAmount?: Record<string, number>;
-  paymentMethodsByCategory?: Record<string, any>;
-  categoryAmounts: Record<string, number>;
-  sideGameChipExchangeRate?: number;
-}): Record<string, number> {
-  const { paymentMethodsByAmount, paymentMethodsByCategory, categoryAmounts, sideGameChipExchangeRate = DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } = options;
-
-  if (paymentMethodsByAmount && Object.keys(paymentMethodsByAmount).length > 0) {
-    const normalized: Record<string, number> = {};
-    for (const [method, amount] of Object.entries(paymentMethodsByAmount)) {
-      if (amount > 0) {
-        normalized[method] = Math.floor(amount);
-      }
-    }
-    return normalized;
-  }
-
-  if (paymentMethodsByCategory && Object.keys(paymentMethodsByCategory).length > 0) {
-    const normalized: Record<string, number> = {};
-
-    for (const [category, paymentValue] of Object.entries(paymentMethodsByCategory)) {
-      const categoryAmount = categoryAmounts[category] || 0;
-      if (categoryAmount <= 0) continue;
-
-      if (typeof paymentValue === 'string') {
-        if (paymentValue === 'pointA' || paymentValue === 'pointB') {
-          normalized[paymentValue] = (normalized[paymentValue] || 0) + categoryAmount;
-        } else if (paymentValue === 'sideGameChip') {
-          // categoryAmountは既に円換算値なので、そのまま使用（チップ枚数に変換しない）
-          normalized[paymentValue] = (normalized[paymentValue] || 0) + categoryAmount;
-        }
-      } else if (Array.isArray(paymentValue)) {
-        for (const split of paymentValue) {
-          if (!split || typeof split !== 'object') continue;
-          const method = split.method;
-          const amount = Number(split.amount) || 0;
-          if (amount <= 0) continue;
-
-          if (method === 'pointA' || method === 'pointB') {
-            normalized[method] = (normalized[method] || 0) + amount;
-          } else if (method === 'sideGameChip') {
-            // split.amountはチップ枚数なので、円換算値に変換して格納
-            const yenAmount = Math.floor(amount * sideGameChipExchangeRate);
-            normalized[method] = (normalized[method] || 0) + yenAmount;
-          }
-        }
-      }
-    }
-
-    return normalized;
-  }
-
-  return {};
-}
+const PaymentMethodEnum = z.enum([
+  'cash',
+  'credit_card',
+  'electronic_money',
+  'pointA',
+  'pointB',
+  'pointC',
+  'pointD',
+  'pointE',
+  'sideGameChip',
+]);
 
 // Zodスキーマで入力データを検証
 const StartAccountingSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
-  idempotencyKey: z.string().min(1, 'idempotencyKeyは必須です').optional(), // 任意（提供されない場合は自動生成）
-  clientNonce: z.string().min(1, 'clientNonceは必須です').optional(), // 任意（idempotencyKey生成用）
+  idempotencyKey: z.string().min(1, 'idempotencyKeyは必須です').optional(),
+  clientNonce: z.string().min(1, 'clientNonceは必須です').optional(),
+  accountingMode: z.enum(['auto', 'custom']).optional(),
+  selectedBaseMethod: z
+    .enum(['cash', 'credit_card', 'electronic_money'])
+    .optional(),
   paymentMethodsByAmount: z.record(z.number().nonnegative()).optional(),
-  paymentMethodsByCategory: z.record(
-    z.union([
-      z.enum(['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip']),
-      z.array(z.object({
-        method: z.enum(['cash', 'credit_card', 'electronic_money', 'pointA', 'pointB', 'sideGameChip']),
-        amount: z.number().nonnegative(),
-      })),
-    ])
-  ).optional(),
+  paymentMethodsByCategory: z
+    .record(
+      z.union([
+        PaymentMethodEnum,
+        z.array(
+          z.object({
+            method: PaymentMethodEnum,
+            amount: z.number().nonnegative(),
+          }),
+        ),
+      ]),
+    )
+    .optional(),
 });
 
 const CompleteAccountingSchema = z.object({
@@ -141,6 +91,8 @@ export const startAccounting = onCall(async (request) => {
       clientNonce,
       paymentMethodsByAmount: inputPaymentMethodsByAmount,
       paymentMethodsByCategory,
+      accountingMode: inputAccountingMode,
+      selectedBaseMethod,
     } = validatedData;
 
     // idempotencyKey を生成（提供されない場合は自動生成）
@@ -148,7 +100,6 @@ export const startAccounting = onCall(async (request) => {
       `${billId}:startAccounting:${clientNonce || crypto.randomUUID()}`;
 
     const storeConfig = await getStoreConfig();
-    const chipRate = storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
 
     // 会計開始前に bill と party.userId を確認し、移行済みユーザーを拒否
     const billRef = db.collection('bills').doc(billId);
@@ -173,86 +124,24 @@ export const startAccounting = onCall(async (request) => {
       accountingStartedBy: adminId,
     });
 
-    // 既存の支払方法処理とユーザー残高差し引き処理を維持（P1-06のスコープ外）
-    // billRef / billData は上で取得済み
-
-    // カテゴリごとの金額を計算（bills のサブコレクションから取得）
-    const categoryAmounts: Record<string, number> = {};
-
-    // extraCost（入店料）- /bills/{billId}/extras から取得
-    const extrasSnapshot = await billRef.collection('extras').get();
-    categoryAmounts['extraCost'] = extrasSnapshot.docs.reduce((sum, doc) => {
-      const data = doc.data();
-      return sum + (data.amountIncl || 0);
-    }, 0);
-
-    // tournaments（トーナメント参加費）- /bills/{billId}/tournaments から取得
-    const tournamentsSnapshot = await billRef.collection('tournaments').get();
-    categoryAmounts['tournaments'] = tournamentsSnapshot.docs.reduce((sum, doc) => {
-      const data = doc.data();
-      // entryFeeIncl, reentryFeeIncl, addonFeeIncl を回数と掛け算して合計
-      const entryFeeIncl = (data.entryFeeIncl as number | undefined) ?? 0;
-      const entryCount = (data.entryCount as number | undefined) ?? 0;
-      const reentryFeeIncl = (data.reentryFeeIncl as number | undefined) ?? 0;
-      const reentryCount = (data.reentryCount as number | undefined) ?? 0;
-      const addonFeeIncl = (data.addonFeeIncl as number | undefined) ?? 0;
-      const addonCount = (data.addonCount as number | undefined) ?? 0;
-      
-      return sum + 
-        entryFeeIncl * entryCount +
-        reentryFeeIncl * reentryCount +
-        addonFeeIncl * addonCount;
-    }, 0);
-
-    // items（フード・ドリンク）- /bills/{billId}/items から取得
-    const itemsSnapshot = await billRef.collection('items').get();
-    categoryAmounts['items'] = itemsSnapshot.docs
-      .filter((doc) => {
-        const data = doc.data();
-        // voided: true のアイテムは算出対象外
-        return data.voided !== true;
-      })
-      .reduce((sum, doc) => {
-        const data = doc.data();
-        return sum + ((data.unitPriceIncl || 0) * (data.quantity || 0));
-      }, 0);
-
-    // sideGameChip（サイドゲームチップ、action='purchase'のみ）- /bills/{billId}/sideGameChips から取得
-    const sideGameChipsSnapshot = await billRef.collection('sideGameChips')
-      .where('action', '==', 'purchase')
-      .get();
-    categoryAmounts['sideGameChip'] = sideGameChipsSnapshot.docs.reduce((sum, doc) => {
-      const data = doc.data();
-      return sum + (data.amountIncl || 0);
-    }, 0);
-
+    const categoryAmounts = await loadBillCategoryAmounts(db, billId);
     const totalExpected = Object.values(categoryAmounts).reduce((sum, value) => sum + value, 0);
     
     // 0円会計の場合は支払い方法チェックをスキップ
     if (totalExpected === 0) {
-      // 0円会計の場合、paymentMethodsByAmount が空でも許可
-      // meta.paymentMethodsByAmount は空のMapとして保存
-      const metaUpdate: Record<string, any> = {};
-      if (inputPaymentMethodsByAmount && Object.keys(inputPaymentMethodsByAmount).length > 0) {
-        metaUpdate['meta.paymentMethodsByAmount'] = inputPaymentMethodsByAmount;
-      } else {
-        // 0円の場合、空のMapを保存
-        metaUpdate['meta.paymentMethodsByAmount'] = {};
-      }
-      
-      if (paymentMethodsByCategory && Object.keys(paymentMethodsByCategory).length > 0) {
-        metaUpdate['meta.paymentMethodsByCategory'] = paymentMethodsByCategory;
-      }
-      
-      if (Object.keys(metaUpdate).length > 0) {
-        await billRef.update({
-          ...metaUpdate,
-          ...buildDraftAccountingInputUpdate({
-            paymentMethodsByAmount: metaUpdate['meta.paymentMethodsByAmount'] ?? {},
-            paymentMethodsByCategory: metaUpdate['meta.paymentMethodsByCategory'] ?? null,
-          }),
-        });
-      }
+      const metaUpdate: Record<string, unknown> = {
+        'meta.paymentMethodsByAmount': {},
+        'meta.paymentMethodsByCategory': {},
+        'meta.paymentMethodDetails': {},
+      };
+      await billRef.update({
+        ...metaUpdate,
+        ...buildDraftAccountingInputUpdate({
+          paymentMethodsByAmount: {},
+          paymentMethodsByCategory: {},
+        }),
+        'draftAccountingInput.paymentMethodDetails': {},
+      });
 
       logOpsSuccess({
         message: "startAccounting 成功（0円会計）",
@@ -271,148 +160,86 @@ export const startAccounting = onCall(async (request) => {
       };
     }
 
-    let normalizedPaymentMethods: Record<string, number>;
-    let resolvedPaymentMethodsByAmount = inputPaymentMethodsByAmount;
-
-    if (paymentMethodsByCategory && Object.keys(paymentMethodsByCategory).length > 0) {
-      const categoryPaymentMethods =
-        storeConfig.billing?.paymentPolicy?.categoryPaymentMethods ??
-        DEFAULT_CATEGORY_PAYMENT_METHODS;
-      const roundingUnits = {
-        pointAB:
-          storeConfig.billing?.paymentPolicy?.roundingUnits?.pointAB ??
-          DEFAULT_POINT_AB_ROUNDING_UNIT,
-        sideGameChip:
-          storeConfig.billing?.paymentPolicy?.roundingUnits?.sideGameChip ??
-          DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT,
-      };
-
-      if (!userId) {
-        throw new HttpsError('invalid-argument', 'ユーザーIDが見つかりません');
-      }
-
-      const userRef = db.collection('users').doc(userId);
-      const userDocForValidation = await userRef.get();
-      if (!userDocForValidation.exists) {
-        throw new HttpsError('not-found', 'ユーザー情報が見つかりません');
-      }
-      const userDataForValidation = userDocForValidation.data()!;
-      const balances: Record<string, number> = {
-        pointA: userDataForValidation.pointA || 0,
-        pointB: userDataForValidation.pointB || 0,
-        sideGameChip: userDataForValidation.sideGameChip || 0,
-      };
-
-      const validated = validateAndNormalizeCustomPayment({
-        categoryAmounts,
-        paymentMethodsByCategory,
-        categoryPaymentMethods,
-        balances,
-        chipRate,
-        roundingUnits,
-        clientPaymentMethodsByAmount: inputPaymentMethodsByAmount,
+    // A-7: 支払確定済み（meta/draft に ByAmount あり）の再送は、残高再計算・再減算しない
+    const billAfterStart = await billRef.get();
+    const billAfterData = billAfterStart.exists
+      ? (billAfterStart.data() as Record<string, unknown>)
+      : {};
+    const existingByAmount =
+      ((billAfterData.meta as Record<string, unknown> | undefined)
+        ?.paymentMethodsByAmount as Record<string, number> | undefined) ??
+      ((billAfterData.draftAccountingInput as Record<string, unknown> | undefined)
+        ?.paymentMethodsByAmount as Record<string, number> | undefined);
+    if (existingByAmount && Object.keys(existingByAmount).length > 0) {
+      logOpsSuccess({
+        message: "startAccounting 成功（支払済み・冪等）",
+        functionEntry: "startAccounting",
+        operation: "startAccountingCallable",
+        context: {
+          billId,
+          adminId,
+          zeroYen: false,
+          status: startAccountingResult.status,
+          paymentReused: true,
+        },
       });
-      normalizedPaymentMethods = validated.paymentMethodsByAmount;
-      resolvedPaymentMethodsByAmount = validated.paymentMethodsByAmount;
-    } else {
-      normalizedPaymentMethods = normalizePaymentMethods({
-        paymentMethodsByAmount: inputPaymentMethodsByAmount,
-        paymentMethodsByCategory,
-        categoryAmounts,
-        sideGameChipExchangeRate: chipRate,
-      });
-    }
-
-    if (Object.keys(normalizedPaymentMethods).length === 0) {
-      throw new HttpsError('invalid-argument', '支払い方法が指定されていません');
-    }
-
-    const totalPaid = Object.entries(normalizedPaymentMethods).reduce((sum, [method, amount]) => {
-      if (amount <= 0) return sum;
-      // normalizedPaymentMethodsの値は全て円換算値で統一されているため、そのまま加算
-      // sideGameChipも円換算値として格納されているため、特別な処理は不要
-      return sum + amount;
-    }, 0);
-
-    if (Math.abs(totalPaid - totalExpected) > 1) {
-      throw new FunctionCustomError({
-        errorKey: 'ACCOUNTING_PAYMENT_TOTAL_MISMATCH',
-        message: `支払い総額が一致しません。入力合計: ${totalPaid}円, 伝票合計: ${totalExpected}円`,
-        context: { billId, totalPaid, totalExpected },
-      });
-    }
-
-    // ポイント/サイドゲームチップで支払う場合の残高確認と差し引き処理
-    if (userId) {
-      const userRef = db.collection('users').doc(userId);
-      const userDoc = await userRef.get();
-
-      if (!userDoc.exists) {
-        throw new HttpsError('not-found', 'ユーザー情報が見つかりません');
-      }
-
-      const userData = userDoc.data()!;
-      const balanceDeductions: Record<string, number> = {
-        pointA: Math.floor(normalizedPaymentMethods['pointA'] || 0),
-        pointB: Math.floor(normalizedPaymentMethods['pointB'] || 0),
-        // 円換算値からチップ枚数に変換
-        sideGameChip: Math.floor((normalizedPaymentMethods['sideGameChip'] || 0) / chipRate),
+      return {
+        success: true,
+        message: '会計を開始しました',
+        billId,
+        status: startAccountingResult.status,
+        ops: startAccountingResult.ops,
+        diagnostics: {
+          ...(startAccountingResult.diagnostics ?? {}),
+          reused: true,
+        },
       };
-
-      for (const [fieldName, amount] of Object.entries(balanceDeductions)) {
-        if (amount > 0) {
-          const currentBalance = userData[fieldName] || 0;
-          if (currentBalance < amount) {
-            const unit = fieldName === 'sideGameChip' ? '枚' : '円';
-            throw new FunctionCustomError({
-              errorKey: 'ACCOUNTING_INSUFFICIENT_BALANCE',
-              message: `${_getPaymentMethodDisplayName(fieldName)}の残高が不足しています。現在の残高: ${currentBalance}${unit}、必要な金額: ${amount}${unit}`,
-              context: { billId, userId, fieldName, currentBalance, required: amount },
-            });
-          }
-        }
-      }
-
-      const updates: Record<string, any> = {
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      };
-      for (const [fieldName, amount] of Object.entries(balanceDeductions)) {
-        if (amount > 0) {
-          updates[fieldName] = admin.firestore.FieldValue.increment(-amount);
-        }
-      }
-      if (Object.keys(updates).length > 1) {
-        await userRef.update(updates);
-      }
     }
 
-    // 支払方法情報は bills には保存しない（P1-06のスコープ外、将来の recordPayment ヘルパに移行予定）
-    // ただし、P1-10 の暫定方針として meta.paymentMethodsByCategory または meta.paymentMethodsByAmount に保存する
-    // startAccounting ヘルパAPIで既に status='settling' と ops.accountingStartedAt/By が設定されている
-    
-    // P1-10 暫定: meta.paymentMethodsByCategory または meta.paymentMethodsByAmount に保存
-    const metaUpdate: Record<string, any> = {};
-    
-    if (paymentMethodsByCategory && Object.keys(paymentMethodsByCategory).length > 0) {
-      metaUpdate['meta.paymentMethodsByCategory'] = paymentMethodsByCategory;
+    const validatedPointConfig = validatePointConfigFromStoreConfig(storeConfig);
+
+    if (!userId) {
+      throw new HttpsError('invalid-argument', 'ユーザーIDが見つかりません');
     }
-    
-    // paymentMethodsByAmount が存在する場合は、meta.paymentMethodsByAmount として保存
-    // Settlement Trigger で優先的に使用される
-    if (resolvedPaymentMethodsByAmount && Object.keys(resolvedPaymentMethodsByAmount).length > 0) {
-      metaUpdate['meta.paymentMethodsByAmount'] = resolvedPaymentMethodsByAmount;
+
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      throw new HttpsError('not-found', 'ユーザー情報が見つかりません');
     }
-    
-    if (Object.keys(metaUpdate).length > 0) {
-      await billRef.update({
-        ...metaUpdate,
-        ...buildDraftAccountingInputUpdate({
-          paymentMethodsByAmount: resolvedPaymentMethodsByAmount ?? null,
-          paymentMethodsByCategory: paymentMethodsByCategory ?? null,
-        }),
-        // updatedAt は既存ポリシーに従い、冪等リプレイ時は更新しない（startAccountingHelper 側で制御）
-      });
+    const userData = userDoc.data() as Record<string, unknown>;
+    const balances: Record<string, number> = {};
+    for (const id of ALL_BALANCE_IDS) {
+      balances[id] = readBalanceOrZeroIfMissing(userData, id);
     }
+
+    const accountingMode =
+      inputAccountingMode ??
+      (paymentMethodsByCategory && Object.keys(paymentMethodsByCategory).length > 0
+        ? 'custom'
+        : 'auto');
+
+    const resolved = resolveA7AccountingPayment({
+      mode: accountingMode,
+      categoryAmounts,
+      balances,
+      validatedConfig: validatedPointConfig,
+      clientPaymentMethodsByCategory:
+        paymentMethodsByCategory as Record<string, PaymentMethodValue> | undefined,
+      clientPaymentMethodsByAmount: inputPaymentMethodsByAmount,
+      selectedBaseMethod,
+    });
+
+    assertPaymentTotalMatchesCategoryTotal({
+      categoryAmounts,
+      paymentMethodsByAmount: resolved.paymentMethodsByAmount,
+      billId,
+    });
+
+    await commitA7AccountingPayment({
+      billId,
+      userId,
+      resolved,
+    });
 
     logOpsSuccess({
       message: "startAccounting 成功",
@@ -434,7 +261,21 @@ export const startAccounting = onCall(async (request) => {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
     }
     if (error instanceof FunctionCustomError) {
-      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+      logOpsError({
+        message: 'startAccounting 業務エラー',
+        functionEntry: 'startAccounting',
+        operation: 'startAccountingCallableCustom',
+        cause: error,
+        context: {
+          billId: (request.data as { billId?: string } | undefined)?.billId,
+          errorKey: error.errorKey,
+        },
+      });
+      throw new HttpsError(
+        mapFunctionCustomErrorToHttpsCode(error.errorKey),
+        error.message,
+        { errorKey: error.errorKey, context: error.context },
+      );
     }
     if (error instanceof HttpsError) {
       throw error;
@@ -461,7 +302,6 @@ export const startAccounting = onCall(async (request) => {
  * 管理者権限またはaccountingオプションを持つデバイスのみが実行可能
  */
 export const completeAccounting = onCall(async (request) => {
-  // 認証チェック
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }

@@ -14,6 +14,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 import 'store_config_defaults.dart';
+import '../user/validate_point_config.dart';
 
 /// storeMeta/config のデータクラス
 /// （const でない理由: categoryPaymentMethods 等のコピーは const では表現できない）
@@ -63,6 +64,21 @@ class StoreConfigData {
   final Map<int, List<double>> tournamentPrizeDistribution;
   final bool tournamentLiffRegistrationEnabled;
   final bool tournamentLiffCalendarEnabled;
+
+  /// A-7: 未設定は null（default 補完しない）
+  final Map<String, dynamic>? pointSettings;
+
+  /// A-7: 未設定は null
+  final Map<String, dynamic>? sideGameChipSettings;
+
+  /// A-7: キー欠落は null。存在時は List（空可）または不正生値。
+  final Object? rankingRewardPointTypes;
+
+  /// A-7: 未設定は null
+  final Map<String, dynamic>? balancePaymentSettings;
+
+  /// A-7: billing.paymentPolicy.categoryOrder。未設定は null（ハードコード順 fallback 禁止）
+  final List<String>? categoryOrder;
 
   StoreConfigData({
     this.dualWriteEnabled = kDefaultDualWriteEnabled,
@@ -116,6 +132,11 @@ class StoreConfigData {
     Map<int, List<double>>? tournamentPrizeDistribution,
     bool? tournamentLiffRegistrationEnabled,
     bool? tournamentLiffCalendarEnabled,
+    this.pointSettings,
+    this.sideGameChipSettings,
+    this.rankingRewardPointTypes,
+    this.balancePaymentSettings,
+    this.categoryOrder,
   }) : categoryPaymentMethods =
            categoryPaymentMethods ??
            Map<String, List<String>>.from(kDefaultCategoryPaymentMethods),
@@ -144,6 +165,19 @@ class StoreConfigData {
        tournamentLiffCalendarEnabled =
            tournamentLiffCalendarEnabled ??
            kDefaultTournamentLiffCalendarEnabled;
+
+  /// A-7 ポイント config 整合性。失敗しても起動は落とさない（画面側で参照）。
+  PointConfigValidationResult validatePointConfigA7() {
+    return tryValidatePointConfig(
+      pointSettings: pointSettings,
+      sideGameChipSettings: sideGameChipSettings,
+      rankingRewardPointTypes: rankingRewardPointTypes,
+      categoryPaymentMethods: categoryPaymentMethods,
+      pointPriority: pointPriority,
+      balancePaymentSettings: balancePaymentSettings,
+      categoryOrder: categoryOrder,
+    );
+  }
 
   static StoreConfigData fromDefaults() => StoreConfigData();
 
@@ -409,6 +443,55 @@ class StoreConfigData {
         final val = parseBool(tournament?['liffCalendarEnabled']);
         track('tournament.liffCalendarEnabled', val != null);
         return val ?? kDefaultTournamentLiffCalendarEnabled;
+      }(),
+      pointSettings: () {
+        final raw = data['pointSettings'];
+        if (raw is Map) {
+          track('pointSettings', true);
+          return Map<String, dynamic>.from(raw);
+        }
+        track('pointSettings', false);
+        return null;
+      }(),
+      sideGameChipSettings: () {
+        final raw = data['sideGameChipSettings'];
+        if (raw is Map) {
+          track('sideGameChipSettings', true);
+          return Map<String, dynamic>.from(raw);
+        }
+        track('sideGameChipSettings', false);
+        return null;
+      }(),
+      rankingRewardPointTypes: () {
+        final t = tournament;
+        if (t == null || !t.containsKey('rankingRewardPointTypes')) {
+          track('tournament.rankingRewardPointTypes', false);
+          return null;
+        }
+        final raw = t['rankingRewardPointTypes'];
+        track('tournament.rankingRewardPointTypes', true);
+        if (raw is List) {
+          return raw.map((e) => e.toString()).toList();
+        }
+        return raw;
+      }(),
+      balancePaymentSettings: () {
+        final raw = paymentPolicy?['balancePaymentSettings'];
+        if (raw is Map) {
+          track('billing.paymentPolicy.balancePaymentSettings', true);
+          return Map<String, dynamic>.from(raw);
+        }
+        track('billing.paymentPolicy.balancePaymentSettings', false);
+        return null;
+      }(),
+      categoryOrder: () {
+        final raw = paymentPolicy?['categoryOrder'];
+        if (raw is List && raw.isNotEmpty) {
+          track('billing.paymentPolicy.categoryOrder', true);
+          return raw.map((e) => e.toString()).toList();
+        }
+        track('billing.paymentPolicy.categoryOrder', false);
+        return null;
       }(),
     );
     if (onParseComplete != null) {

@@ -369,13 +369,30 @@ export const rollbackAction = onCall(async (request) => {
       const grantIdempotencyKey = payload.grantIdempotencyKey as string;
       const beforeMainView = (payload.beforeMainView as Record<string, unknown>) ?? {};
       const rawEntries = (payload.rankingEntries as Array<Record<string, unknown>>) ?? [];
-      const rankingEntries = rawEntries.map((e) => ({
-        playerUid: String(e.playerUid ?? ''),
-        prizeAmount: Number(e.prizeAmount ?? 0),
-        entryId: String(e.entryId ?? ''),
-        pointType: (e.pointType as 'pointA' | 'pointB') ?? 'pointA',
-        logDate: String(e.logDate ?? ''),
-      }));
+      const rankingEntries = rawEntries.map((e) => {
+        const awardedRaw = e.awardedBalanceAmount;
+        if (
+          typeof awardedRaw !== 'number' ||
+          !Number.isInteger(awardedRaw) ||
+          awardedRaw < 0
+        ) {
+          throw new HttpsError(
+            'invalid-argument',
+            '操作記録の awardedBalanceAmount が不正です。プライズ再確定後の実績が必要です',
+          );
+        }
+        return {
+          playerUid: String(e.playerUid ?? ''),
+          awardedBalanceAmount: awardedRaw,
+          prizeReferenceAmount:
+            typeof e.prizeReferenceAmount === 'number'
+              ? e.prizeReferenceAmount
+              : undefined,
+          entryId: String(e.entryId ?? ''),
+          pointType: (e.pointType as 'pointA' | 'pointB') ?? 'pointA',
+          logDate: String(e.logDate ?? ''),
+        };
+      });
       if (!grantIdempotencyKey) {
         throw new HttpsError('invalid-argument', '操作記録に grantIdempotencyKey がありません');
       }

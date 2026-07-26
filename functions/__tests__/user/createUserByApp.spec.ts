@@ -141,6 +141,18 @@ describe('createUserByApp (A-6 Phase 1)', () => {
     expect(setPayload?.isMigrated).toBe(false);
   });
 
+  it('initializes all 6 balances to 0 and keeps other fields', async () => {
+    await callCreate();
+    expect(setPayload?.pointA).toBe(0);
+    expect(setPayload?.pointB).toBe(0);
+    expect(setPayload?.pointC).toBe(0);
+    expect(setPayload?.pointD).toBe(0);
+    expect(setPayload?.pointE).toBe(0);
+    expect(setPayload?.sideGameChip).toBe(0);
+    expect(setPayload?.pokerName).toBe('StorePoker');
+    expect(setPayload?.role).toBe('user');
+  });
+
   it('rejects duplicate pokerName', async () => {
     pokerNameQueryEmpty = false;
     await expect(callCreate()).rejects.toMatchObject({

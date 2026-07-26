@@ -4,6 +4,7 @@
 /// 参照フィールド: なし（純粋なユーティリティ）
 /// 遅延ロード: なし
 
+import 'package:amuse_app_template/user/balance_display.dart';
 import 'package:intl/intl.dart';
 
 class Formatters {
@@ -117,25 +118,8 @@ class Formatters {
     }
   }
 
-  /// 支払い方法名を日本語に変換
+  /// 支払い方法名を表示用に変換（残高は config displayName）
   static String getPaymentMethodDisplayName(String method) {
-    switch (method) {
-      case 'cash':
-        return '現金';
-      case 'credit_card':
-        return 'クレジットカード';
-      case 'electronic_money':
-        return '電子マネー';
-      case 'pointA':
-        return 'ポイントA';
-      case 'pointB':
-        return 'ポイントB';
-      case 'sideGameChip':
-        return 'サイドゲームチップ';
-      case 'sideGameChip':
-        return 'サイドゲームチップ';
-      default:
-        return method;
-    }
+    return balanceDisplayName(method);
   }
 }

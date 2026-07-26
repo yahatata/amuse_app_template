@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE } from '../../../shared/config/defaults';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { itemLineAmountIncl } from '../services/billCategoryAmounts';
 
 const GetBillPreviewTotalsSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
@@ -86,23 +87,11 @@ export const getBillPreviewTotals = onCall(async (request) => {
       extraCostMonetary += amountIncl;
     }
 
-    // 2. /bills/{billId}/items
+    // 2. /bills/{billId}/items（会計 loadBillCategoryAmounts / settle と同式）
     const itemsSnapshot = await billRef.collection('items').get();
     let itemsMonetary = 0;
     for (const doc of itemsSnapshot.docs) {
-      const data = doc.data();
-      // voided: true のアイテムは算出対象外
-      if (data.voided === true) {
-        continue;
-      }
-      // totalPriceIncl があればそれを使い、なければ price * quantity で計算
-      if (data.totalPriceIncl !== undefined) {
-        itemsMonetary += (data.totalPriceIncl as number) ?? 0;
-      } else {
-        const price = (data.unitPriceIncl as number | undefined) ?? 0;
-        const quantity = (data.quantity as number | undefined) ?? 0;
-        itemsMonetary += price * quantity;
-      }
+      itemsMonetary += itemLineAmountIncl(doc.data() as Record<string, unknown>);
     }
 
     // 3. /bills/{billId}/sideGameChips (action == 'purchase' のみ)

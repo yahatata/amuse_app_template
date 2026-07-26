@@ -5,6 +5,7 @@ import * as bcrypt from "bcryptjs";
 import { initializeUserLogs } from "../services/logUtils";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { USER_TYPE_LINE } from "../types/userType";
+import { initialZeroBalanceFields } from "../types/pointIds";
 
 /**
  * ユーザーアカウント作成関数
@@ -108,9 +109,7 @@ export const createUserAccount = onCall(
           hashedPin: hashedPin,
           birthMonthDay: birthMonthDay,
           loginId: loginId,
-          pointA: 0, // globalConstant.dart の pointTypes[0] フィールド
-          pointB: 0, // globalConstant.dart の pointTypes[1] フィールド
-          sideGameChip: 0, // globalConstant.dart の pointTypes[2] フィールド
+          ...initialZeroBalanceFields(),
           role: "user",
           userType: USER_TYPE_LINE,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),

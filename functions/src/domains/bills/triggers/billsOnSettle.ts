@@ -45,91 +45,14 @@ import {
   buildInitialCycleDoc,
   buildSettledCycleDocPatch,
 } from '../services/settlementCycles';
-import {
-  calculatePaymentSplit,
-  DEFAULT_POINT_PRIORITY,
-} from '../services/paymentSplitCalculator';
-import {
-  DEFAULT_CATEGORY_PAYMENT_METHODS,
-  DEFAULT_CATEGORY_ORDER,
-  DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE,
-} from '../../../shared/config/defaults';
-import {
-  resolveBaseMethod,
-  buildPaymentMethodsByCategory,
-  type PaymentMethodValue,
-} from '../services/paymentMethodsInference';
-
+import { FunctionCustomError } from '../../../shared/logging/functionCustomError';
+import type { PaymentMethodValue } from '../services/paymentMethodsInference';
 
 /**
- * paymentMethodsByCategory を自動推論する。
- * 既に値が設定されている場合は null を返す（スキップ）。
+ * A-7 Phase 2: settle 時の ByCategory 推論は廃止。
+ * 新規会計は startAccounting で ByCategory を保存済みであること。
+ * 旧 inferPaymentMethodsByCategory（paymentSplitCalculator 依存）は削除済み。削除時期: Phase 2。
  */
-function inferPaymentMethodsByCategory(params: {
-  existingPaymentMethodsByCategory: Record<string, unknown> | null | undefined;
-  paymentTotals: Record<string, number>;
-  categoryBreakdown: Record<string, number>;
-  storeConfig: Awaited<ReturnType<typeof import('../../../shared/config/configLoader').getStoreConfig>>;
-}): Record<string, PaymentMethodValue> | null {
-  const { existingPaymentMethodsByCategory, paymentTotals, categoryBreakdown, storeConfig } = params;
-
-  // 既存値がある場合はスキップ
-  if (
-    existingPaymentMethodsByCategory &&
-    Object.keys(existingPaymentMethodsByCategory).length > 0
-  ) {
-    return null;
-  }
-
-  const selectedBaseMethod = resolveBaseMethod(paymentTotals);
-  if (!selectedBaseMethod) {
-    logger.info('inferPaymentMethodsByCategory: non-special method not found, skipping');
-    return null;
-  }
-
-  const chipRate =
-    storeConfig.billing?.sideGameChipRate ?? DEFAULT_SIDE_GAME_CHIP_EXCHANGE_RATE;
-  const categoryOrder =
-    storeConfig.billing?.paymentPolicy?.categoryOrder ?? DEFAULT_CATEGORY_ORDER;
-  const pointPriority =
-    storeConfig.billing?.paymentPolicy?.pointPriority ?? DEFAULT_POINT_PRIORITY;
-  const categoryPaymentMethods =
-    storeConfig.billing?.paymentPolicy?.categoryPaymentMethods ??
-    DEFAULT_CATEGORY_PAYMENT_METHODS;
-
-  // CategoryBreakdown の sideGameChips（複数形）→ sideGameChip（単数形）に変換
-  const billForSplit: Record<string, number> = {};
-  for (const [key, val] of Object.entries(categoryBreakdown)) {
-    const splitKey = key === 'sideGameChips' ? 'sideGameChip' : key;
-    billForSplit[splitKey] = typeof val === 'number' ? val : 0;
-  }
-
-  // balances: paymentTotals から使用量を取得（sideGameChip は円→枚数に変換）
-  const balances: Record<string, number> = {
-    pointA: paymentTotals['pointA'] ?? 0,
-    pointB: paymentTotals['pointB'] ?? 0,
-    sideGameChip: (paymentTotals['sideGameChip'] ?? 0) / chipRate,
-  };
-
-  const splitResult = calculatePaymentSplit({
-    selectedBaseMethod,
-    bill: billForSplit,
-    balances,
-    pointPriority,
-    categoryPaymentMethods,
-    categoryOrder,
-    sideGameChipExchangeRate: chipRate,
-  });
-
-  return buildPaymentMethodsByCategory({
-    categoryOrder,
-    billForSplit,
-    splitCategoryBreakdown: splitResult.categoryBreakdown,
-    usedPoints: splitResult.usedPoints,
-    pointPriority,
-    selectedBaseMethod,
-  });
-}
 
 // ---------------------------------------------------------------------------
 
@@ -314,37 +237,28 @@ export const billsOnSettle = onDocumentUpdated(
       });
       const postSettlementState = buildInitialPostSettlementState();
 
-      // paymentMethodsByCategory 自動推論（draftAccountingInput 構築より前に実行）
+      // A-7: ByCategory は会計開始時に保存済みであること（settle 推論は正本にしない）
       const existingPmByCategory =
-        afterData.draftAccountingInput?.paymentMethodsByCategory ??
-        afterData.meta?.paymentMethodsByCategory;
-      let inferredPmByCategory: Record<string, PaymentMethodValue> | null = null;
-      try {
-        inferredPmByCategory = inferPaymentMethodsByCategory({
-          existingPaymentMethodsByCategory: existingPmByCategory,
-          paymentTotals: paymentTotals as unknown as Record<string, number>,
-          categoryBreakdown: categoryBreakdown as unknown as Record<string, number>,
-          storeConfig,
-        });
-        if (inferredPmByCategory) {
-          logger.info('billsOnSettle: paymentMethodsByCategory inferred', {
-            billId,
-            categories: Object.keys(inferredPmByCategory),
-          });
-        }
-      } catch (inferErr) {
-        logger.warn('billsOnSettle: paymentMethodsByCategory inference failed, skipping', {
-          billId,
-          error: String(inferErr),
+        (afterData.draftAccountingInput?.paymentMethodsByCategory ??
+          afterData.meta?.paymentMethodsByCategory) as
+          | Record<string, PaymentMethodValue>
+          | null
+          | undefined;
+      const hasByCategory =
+        existingPmByCategory != null &&
+        Object.keys(existingPmByCategory).length > 0;
+      const isZeroYen = amounts.grandTotalRounded === 0;
+
+      if (!isZeroYen && !hasByCategory) {
+        throw new FunctionCustomError({
+          errorKey: 'PAYMENT_CATEGORY_REQUIRED',
+          message:
+            'paymentMethodsByCategory が欠落しているため settle できません（推論による補完は行いません）',
+          context: { billId },
         });
       }
 
-      // 推論結果を優先して draftAccountingInput を構築
-      const resolvedPmByCategory =
-        inferredPmByCategory ??
-        afterData.draftAccountingInput?.paymentMethodsByCategory ??
-        afterData.meta?.paymentMethodsByCategory ??
-        null;
+      const resolvedPmByCategory = hasByCategory ? existingPmByCategory : {};
 
       const draftAccountingInput = buildDraftAccountingInput({
         paymentMethodsByCategory: resolvedPmByCategory,
@@ -376,9 +290,6 @@ export const billsOnSettle = onDocumentUpdated(
         }),
         draftAccountingInput,
         'meta.contentHash': contentHash,
-        ...(inferredPmByCategory && {
-          'meta.paymentMethodsByCategory': inferredPmByCategory,
-        }),
         updatedAt: now,
       };
 
