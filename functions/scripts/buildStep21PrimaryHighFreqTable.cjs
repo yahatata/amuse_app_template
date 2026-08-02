@@ -19,7 +19,6 @@ const STATIC_FC_LINES = new Set([
   "src/domains/bills/callables/accounting.ts:670",
   "src/domains/bills/callables/cancelAccounting.ts:116",
   "src/domains/bills/callables/updateActiveBill.ts:335",
-  "src/domains/bills/callables/verifyPaymentSplit.ts:164",
   "src/domains/bills/repos/createBillWithActiveStay.ts:248",
   "src/domains/bills/repos/startAccounting.ts:238",
   "src/domains/itemOrder/callables/placeOrder.ts:190",

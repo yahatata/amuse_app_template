@@ -4,7 +4,7 @@
  * 会計開始前のプレビュー情報（カテゴリ別金額など）を取得する
  * 
  * 注意: この関数は UI補助用途のプレビューであり、
- * 金額の正は amounts.* (確定済み伝票) および verifyPaymentSplit (サーバー側再計算) にあります。
+ * 金額の正は amounts.* (確定済み伝票) および startAccounting 内のサーバ再計算・突合にあります。
  */
 
 import { HttpsError, onCall } from 'firebase-functions/v2/https';

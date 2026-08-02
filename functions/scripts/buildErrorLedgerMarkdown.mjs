@@ -107,40 +107,10 @@ for (const f of domFiles) {
       /HttpsError\([^)]*failed-precondition/.test(line) ||
       /HttpsError\([^)]*already-exists/.test(line)
     ) {
-      if (
-        rel === "src/domains/bills/services/paymentSplitCalculator.ts" &&
-        (n === 54 || n === 55 || n === 56 || n === 177 || n === 178 || n === 179)
-      )
-        return;
       add("A-throw", "（推定）", "（該当 callable）", rel, String(n), "throw", line.trim(), "未対応", "FCE/errorKey", "§8§12");
     }
   });
 }
-
-add(
-  "A-throw",
-  "（推定）",
-  "verifyPaymentSplit 内部",
-  "src/domains/bills/services/paymentSplitCalculator.ts",
-  "54-56",
-  "throw",
-  "throw new Error('selectedBaseMethod must be one of: cash, credit_card, electronic_money');",
-  "未対応",
-  "追加実装",
-  "複数行を1行に結合"
-);
-add(
-  "A-throw",
-  "（推定）",
-  "verifyPaymentSplit 内部",
-  "src/domains/bills/services/paymentSplitCalculator.ts",
-  "177-179",
-  "throw",
-  "throw new Error(`計算結果の整合性エラー: 計算合計(${totalCalculated}) != 元の合計(${totalBill})`);",
-  "未対応",
-  "追加実装",
-  "複数行を1行に結合"
-);
 
 add(
   "return",

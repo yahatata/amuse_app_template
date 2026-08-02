@@ -511,7 +511,7 @@ class _CurrentAccountingDialog extends StatelessWidget {
                             ),
                             const SizedBox(height: 8),
                             const Text(
-                              '※この表示は UI補助用途のみです。金額の正は amounts.* および verifyPaymentSplit にあります。',
+                              '※この表示は UI補助用途のみです。金額の正は amounts.* および startAccounting 内のサーバ再計算にあります。',
                               style: TextStyle(fontSize: 12, color: Colors.grey),
                             ),
                           ],

@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/Accounting/accountingHistoryPage.dart';
 import 'package:amuse_app_template/Accounting/accountingEditDialog.dart';
-import 'package:amuse_app_template/Accounting/accountingCancelDialog.dart';
 // refundProcessingDialog: 旧経路（to_be_deleted に移動済み 2026-05-29）
 import 'package:amuse_app_template/Accounting/paymentMethodDialog.dart';
 import 'package:amuse_app_template/Accounting/categoryDetailDialog.dart';
@@ -719,7 +718,7 @@ class _AccountingPageState extends State<AccountingPage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  '※この表示は UI補助用途のみです。金額の正は amounts.* および verifyPaymentSplit にあります。',
+                  '※この表示は UI補助用途のみです。金額の正は amounts.* および startAccounting 内のサーバ再計算にあります。',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
@@ -3081,7 +3080,8 @@ class _AccountingPageState extends State<AccountingPage> {
                 // 支払い方法ごとの合計金額を表示
                 _buildPaymentMethodsByAmount(bill),
                 const SizedBox(height: 8),
-                // 右下：アクションボタン
+                // 右下：アクションボタン（会計後の正規操作のみ。
+                // 旧「修正」「キャンセル」は settled に不適合のため削除）
                 Align(
                   alignment: Alignment.centerRight,
                   child: Wrap(
@@ -3089,35 +3089,6 @@ class _AccountingPageState extends State<AccountingPage> {
                     runSpacing: 8,
                     alignment: WrapAlignment.end,
                     children: [
-                      OutlinedButton.icon(
-                        onPressed: () => _showEditDialog(bill),
-                        icon: const Icon(Icons.edit, size: 16),
-                        label: const Text('修正', style: TextStyle(fontSize: 11)),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.blue,
-                          side: const BorderSide(color: Colors.blue),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 6,
-                          ),
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _showCancelDialog(bill),
-                        icon: const Icon(Icons.cancel, size: 16),
-                        label: const Text(
-                          'キャンセル',
-                          style: TextStyle(fontSize: 11),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 6,
-                          ),
-                        ),
-                      ),
                       FilledButton.icon(
                         onPressed: () => _reopenSettledBill(bill),
                         icon: const Icon(Icons.undo, size: 16),
@@ -3553,21 +3524,6 @@ class _AccountingPageState extends State<AccountingPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AccountingEditDialog(
-        bill: bill,
-        onUpdated: () {
-          if (_currentBusinessDateKey != null) {
-            _loadActiveBills(_currentBusinessDateKey!);
-            _loadSettledBills(_currentBusinessDateKey!);
-          }
-        },
-      ),
-    );
-  }
-
-  void _showCancelDialog(Map<String, dynamic> bill) {
-    showDialog(
-      context: context,
-      builder: (context) => AccountingCancelDialog(
         bill: bill,
         onUpdated: () {
           if (_currentBusinessDateKey != null) {
