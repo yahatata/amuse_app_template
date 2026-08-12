@@ -240,6 +240,203 @@ describe('rollbackAction okibake undo', () => {
     ).data()!;
     expect(usersList.users['user-1']).toBeUndefined();
     expect(usersList.users['user-other']?.pokerName).toBe('他参加者');
+
+    // waitingBefore.exists === false: 操作前に waiting が無かった状態へ戻す（無いなら no-op）
+    const waitingSnap = await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('tablesSeat')
+      .doc('waiting')
+      .get();
+    expect(waitingSnap.exists).toBe(false);
+  });
+
+  it('置きバケ伝票紐付け undo で waitingBefore.exists=false かつ紐付け後に作成された waiting を削除できる', async () => {
+    // 操作前: waiting 不存在（operation log waitingBefore.exists=false）
+    // rollback直前: 紐付け処理が作成した waiting に対象ユーザーのみ
+    // rollback後: 対象除去で空 → document 削除
+    const tournamentId = 't-undo-link-bill-waiting-created';
+    const okibakeEntryId = 'e-undo-link-bill-waiting-created';
+    const operationId = 'op-undo-link-bill-waiting-created';
+    const billId = 'bill-undo-link-bill-waiting-created';
+    const templateId = 'tpl-undo-link-bill-waiting-created';
+    const userId = 'user-waiting-created-1';
+    const pendingReviewAt = Timestamp.now();
+    const joinedAt = Timestamp.now();
+
+    await db.collection('scheduledTournaments').doc(tournamentId).set({
+      templateId,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    await db.collection('bills').doc(billId).set({
+      status: 'open',
+      party: { userId, pokerName: 'ユーザー1' },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    await db
+      .collection('bills')
+      .doc(billId)
+      .collection('tournaments')
+      .doc(templateId)
+      .set({
+        templateId,
+        entryCount: 1,
+        addonCount: 0,
+      });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('okibakeTemporaryEntries')
+      .doc(okibakeEntryId)
+      .set({
+        tournamentId,
+        okibakeEntryId,
+        entryStatus: 'registered',
+        billLinkStatus: 'linked',
+        linkedBillId: billId,
+        linkedUserId: userId,
+        linkedUserPokerName: 'ユーザー1',
+        pendingReviewAt,
+        pendingReviewReason: 'tournament_finished_unlinked',
+        okibakeAddonRecords: [],
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('views')
+      .doc('usersList')
+      .set({
+        users: {
+          [userId]: { pokerName: 'ユーザー1' },
+          'user-other': { pokerName: '他参加者' },
+        },
+      });
+
+    // 紐付け処理が waiting 不在時に set する正式 schema（対象ユーザーのみ）
+    await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('tablesSeat')
+      .doc('waiting')
+      .set({
+        count: 1,
+        waiting: {
+          [userId]: {
+            pokerName: 'ユーザー1',
+            joinedAt,
+            order: 1,
+          },
+        },
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    await db.collection('operationLogs').doc(operationId).set({
+      operationId,
+      operationName: '置きバケ伝票紐付け',
+      tournamentId,
+      status: 'succeeded',
+      payload: {
+        tournamentId,
+        okibakeEntryId,
+        billId,
+        templateId,
+        userId,
+        before: {
+          billLinkStatus: 'pending_review',
+          linkedBillId: null,
+          linkedUserId: userId,
+          linkedUserPokerName: 'ユーザー1',
+        },
+        okibakeEntryBefore: {
+          billLinkStatus: 'pending_review',
+          linkedBillId: null,
+          linkedUserId: userId,
+          linkedUserPokerName: 'ユーザー1',
+          assignedTableId: null,
+          assignedSeatKey: null,
+        },
+        okibakeEntryAfter: {
+          billLinkStatus: 'linked',
+          linkedBillId: billId,
+        },
+        billTournamentBefore: null,
+        usersListBefore: {
+          exists: true,
+          userEntry: null,
+        },
+        waitingBefore: {
+          exists: false,
+          count: null,
+          userEntry: null,
+        },
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const waitingBeforeRollback = await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('tablesSeat')
+      .doc('waiting')
+      .get();
+    expect(waitingBeforeRollback.exists).toBe(true);
+    expect(waitingBeforeRollback.data()?.waiting?.[userId]).toBeDefined();
+
+    const res = await rollbackAction.run({
+      data: {
+        tournamentId,
+        operationId,
+        action: 'okibake_link_bill',
+        rollBackBy: 'dev-1',
+      },
+    } as any);
+
+    expect(res.success).toBe(true);
+
+    const entry = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('okibakeTemporaryEntries')
+        .doc(okibakeEntryId)
+        .get()
+    ).data()!;
+    expect(entry.billLinkStatus).toBe('pending_review');
+    expect(entry.linkedBillId).toBeNull();
+    expect(entry.linkedUserId).toBe(userId);
+    expect(entry.pendingReviewReason).toBe('tournament_finished_unlinked');
+
+    const billTournament = await db
+      .collection('bills')
+      .doc(billId)
+      .collection('tournaments')
+      .doc(templateId)
+      .get();
+    expect(billTournament.exists).toBe(false);
+
+    const usersList = (
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('views')
+        .doc('usersList')
+        .get()
+    ).data()!;
+    expect(usersList.users[userId]).toBeUndefined();
+    expect(usersList.users['user-other']?.pokerName).toBe('他参加者');
+
+    const waitingAfterRollback = await db
+      .collection('scheduledTournaments')
+      .doc(tournamentId)
+      .collection('tablesSeat')
+      .doc('waiting')
+      .get();
+    expect(waitingAfterRollback.exists).toBe(false);
+
+    const op = (await db.collection('operationLogs').doc(operationId).get()).data()!;
+    expect(op.rolledBack).toBe(true);
   });
 
   it('置きバケ伝票紐付け undo は bill.status=settled を拒否する', async () => {

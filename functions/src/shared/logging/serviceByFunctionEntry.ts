@@ -199,6 +199,7 @@ export const SERVICE_BY_FUNCTION_ENTRY: Record<string, string> = {
   "setSufficientOverride": "shift",
   "startAccounting": "accounting",
   "startBreak": "attendance",
+  "submitShiftRequests": "staff",
   "temporaryUnlockAlreadyRunningDifferentDateTerminal": "store",
   "toggleSoldOutForMenuItem": "orders",
   "undoAddon": "tournament",

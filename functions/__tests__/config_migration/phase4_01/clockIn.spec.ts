@@ -73,6 +73,7 @@ describe('Phase4 01: clockIn', () => {
     await db.collection('staffs').doc('staff-1').set({
       fullName: '山田太郎',
       fullNameKana: 'ヤマダタロウ',
+      status: 'active',
     });
   });
 
@@ -102,7 +103,10 @@ describe('Phase4 01: clockIn', () => {
         status: 'running',
         currentBusinessDateKey: BUSINESS_DATE,
       });
-      await db.collection('staffs').doc('staff-1').set({ fullName: 'Test' });
+      await db.collection('staffs').doc('staff-1').set({
+        fullName: 'Test',
+        status: 'active',
+      });
 
       await expect(
         clockIn(authReq({ staffId: 'staff-1' }))
@@ -215,18 +219,65 @@ describe('Phase4 01: clockIn', () => {
   });
 
   describe('スタッフ存在チェック', () => {
-    it('存在しない staffId でも Unknown として出勤記録は作成される', async () => {
+    it('存在しない staffId は permission-denied（STAFF_NOT_ACTIVE）', async () => {
       if (!emulatorAvailable) return;
-      const result = await clockIn(authReq({ staffId: 'nonexistent-staff' }));
+      await expect(
+        clockIn(authReq({ staffId: 'nonexistent-staff' }))
+      ).rejects.toMatchObject({
+        code: 'permission-denied',
+        message: '退職済みのため、この操作は利用できません。',
+        details: expect.objectContaining({ errorKey: 'STAFF_NOT_ACTIVE' }),
+      });
 
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('Unknown');
-
-      const attendances = await db.collection('attendances')
+      const attendances = await db
+        .collection('attendances')
         .where('staffId', '==', 'nonexistent-staff')
         .get();
-      expect(attendances.size).toBe(1);
-      expect(attendances.docs[0].data().staffsFullName).toBe('Unknown');
+      expect(attendances.empty).toBe(true);
+    });
+
+    it('retired staff は permission-denied（STAFF_RETIRED）', async () => {
+      if (!emulatorAvailable) return;
+      await db.collection('staffs').doc('staff-retired').set({
+        fullName: '退職太郎',
+        status: 'retired',
+      });
+
+      await expect(
+        clockIn(authReq({ staffId: 'staff-retired' }))
+      ).rejects.toMatchObject({
+        code: 'permission-denied',
+        details: expect.objectContaining({ errorKey: 'STAFF_RETIRED' }),
+      });
+
+      const attendances = await db
+        .collection('attendances')
+        .where('staffId', '==', 'staff-retired')
+        .get();
+      expect(attendances.empty).toBe(true);
+    });
+  });
+
+  describe('L7-A: concurrent clockIn', () => {
+    it('同時 clockIn でも open attendance は 1 件', async () => {
+      if (!emulatorAvailable) return;
+      const results = await Promise.all([
+        clockIn(authReq({ staffId: 'staff-1' })),
+        clockIn(authReq({ staffId: 'staff-1' })),
+      ]);
+
+      const successes = results.filter((r) => r.success === true);
+      const duplicates = results.filter((r) => r.code === 'already-clock-in');
+      expect(successes.length).toBe(1);
+      expect(duplicates.length).toBe(1);
+
+      const attendances = await db
+        .collection('attendances')
+        .where('staffId', '==', 'staff-1')
+        .where('clockOut', '==', null)
+        .get();
+      const open = attendances.docs.filter((d) => d.data().closedStoreWithoutClockOut !== true);
+      expect(open.length).toBe(1);
     });
   });
 });

@@ -1,112 +1,132 @@
-import { onCall } from "firebase-functions/v2/https";
-import * as admin from "firebase-admin";
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+/**
+ * L7-A: 同日勤怠修正申請の有無確認
+ *
+ * request: { date } のみ
+ * staffId = request.auth.uid
+ */
+
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import * as admin from 'firebase-admin';
+import { assertActiveStaff } from '../../staff/helpers/staffStatus';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import {
+  rejectClientIdentityFields,
+  throwAttendanceHttpsError,
+  getAttendanceErrorKeyFromUnknown,
+} from '../helpers/attendanceHttpsError';
+import { assertBusinessDateKey } from '../helpers/attendanceBusinessDate';
+
+const KNOWN_STATUSES = new Set(['pending', 'approved', 'rejected']);
 
 export const checkExistingCorrectionRequest = onCall(
-  { region: "asia-northeast1", maxInstances: 10 },
+  { region: 'asia-northeast1', maxInstances: 10 },
   async (request) => {
-    const logContext: Record<string, unknown> = {};
+    const logContext: Record<string, unknown> = {
+      callerUidPresent: !!request.auth?.uid,
+    };
+
     try {
       if (!request.auth) {
-        throw new Error("Authentication required.");
+        throwAttendanceHttpsError(
+          'unauthenticated',
+          'ATTENDANCE_UNAUTHENTICATED',
+          'Authentication required',
+        );
       }
 
-      const { staffId, date } = request.data as {
-        staffId: string;
-        date: string;
-      };
+      const uid = request.auth.uid;
+      const raw = (request.data ?? {}) as Record<string, unknown>;
+      rejectClientIdentityFields(raw);
 
-      // 必須フィールドの検証
-      if (!staffId || !date) {
-        throw new Error("Required fields are missing.");
-      }
+      const date = assertBusinessDateKey(raw.date);
+      Object.assign(logContext, { date });
 
-      if (request.auth.uid === staffId) {
-        const { assertActiveStaff } = await import("../../staff/helpers/staffStatus");
-        await assertActiveStaff(staffId);
-      }
-
-      Object.assign(logContext, { staffId, date });
+      await assertActiveStaff(uid);
 
       const db = admin.firestore();
-
-      // 指定された日付で申請済みの修正申請を検索
-      const correctionSnapshot = await db.collection("attendanceCorrectionRequests")
-        .where("staffId", "==", staffId)
-        .where("date", "==", date)
+      const correctionSnapshot = await db
+        .collection('attendanceCorrectionRequests')
+        .where('staffId', '==', uid)
+        .where('date', '==', date)
+        .limit(1)
         .get();
 
       if (correctionSnapshot.empty) {
         logOpsSuccess({
           message: 'checkExistingCorrectionRequest 成功',
           functionEntry: 'checkExistingCorrectionRequest',
-          context: { staffId, date, hasExistingRequest: false },
+          context: { date, exists: false },
         });
 
         return {
           success: true,
-          hasExistingRequest: false,
-          message: "申請可能です。"
+          data: {
+            exists: false,
+            date,
+            status: null,
+            requestId: null,
+          },
         };
       }
 
-      // 申請済みあり
-      const existingRequest = correctionSnapshot.docs[0].data();
-      const status = existingRequest.status;
-
-      let message = "";
-      let canReapply = false;
-
-      switch (status) {
-        case "pending":
-          message = "この日付は既に申請中です。承認までお待ちください。";
-          canReapply = false;
-          break;
-        case "approved":
-          message = "この日付は既に承認済みです。";
-          canReapply = false;
-          break;
-        case "rejected":
-          message = "この日付は却下されました。再度申請する場合は、既存の申請を削除してください。";
-          canReapply = true;
-          break;
-        default:
-          message = "この日付は既に申請済みです。";
-          canReapply = false;
-      }
+      const doc = correctionSnapshot.docs[0];
+      const statusRaw = doc.data()?.status;
+      const status =
+        typeof statusRaw === 'string' && KNOWN_STATUSES.has(statusRaw)
+          ? statusRaw
+          : null;
 
       logOpsSuccess({
         message: 'checkExistingCorrectionRequest 成功',
         functionEntry: 'checkExistingCorrectionRequest',
         context: {
-          staffId,
           date,
-          hasExistingRequest: true,
+          exists: true,
           status,
-          requestId: correctionSnapshot.docs[0].id,
+          requestId: doc.id,
         },
       });
 
       return {
         success: true,
-        hasExistingRequest: true,
-        status: status,
-        canReapply: canReapply,
-        message: message,
-        requestId: correctionSnapshot.docs[0].id
+        data: {
+          exists: true,
+          date,
+          status,
+          requestId: doc.id,
+        },
       };
-
     } catch (error) {
+      const key = getAttendanceErrorKeyFromUnknown(error);
+      if (
+        key === 'STAFF_RETIRED' ||
+        key === 'STAFF_NOT_ACTIVE' ||
+        key === 'ATTENDANCE_UNAUTHENTICATED' ||
+        key === 'ATTENDANCE_INVALID_ARGUMENT'
+      ) {
+        throw error;
+      }
+      if (
+        error instanceof HttpsError &&
+        (error.code === 'permission-denied' ||
+          error.code === 'unauthenticated' ||
+          error.code === 'invalid-argument')
+      ) {
+        throw error;
+      }
+
       logOpsError({
-      message: '申請済みチェックエラー:',
-      functionEntry: 'checkExistingCorrectionRequest',
-      cause: error,
-      context: logContext,
-    });
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred."
-      };
+        message: '申請済みチェックエラー',
+        functionEntry: 'checkExistingCorrectionRequest',
+        cause: error,
+        context: logContext,
+      });
+
+      throwAttendanceHttpsError(
+        'internal',
+        'ATTENDANCE_CORRECTION_CHECK_INTERNAL_ERROR',
+        'Failed to check existing correction request',
+      );
     }
-  }
+  },
 );

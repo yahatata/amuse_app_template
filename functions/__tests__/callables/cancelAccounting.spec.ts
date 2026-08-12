@@ -5,7 +5,7 @@
  * Firestore Emulator を使用
  * 
  * テスト観点:
- * - status=settling の bill に対して成功し、status=open に戻ること
+ * - status=settling の bill に対して成功し、開始前 status（previousStatus または open）に戻ること
  * - ops.accountingStartedAt / ops.accountingStartedBy がクリアされること
  * - status=settled など対象外 status に対しては failed-precondition となること
  * - cancelAccounting 実行後に再度 startAccounting を実行すると、金額計算が再実行されること
@@ -180,6 +180,15 @@ describe('cancelAccounting (pre-settlement 専用)', () => {
         fail('Should have thrown an error');
       } catch (error: any) {
         expect(error.code).toBe('failed-precondition');
+        expect(error.details?.errorKey).toBe('ACCOUNTING_INVALID_STATE');
+        expect(error.details?.context).toEqual(
+          expect.objectContaining({
+            billId,
+            currentStatus: 'settled',
+            op: 'cancelAccounting',
+          }),
+        );
+        expect(error.message).toContain('pre-settlement');
       }
     });
 
@@ -203,6 +212,13 @@ describe('cancelAccounting (pre-settlement 専用)', () => {
         fail('Should have thrown an error');
       } catch (error: any) {
         expect(error.code).toBe('failed-precondition');
+        expect(error.details?.errorKey).toBe('ACCOUNTING_INVALID_STATE');
+        expect(error.details?.context).toEqual(
+          expect.objectContaining({
+            billId,
+            currentStatus: 'partially_refunded',
+          }),
+        );
       }
     });
   });

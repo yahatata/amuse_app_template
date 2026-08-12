@@ -1,4 +1,4 @@
-import { onCall } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { getStoreConfig } from "../../../shared/config/configLoader";
@@ -96,16 +96,13 @@ export const getUpcomingTournaments = onCall(async (request) => {
       context: logContext,
     });
 
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      tournaments: [],
-      count: 0,
-      liffSettings: {
-        liffRegistrationEnabled: true,
-        liffCalendarEnabled: true,
-      },
-      message: '開催予定トーナメントの取得に失敗しました',
-    };
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    // soft-fail + raw error / 空配列は廃止。失敗は throw（空成功と区別）
+    throw new HttpsError('internal', 'Failed to get upcoming tournaments', {
+      errorKey: 'TOURNAMENT_INTERNAL_ERROR',
+    });
   }
 });

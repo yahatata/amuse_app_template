@@ -3,7 +3,10 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { logOpsError, logOpsSuccess } from "../../logging/logOpsError";
 import {
+  assertNotRemovingLastActiveAdmin,
   assertNotSelfOperation,
+  countActiveAdminDevicesInTx,
+  isActiveAdminDevice,
   requireActiveAdminCaller,
 } from "../deviceAdminAuth";
 import {
@@ -25,6 +28,8 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   [DEVICE_STATUS_BLOCKED]: [DEVICE_STATUS_ACTIVE],
 };
 
+const LAST_ADMIN_BLOCK_MESSAGE = "最後の管理者端末はブロックできません";
+
 /**
  * 管理者用: デバイスのブロック / アクティブ復帰
  */
@@ -38,37 +43,55 @@ export const updateDeviceStatus = onCall(async (request) => {
     const callerUid = request.auth.uid;
 
     const caller = await requireActiveAdminCaller(db, callerUid);
-    assertNotSelfOperation(caller.callerDeviceId, deviceId, "ステータス変更");
-
     const targetRef = db.collection("devices").doc(deviceId);
-    const targetDoc = await targetRef.get();
-    if (!targetDoc.exists) {
-      throw new HttpsError("not-found", "対象デバイスが存在しません");
-    }
 
-    const targetData = targetDoc.data() ?? {};
-    const currentStatus = normalizeDeviceStatus(
-      targetData.status as string | undefined
-    );
+    const previousStatus = await db.runTransaction(async (tx) => {
+      const targetDoc = await tx.get(targetRef);
+      if (!targetDoc.exists) {
+        throw new HttpsError("not-found", "対象デバイスが存在しません");
+      }
 
-    if (isArchivedStatus(targetData.status as string | undefined)) {
-      throw new HttpsError(
-        "failed-precondition",
-        "アーカイブ済みデバイスのステータスは変更できません"
+      const targetData = targetDoc.data() ?? {};
+      const currentStatus = normalizeDeviceStatus(
+        targetData.status as string | undefined
       );
-    }
 
-    const allowed = ALLOWED_TRANSITIONS[currentStatus] ?? [];
-    if (!allowed.includes(nextStatus)) {
-      throw new HttpsError(
-        "invalid-argument",
-        `${currentStatus} から ${nextStatus} への変更はできません`
-      );
-    }
+      if (isArchivedStatus(targetData.status as string | undefined)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "アーカイブ済みデバイスのステータスは変更できません"
+        );
+      }
 
-    await targetRef.update({
-      status: nextStatus,
-      updatedAt: FieldValue.serverTimestamp(),
+      const allowed = ALLOWED_TRANSITIONS[currentStatus] ?? [];
+      if (!allowed.includes(nextStatus)) {
+        throw new HttpsError(
+          "invalid-argument",
+          `${currentStatus} から ${nextStatus} への変更はできません`
+        );
+      }
+
+      // sole admin を自分で block する場合は「最後の管理者…」を優先する
+      if (
+        nextStatus === DEVICE_STATUS_BLOCKED &&
+        isActiveAdminDevice(targetData)
+      ) {
+        const activeAdminCount = await countActiveAdminDevicesInTx(db, tx);
+        assertNotRemovingLastActiveAdmin(
+          targetData,
+          activeAdminCount,
+          LAST_ADMIN_BLOCK_MESSAGE
+        );
+      }
+
+      assertNotSelfOperation(caller.callerDeviceId, deviceId, "ステータス変更");
+
+      tx.update(targetRef, {
+        status: nextStatus,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return currentStatus;
     });
 
     logOpsSuccess({
@@ -78,7 +101,7 @@ export const updateDeviceStatus = onCall(async (request) => {
         targetDeviceId: deviceId,
         callerDeviceId: caller.callerDeviceId,
         callerUid,
-        previousStatus: currentStatus,
+        previousStatus,
         nextStatus,
       },
     });

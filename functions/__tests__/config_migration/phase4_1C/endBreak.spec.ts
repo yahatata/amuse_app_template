@@ -63,6 +63,11 @@ describe('Phase4.1-C: endBreak', () => {
       name: 'Test Device',
       status: 'active',
     });
+    await db.collection('staffs').doc('staff-1').set({
+      fullName: '山田太郎',
+      fullNameKana: 'ヤマダタロウ',
+      status: 'active',
+    });
   });
 
   const authReq = (data: Record<string, unknown> = {}) => ({

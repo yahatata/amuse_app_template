@@ -1,22 +1,21 @@
 /**
- * Phase4 01: 出勤打刻 Callable
+ * Phase4 01 / L7-A: 出勤打刻 Callable
  *
- * 注意:
- * - createManualClockInRecord.ts とデータ更新・チェックロジックを揃えること。
- * - 片方を変更した場合、もう片方にも同等変更が必要な可能性がある。
- *
- * 警告・エラー判定あり。内部で createClockInRecord 相当の処理を行う。
- * 経過時間による例外は廃止（該当なし）。
+ * - 未退勤 open attendance の作成を transaction 化（同時 clockIn で 1 件のみ）
+ * - Flutter 互換: already-clock-in は soft { success:false, code }
+ * - QR token consume なし
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { getBusinessDateForAttendance } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { writeAttendanceLog } from '../helpers/attendanceLogs';
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { logger } from 'firebase-functions';
 
 function resolveAdjustedClockInTimestamp(
   adjustmentOffsetMinutes: unknown,
@@ -45,6 +44,10 @@ function resolveAdjustedClockInTimestamp(
   }
 
   return admin.firestore.Timestamp.fromMillis(now.toMillis() + offset * 60 * 1000);
+}
+
+function isOpenUnclockedAttendance(data: FirebaseFirestore.DocumentData): boolean {
+  return data.clockIn != null && data.closedStoreWithoutClockOut !== true && data.clockOut == null;
 }
 
 export const clockIn = onCall(async (request: CallableRequest) => {
@@ -96,7 +99,6 @@ export const clockIn = onCall(async (request: CallableRequest) => {
     const businessDate = await getBusinessDateForAttendance();
     Object.assign(logContext, { businessDate });
 
-    // 警告: closedStoreWithoutClockOut === true の attendance が存在する
     const closedWithoutClockOutSnap = await db
       .collection('attendances')
       .where('staffId', '==', staffId)
@@ -106,28 +108,8 @@ export const clockIn = onCall(async (request: CallableRequest) => {
     const hasWarning = !closedWithoutClockOutSnap.empty;
     Object.assign(logContext, { hasWarning });
 
-    // エラー: 全期間で closedStoreWithoutClockOut!==true の未退勤（clockIn あり & clockOut null）が存在する
-    const existingSnap = await db
-      .collection('attendances')
-      .where('staffId', '==', staffId)
-      .where('clockOut', '==', null)
-      .get();
-
-    const hasUnclockedNormal = existingSnap.docs.some((d) => {
-      const data = d.data();
-      return data.clockIn != null && data.closedStoreWithoutClockOut !== true;
-    });
-
-    if (hasUnclockedNormal) {
-      return {
-        success: false,
-        code: 'already-clock-in',
-        message: 'すでに出勤登録がされています。',
-      };
-    }
-
-    // 出勤記録を作成（date に営業日を格納）
-    const nowTs = admin.firestore.FieldValue.serverTimestamp();
+    const newRef = db.collection('attendances').doc();
+    const nowTs = FieldValue.serverTimestamp();
     const attendanceData = {
       staffId,
       date: businessDate,
@@ -140,7 +122,6 @@ export const clockIn = onCall(async (request: CallableRequest) => {
       staffsFullName: staffName,
       createdAt: nowTs,
       updatedAt: nowTs,
-      // Phase4.1-B: 新フィールド
       breakMinutes: 0,
       actualWorkMinutes: null,
       nightWorkMinutes: 0,
@@ -160,20 +141,55 @@ export const clockIn = onCall(async (request: CallableRequest) => {
       deletedBy: null,
     };
 
-    const docRef = await db.collection('attendances').add(attendanceData);
-    Object.assign(logContext, { docId: docRef.id });
+    type TxOutcome =
+      | { kind: 'duplicate' }
+      | { kind: 'created'; docId: string };
 
-    await writeAttendanceLog({
-      db,
-      attendanceId: docRef.id,
-      actionType: 'clock_in',
-      performedByUid: null,
-      performedByDeviceId: device.id,
+    const outcome = await db.runTransaction(async (tx): Promise<TxOutcome> => {
+      const existingSnap = await tx.get(
+        db
+          .collection('attendances')
+          .where('staffId', '==', staffId)
+          .where('clockOut', '==', null),
+      );
+
+      const hasUnclockedNormal = existingSnap.docs.some((d) => isOpenUnclockedAttendance(d.data()));
+      if (hasUnclockedNormal) {
+        return { kind: 'duplicate' };
+      }
+
+      tx.set(newRef, attendanceData);
+      return { kind: 'created', docId: newRef.id };
     });
+
+    if (outcome.kind === 'duplicate') {
+      return {
+        success: false,
+        code: 'already-clock-in',
+        message: 'すでに出勤登録がされています。',
+      };
+    }
+
+    Object.assign(logContext, { docId: outcome.docId });
+
+    try {
+      await writeAttendanceLog({
+        db,
+        attendanceId: outcome.docId,
+        actionType: 'clock_in',
+        performedByUid: null,
+        performedByDeviceId: device.id,
+      });
+    } catch (logErr) {
+      logger.warn('clockIn: attendanceLogs write failed (non-fatal)', {
+        attendanceId: outcome.docId,
+        deviceId: device.id,
+      });
+    }
 
     const result: Record<string, unknown> = {
       success: true,
-      docId: docRef.id,
+      docId: outcome.docId,
       message: `${staffName}さんの出勤記録を作成しました`,
     };
 
@@ -187,7 +203,7 @@ export const clockIn = onCall(async (request: CallableRequest) => {
       context: {
         staffId,
         businessDate,
-        docId: docRef.id,
+        docId: outcome.docId,
         deviceId: device.id,
         hasWarning,
       },

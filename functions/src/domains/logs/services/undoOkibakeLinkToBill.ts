@@ -340,31 +340,73 @@ export async function undoOkibakeLinkToBill(
           );
         }
 
-        const waitingData = (waitingSnap?.data() ?? {}) as Record<string, unknown>;
-        const waiting =
-          typeof waitingData.waiting === 'object' && waitingData.waiting != null
-            ? { ...(waitingData.waiting as Record<string, unknown>) }
-            : {};
-        if (waitingBeforeUserEntry == null) {
-          delete waiting[billLinkedUserId];
-        } else {
-          waiting[billLinkedUserId] = waitingBeforeUserEntry;
-        }
-        const countFromBefore =
-          waitingBefore != null && typeof waitingBefore.count === 'number'
-            ? waitingBefore.count
-            : null;
+        // waitingBefore.exists === false → 操作前は waiting document が無かった。
+        // 存在しない document へ update しない。現在も無ければ no-op。
+        // 紐付けで作成された場合は、対象ユーザーを外し空なら document を削除して復元する。
+        const waitingExistedBefore = waitingBefore?.exists === true;
+        const waitingExistsNow = waitingSnap?.exists === true;
 
-        const waitingPatch: Record<string, unknown> = {
-          updatedAt: now,
-          count: countFromBefore ?? Object.keys(waiting).length,
-        };
-        if (waitingBeforeUserEntry == null) {
-          waitingPatch[`waiting.${billLinkedUserId}`] = FieldValue.delete();
+        if (!waitingExistedBefore) {
+          if (!waitingExistsNow) {
+            // 既に存在しない → 操作前状態と一致
+          } else {
+            const waitingData = (waitingSnap?.data() ?? {}) as Record<string, unknown>;
+            const waiting =
+              typeof waitingData.waiting === 'object' && waitingData.waiting != null
+                ? { ...(waitingData.waiting as Record<string, unknown>) }
+                : {};
+            delete waiting[billLinkedUserId];
+            if (Object.keys(waiting).length === 0) {
+              tx.delete(waitingRef);
+            } else {
+              tx.update(waitingRef, {
+                waiting,
+                count: Object.keys(waiting).length,
+                updatedAt: now,
+              } as UpdateData<DocumentData>);
+            }
+          }
         } else {
-          waitingPatch[`waiting.${billLinkedUserId}`] = waitingBeforeUserEntry;
+          const countFromBefore =
+            waitingBefore != null && typeof waitingBefore.count === 'number'
+              ? waitingBefore.count
+              : null;
+
+          if (!waitingExistsNow) {
+            // 操作前は存在していたが現在欠落 → set で before 状態を復元
+            const waiting: Record<string, unknown> = {};
+            if (waitingBeforeUserEntry != null) {
+              waiting[billLinkedUserId] = waitingBeforeUserEntry;
+            }
+            tx.set(waitingRef, {
+              waiting,
+              count: countFromBefore ?? Object.keys(waiting).length,
+              updatedAt: now,
+            });
+          } else {
+            const waitingData = (waitingSnap?.data() ?? {}) as Record<string, unknown>;
+            const waiting =
+              typeof waitingData.waiting === 'object' && waitingData.waiting != null
+                ? { ...(waitingData.waiting as Record<string, unknown>) }
+                : {};
+            if (waitingBeforeUserEntry == null) {
+              delete waiting[billLinkedUserId];
+            } else {
+              waiting[billLinkedUserId] = waitingBeforeUserEntry;
+            }
+
+            const waitingPatch: Record<string, unknown> = {
+              updatedAt: now,
+              count: countFromBefore ?? Object.keys(waiting).length,
+            };
+            if (waitingBeforeUserEntry == null) {
+              waitingPatch[`waiting.${billLinkedUserId}`] = FieldValue.delete();
+            } else {
+              waitingPatch[`waiting.${billLinkedUserId}`] = waitingBeforeUserEntry;
+            }
+            tx.update(waitingRef, waitingPatch as UpdateData<DocumentData>);
+          }
         }
-        tx.update(waitingRef, waitingPatch as UpdateData<DocumentData>);
       }
 
       if (seatBefore != null) {

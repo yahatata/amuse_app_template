@@ -3,6 +3,12 @@ import { z } from 'zod';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { buildDraftAccountingInputUpdate, startAccounting as startAccountingHelper } from '../repos/startAccounting';
+import {
+  attachCompensationContextToError,
+  rollbackAccountingStartIfOwned,
+  shouldRollbackAccountingStartAfterCommitFailure,
+} from '../repos/rollbackAccountingStartIfOwned';
+import { ACCOUNTING_START_REQUEST_CANCELLED } from '../repos/accountingStartIdempotency';
 import * as crypto from 'crypto';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStoreConfig } from '../../../shared/config/configLoader';
@@ -117,18 +123,17 @@ export const startAccounting = onCall(async (request) => {
       }
     }
 
-    // startAccounting ヘルパAPIを呼び出して bills のステータスとops更新
-    const startAccountingResult = await startAccountingHelper({
-      billId,
-      idempotencyKey,
-      accountingStartedBy: adminId,
-    });
-
     const categoryAmounts = await loadBillCategoryAmounts(db, billId);
     const totalExpected = Object.values(categoryAmounts).reduce((sum, value) => sum + value, 0);
-    
-    // 0円会計の場合は支払い方法チェックをスキップ
+
+    // 0円会計の場合は支払い方法チェックをスキップし、検証済みとして settling へ遷移
     if (totalExpected === 0) {
+      const startAccountingResult = await startAccountingHelper({
+        billId,
+        idempotencyKey,
+        accountingStartedBy: adminId,
+      });
+
       const metaUpdate: Record<string, unknown> = {
         'meta.paymentMethodsByAmount': {},
         'meta.paymentMethodsByCategory': {},
@@ -161,16 +166,19 @@ export const startAccounting = onCall(async (request) => {
     }
 
     // A-7: 支払確定済み（meta/draft に ByAmount あり）の再送は、残高再計算・再減算しない
-    const billAfterStart = await billRef.get();
-    const billAfterData = billAfterStart.exists
-      ? (billAfterStart.data() as Record<string, unknown>)
-      : {};
+    // ※ settling への遷移前に判定し、支払検証失敗で settling が残らないようにする
     const existingByAmount =
-      ((billAfterData.meta as Record<string, unknown> | undefined)
+      ((billData.meta as Record<string, unknown> | undefined)
         ?.paymentMethodsByAmount as Record<string, number> | undefined) ??
-      ((billAfterData.draftAccountingInput as Record<string, unknown> | undefined)
+      ((billData.draftAccountingInput as Record<string, unknown> | undefined)
         ?.paymentMethodsByAmount as Record<string, number> | undefined);
     if (existingByAmount && Object.keys(existingByAmount).length > 0) {
+      // 支払済み再送: helper の冪等経路で status/ops を確定（settling 済みなら reuse）
+      const startAccountingResult = await startAccountingHelper({
+        billId,
+        idempotencyKey,
+        accountingStartedBy: adminId,
+      });
       logOpsSuccess({
         message: "startAccounting 成功（支払済み・冪等）",
         functionEntry: "startAccounting",
@@ -218,6 +226,7 @@ export const startAccounting = onCall(async (request) => {
         ? 'custom'
         : 'auto');
 
+    // 支払条件を先に検証し、成功時のみ settling へ遷移する（補償ロールバック方式は使わない）
     const resolved = resolveA7AccountingPayment({
       mode: accountingMode,
       categoryAmounts,
@@ -235,11 +244,97 @@ export const startAccounting = onCall(async (request) => {
       billId,
     });
 
-    await commitA7AccountingPayment({
+    const startAccountingResult = await startAccountingHelper({
       billId,
-      userId,
-      resolved,
+      idempotencyKey,
+      accountingStartedBy: adminId,
     });
+
+    try {
+      await commitA7AccountingPayment({
+        billId,
+        userId,
+        resolved,
+      });
+    } catch (commitError: unknown) {
+      // 状態ベース: commit が throw したら常に補償を試みる（成功後はここへ来ない）
+      if (shouldRollbackAccountingStartAfterCommitFailure(commitError)) {
+        let compensationSucceeded = false;
+        let compensationOutcome = 'failed';
+        let compensationReason: string | undefined;
+        let restoredStatus: string | undefined;
+        let currentStatus: string | null | undefined;
+        let compensationErrorMessage: string | undefined;
+        let paymentCommitted: boolean | undefined;
+        let orphanPointLogDetected: boolean | undefined;
+        let activeKeyMatched: boolean | undefined;
+        let idempotencyStatus: string | null | undefined;
+
+        try {
+          const compensation = await rollbackAccountingStartIfOwned({
+            billId,
+            idempotencyKey,
+            accountingStartedBy: adminId,
+            accountingStartedAtIso: startAccountingResult.ops.accountingStartedAt,
+            previousStatus: startAccountingResult.previousStatus,
+            userId,
+          });
+          compensationOutcome = compensation.outcome;
+          compensationReason = compensation.reason;
+          restoredStatus = compensation.restoredStatus;
+          currentStatus = compensation.currentStatus ?? null;
+          paymentCommitted = compensation.paymentCommitted;
+          orphanPointLogDetected = compensation.orphanPointLogDetected;
+          activeKeyMatched = compensation.activeKeyMatched;
+          idempotencyStatus = compensation.idempotencyStatus ?? null;
+          compensationSucceeded =
+            compensation.outcome === 'rolled_back' ||
+            compensation.reason === 'already_pre_start';
+
+          if (compensation.outcome === 'rolled_back') {
+            logOpsSuccess({
+              message: 'startAccounting commit失敗後の settling 補償成功',
+              functionEntry: 'startAccounting',
+              operation: 'rollbackAccountingStartAfterCommitFail',
+              context: {
+                billId,
+                idempotencyKey,
+                previousStatus: startAccountingResult.previousStatus,
+                restoredStatus: compensation.restoredStatus,
+                accountingStartedAt: startAccountingResult.ops.accountingStartedAt,
+                paymentCommitted: compensation.paymentCommitted ?? false,
+                orphanPointLogDetected: compensation.orphanPointLogDetected ?? false,
+                activeKeyMatched: compensation.activeKeyMatched ?? false,
+                idempotencyStatus: compensation.idempotencyStatus ?? null,
+                phase: 'commitA7AccountingPayment',
+              },
+            });
+          }
+        } catch (compensationError: unknown) {
+          compensationSucceeded = false;
+          compensationOutcome = 'failed';
+          compensationErrorMessage =
+            compensationError instanceof Error
+              ? compensationError.message
+              : String(compensationError);
+        }
+
+        throw attachCompensationContextToError(commitError, {
+          attempted: true,
+          succeeded: compensationSucceeded,
+          outcome: compensationOutcome,
+          reason: compensationReason,
+          restoredStatus,
+          currentStatus,
+          compensationError: compensationErrorMessage,
+          paymentCommitted,
+          orphanPointLogDetected,
+          activeKeyMatched,
+          idempotencyStatus,
+        });
+      }
+      throw commitError;
+    }
 
     logOpsSuccess({
       message: "startAccounting 成功",
@@ -261,16 +356,27 @@ export const startAccounting = onCall(async (request) => {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
     }
     if (error instanceof FunctionCustomError) {
-      logOpsError({
-        message: 'startAccounting 業務エラー',
-        functionEntry: 'startAccounting',
-        operation: 'startAccountingCallableCustom',
-        cause: error,
-        context: {
-          billId: (request.data as { billId?: string } | undefined)?.billId,
-          errorKey: error.errorKey,
-        },
-      });
+      const fromError =
+        error.context && typeof error.context === 'object' && !Array.isArray(error.context)
+          ? (error.context as Record<string, unknown>)
+          : {};
+      // request 由来の billId を優先し、外部 context で上書きさせない
+      const billIdForLog =
+        (request.data as { billId?: string } | undefined)?.billId ?? fromError.billId;
+      // cancelled 同一 key 再送は業務上想定可能な拒否。過剰な logOpsError を避ける。
+      if (error.errorKey !== ACCOUNTING_START_REQUEST_CANCELLED) {
+        logOpsError({
+          message: 'startAccounting 業務エラー',
+          functionEntry: 'startAccounting',
+          operation: 'startAccountingCallableCustom',
+          cause: error,
+          context: {
+            ...fromError,
+            billId: billIdForLog,
+            errorKey: error.errorKey,
+          },
+        });
+      }
       throw new HttpsError(
         mapFunctionCustomErrorToHttpsCode(error.errorKey),
         error.message,
@@ -447,7 +553,11 @@ export const completeAccounting = onCall(async (request) => {
         operation: 'completeAccountingCatch',
         cause: error,
       });
-      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+      throw new HttpsError(
+        mapFunctionCustomErrorToHttpsCode(error.errorKey),
+        error.message,
+        { errorKey: error.errorKey, context: error.context },
+      );
     }
     if (error instanceof HttpsError) {
       throw error;
@@ -643,7 +753,11 @@ export const completeAccountingV2 = onCall(async (request) => {
         operation: 'completeAccountingV2Catch',
         cause: error,
       });
-      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+      throw new HttpsError(
+        mapFunctionCustomErrorToHttpsCode(error.errorKey),
+        error.message,
+        { errorKey: error.errorKey, context: error.context },
+      );
     }
     if (error instanceof HttpsError) {
       throw error;

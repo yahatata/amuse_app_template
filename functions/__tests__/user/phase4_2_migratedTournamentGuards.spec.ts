@@ -164,7 +164,7 @@ describe('Phase 4-2 migrated tournament guards', () => {
     await expect(
       (registerForTournament as any).run({
         auth: {uid: adminUid, token: {}},
-        data: {tournamentId: 't1'},
+        data: {tournamentId: 't1', clientNonce: 'nonce_migrated_guard'},
       })
     ).rejects.toMatchObject({
       details: expect.objectContaining({errorKey: 'USER_MIGRATED'}),

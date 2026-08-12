@@ -1,14 +1,5 @@
 /**
- * placeOrderByUser の統合テスト
- * 
- * ChangeSpec P1-02 に準拠
- * Firestore Emulator を使用
- * 
- * テスト観点:
- * - orders/_TodaysOrders の作成（非 chip のみ、docId = itemId、親集計は初回のみ）
- * - bills.place.table/bills.place.seat の同梱
- * - 未認証で permission-denied
- * - 同一 menuItemId の複数行対応
+ * placeOrderByUser L3-A 契約テスト（Firestore Emulator）
  */
 
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
@@ -16,512 +7,701 @@ import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { placeOrderByUser } from '../../src/domains/itemOrder/callables/placeOrderByUser';
 import { createBillWithActiveStay } from '../../src/domains/bills/repos/createBillWithActiveStay';
+import {
+  MAX_ORDER_QUANTITY_PER_LINE,
+} from '../../src/domains/itemOrder/helpers/normalizePlaceOrderByUserItems';
+import {
+  placeOrderByUserAtomicTestHooks,
+  parseOrderableMenuItemFromData,
+} from '../../src/domains/itemOrder/helpers/placeOrderByUserAtomic';
 
-describe('placeOrderByUser', () => {
+describe('placeOrderByUser L3-A', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
-  const projectId = 'test-project-bills';
+  const projectId = 'test-project-place-order-by-user-l3a';
 
   beforeAll(async () => {
     process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8081';
-    
-    testEnv = await initializeTestEnvironment({
-      projectId,
-    });
-    
+
+    testEnv = await initializeTestEnvironment({ projectId });
+
     if (admin.apps.length > 0) {
-      await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
+      await Promise.all(admin.apps.map((a) => a?.delete()).filter(Boolean));
     }
-    admin.initializeApp({
-      projectId,
-    });
-    
+    admin.initializeApp({ projectId });
     db = getFirestore();
   });
 
   afterAll(async () => {
     await testEnv.cleanup();
-    await Promise.all(admin.apps.map(a => a?.delete()).filter(Boolean));
+    await Promise.all(admin.apps.map((a) => a?.delete()).filter(Boolean));
     delete process.env.FIRESTORE_EMULATOR_HOST;
   });
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
-    
-    // 明示的なクリーンアップ（念のため）
-    const activeStaysSnapshot = await db.collection('activeStays').get();
-    const deleteActiveStaysPromises = activeStaysSnapshot.docs.map(doc => doc.ref.delete());
-    await Promise.all(deleteActiveStaysPromises);
-    
-    const billsSnapshot = await db.collection('bills').get();
-    const deleteBillsPromises = billsSnapshot.docs.map(doc => doc.ref.delete());
-    await Promise.all(deleteBillsPromises);
-    
-    const menuItemsSnapshot = await db.collection('menuItems').get();
-    const deleteMenuItemsPromises = menuItemsSnapshot.docs.map(doc => doc.ref.delete());
-    await Promise.all(deleteMenuItemsPromises);
+    placeOrderByUserAtomicTestHooks.abortAfterMenuReadOnAttempt1 = undefined;
+    placeOrderByUserAtomicTestHooks.mutateMenuBeforeAttempt = undefined;
+    placeOrderByUserAtomicTestHooks.failPostCommitResponseUpdate = undefined;
+    placeOrderByUserAtomicTestHooks._currentAttempt = undefined;
   });
 
-  // テスト用のヘルパ関数: メニューアイテムを作成
-  async function createTestMenuItem(menuItemId: string, name: string, category: string, price: number) {
+  afterEach(() => {
+    placeOrderByUserAtomicTestHooks.abortAfterMenuReadOnAttempt1 = undefined;
+    placeOrderByUserAtomicTestHooks.mutateMenuBeforeAttempt = undefined;
+    placeOrderByUserAtomicTestHooks.failPostCommitResponseUpdate = undefined;
+    placeOrderByUserAtomicTestHooks._currentAttempt = undefined;
+  });
+
+  async function createTestMenuItem(
+    menuItemId: string,
+    name: string,
+    category: string,
+    price: number,
+    flags: { isArchive?: boolean; isSoldOut?: boolean } = {},
+  ) {
     await db.collection('menuItems').doc(menuItemId).set({
       name,
       category,
       price,
       description: '',
       imageUrl: '',
-      isArchive: false,
-      isSoldOut: false,
+      isArchive: flags.isArchive === true,
+      isSoldOut: flags.isSoldOut === true,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   }
 
-  // テストID生成ヘルパー（同じテスト内でIDを固定するため）
-  function makeTestIds(testName: string) {
+  async function orderDocIdFromBill(billId: string): Promise<string> {
+    const billDoc = await db.collection('bills').doc(billId).get();
+    const businessDate = billDoc.data()!.businessDate as string;
+    return businessDate.replace(/-/g, '');
+  }
+
+  function makeIds(testName: string) {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     return {
-      billId: `bill_test_${testName}_${suffix}`,
-      userId: `user_test_${testName}_${suffix}`,
-      menuItemId: `menu_test_${testName}_${suffix}`,
-      sessionNonce: `session_test_${testName}_${suffix}`,
-      idempotencyKey: `idem_test_${testName}_${suffix}`,
+      billId: `bill_${testName}_${suffix}`,
+      userId: `user_${testName}_${suffix}`,
+      menuItemId: `menu_${testName}_${suffix}`,
+      clientNonce: `nonce_${testName}_${suffix}`,
     };
   }
 
-  describe('permission-denied', () => {
-    it('未認証で permission-denied', async () => {
-      const mockRequest = {
-        data: {
-          items: [{
-            menuItemId: 'menu_test_001',
-            quantity: 1,
-          }],
-        },
-        auth: null, // 未認証
-      } as any;
+  describe('auth / nonce validation', () => {
+    it('未認証は unauthenticated + ORDER_UNAUTHENTICATED', async () => {
+      await expect(
+        placeOrderByUser.run({
+          data: { items: [{ menuItemId: 'm1', quantity: 1 }], clientNonce: 'n1' },
+          auth: null,
+        } as any),
+      ).rejects.toMatchObject({
+        code: 'unauthenticated',
+        details: { errorKey: 'ORDER_UNAUTHENTICATED' },
+      });
+    });
 
-      await expect(placeOrderByUser.run(mockRequest)).rejects.toHaveProperty('code', 'permission-denied');
+    it('clientNonce 欠損は ORDER_NONCE_REQUIRED', async () => {
+      const ids = makeIds('nonce_missing');
+      await createTestMenuItem(ids.menuItemId, 'Beer', 'drink', 500);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+
+      await expect(
+        placeOrderByUser.run({
+          data: { items: [{ menuItemId: ids.menuItemId, quantity: 1 }] },
+          auth: { uid: ids.userId },
+        } as any),
+      ).rejects.toMatchObject({
+        code: 'invalid-argument',
+        details: { errorKey: 'ORDER_NONCE_REQUIRED' },
+      });
+    });
+
+    it('clientNonce 空文字は ORDER_NONCE_REQUIRED', async () => {
+      await expect(
+        placeOrderByUser.run({
+          data: { items: [{ menuItemId: 'm', quantity: 1 }], clientNonce: '   ' },
+          auth: { uid: 'u' },
+        } as any),
+      ).rejects.toMatchObject({
+        code: 'invalid-argument',
+        details: { errorKey: 'ORDER_NONCE_REQUIRED' },
+      });
     });
   });
 
-  describe('orders/_TodaysOrders の作成', () => {
-    it('非 chip のみ orders/_TodaysOrders に記録されること（docId = itemId、親集計は初回のみ）', async () => {
-      // テストIDを一意にする（タイムスタンプ + ランダム文字列）
-      const timestamp = Date.now();
-      const random = Math.random().toString(36).substring(7);
-      const userId = `user_test_orders_user_${timestamp}_${random}`;
-      const billId = `bill_test_orders_user_${timestamp}_${random}`;
-      const menuItemId = `menu_test_orders_user_${timestamp}_${random}`;
-      const sessionNonce = `session_test_${timestamp}_${random}`;
-      const idempotencyKey = `idem_test_orders_user_${timestamp}_${random}`;
-
-      await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
+  describe('happy / atomic / idempotency', () => {
+    it('3件正常で 3件作成・strict success shape', async () => {
+      const ids = makeIds('three_ok');
+      const m2 = `${ids.menuItemId}_2`;
+      const m3 = `${ids.menuItemId}_3`;
+      await createTestMenuItem(ids.menuItemId, 'A', 'drink', 100);
+      await createTestMenuItem(m2, 'B', 'food', 200);
+      await createTestMenuItem(m3, 'C', 'drink', 300);
       await createBillWithActiveStay({
-        billId,
-        userId,
-        pokerName: 'テスト太郎',
-        idempotencyKey,
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
       });
 
-      // bills.place を設定
-      await db.collection('bills').doc(billId).set({
-        place: { table: 'B', seat: 5 },
-      }, { merge: true });
-
-      const mockRequest = {
+      const result = await placeOrderByUser.run({
         data: {
-          items: [{
-            menuItemId,
-            quantity: 2,
-          }],
-          clientNonce: sessionNonce,
+          clientNonce: ids.clientNonce,
+          items: [
+            { menuItemId: ids.menuItemId, quantity: 1, price: 9999 },
+            { menuItemId: m2, quantity: 2 },
+            { menuItemId: m3, quantity: 1 },
+          ],
         },
-        auth: {
-          uid: userId,
-        },
-      } as any;
-
-      const result = await placeOrderByUser.run(mockRequest);
+        auth: { uid: ids.userId },
+      } as any);
 
       expect(result.success).toBe(true);
-      expect(result.data.billId).toBe(billId);
-      expect(result.data.items.length).toBe(1);
-
-      // orders/_TodaysOrders が作成されている（docId = itemId）
-      const now = new Date();
-      const yyyy = String(now.getFullYear());
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const orderDocId = `${yyyy}${mm}${dd}`;
-      const itemId = result.data.items[0].itemId;
-
-      const todaysOrderDoc = await db.collection('orders').doc(orderDocId)
-        .collection('_TodaysOrders').doc(itemId).get();
-      expect(todaysOrderDoc.exists).toBe(true);
-      const orderData = todaysOrderDoc.data()!;
-      expect(orderData.billId).toBe(billId);
-      expect(orderData.userId).toBe(userId);
-      expect(orderData.menuItemId).toBe(menuItemId);
-      expect(orderData.currentTable).toBe('B');
-      expect(orderData.currentSeat).toBe(5);
-    });
-
-    it('同一 menuItemId が複数行ある場合でも、各行ごとに正しい itemId で _TodaysOrders を作成できること', async () => {
-      const ids = makeTestIds('placeOrderByUser_multiple_rows');
-      const userId = ids.userId;
-      const billId = ids.billId;
-      const menuItemId = ids.menuItemId;
-      const sessionNonce = ids.sessionNonce;
-      const idempotencyKey = ids.idempotencyKey;
-
-      await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
-      await createBillWithActiveStay({
-        billId,
-        userId,
-        pokerName: 'テスト太郎',
-        idempotencyKey,
-      });
-
-      const mockRequest = {
-        data: {
-          items: [
-            { menuItemId, quantity: 1 }, // 1行目
-            { menuItemId, quantity: 2 }, // 2行目（同一 menuItemId）
-          ],
-          clientNonce: sessionNonce,
-        },
-        auth: {
-          uid: userId,
-        },
-      } as any;
-
-      const result = await placeOrderByUser.run(mockRequest);
-
-      expect(result.success).toBe(true);
-      expect(result.data.items.length).toBe(2);
-
-      // 各行ごとに異なる itemId が生成されている
-      const itemId1 = result.data.items[0].itemId;
-      const itemId2 = result.data.items[1].itemId;
-      expect(itemId1).not.toBe(itemId2);
-
-      // orders/_TodaysOrders に2つのドキュメントが作成されている（docId = itemId）
-      const now = new Date();
-      const yyyy = String(now.getFullYear());
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const orderDocId = `${yyyy}${mm}${dd}`;
-
-      const todaysOrderDoc1 = await db.collection('orders').doc(orderDocId)
-        .collection('_TodaysOrders').doc(itemId1).get();
-      expect(todaysOrderDoc1.exists).toBe(true);
-      expect(todaysOrderDoc1.data()!.quantity).toBe(1);
-
-      const todaysOrderDoc2 = await db.collection('orders').doc(orderDocId)
-        .collection('_TodaysOrders').doc(itemId2).get();
-      expect(todaysOrderDoc2.exists).toBe(true);
-      expect(todaysOrderDoc2.data()!.quantity).toBe(2);
-
-      // 親 orders の集計が正しく更新されている
-      const ordersDoc = await db.collection('orders').doc(orderDocId).get();
-      const ordersData = ordersDoc.data()!;
-      expect(ordersData.onedayOrderQuantity).toBe(2); // 2つの注文
-      expect(ordersData.onedayTotalPrice).toBe(1500); // 500 * 1 + 500 * 2
-    });
-
-    it('items = [{A x1}, {A x2}, {B x1}] を投入 → 3つの別 itemId が返り、_TodaysOrders にそれぞれ docId=itemId で3件作成される（Aが2件、Bが1件）、親集計は3件ぶん加算', async () => {
-      const ids = makeTestIds('placeOrderByUser_multiple_items');
-      const userId = ids.userId;
-      const billId = ids.billId;
-      const menuItemIdA = `${ids.menuItemId}_A`;
-      const menuItemIdB = `${ids.menuItemId}_B`;
-      const sessionNonce = ids.sessionNonce;
-      const idempotencyKey = ids.idempotencyKey;
-
-      await createTestMenuItem(menuItemIdA, 'ビール', 'drink', 500);
-      await createTestMenuItem(menuItemIdB, 'コーラ', 'drink', 300);
-      await createBillWithActiveStay({
-        billId,
-        userId,
-        pokerName: 'テスト太郎',
-        idempotencyKey,
-      });
-
-      const mockRequest = {
-        data: {
-          items: [
-            { menuItemId: menuItemIdA, quantity: 1 }, // A x1
-            { menuItemId: menuItemIdA, quantity: 2 }, // A x2
-            { menuItemId: menuItemIdB, quantity: 1 }, // B x1
-          ],
-          clientNonce: sessionNonce,
-        },
-        auth: {
-          uid: userId,
-        },
-      } as any;
-
-      const result = await placeOrderByUser.run(mockRequest);
-
-      expect(result.success).toBe(true);
-      expect(result.data.items.length).toBe(3);
-
-      // 3つの別 itemId が返る
-      const itemId1 = result.data.items[0].itemId;
-      const itemId2 = result.data.items[1].itemId;
-      const itemId3 = result.data.items[2].itemId;
-      expect(itemId1).not.toBe(itemId2);
-      expect(itemId2).not.toBe(itemId3);
-      expect(itemId1).not.toBe(itemId3);
-
-      // _TodaysOrders にそれぞれ docId=itemId で3件作成される（Aが2件、Bが1件）
-      const now = new Date();
-      const yyyy = String(now.getFullYear());
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const orderDocId = `${yyyy}${mm}${dd}`;
-
-      const todaysOrderDoc1 = await db.collection('orders').doc(orderDocId)
-        .collection('_TodaysOrders').doc(itemId1).get();
-      expect(todaysOrderDoc1.exists).toBe(true);
-      expect(todaysOrderDoc1.data()!.menuItemId).toBe(menuItemIdA);
-      expect(todaysOrderDoc1.data()!.quantity).toBe(1);
-
-      const todaysOrderDoc2 = await db.collection('orders').doc(orderDocId)
-        .collection('_TodaysOrders').doc(itemId2).get();
-      expect(todaysOrderDoc2.exists).toBe(true);
-      expect(todaysOrderDoc2.data()!.menuItemId).toBe(menuItemIdA);
-      expect(todaysOrderDoc2.data()!.quantity).toBe(2);
-
-      const todaysOrderDoc3 = await db.collection('orders').doc(orderDocId)
-        .collection('_TodaysOrders').doc(itemId3).get();
-      expect(todaysOrderDoc3.exists).toBe(true);
-      expect(todaysOrderDoc3.data()!.menuItemId).toBe(menuItemIdB);
-      expect(todaysOrderDoc3.data()!.quantity).toBe(1);
-
-      // 親集計は3件ぶん加算
-      const ordersDoc = await db.collection('orders').doc(orderDocId).get();
-      const ordersData = ordersDoc.data()!;
-      expect(ordersData.onedayOrderQuantity).toBe(3); // 3件
-      expect(ordersData.onedayTotalPrice).toBe(1800); // 500 * 1 + 500 * 2 + 300 * 1 = 500 + 1000 + 300 = 1800
-    });
-
-    it('同じ clientNonce を使って全体リプレイした場合、0件加算', async () => {
-      const ids = makeTestIds('placeOrderByUser_replay');
-      const userId = ids.userId;
-      const billId = ids.billId;
-      const menuItemId = ids.menuItemId;
-      const sessionNonce = ids.sessionNonce;
-      const idempotencyKey = ids.idempotencyKey;
-
-      await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
-      await createBillWithActiveStay({
-        billId,
-        userId,
-        pokerName: 'テスト太郎',
-        idempotencyKey,
-      });
-
-      const mockRequest = {
-        data: {
-          items: [
-            { menuItemId, quantity: 1 },
-            { menuItemId, quantity: 2 },
-          ],
-          clientNonce: sessionNonce,
-        },
-        auth: {
-          uid: userId,
-        },
-      } as any;
-
-      // 1回目実行
-      const result1 = await placeOrderByUser.run(mockRequest);
-      expect(result1.success).toBe(true);
-      expect(result1.data.items.length).toBe(2);
-
-      const now = new Date();
-      const yyyy = String(now.getFullYear());
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const orderDocId = `${yyyy}${mm}${dd}`;
-
-      const ordersDoc1 = await db.collection('orders').doc(orderDocId).get();
-      const ordersData1 = ordersDoc1.data()!;
-      expect(ordersData1.onedayOrderQuantity).toBe(2);
-      expect(ordersData1.onedayTotalPrice).toBe(1500); // 500 * 1 + 500 * 2
-
-      // 2回目実行（同じ clientNonce）
-      const result2 = await placeOrderByUser.run(mockRequest);
-      expect(result2.success).toBe(true);
-      
-      // reused フラグが立っていることを確認
-      // placeOrderByUser のレスポンスの items には reused が含まれる（appendItem の diagnostics.reused から取得）
-      expect(result2.data.items.length).toBe(2);
-      // 実装では appendResults に reused が含まれ、レスポンスの items にも含まれる
-      if (result2.data.items[0].reused !== undefined) {
-        expect(result2.data.items[0].reused).toBe(true);
-        expect(result2.data.items[1].reused).toBe(true);
+      expect(result.data.billId).toBe(ids.billId);
+      expect(result.data.clientNonce).toBe(ids.clientNonce);
+      expect(result.data.reused).toBe(false);
+      expect(result.data.itemsCount).toBe(3);
+      expect(result.data.totalQuantity).toBe(4);
+      expect(result.data.totalAmount).toBe(100 + 400 + 300);
+      expect(result.data.items).toHaveLength(3);
+      for (const it of result.data.items) {
+        expect(it.itemId).toBeTruthy();
+        expect(it.menuItemId).toBeTruthy();
+        expect(it.name).toBeTruthy();
+        expect(it.unitPrice).toBeGreaterThan(0);
+        expect(it.totalPrice).toBe(it.unitPrice * it.quantity);
+        expect(it.status).toBe('preparing');
+        expect(typeof it.orderedAt).toBe('string');
       }
-      // 親集計が増えていないことで冪等性を確認
 
-      // 親集計は増えない（0件加算）
-      const ordersDoc2 = await db.collection('orders').doc(orderDocId).get();
-      const ordersData2 = ordersDoc2.data()!;
-      expect(ordersData2.onedayOrderQuantity).toBe(2); // 増えていない
-      expect(ordersData2.onedayTotalPrice).toBe(1500); // 増えていない
-    });
-
-    it('chip カテゴリは orders/_TodaysOrders に記録されないこと', async () => {
-      const ids = makeTestIds('placeOrderByUser_chip');
-      const userId = ids.userId;
-      const billId = ids.billId;
-      const menuItemId = ids.menuItemId;
-      const sessionNonce = ids.sessionNonce;
-      const idempotencyKey = ids.idempotencyKey;
-
-      await createTestMenuItem(menuItemId, 'チップ 1000', 'chip', 1000);
-      await createBillWithActiveStay({
-        billId,
-        userId,
-        pokerName: 'テスト太郎',
-        idempotencyKey,
+      const itemsSnap = await db.collection('bills').doc(ids.billId).collection('items').get();
+      expect(itemsSnap.size).toBe(3);
+      // bill items に status を新設しない（appendItem 互換: voided のみ）
+      itemsSnap.docs.forEach((doc) => {
+        expect(doc.data().status).toBeUndefined();
+        expect(doc.data().orderClientNonce).toBe(ids.clientNonce);
+        expect(doc.data().voided).toBe(false);
       });
 
-      const mockRequest = {
+      const orderDocId = await orderDocIdFromBill(ids.billId);
+      const todays = await db.collection('orders').doc(orderDocId).collection('_TodaysOrders').get();
+      expect(todays.size).toBe(3);
+      todays.docs.forEach((doc) => {
+        expect(doc.data().status).toBe('preparing');
+      });
+    });
+
+    it('同一 nonce+同一 items 再送は reused・重複なし', async () => {
+      const ids = makeIds('replay');
+      await createTestMenuItem(ids.menuItemId, 'Beer', 'drink', 500);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+
+      const req = {
         data: {
-          items: [{
-            menuItemId,
-            quantity: 1,
-          }],
-          clientNonce: sessionNonce,
+          clientNonce: ids.clientNonce,
+          items: [{ menuItemId: ids.menuItemId, quantity: 2 }],
         },
-        auth: {
-          uid: userId,
-        },
+        auth: { uid: ids.userId },
       } as any;
 
-      const result = await placeOrderByUser.run(mockRequest);
+      const r1 = await placeOrderByUser.run(req);
+      const r2 = await placeOrderByUser.run(req);
 
-      expect(result.success).toBe(true);
+      expect(r1.success).toBe(true);
+      expect(r1.data.reused).toBe(false);
+      expect(r2.success).toBe(true);
+      expect(r2.data.reused).toBe(true);
+      expect(r2.data.totalAmount).toBe(r1.data.totalAmount);
+      expect(r2.data.items[0].itemId).toBe(r1.data.items[0].itemId);
 
-      // orders/_TodaysOrders は作成されていない（chip は除外）
-      const now = new Date();
-      const yyyy = String(now.getFullYear());
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const orderDocId = `${yyyy}${mm}${dd}`;
+      const itemsSnap = await db.collection('bills').doc(ids.billId).collection('items').get();
+      expect(itemsSnap.size).toBe(1);
 
-      const ordersRef = db.collection('orders').doc(orderDocId);
-      const todaysOrdersSnap = await ordersRef.collection('_TodaysOrders').get();
-      expect(todaysOrdersSnap.empty).toBe(true);
+      const orderDocId = await orderDocIdFromBill(ids.billId);
+      const ordersDoc = await db.collection('orders').doc(orderDocId).get();
+      expect(ordersDoc.data()!.onedayOrderQuantity).toBe(1);
+    });
+
+    it('同一 nonce+異なる items は ORDER_NONCE_CONFLICT・書込みなし', async () => {
+      const ids = makeIds('conflict');
+      const m2 = `${ids.menuItemId}_b`;
+      await createTestMenuItem(ids.menuItemId, 'A', 'drink', 100);
+      await createTestMenuItem(m2, 'B', 'drink', 200);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+
+      await placeOrderByUser.run({
+        data: {
+          clientNonce: ids.clientNonce,
+          items: [{ menuItemId: ids.menuItemId, quantity: 1 }],
+        },
+        auth: { uid: ids.userId },
+      } as any);
+
+      await expect(
+        placeOrderByUser.run({
+          data: {
+            clientNonce: ids.clientNonce,
+            items: [{ menuItemId: m2, quantity: 1 }],
+          },
+          auth: { uid: ids.userId },
+        } as any),
+      ).rejects.toMatchObject({
+        code: 'failed-precondition',
+        details: { errorKey: 'ORDER_NONCE_CONFLICT' },
+      });
+
+      const itemsSnap = await db.collection('bills').doc(ids.billId).collection('items').get();
+      expect(itemsSnap.size).toBe(1);
+    });
+
+    it('別 nonce+同一 items は別注文', async () => {
+      const ids = makeIds('other_nonce');
+      await createTestMenuItem(ids.menuItemId, 'Beer', 'drink', 500);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+
+      await placeOrderByUser.run({
+        data: {
+          clientNonce: `${ids.clientNonce}_a`,
+          items: [{ menuItemId: ids.menuItemId, quantity: 1 }],
+        },
+        auth: { uid: ids.userId },
+      } as any);
+      await placeOrderByUser.run({
+        data: {
+          clientNonce: `${ids.clientNonce}_b`,
+          items: [{ menuItemId: ids.menuItemId, quantity: 1 }],
+        },
+        auth: { uid: ids.userId },
+      } as any);
+
+      const itemsSnap = await db.collection('bills').doc(ids.billId).collection('items').get();
+      expect(itemsSnap.size).toBe(2);
+    });
+
+    it('重複 menuItemId は quantity 合算', async () => {
+      const ids = makeIds('merge');
+      await createTestMenuItem(ids.menuItemId, 'Beer', 'drink', 100);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+
+      const result = await placeOrderByUser.run({
+        data: {
+          clientNonce: ids.clientNonce,
+          items: [
+            { menuItemId: ids.menuItemId, quantity: 2 },
+            { menuItemId: ids.menuItemId, quantity: 3 },
+          ],
+        },
+        auth: { uid: ids.userId },
+      } as any);
+
+      expect(result.data.itemsCount).toBe(1);
+      expect(result.data.items[0].quantity).toBe(5);
+      expect(result.data.totalAmount).toBe(500);
     });
   });
 
-  describe('status ガードの厳密化', () => {
-    it('status=settling で failed-precondition', async () => {
-      const userId = 'user_test_status_settling_user_001';
-      const billId = 'bill_test_status_settling_user_001';
-      const menuItemId = 'menu_test_status_settling_user_001';
-      const sessionNonce = 'session_test_status_settling_001';
-
-      await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
+  describe('atomic failure → 0 writes', () => {
+    it('2件目 soldOut なら 0件', async () => {
+      const ids = makeIds('soldout_atomic');
+      const m2 = `${ids.menuItemId}_2`;
+      await createTestMenuItem(ids.menuItemId, 'A', 'drink', 100);
+      await createTestMenuItem(m2, 'B', 'drink', 200, { isSoldOut: true });
       await createBillWithActiveStay({
-        billId,
-        userId,
-        pokerName: 'テスト太郎',
-        idempotencyKey: 'idem_test_status_settling_user_001',
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
       });
 
-      // bills の status を settling に変更
-      await db.collection('bills').doc(billId).set({ status: 'settling' }, { merge: true });
+      await expect(
+        placeOrderByUser.run({
+          data: {
+            clientNonce: ids.clientNonce,
+            items: [
+              { menuItemId: ids.menuItemId, quantity: 1 },
+              { menuItemId: m2, quantity: 1 },
+            ],
+          },
+          auth: { uid: ids.userId },
+        } as any),
+      ).rejects.toMatchObject({
+        details: { errorKey: 'ORDER_ITEM_SOLD_OUT' },
+      });
 
-      const mockRequest = {
-        data: {
-          items: [{
-            menuItemId,
-            quantity: 1,
-          }],
-          clientNonce: sessionNonce,
-        },
-        auth: {
-          uid: userId,
-        },
-      } as any;
-
-      await expect(placeOrderByUser.run(mockRequest)).rejects.toHaveProperty('code', 'failed-precondition');
+      const itemsSnap = await db.collection('bills').doc(ids.billId).collection('items').get();
+      expect(itemsSnap.size).toBe(0);
+      const reqSnap = await db
+        .collection('bills')
+        .doc(ids.billId)
+        .collection('orderRequests')
+        .doc(ids.clientNonce)
+        .get();
+      expect(reqSnap.exists).toBe(false);
     });
 
-    it('status=settled で failed-precondition', async () => {
-      const userId = 'user_test_status_settled_user_001';
-      const billId = 'bill_test_status_settled_user_001';
-      const menuItemId = 'menu_test_status_settled_user_001';
-      const sessionNonce = 'session_test_status_settled_001';
-
-      await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
+    it('2件目 不存在なら 0件', async () => {
+      const ids = makeIds('missing_atomic');
+      await createTestMenuItem(ids.menuItemId, 'A', 'drink', 100);
       await createBillWithActiveStay({
-        billId,
-        userId,
-        pokerName: 'テスト太郎',
-        idempotencyKey: 'idem_test_status_settled_user_001',
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
       });
 
-      // bills の status を settled に変更（activeStays は残す）
-      await db.collection('bills').doc(billId).set({ status: 'settled' }, { merge: true });
-      // activeStays は残す（getActiveBillByUser が伝票を返すようにする）
-      // これにより、appendItem の status ガードで failed-precondition が返る
+      await expect(
+        placeOrderByUser.run({
+          data: {
+            clientNonce: ids.clientNonce,
+            items: [
+              { menuItemId: ids.menuItemId, quantity: 1 },
+              { menuItemId: 'does_not_exist', quantity: 1 },
+            ],
+          },
+          auth: { uid: ids.userId },
+        } as any),
+      ).rejects.toMatchObject({
+        details: { errorKey: 'ORDER_ITEM_NOT_FOUND' },
+      });
 
-      const mockRequest = {
-        data: {
-          items: [{
-            menuItemId,
-            quantity: 1,
-          }],
-          clientNonce: sessionNonce,
-        },
-        auth: {
-          uid: userId,
-        },
-      } as any;
-
-      await expect(placeOrderByUser.run(mockRequest)).rejects.toHaveProperty('code', 'failed-precondition');
+      const itemsSnap = await db.collection('bills').doc(ids.billId).collection('items').get();
+      expect(itemsSnap.size).toBe(0);
     });
 
-    it('status=voided で failed-precondition', async () => {
-      const userId = 'user_test_status_voided_user_001';
-      const billId = 'bill_test_status_voided_user_001';
-      const menuItemId = 'menu_test_status_voided_user_001';
-      const sessionNonce = 'session_test_status_voided_001';
-
-      await createTestMenuItem(menuItemId, 'ビール', 'drink', 500);
+    it('archive は ORDER_ITEM_UNAVAILABLE・0件', async () => {
+      const ids = makeIds('archive');
+      await createTestMenuItem(ids.menuItemId, 'A', 'drink', 100, { isArchive: true });
       await createBillWithActiveStay({
-        billId,
-        userId,
-        pokerName: 'テスト太郎',
-        idempotencyKey: 'idem_test_status_voided_user_001',
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
       });
 
-      // bills の status を voided に変更（activeStays は残す）
-      await db.collection('bills').doc(billId).set({ status: 'voided' }, { merge: true });
-      // activeStays は残す（getActiveBillByUser が伝票を返すようにする）
-      // これにより、appendItem の status ガードで failed-precondition が返る
+      await expect(
+        placeOrderByUser.run({
+          data: {
+            clientNonce: ids.clientNonce,
+            items: [{ menuItemId: ids.menuItemId, quantity: 1 }],
+          },
+          auth: { uid: ids.userId },
+        } as any),
+      ).rejects.toMatchObject({
+        details: { errorKey: 'ORDER_ITEM_UNAVAILABLE' },
+      });
+    });
+  });
 
-      const mockRequest = {
+  describe('quantity / bill status', () => {
+    it('quantity 0 / 負数 / 小数を拒否', async () => {
+      for (const quantity of [0, -1, 1.5, NaN, Infinity]) {
+        await expect(
+          placeOrderByUser.run({
+            data: {
+              clientNonce: `n_${quantity}`,
+              items: [{ menuItemId: 'm', quantity }],
+            },
+            auth: { uid: 'u' },
+          } as any),
+        ).rejects.toMatchObject({
+          details: { errorKey: 'ORDER_QUANTITY_INVALID' },
+        });
+      }
+    });
+
+    it(`quantity > ${MAX_ORDER_QUANTITY_PER_LINE} を拒否`, async () => {
+      await expect(
+        placeOrderByUser.run({
+          data: {
+            clientNonce: 'n_max',
+            items: [{ menuItemId: 'm', quantity: MAX_ORDER_QUANTITY_PER_LINE + 1 }],
+          },
+          auth: { uid: 'u' },
+        } as any),
+      ).rejects.toMatchObject({
+        details: { errorKey: 'ORDER_QUANTITY_INVALID' },
+      });
+    });
+
+    it('settled bill は ORDER_BILL_NOT_OPEN', async () => {
+      const ids = makeIds('settled');
+      await createTestMenuItem(ids.menuItemId, 'Beer', 'drink', 500);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+      await db.collection('bills').doc(ids.billId).set({ status: 'settled' }, { merge: true });
+
+      await expect(
+        placeOrderByUser.run({
+          data: {
+            clientNonce: ids.clientNonce,
+            items: [{ menuItemId: ids.menuItemId, quantity: 1 }],
+          },
+          auth: { uid: ids.userId },
+        } as any),
+      ).rejects.toMatchObject({
+        code: 'failed-precondition',
+        details: { errorKey: 'ORDER_BILL_NOT_OPEN' },
+      });
+    });
+
+    it('active bill なしは ORDER_ACTIVE_BILL_NOT_FOUND', async () => {
+      const ids = makeIds('no_bill');
+      await createTestMenuItem(ids.menuItemId, 'Beer', 'drink', 500);
+
+      await expect(
+        placeOrderByUser.run({
+          data: {
+            clientNonce: ids.clientNonce,
+            items: [{ menuItemId: ids.menuItemId, quantity: 1 }],
+          },
+          auth: { uid: ids.userId },
+        } as any),
+      ).rejects.toMatchObject({
+        details: { errorKey: 'ORDER_ACTIVE_BILL_NOT_FOUND' },
+      });
+    });
+  });
+
+  describe('chip', () => {
+    it('chip は bill に載り orders/_TodaysOrders には載らない', async () => {
+      const ids = makeIds('chip');
+      await createTestMenuItem(ids.menuItemId, 'Chip 1000', 'chip', 1000);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+
+      const result = await placeOrderByUser.run({
         data: {
-          items: [{
-            menuItemId,
-            quantity: 1,
-          }],
-          clientNonce: sessionNonce,
+          clientNonce: ids.clientNonce,
+          items: [{ menuItemId: ids.menuItemId, quantity: 1 }],
         },
-        auth: {
-          uid: userId,
-        },
-      } as any;
+        auth: { uid: ids.userId },
+      } as any);
 
-      await expect(placeOrderByUser.run(mockRequest)).rejects.toHaveProperty('code', 'failed-precondition');
+      expect(result.success).toBe(true);
+      const itemsSnap = await db.collection('bills').doc(ids.billId).collection('items').get();
+      expect(itemsSnap.size).toBe(1);
+      const orderDocId = await orderDocIdFromBill(ids.billId);
+      const todays = await db.collection('orders').doc(orderDocId).collection('_TodaysOrders').get();
+      expect(todays.empty).toBe(true);
+    });
+  });
+
+  describe('transaction 内 menu 最新 snapshot（race）', () => {
+    it('retry 時に soldOut へ変更 → 拒否・0 item', async () => {
+      const ids = makeIds('race_soldout');
+      await createTestMenuItem(ids.menuItemId, 'Beer', 'drink', 500);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+
+      placeOrderByUserAtomicTestHooks.abortAfterMenuReadOnAttempt1 = true;
+      placeOrderByUserAtomicTestHooks.mutateMenuBeforeAttempt = async (attempt) => {
+        if (attempt === 2) {
+          await db.collection('menuItems').doc(ids.menuItemId).update({ isSoldOut: true });
+        }
+      };
+
+      await expect(
+        placeOrderByUser.run({
+          data: {
+            clientNonce: ids.clientNonce,
+            items: [{ menuItemId: ids.menuItemId, quantity: 1 }],
+          },
+          auth: { uid: ids.userId },
+        } as any),
+      ).rejects.toMatchObject({
+        details: { errorKey: 'ORDER_ITEM_SOLD_OUT' },
+      });
+
+      const itemsSnap = await db.collection('bills').doc(ids.billId).collection('items').get();
+      expect(itemsSnap.size).toBe(0);
+      const reqSnap = await db
+        .collection('bills')
+        .doc(ids.billId)
+        .collection('orderRequests')
+        .doc(ids.clientNonce)
+        .get();
+      expect(reqSnap.exists).toBe(false);
+    });
+
+    it('retry 時に archive へ変更 → 拒否・0 item', async () => {
+      const ids = makeIds('race_archive');
+      await createTestMenuItem(ids.menuItemId, 'Beer', 'drink', 500);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+
+      placeOrderByUserAtomicTestHooks.abortAfterMenuReadOnAttempt1 = true;
+      placeOrderByUserAtomicTestHooks.mutateMenuBeforeAttempt = async (attempt) => {
+        if (attempt === 2) {
+          await db.collection('menuItems').doc(ids.menuItemId).update({ isArchive: true });
+        }
+      };
+
+      await expect(
+        placeOrderByUser.run({
+          data: {
+            clientNonce: ids.clientNonce,
+            items: [{ menuItemId: ids.menuItemId, quantity: 1 }],
+          },
+          auth: { uid: ids.userId },
+        } as any),
+      ).rejects.toMatchObject({
+        details: { errorKey: 'ORDER_ITEM_UNAVAILABLE' },
+      });
+
+      const itemsSnap = await db.collection('bills').doc(ids.billId).collection('items').get();
+      expect(itemsSnap.size).toBe(0);
+    });
+
+    it('retry 時に price 変更 → server 最新価格で成功', async () => {
+      const ids = makeIds('race_price');
+      await createTestMenuItem(ids.menuItemId, 'Beer', 'drink', 500);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+
+      placeOrderByUserAtomicTestHooks.abortAfterMenuReadOnAttempt1 = true;
+      placeOrderByUserAtomicTestHooks.mutateMenuBeforeAttempt = async (attempt) => {
+        if (attempt === 2) {
+          await db.collection('menuItems').doc(ids.menuItemId).update({ price: 777 });
+        }
+      };
+
+      const result = await placeOrderByUser.run({
+        data: {
+          clientNonce: ids.clientNonce,
+          items: [{ menuItemId: ids.menuItemId, quantity: 2, price: 1 }],
+        },
+        auth: { uid: ids.userId },
+      } as any);
+
+      expect(result.success).toBe(true);
+      expect(result.data.items[0].unitPrice).toBe(777);
+      expect(result.data.totalAmount).toBe(1554);
+
+      const itemDoc = (
+        await db.collection('bills').doc(ids.billId).collection('items').get()
+      ).docs[0];
+      expect(itemDoc.data()!.unitPriceIncl).toBe(777);
+    });
+
+    it('parseOrderableMenuItemFromData は snapshot を厳密に判定', () => {
+      expect(() =>
+        parseOrderableMenuItemFromData('m', undefined, false),
+      ).toThrow();
+      expect(() =>
+        parseOrderableMenuItemFromData('m', { name: 'A', category: 'd', price: 1, isSoldOut: true }, true),
+      ).toThrow();
+      const ok = parseOrderableMenuItemFromData(
+        'm',
+        { name: 'A', category: 'drink', price: 100, isArchive: false, isSoldOut: false },
+        true,
+      );
+      expect(ok.unitPriceIncl).toBe(100);
+    });
+  });
+
+  describe('post-commit response 更新失敗時の冪等性', () => {
+    it('commit 成功後 response 更新失敗 → 同一 nonce 再送で reused・item 不変', async () => {
+      const ids = makeIds('post_commit_fail');
+      await createTestMenuItem(ids.menuItemId, 'Beer', 'drink', 500);
+      await createBillWithActiveStay({
+        billId: ids.billId,
+        userId: ids.userId,
+        pokerName: 'T',
+        idempotencyKey: `idem_${ids.billId}`,
+      });
+
+      placeOrderByUserAtomicTestHooks.failPostCommitResponseUpdate = true;
+
+      const first = await placeOrderByUser.run({
+        data: {
+          clientNonce: ids.clientNonce,
+          items: [{ menuItemId: ids.menuItemId, quantity: 2 }],
+        },
+        auth: { uid: ids.userId },
+      } as any);
+
+      expect(first.success).toBe(true);
+      expect(first.data.reused).toBe(false);
+      expect(first.data.totalAmount).toBe(1000);
+
+      const reqSnap = await db
+        .collection('bills')
+        .doc(ids.billId)
+        .collection('orderRequests')
+        .doc(ids.clientNonce)
+        .get();
+      expect(reqSnap.exists).toBe(true);
+      expect(reqSnap.data()!.status).toBe('succeeded');
+      expect(reqSnap.data()!.itemSnapshots).toHaveLength(1);
+      expect(reqSnap.data()!.response).toBeUndefined();
+
+      placeOrderByUserAtomicTestHooks.failPostCommitResponseUpdate = undefined;
+
+      const second = await placeOrderByUser.run({
+        data: {
+          clientNonce: ids.clientNonce,
+          items: [{ menuItemId: ids.menuItemId, quantity: 2 }],
+        },
+        auth: { uid: ids.userId },
+      } as any);
+
+      expect(second.success).toBe(true);
+      expect(second.data.reused).toBe(true);
+      expect(second.data.itemsCount).toBe(1);
+      expect(second.data.totalQuantity).toBe(2);
+      expect(second.data.totalAmount).toBe(1000);
+      expect(second.data.items[0].itemId).toBe(first.data.items[0].itemId);
+      expect(JSON.stringify(second)).not.toMatch(/stack|transaction|FIRESTORE/i);
+
+      const itemsSnap = await db.collection('bills').doc(ids.billId).collection('items').get();
+      expect(itemsSnap.size).toBe(1);
     });
   });
 });
-

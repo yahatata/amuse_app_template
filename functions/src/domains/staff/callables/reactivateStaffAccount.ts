@@ -1,132 +1,101 @@
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import * as admin from 'firebase-admin';
-import * as logger from 'firebase-functions/logger';
-import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
-import { normalizeStaffStatus } from '../helpers/staffStatus';
-import { linkStaffRichMenu } from '../../webhook/services/lineRichMenu';
-
 /**
- * 退職済みスタッフが LIFF から再登録する
+ * 退職済みスタッフの LIFF 再登録（retired → active）
+ *
+ * - request.auth.uid 固定
+ * - clientNonce 必須
+ * - 同一 nonce 成功再送 → reused（STAFF_NOT_RETIRED より先に確認）
+ * - active + 新 nonce → STAFF_NOT_RETIRED
  */
+
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import {
+  getStaffErrorKeyFromUnknown,
+  throwStaffHttpsError,
+} from '../helpers/staffHttpsError';
+import {
+  REACTIVATE_STAFF_ACCOUNT_OPERATION,
+  shortNonceTrace,
+  validateStaffClientNonce,
+  validateStaffRegistrationPii,
+} from '../helpers/staffClientNonce';
+import {
+  executeReactivateStaffAccountAtomic,
+  toCallableStaffMutationResponse,
+} from '../helpers/staffAccountMutationAtomic';
+
 export const reactivateStaffAccount = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', '認証が必要です。再度ログインしてください。');
-  }
-
-  const uid = request.auth.uid;
-  const { fullName, fullNameKana, email, phoneNumber, birthMonthDay } = request.data as {
-    fullName?: string;
-    fullNameKana?: string;
-    email?: string;
-    phoneNumber?: string;
-    birthMonthDay?: string;
-  };
-
-  if (!fullName || !fullNameKana || !email || !phoneNumber || !birthMonthDay) {
-    throw new HttpsError('invalid-argument', '入力情報が不足しています。全ての項目を入力してください。');
-  }
-
-  if (!/^\d{4}$/.test(birthMonthDay)) {
-    throw new HttpsError('invalid-argument', '誕生日は4桁の数字（MMDD）で入力してください。');
-  }
-
-  const phoneRegExp = /^(0[5789]0\d{8}|0[1-9]\d{8,9})$/;
-  if (!phoneRegExp.test(phoneNumber)) {
-    throw new HttpsError('invalid-argument', '無効な電話番号形式です（ハイフンなしで10〜11桁）');
-  }
-
-  const kanaRegExp = /^[ぁ-んァ-ヶー]+$/;
-  if (!kanaRegExp.test(fullNameKana)) {
-    throw new HttpsError('invalid-argument', 'かなはひらがなまたはカタカナで入力してください。');
-  }
-
-  const logContext: Record<string, unknown> = { uid, fullNameKana };
-
   try {
-    const staffRef = admin.firestore().collection('staffs').doc(uid);
-    const staffSnap = await staffRef.get();
-    if (!staffSnap.exists) {
-      throw new HttpsError('failed-precondition', '再登録対象のスタッフが見つかりません', {
-        errorKey: 'STAFF_NOT_RETIRED',
-      });
+    if (!request.auth) {
+      throwStaffHttpsError('unauthenticated', 'STAFF_UNAUTHENTICATED', 'Authentication required');
     }
 
-    if (normalizeStaffStatus(staffSnap.data()) !== 'retired') {
-      throw new HttpsError('failed-precondition', '退職済みスタッフのみ再登録できます', {
-        errorKey: 'STAFF_NOT_RETIRED',
-      });
-    }
-
-    const existing = await admin
-      .firestore()
-      .collection('staffs')
-      .where('fullNameKana', '==', fullNameKana)
-      .limit(2)
-      .get();
-
-    const duplicate = existing.docs.find((doc) => doc.id !== uid);
-    if (duplicate) {
-      throw new HttpsError('already-exists', 'このスタッフ名は既に使用されています。別のスタッフ名に変更してください。');
-    }
-
-    const loginId = fullNameKana + birthMonthDay;
-    const { generateQRData, generateQRImage, saveQRCodeToStorage } = await import(
-      '../../user/services/qrCodeUtils'
+    const uid = request.auth.uid;
+    const clientNonce = validateStaffClientNonce(
+      request.data?.clientNonce,
+      'STAFF_REACTIVATION_NONCE_REQUIRED',
     );
-    const qrData = await generateQRData(uid, loginId, 'staff');
-    const qrCodeImage = await generateQRImage(qrData);
-    const expiresAt = qrData.timestamp + 10 * 60 * 1000;
-    const qrCodeUrl = await saveQRCodeToStorage(uid, qrCodeImage, 'staff');
+    const pii = validateStaffRegistrationPii(request.data || {});
 
-    await staffRef.update({
-      status: 'active',
-      fullName,
-      fullNameKana,
-      email,
-      phoneNumber,
-      birthMonthDay,
-      loginId,
-      qrCodeUrl,
-      qrExpiresAt: admin.firestore.Timestamp.fromDate(new Date(expiresAt)),
-      retiredAt: admin.firestore.FieldValue.delete(),
-      retiredDate: admin.firestore.FieldValue.delete(),
-      retiredReason: admin.firestore.FieldValue.delete(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    const data = await executeReactivateStaffAccountAtomic({
+      uid,
+      clientNonce,
+      pii,
     });
 
-    try {
-      await linkStaffRichMenu(uid);
-    } catch (richMenuError) {
-      logger.warn('reactivateStaffAccount: rich menu link failed (non-fatal)', {
-        uid,
-        richMenuErrorMessage:
-          richMenuError instanceof Error ? richMenuError.message : String(richMenuError),
-      });
+    if (!data.reused) {
+      try {
+        const { linkStaffRichMenu } = await import('../../webhook/services/lineRichMenu');
+        await linkStaffRichMenu(uid);
+      } catch (richMenuError) {
+        logOpsError({
+          message: 'reactivateStaffAccount rich menu link failed (non-fatal)',
+          functionEntry: 'reactivateStaffAccount',
+          operation: 'linkStaffRichMenu',
+          cause: richMenuError,
+          context: { nonceTrace: shortNonceTrace(clientNonce) },
+        });
+      }
     }
 
     logOpsSuccess({
       message: 'reactivateStaffAccount 成功',
       functionEntry: 'reactivateStaffAccount',
-      context: { uid, loginId, fullNameKana },
+      operation: 'reactivateStaffAccountCallable',
+      context: {
+        operation: REACTIVATE_STAFF_ACCOUNT_OPERATION,
+        reused: data.reused,
+        nonceTrace: shortNonceTrace(clientNonce),
+      },
     });
 
-    return {
-      success: true,
-      uid,
-      qrCode: qrCodeImage,
-      qrCodeUrl,
-      expiresAt,
-    };
+    return toCallableStaffMutationResponse(data);
   } catch (error) {
     if (error instanceof HttpsError) {
+      const errorKey = getStaffErrorKeyFromUnknown(error);
+      if (
+        errorKey &&
+        errorKey !== 'STAFF_INTERNAL_ERROR' &&
+        error.code !== 'internal'
+      ) {
+        throw error;
+      }
+      logOpsError({
+        message: 'reactivateStaffAccount failed',
+        functionEntry: 'reactivateStaffAccount',
+        operation: 'reactivateStaffHttpsError',
+        cause: error,
+        context: { errorKey: errorKey || null, code: error.code },
+      });
       throw error;
     }
+
     logOpsError({
-      message: 'reactivateStaffAccount エラー',
+      message: 'reactivateStaffAccount unexpected error',
       functionEntry: 'reactivateStaffAccount',
+      operation: 'reactivateStaffCatch',
       cause: error,
-      context: logContext,
     });
-    throw new HttpsError('internal', '再登録に失敗しました。しばらく時間をおいて再度お試しください。');
+    throwStaffHttpsError('internal', 'STAFF_INTERNAL_ERROR', 'Staff reactivation failed');
   }
 });

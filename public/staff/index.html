@@ -10,6 +10,7 @@
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <!-- 店舗別設定ファイル -->
     <script src="./config.js"></script>
+    <script src="../js/liff_errors.js"></script>
     <!-- 日本の祝日判定ライブラリ: japanese-holidays-js -->
     <!-- 読み込み失敗してもフォールバック判定で動作します -->
     <script src="https://cdn.jsdelivr.net/gh/osamutake/japanese-holidays-js@master/lib/japanese-holidays.min.js" 
@@ -43,22 +44,32 @@
        window.FunctionsRegion = functionsRegion;
     window.FirebaseAuth = { signInWithCustomToken };
        window.FirebaseFunctions = { httpsCallable };
+
+      function stageError(stage, cause) {
+        return window.LiffErrors.createStageError(stage, cause);
+      }
       
       // LIFFとFirebase認証の初期化関数
       window.initLiffAndFirebaseAuth = async function() {
         if (window._debugLog) window._debugLog('3. initLiffAndFirebaseAuth開始');
+        window.__LIFF_LOGIN_REDIRECTING__ = false;
         if (!window.liff) {
           if (window._debugLog) window._debugLog('3a. window.liffなし→終了', true);
-          return;
+          throw stageError('liff.sdk_missing');
         }
         try {
         if (window._debugLog) window._debugLog('3b. liff.init実行中');
-        await liff.init({ liffId });
+        try {
+          await liff.init({ liffId });
+        } catch (initErr) {
+          throw stageError('liff.init', initErr);
+        }
         if (window._debugLog) window._debugLog('3c. liff.init完了');
         if (typeof window.updateInitProgress === 'function') window.updateInitProgress(20);
 
         if (!liff.isLoggedIn()) {
           if (window._debugLog) window._debugLog('3d. 未ログイン→liff.login()へリダイレクト');
+          window.__LIFF_LOGIN_REDIRECTING__ = true;
           liff.login();
           // ログイン画面にリダイレクトされるため、ここで処理を終了
           // ログイン後、ページがリロードされて再度初期化処理が実行される
@@ -66,53 +77,69 @@
         }
         if (window._debugLog) window._debugLog('3e. ログイン済み');
 
-        // ミニアプリ用：profile権限の確認と要求
+        // ミニアプリ用：profile権限の確認と要求（失敗時は表示せず続行）
         try {
           const permissionStatus = await liff.permission.query("profile");
           if (permissionStatus.state === "prompt") {
             await liff.permission.requestAll();
           }
         } catch (permError) {
-          console.warn("Permission check not supported or failed:", permError);
+          console.warn("Permission check not supported or failed");
           // LIFF環境では権限APIが使えない場合があるため、エラーは無視して続行
         }
 
         if (window._debugLog) window._debugLog('3f. getIDToken取得中');
-        const idToken = await liff.getIDToken();
-          if (!idToken) {
-            throw new Error("LIFFのIDトークン取得に失敗しました。");
+        let idToken;
+        try {
+          idToken = await liff.getIDToken();
+        } catch (tokenErr) {
+          throw stageError('auth.id_token', tokenErr);
+        }
+          if (idToken == null || String(idToken).trim() === '') {
+            throw stageError('auth.id_token');
           }
         if (window._debugLog) window._debugLog('3g. getIDToken取得成功');
         if (typeof window.updateInitProgress === 'function') window.updateInitProgress(40);
 
           // サーバーからFirebaseカスタムトークンを取得
           if (window._debugLog) window._debugLog('3h. getFirebaseCustomToken呼び出し中');
-          const res = await fetch(`${functionsUrl}/getFirebaseCustomToken`, {
+          let res;
+          try {
+            res = await fetch(`${functionsUrl}/getFirebaseCustomToken`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${idToken}`,
               "Content-Type": "application/json"
             }
         });
+          } catch (fetchErr) {
+            throw stageError('auth.custom_token', fetchErr);
+          }
 
           if (!res.ok) {
             if (window._debugLog) window._debugLog('3h-ERR. getFirebaseCustomToken失敗 res.ok=' + res.ok + ' status=' + res.status, true);
-            throw new Error("Firebaseカスタムトークンの取得に失敗しました。");
+            throw stageError('auth.custom_token');
           }
         if (window._debugLog) window._debugLog('3i. getFirebaseCustomToken成功');
         if (typeof window.updateInitProgress === 'function') window.updateInitProgress(60);
 
-        const { firebaseToken } = await res.json();
-          if (!firebaseToken) {
-            throw new Error("サーバーからトークンが返却されませんでした。");
+        let tokenPayload;
+        try {
+          tokenPayload = await res.json();
+        } catch (parseErr) {
+          throw stageError('auth.custom_token_malformed', parseErr);
+        }
+          if (!window.LiffErrors.isFirebaseCustomTokenShape(tokenPayload)) {
+            throw stageError('auth.custom_token_malformed');
           }
+          const firebaseToken = tokenPayload.firebaseToken;
 
           // Firebase v10 modular SDK対応
           const { auth } = window.Firebase;
           const { signInWithCustomToken } = window.FirebaseAuth;
           const SIGNIN_TIMEOUT_MS = 15000; // 15秒
           const signInStartMs = Date.now();
-          if (window._debugLog) window._debugLog('3j. signInWithCustomToken実行中 (token長=' + (firebaseToken?.length || 0) + ' タイムアウト=' + SIGNIN_TIMEOUT_MS + 'ms)');
+          if (window._debugLog) window._debugLog('3j. signInWithCustomToken実行中 (タイムアウト=' + SIGNIN_TIMEOUT_MS + 'ms)');
           const waitIntervalMs = 3000;
           const waitIntervalId = setInterval(() => {
             if (window._debugLog) {
@@ -123,17 +150,21 @@
           try {
             await Promise.race([
               signInWithCustomToken(auth, firebaseToken),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('処理がタイムアウトしました。再試行して下さい')), SIGNIN_TIMEOUT_MS))
+              new Promise((_, reject) => setTimeout(() => reject(stageError('auth.timeout')), SIGNIN_TIMEOUT_MS))
             ]);
             clearInterval(waitIntervalId);
             if (window._debugLog) window._debugLog('3k. signInWithCustomToken正常完了 (所要' + (Date.now() - signInStartMs) + 'ms)');
           } catch (signInErr) {
             clearInterval(waitIntervalId);
-            if (window._debugLog) {
-              const isTimeout = signInErr?.message === '処理がタイムアウトしました。再試行して下さい';
-              window._debugLog((isTimeout ? '3j-TIMEOUT. signInWithCustomToken 15秒タイムアウト' : '3j-ERR. signInWithCustomToken失敗: ') + (signInErr?.message || signInErr), !isTimeout);
+            if (signInErr && signInErr.liffStage) {
+              if (window._debugLog) window._debugLog('3j-STAGE. ' + signInErr.liffStage, true);
+              throw signInErr;
             }
-            throw signInErr;
+            if (window._debugLog) window._debugLog('3j-ERR. signInWithCustomToken失敗', true);
+            throw stageError('auth.signin', signInErr);
+          }
+          if (!auth.currentUser) {
+            throw stageError('auth.no_user');
           }
           if (window._debugLog) window._debugLog('3k-done. 認証完了');
         if (typeof window.updateInitProgress === 'function') window.updateInitProgress(80);
@@ -144,10 +175,11 @@
             user: auth.currentUser
         };
       } catch (e) {
-          if (window._debugLog) window._debugLog('3-ERR. LIFF認証エラー: ' + (e?.message || String(e)), true);
+          if (window._debugLog) window._debugLog('3-ERR. LIFF認証エラー stage=' + (e?.liffStage || 'unknown'), true);
           // エラーを再スローして呼び出し側で処理できるようにする
-          console.error("LIFF認証エラー:", e);
-          throw e;
+          console.error("LIFF認証エラー");
+          if (e && e.liffStage) throw e;
+          throw stageError('liff.init', e);
       }
       };
 
@@ -361,7 +393,7 @@
         <input type="tel" id="phone" placeholder="090-1234-5678" required>
       </div>
 
-          <button type="submit" class="btn">登録する</button>
+          <button type="submit" class="btn" id="staff-register-submit-btn">スタッフ登録</button>
         </form>
       </div>
 
@@ -427,7 +459,7 @@
           </div>
         </div>
         <div class="qr-actions">
-          <button class="btn" onclick="generateNewStaffQR()">新しいQRを生成・更新</button>
+          <button class="btn" id="staff-qr-refresh-btn" onclick="generateNewStaffQR()">QRコードを更新</button>
           <button class="btn secondary-btn" onclick="showStaffHomePage()">ホームに戻る</button>
         </div>
       </div>
@@ -710,12 +742,81 @@
       const shiftFormEl = document.getElementById('shift-form');
 
   window._staffStatus = 'unknown';
+  let pendingStaffRegistration = null;
+  let pendingStaffReactivation = null;
+  let staffRegistrationBusy = false;
+  let staffReactivationBusy = false;
+  let staffQrGeneration = 0;
+  let staffQrExpiryTimerId = null;
+  let staffQrExpiresAtMs = null;
+  let staffQrRegenInFlight = false;
+  let staffQrLastRegenAtMs = 0;
+  const STAFF_QR_COOLDOWN_MS = 60000;
 
   function normalizeStaffStatusClient(data) {
+    const LE = window.LiffErrors;
+    if (LE && typeof LE.normalizeStaffDocStatus === 'function') {
+      return LE.normalizeStaffDocStatus(data);
+    }
     if (data && data.status === 'retired') {
       return 'retired';
     }
     return 'active';
+  }
+
+  function setStaffRegisterButtonBusy(busy) {
+    const btn = document.getElementById('staff-register-submit-btn');
+    const LE = window.LiffErrors;
+    if (!btn) return;
+    btn.disabled = !!busy;
+    btn.textContent = busy
+      ? (LE ? LE.MESSAGES.STAFF_BTN_REGISTER_BUSY : '登録中…')
+      : (LE ? LE.MESSAGES.STAFF_BTN_REGISTER : 'スタッフ登録');
+  }
+
+  function setStaffReactivateButtonBusy(busy) {
+    const btn = reactivationFormEl && reactivationFormEl.querySelector('button[type="submit"]');
+    const LE = window.LiffErrors;
+    if (!btn) return;
+    btn.disabled = !!busy;
+    btn.textContent = busy
+      ? (LE ? LE.MESSAGES.STAFF_BTN_REACTIVATE_BUSY : '再登録中…')
+      : (LE ? LE.MESSAGES.STAFF_BTN_REACTIVATE : '再登録する');
+  }
+
+  function setStaffQrRefreshButtonBusy(busy) {
+    const btn = document.getElementById('staff-qr-refresh-btn');
+    const LE = window.LiffErrors;
+    if (!btn) return;
+    btn.disabled = !!busy;
+    btn.textContent = busy
+      ? (LE ? LE.MESSAGES.STAFF_BTN_QR_BUSY : '更新中…')
+      : (LE ? LE.MESSAGES.STAFF_BTN_QR_REFRESH : 'QRコードを更新');
+  }
+
+  async function fetchFreshStaffStatus() {
+    const LE = window.LiffErrors;
+    if (!window.LiffFirebase || !window.LiffFirebase.user) {
+      return { status: 'unknown', data: null };
+    }
+    try {
+      const { db } = window.Firebase;
+      const { doc, getDocFromServer } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+      const staffDoc = await getDocFromServer(doc(db, 'staffs', window.LiffFirebase.user.uid));
+      if (!staffDoc.exists()) {
+        return { status: 'not_found', data: null };
+      }
+      const staffData = staffDoc.data();
+      if (LE && !LE.isStaffProfileDataShape(staffData)) {
+        return { status: 'unknown', data: null };
+      }
+      if (!staffData || typeof staffData !== 'object') {
+        return { status: 'unknown', data: null };
+      }
+      return { status: normalizeStaffStatusClient(staffData), data: staffData };
+    } catch (e) {
+      return { status: 'unknown', data: null };
+    }
   }
 
   function splitFullName(fullName) {
@@ -855,56 +956,96 @@
     }
   }
 
-  // エラー表示関数
-  function showError(message, error = null) {
-    let errorMessage = message;
-    if (error) {
-      // エラーオブジェクトの詳細情報を追加
-      errorMessage += '\n\n詳細: ';
-      if (error.message) {
-        errorMessage += error.message;
-      }
-      if (error.stack) {
-        errorMessage += '\n\nスタック: ' + error.stack.split('\n').slice(0, 3).join('\n');
-      }
+  // エラー表示関数（resolver の message のみ。raw / stack は表示しない）
+  function showUserFacingError(resolved, options = {}) {
+    const retry = options.retry === true;
+    const onRetry = typeof options.onRetry === 'function' ? options.onRetry : null;
+    const message =
+      resolved && typeof resolved.message === 'string' && resolved.message.trim()
+        ? resolved.message
+        : (window.LiffErrors && window.LiffErrors.MESSAGES
+          ? window.LiffErrors.MESSAGES.PROCESS
+          : '処理に失敗しました。時間をおいてもう一度お試しください。');
+    const retryLabel =
+      (resolved && resolved.retryLabel) ||
+      (window.LiffErrors && window.LiffErrors.MESSAGES && window.LiffErrors.MESSAGES.RETRY) ||
+      '再試行';
+
+    errorEl.innerHTML = '';
+    errorEl.appendChild(document.createTextNode(message));
+    if (retry && onRetry) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn primary-btn';
+      btn.textContent = retryLabel;
+      btn.style.marginTop = '15px';
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        errorEl.style.display = 'none';
+        onRetry();
+      });
+      errorEl.appendChild(btn);
     }
-    errorEl.textContent = errorMessage;
     errorEl.style.display = 'block';
-    errorEl.style.whiteSpace = 'pre-wrap'; // 改行を保持
+    errorEl.style.whiteSpace = 'pre-wrap';
     successEl.style.display = 'none';
     loadingEl.style.display = 'none';
+  }
+
+  function resolveForDisplay(messageOrResolved, error) {
+    const LE = window.LiffErrors;
+    if (messageOrResolved && typeof messageOrResolved === 'object' && typeof messageOrResolved.message === 'string') {
+      return messageOrResolved;
+    }
+    if (error && LE) {
+      return LE.resolveUserFacingError({ error });
+    }
+    if (typeof messageOrResolved === 'string' && messageOrResolved.trim()) {
+      return { message: messageOrResolved, action: null, retryLabel: null, kind: 'unknown' };
+    }
+    if (LE) return LE.resolveUserFacingError({});
+    return { message: '処理に失敗しました。時間をおいてもう一度お試しください。', action: 'retry', retryLabel: '再試行', kind: 'unknown' };
+  }
+
+  function showError(message, error = null) {
+    // raw error は表示に使わない（互換のため受け取るのみ）
+    void error;
+    const hasStage = error && typeof error === 'object' && error.liffStage;
+    const resolved = hasStage
+      ? resolveForDisplay(null, error)
+      : resolveForDisplay(message, null);
+    showUserFacingError(resolved, { retry: false });
   }
 
   // タイムアウト秒数（後で変更可能）
   const INIT_TIMEOUT_MS = 15000;           // 15秒
   const INIT_SLOW_WARN_MS = 5000;          // 5秒
-  const TIMEOUT_MESSAGE = '処理がタイムアウトしました。再試行して下さい';
   const SLOW_WARN_MESSAGE = '処理に時間がかかっています....';
+
+  function resolveInitTimeout() {
+    if (window.LiffErrors) {
+      return window.LiffErrors.resolveUserFacingError({ stage: 'init.timeout' });
+    }
+    return { message: '処理に時間がかかっています。もう一度お試しください。', action: 'retry', retryLabel: '再試行', kind: 'timeout' };
+  }
+
+  function makeInitRetryHandler() {
+    return () => {
+      const r = () => location.reload();
+      const a = window.Firebase?.auth;
+      a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r();
+    };
+  }
 
   // エラー表示＋再試行ボタン（タイムアウト・初期化失敗時）
   function showErrorWithRetry(message, error, onRetry) {
-    let errorMessage = message;
-    if (error) {
-      errorMessage += '\n\n詳細: ' + (error?.message || String(error));
-    }
-    errorEl.innerHTML = '';
-    const textNode = document.createTextNode(errorMessage);
-    errorEl.appendChild(textNode);
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn primary-btn';
-    btn.textContent = '再試行';
-    btn.style.marginTop = '15px';
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof onRetry === 'function') onRetry();
-    });
-    errorEl.appendChild(btn);
-    errorEl.style.display = 'block';
-    errorEl.style.whiteSpace = 'pre-wrap';
-    successEl.style.display = 'none';
-    loadingEl.style.display = 'none';
+    const hasStage = error && typeof error === 'object' && error.liffStage;
+    const resolved = hasStage
+      ? resolveForDisplay(null, error)
+      : resolveForDisplay(message, null);
+    const canRetry = typeof onRetry === 'function' && resolved.action !== null;
+    showUserFacingError(resolved, { retry: canRetry, onRetry: canRetry ? onRetry : null });
   }
 
   // 成功メッセージ表示関数
@@ -1065,13 +1206,15 @@
   // store登録確認関数（スタッフ用）
   async function checkStaffRegistration() {
     if (window._debugLog) window._debugLog('5. checkStaffRegistration開始');
+    // stale status を読取前に信用しない
+    window._staffStatus = 'unknown';
     try {
       const { db } = window.Firebase;
           const { doc, getDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
 
-      // LiffFirebaseが存在するかチェック
+      // LiffFirebaseが存在するかチェック（Auth未完了は登録確認失敗と混同しない）
       if (!window.LiffFirebase || !window.LiffFirebase.user) {
-        throw new Error('認証が完了していません。再度ログインしてください。');
+        throw window.LiffErrors.createStageError('staff.login_race');
       }
 
       const { user } = window.LiffFirebase;
@@ -1088,7 +1231,17 @@
 
       if (staffDoc.exists()) {
         const staffData = staffDoc.data();
-        window._staffStatus = normalizeStaffStatusClient(staffData);
+        const LE = window.LiffErrors;
+        if (LE && !LE.isStaffProfileDataShape(staffData)) {
+          window._staffStatus = 'unknown';
+          staffQrGeneration += 1;
+          throw window.LiffErrors.createStageError('staff.reg_check');
+        }
+        const nextStatus = normalizeStaffStatusClient(staffData);
+        if (window._staffStatus !== nextStatus) {
+          staffQrGeneration += 1;
+        }
+        window._staffStatus = nextStatus;
 
         if (window._staffStatus === 'retired') {
           initReactivationBirthdayOptions();
@@ -1109,7 +1262,7 @@
         try {
           await handleHashNavigation();
         } catch (error) {
-          console.error("[ハッシュナビゲーションエラー]:", error);
+          console.error("[ハッシュナビゲーションエラー]");
           // ハッシュナビゲーションでエラーが発生した場合はホームページを表示
           const homePageEl = document.getElementById('home-page');
           if (homePageEl) {
@@ -1118,7 +1271,7 @@
         }
       } else {
             if (window._debugLog) window._debugLog('5b. スタッフ未登録→登録ページ表示');
-            window._staffStatus = 'unknown';
+            window._staffStatus = 'not_found';
             // 未登録の場合
         const registrationPageEl = document.getElementById('registration-page');
         if (registrationPageEl) {
@@ -1128,15 +1281,19 @@
 
       }
     } catch (error) {
-      if (window._debugLog) window._debugLog('5-ERR. スタッフ登録確認エラー: ' + (error?.message || String(error)), true);
-      console.error("[スタッフ登録確認エラー]:", error);
+      if (window._debugLog) window._debugLog('5-ERR. スタッフ登録確認エラー stage=' + (error?.liffStage || 'unknown'), true);
+      console.error("[スタッフ登録確認エラー]");
+      window._staffStatus = 'unknown';
       // エラーが発生した場合でもローディング画面を非表示にする
       const loadingEl = document.getElementById('loading');
       if (loadingEl) {
         loadingEl.style.display = 'none';
       }
-      showError('スタッフ情報の確認に失敗しました', error);
-      throw error; // エラーを再スローして呼び出し元でも処理できるように
+      const stageErr = (error && error.liffStage)
+        ? error
+        : window.LiffErrors.createStageError('staff.reg_check', error);
+      // 表示は呼び出し側（初期化／登録後）に任せる。ここでは stage 付きで再スロー
+      throw stageErr;
     }
   }
 
@@ -1172,313 +1329,703 @@
   // 登録フォーム処理
   registrationFormEl.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const LE = window.LiffErrors;
+    if (!LE) {
+      showError('処理に失敗しました。時間をおいてもう一度お試しください。');
+      return;
+    }
 
+    const guard = LE.getStaffMutationGuard(pendingStaffRegistration, staffRegistrationBusy);
+    if (guard.blockReason === 'pending_lock') {
+      showError(LE.MESSAGES.STAFF_REG_RESULT_UNKNOWN);
+      return;
+    }
+    if (guard.blockReason === 'busy') {
+      return;
+    }
+
+    const lastName = document.getElementById('lastName').value.trim();
+    const firstName = document.getElementById('firstName').value.trim();
+    const fullName = lastName + '　' + firstName;
+    const lastNameKana = document.getElementById('lastNameKana').value.trim();
+    const firstNameKana = document.getElementById('firstNameKana').value.trim();
+    const fullNameKana = lastNameKana + firstNameKana;
+    const birthMonth = document.getElementById('birthMonth').value;
+    const birthDay = document.getElementById('birthDay').value;
+    const email = document.getElementById('email').value;
+    const phoneNumber = document.getElementById('phone').value;
+
+    if (!validateFullNameKana(fullNameKana)) {
+      showError('かなはひらがなまたはカタカナで入力してください。');
+      return;
+    }
+    if (!birthMonth || !birthDay) {
+      showError('誕生日の月と日を選択してください');
+      return;
+    }
+    if (!window.LiffFirebase || !window.LiffFirebase.user) {
+      showError(LE.resolveUserFacingError({
+        operation: 'create_staff_account',
+        errorKey: 'STAFF_UNAUTHENTICATED',
+      }));
+      return;
+    }
+
+    const clientNonce = LE.createClientNonce();
+    pendingStaffRegistration = LE.createStaffMutationPending(clientNonce);
+    staffRegistrationBusy = true;
     const controls = registrationFormEl.querySelectorAll('input, select, button');
+    controls.forEach((el) => { el.disabled = true; });
+    setStaffRegisterButtonBusy(true);
 
-    const runStaffRegistration = async () => {
-      const lastName = document.getElementById('lastName').value.trim();
-      const firstName = document.getElementById('firstName').value.trim();
-      const fullName = lastName + '　' + firstName;
-
-      const lastNameKana = document.getElementById('lastNameKana').value.trim();
-      const firstNameKana = document.getElementById('firstNameKana').value.trim();
-      const fullNameKana = lastNameKana + firstNameKana;
-
-      const birthMonth = document.getElementById('birthMonth').value;
-      const birthDay = document.getElementById('birthDay').value;
-      const email = document.getElementById('email').value;
-      const phoneNumber = document.getElementById('phone').value;
-
-      if (!validateFullNameKana(fullNameKana)) {
-        const charCodes = Array.from(fullNameKana).map(char => `${char}(${char.charCodeAt(0)})`).join(', ');
-        throw new Error(`かなの入力に問題があります。\n入力: "${fullNameKana}"\n文字コード: ${charCodes}\nひらがなまたはカタカナで入力してください。`);
-      }
-
-      if (!birthMonth || !birthDay) {
-        throw new Error('誕生日の月と日を選択してください');
-      }
-
-      const birthMonthDay = birthMonth + birthDay;
-
-      if (!window.LiffFirebase || !window.LiffFirebase.user) {
-        throw new Error('認証が完了していません。再度ログインしてください。');
-      }
-
-      const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-      const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
-      const createStaffAccount = httpsCallable(functions, 'createStaffAccount');
-
-      const result = await createStaffAccount({
-        fullName: fullName,
-        fullNameKana: fullNameKana,
-        email: email,
-        phoneNumber: phoneNumber,
-        birthMonthDay: birthMonthDay,
-      });
-
-      if (!result.data || !result.data.success) {
-        throw new Error(result.data?.error || 'スタッフ登録に失敗しました。');
-      }
-
-      if (result.data.alreadyRegistered) {
-        showSuccess('このアカウントは既に登録済みです。');
-      } else {
-        showSuccess('スタッフ登録が完了しました！');
-      }
-
-      const loadingElReg = document.getElementById('loading');
-      if (loadingElReg) {
-        loadingElReg.style.display = 'block';
-      }
-
-      setTimeout(() => {
-        checkStaffRegistration();
-      }, 1000);
-    };
-
-    controls.forEach((el) => {
-      el.disabled = true;
-    });
+    const birthMonthDay = birthMonth + birthDay;
+    let classified = null;
 
     try {
-      await executeWithGlobalLoading(runStaffRegistration, 'スタッフ登録処理中…');
-    } catch (error) {
-      showError('登録に失敗しました: ' + error.message);
+      await executeWithGlobalLoading(async () => {
+        const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+        const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
+        const createStaffAccount = httpsCallable(functions, 'createStaffAccount');
+        try {
+          const result = await createStaffAccount({
+            fullName: fullName,
+            fullNameKana: fullNameKana,
+            email: email,
+            phoneNumber: phoneNumber,
+            birthMonthDay: birthMonthDay,
+            clientNonce: clientNonce,
+          });
+          classified = LE.classifyCreateStaffOutcome({
+            data: result && result.data,
+            expectedNonce: clientNonce,
+          });
+        } catch (err) {
+          classified = LE.classifyCreateStaffOutcome({
+            error: err,
+            expectedNonce: clientNonce,
+          });
+        }
+      }, '登録中…');
     } finally {
-      controls.forEach((el) => {
-        el.disabled = false;
-      });
+      staffRegistrationBusy = false;
+      setStaffRegisterButtonBusy(false);
+      controls.forEach((el) => { el.disabled = false; });
     }
+
+    if (!classified) {
+      pendingStaffRegistration = LE.transitionStaffMutationPending(
+        pendingStaffRegistration,
+        'result_unknown',
+      );
+      showError(LE.MESSAGES.STAFF_REG_RESULT_UNKNOWN);
+      return;
+    }
+
+    if (classified.outcome === 'success') {
+      pendingStaffRegistration = null;
+      window._staffStatus = 'active';
+      showSuccess(classified.resolved.message);
+      const loadingElReg = document.getElementById('loading');
+      if (loadingElReg) loadingElReg.style.display = 'block';
+      setTimeout(() => {
+        checkStaffRegistration().catch((err) => {
+          showError(LE.resolveUserFacingError({ error: err, operation: 'get_staff_status' }));
+        });
+      }, 1000);
+      return;
+    }
+
+    if (classified.outcome === 'confirmed_failure') {
+      pendingStaffRegistration = null;
+      showError(classified.resolved);
+      if (classified.errorKey === 'STAFF_REACTIVATION_REQUIRED') {
+        setTimeout(() => {
+          initReactivationBirthdayOptions();
+          if (reactivationPageEl) showPage(reactivationPageEl);
+        }, 1500);
+      }
+      return;
+    }
+
+    // result_unknown
+    pendingStaffRegistration = LE.transitionStaffMutationPending(
+      pendingStaffRegistration,
+      'result_unknown',
+    );
+    showError(LE.MESSAGES.STAFF_REG_RESULT_UNKNOWN);
+
+    const fresh = await fetchFreshStaffStatus();
+    if (fresh.status === 'active') {
+      pendingStaffRegistration = null;
+      window._staffStatus = 'active';
+      const loadingElFresh = document.getElementById('loading');
+      if (loadingElFresh) loadingElFresh.style.display = 'block';
+      try {
+        await checkStaffRegistration();
+      } catch (err) {
+        showError(LE.resolveUserFacingError({ error: err, operation: 'get_staff_status' }));
+      }
+      return;
+    }
+    if (fresh.status === 'retired') {
+      pendingStaffRegistration = null;
+      window._staffStatus = 'retired';
+      showError(LE.MESSAGES.STAFF_REACTIVATION_REQUIRED);
+      setTimeout(() => {
+        if (fresh.data) populateReactivationForm(fresh.data);
+        initReactivationBirthdayOptions();
+        if (reactivationPageEl) showPage(reactivationPageEl);
+      }, 1500);
+      return;
+    }
+    // not_found / unknown: pending 維持・自動再送なし
   });
 
   if (reactivationFormEl) {
     reactivationFormEl.addEventListener('submit', async (e) => {
       e.preventDefault();
+      const LE = window.LiffErrors;
+      if (!LE) {
+        showError('処理に失敗しました。時間をおいてもう一度お試しください。');
+        return;
+      }
 
       if (!validateReactivationForm()) {
         return;
       }
 
+      const guard = LE.getStaffMutationGuard(pendingStaffReactivation, staffReactivationBusy);
+      if (guard.blockReason === 'pending_lock') {
+        showError(LE.MESSAGES.STAFF_REACTIVATION_RESULT_UNKNOWN);
+        return;
+      }
+      if (guard.blockReason === 'busy') {
+        return;
+      }
+
+      const lastName = document.getElementById('reactivation-lastName').value.trim();
+      const firstName = document.getElementById('reactivation-firstName').value.trim();
+      const fullName = lastName + '　' + firstName;
+      const lastNameKana = document.getElementById('reactivation-lastNameKana').value.trim();
+      const firstNameKana = document.getElementById('reactivation-firstNameKana').value.trim();
+      if (!validateFullNameKana(lastNameKana) || !validateFullNameKana(firstNameKana)) {
+        showError('かなはひらがなまたはカタカナで入力してください。');
+        return;
+      }
+      const fullNameKana = lastNameKana + firstNameKana;
+      const birthMonth = document.getElementById('reactivation-birthMonth').value;
+      const birthDay = document.getElementById('reactivation-birthDay').value;
+      const email = document.getElementById('reactivation-email').value;
+      const phoneNumber = document.getElementById('reactivation-phone').value;
+
+      if (!window.LiffFirebase || !window.LiffFirebase.user) {
+        showError(LE.resolveUserFacingError({
+          operation: 'reactivate_staff_account',
+          errorKey: 'STAFF_UNAUTHENTICATED',
+        }));
+        return;
+      }
+
+      const clientNonce = LE.createClientNonce();
+      pendingStaffReactivation = LE.createStaffMutationPending(clientNonce);
+      staffReactivationBusy = true;
       const controls = reactivationFormEl.querySelectorAll('input, select, button');
-      const runReactivation = async () => {
-        const lastName = document.getElementById('reactivation-lastName').value.trim();
-        const firstName = document.getElementById('reactivation-firstName').value.trim();
-        const fullName = lastName + '　' + firstName;
-        const lastNameKana = document.getElementById('reactivation-lastNameKana').value.trim();
-        const firstNameKana = document.getElementById('reactivation-firstNameKana').value.trim();
-        if (!validateFullNameKana(lastNameKana) || !validateFullNameKana(firstNameKana)) {
-          throw new Error('かなはひらがなまたはカタカナで入力してください。');
-        }
-        const fullNameKana = lastNameKana + firstNameKana;
-        const birthMonth = document.getElementById('reactivation-birthMonth').value;
-        const birthDay = document.getElementById('reactivation-birthDay').value;
-        const email = document.getElementById('reactivation-email').value;
-        const phoneNumber = document.getElementById('reactivation-phone').value;
-
-        if (!birthMonth || !birthDay) {
-          throw new Error('誕生日の月と日を選択してください');
-        }
-
-        const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-        const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
-        const reactivateStaffAccount = httpsCallable(functions, 'reactivateStaffAccount');
-        const result = await reactivateStaffAccount({
-          fullName,
-          fullNameKana,
-          email,
-          phoneNumber,
-          birthMonthDay: birthMonth + birthDay,
-        });
-
-        if (!result.data || !result.data.success) {
-          throw new Error(result.data?.error || '再登録に失敗しました。');
-        }
-
-        showSuccess('再登録が完了しました！');
-        window._staffStatus = 'active';
-        const loadingElRe = document.getElementById('loading');
-        if (loadingElRe) {
-          loadingElRe.style.display = 'block';
-        }
-        setTimeout(() => {
-          checkStaffRegistration();
-        }, 1000);
-      };
-
       controls.forEach((el) => { el.disabled = true; });
+      setStaffReactivateButtonBusy(true);
+
+      let classified = null;
       try {
-        await executeWithGlobalLoading(runReactivation, '再登録処理中…');
-      } catch (error) {
-        showError('再登録に失敗しました: ' + error.message);
+        await executeWithGlobalLoading(async () => {
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
+          const reactivateStaffAccount = httpsCallable(functions, 'reactivateStaffAccount');
+          try {
+            const result = await reactivateStaffAccount({
+              fullName,
+              fullNameKana,
+              email,
+              phoneNumber,
+              birthMonthDay: birthMonth + birthDay,
+              clientNonce,
+            });
+            classified = LE.classifyReactivateStaffOutcome({
+              data: result && result.data,
+              expectedNonce: clientNonce,
+            });
+          } catch (err) {
+            classified = LE.classifyReactivateStaffOutcome({
+              error: err,
+              expectedNonce: clientNonce,
+            });
+          }
+        }, '再登録中…');
       } finally {
+        staffReactivationBusy = false;
+        setStaffReactivateButtonBusy(false);
         controls.forEach((el) => { el.disabled = false; });
       }
+
+      if (!classified) {
+        pendingStaffReactivation = LE.transitionStaffMutationPending(
+          pendingStaffReactivation,
+          'result_unknown',
+        );
+        showError(LE.MESSAGES.STAFF_REACTIVATION_RESULT_UNKNOWN);
+        return;
+      }
+
+      if (classified.outcome === 'success') {
+        pendingStaffReactivation = null;
+        window._staffStatus = 'active';
+        showSuccess(classified.resolved.message);
+        const loadingElRe = document.getElementById('loading');
+        if (loadingElRe) loadingElRe.style.display = 'block';
+        setTimeout(() => {
+          checkStaffRegistration().catch((err) => {
+            showError(LE.resolveUserFacingError({ error: err, operation: 'get_staff_status' }));
+          });
+        }, 1000);
+        return;
+      }
+
+      if (classified.outcome === 'confirmed_failure') {
+        pendingStaffReactivation = null;
+        showError(classified.resolved);
+        if (classified.errorKey === 'STAFF_NOT_RETIRED') {
+          const freshNotRetired = await fetchFreshStaffStatus();
+          if (freshNotRetired.status === 'active') {
+            window._staffStatus = 'active';
+            setTimeout(() => {
+              checkStaffRegistration().catch((err) => {
+                showError(LE.resolveUserFacingError({ error: err, operation: 'get_staff_status' }));
+              });
+            }, 1000);
+          }
+        }
+        return;
+      }
+
+      pendingStaffReactivation = LE.transitionStaffMutationPending(
+        pendingStaffReactivation,
+        'result_unknown',
+      );
+      showError(LE.MESSAGES.STAFF_REACTIVATION_RESULT_UNKNOWN);
+
+      const fresh = await fetchFreshStaffStatus();
+      if (fresh.status === 'active') {
+        pendingStaffReactivation = null;
+        window._staffStatus = 'active';
+        try {
+          await checkStaffRegistration();
+        } catch (err) {
+          showError(LE.resolveUserFacingError({ error: err, operation: 'get_staff_status' }));
+        }
+        return;
+      }
+      // retired / not_found / unknown: pending 維持・新nonce再送なし
     });
   }
 
       // QRコード表示関数
+      function clearStaffQrExpiryTimer() {
+        if (staffQrExpiryTimerId != null) {
+          clearTimeout(staffQrExpiryTimerId);
+          staffQrExpiryTimerId = null;
+        }
+      }
+
+      function clearStaffQrDisplay() {
+        clearStaffQrExpiryTimer();
+        staffQrExpiresAtMs = null;
+        const qrDisplay = document.getElementById('qr-code-display');
+        const expiryTime = document.getElementById('qr-expiry-time');
+        if (qrDisplay) {
+          qrDisplay.innerHTML = '';
+        }
+        if (expiryTime) {
+          expiryTime.textContent = '-';
+        }
+      }
+
+      function showStaffQrResolvedError(resolved, onRetry) {
+        clearStaffQrDisplay();
+        const qrDisplay = document.getElementById('qr-code-display');
+        if (!qrDisplay) {
+          showErrorWithRetry(resolved, null, onRetry);
+          return;
+        }
+        const p = document.createElement('p');
+        p.textContent = resolved.message;
+        qrDisplay.appendChild(p);
+        if (resolved.action !== null && typeof onRetry === 'function') {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn primary-btn';
+          btn.textContent = resolved.retryLabel || '再試行';
+          btn.style.marginTop = '15px';
+          btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            onRetry();
+          });
+          qrDisplay.appendChild(btn);
+        }
+      }
+
+      function renderStaffQrImage(qrCodeUrl, expMs) {
+        const LE = window.LiffErrors;
+        const qrDisplay = document.getElementById('qr-code-display');
+        const expiryTime = document.getElementById('qr-expiry-time');
+        if (!qrDisplay) return;
+        qrDisplay.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = qrCodeUrl;
+        img.alt = 'QR Code';
+        img.style.maxWidth = '300px';
+        img.style.width = '100%';
+        img.addEventListener('error', () => {
+          clearStaffQrDisplay();
+          const fail = LE
+            ? LE.resolveUserFacingError({ operation: 'staff_qr_display' })
+            : { message: 'QRコードを表示できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' };
+          showStaffQrResolvedError(fail, () => { window.showStaffQRCode(); });
+        });
+        qrDisplay.appendChild(img);
+        if (expiryTime) {
+          expiryTime.textContent = new Date(expMs).toLocaleString('ja-JP');
+        }
+        staffQrExpiresAtMs = expMs;
+        scheduleStaffQrExpiry(expMs);
+      }
+
+      function scheduleStaffQrExpiry(expMs) {
+        clearStaffQrExpiryTimer();
+        if (typeof expMs !== 'number' || !Number.isFinite(expMs)) return;
+        const gen = staffQrGeneration;
+        const ms = expMs - Date.now();
+        const run = async () => {
+          if (gen !== staffQrGeneration) return;
+          if (!qrPageEl || !qrPageEl.classList.contains('active')) return;
+          clearStaffQrDisplay();
+          const LE = window.LiffErrors;
+          const qrDisplay = document.getElementById('qr-code-display');
+          if (qrDisplay) {
+            const p = document.createElement('p');
+            p.textContent = LE ? LE.MESSAGES.STAFF_QR_EXPIRED_SHORT : '有効期限切れ';
+            qrDisplay.appendChild(p);
+          }
+          try {
+            await maybeRegenerateStaffQR({ reason: 'auto_expiry' });
+          } catch (e) {
+            // maybeRegenerateStaffQR 内で表示済み
+          }
+        };
+        if (ms <= 0) {
+          run();
+          return;
+        }
+        staffQrExpiryTimerId = setTimeout(run, ms);
+      }
+
       window.showStaffQRCode = async () => {
+        const LE = window.LiffErrors;
+        staffQrGeneration += 1;
         try {
           showPage(qrPageEl);
           await displayStoredStaffQRCode();
         } catch (error) {
-          alert('QRコードの表示に失敗しました: ' + error.message);
+          const resolved = LE
+            ? (error && error.liffResolved
+              ? error.liffResolved
+              : LE.resolveUserFacingError({ operation: 'staff_qr_display', error: error }))
+            : { message: 'QRコードを表示できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' };
+          showStaffQrResolvedError(resolved, () => { window.showStaffQRCode(); });
         }
       };
 
       // ホームページに戻る関数
       window.showStaffHomePage = () => {
+        staffQrGeneration += 1;
+        clearStaffQrExpiryTimer();
         showPage(homePageEl);
       };
 
-      // 無限ループ防止用のフラグ
-      let regenInFlight = false;
-      let lastRegenAtMs = 0;
-
-      // QRコード表示関数（Firestoreから取得）- 初期表示と有効期限チェック用
       async function displayStoredStaffQRCode() {
+        const LE = window.LiffErrors;
+        const gen = staffQrGeneration;
+        clearStaffQrDisplay();
         const qrDisplay = document.getElementById('qr-code-display');
-        const expiryTime = document.getElementById('qr-expiry-time');
-        
-        qrDisplay.innerHTML = '<div class="spinner"></div>';
-        
+        if (qrDisplay) {
+          const loadingP = document.createElement('p');
+          loadingP.textContent = LE ? LE.MESSAGES.STAFF_QR_LOADING : 'QRコードを読み込んでいます…';
+          qrDisplay.appendChild(loadingP);
+          const spinner = document.createElement('div');
+          spinner.className = 'spinner';
+          qrDisplay.appendChild(spinner);
+        }
+
         try {
-          // Firebase認証の状態を確認
           const { auth } = window.Firebase;
           const currentUser = auth.currentUser;
-          
           if (!currentUser) {
-            qrDisplay.innerHTML = '<p>Firebase認証が完了していません。</p>';
+            clearStaffQrDisplay();
+            const resolved = LE
+              ? LE.resolveUserFacingError({
+                  operation: 'staff_qr_display',
+                  errorKey: 'QR_UNAUTHENTICATED',
+                })
+              : { message: 'ログイン情報を確認できませんでした。ページを再読み込みしてください。', action: 'retry', retryLabel: '再試行' };
+            showStaffQrResolvedError(resolved, () => { window.showStaffQRCode(); });
             return;
           }
-          
-          // スタッフデータからQRコードURLを取得（更新直後は必ずサーバーから取得）
+
           const { db } = window.Firebase;
-          const { doc, getDoc, getDocFromServer } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          
-          // QRコード更新直後は必ずサーバーから取得（キャッシュを避ける）
+          const { doc, getDocFromServer } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
           const staffDoc = await getDocFromServer(doc(db, 'staffs', currentUser.uid));
-          
-          if (staffDoc.exists()) {
-            const staffData = staffDoc.data();
-            
-            if (staffData.qrCodeUrl && staffData.qrExpiresAt) {
-              // 数値msを優先して比較（型揺れを防ぐ）
-              const nowMs = Date.now();
-              const expMs = staffData.qrExpiresAtMs || 
-                           (staffData.qrExpiresAt.toDate ? staffData.qrExpiresAt.toDate().getTime() : 0);
-              const isExpired = expMs <= nowMs;
-              
-              if (isExpired) {
-                qrDisplay.innerHTML = '<p>QRコードの有効期限が切れています。新しく生成します...</p>';
-                await maybeRegenerateStaffQR();
-                return;
-              }
-              
-              // デバッグ情報を表示
-              // 有効なQRコードを表示
-              qrDisplay.innerHTML = `<img src="${staffData.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;" onerror="this.style.display='none'; this.parentNode.innerHTML='<p style=\'color:red;\'>画像の読み込みに失敗しました</p>';">`;
-              expiryTime.textContent = new Date(expMs).toLocaleString('ja-JP');
-            } else {
-              qrDisplay.innerHTML = '<p>QRコード情報が見つかりません。新しく生成します...</p>';
-              await maybeRegenerateStaffQR();
-            }
-          } else {
-            qrDisplay.innerHTML = '<p>スタッフ情報が見つかりません</p>';
-            expiryTime.textContent = '有効期限: -';
+          if (gen !== staffQrGeneration) return;
+
+          if (!staffDoc.exists()) {
+            clearStaffQrDisplay();
+            const resolved = LE
+              ? LE.resolveUserFacingError({
+                  operation: 'staff_qr_display',
+                  errorKey: 'STAFF_NOT_FOUND',
+                })
+              : { message: 'スタッフ情報が見つからないため、QRコードを表示できません。', action: 'retry', retryLabel: '再試行' };
+            showStaffQrResolvedError(resolved, () => { window.showStaffQRCode(); });
+            return;
           }
+
+          const staffData = staffDoc.data();
+          if (!LE || !LE.isStaffProfileDataShape(staffData)) {
+            clearStaffQrDisplay();
+            showStaffQrResolvedError(
+              LE ? LE.resolveUserFacingError({ operation: 'staff_qr_display' }) : { message: 'QRコードを表示できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' },
+              () => { window.showStaffQRCode(); },
+            );
+            return;
+          }
+
+          const status = normalizeStaffStatusClient(staffData);
+          window._staffStatus = status;
+          if (status === 'retired') {
+            clearStaffQrDisplay();
+            showStaffQrResolvedError(
+              LE.resolveUserFacingError({
+                operation: 'staff_qr_display',
+                errorKey: 'STAFF_RETIRED',
+              }),
+              () => {
+                initReactivationBirthdayOptions();
+                populateReactivationForm(staffData);
+                if (reactivationPageEl) showPage(reactivationPageEl);
+              },
+            );
+            return;
+          }
+
+          if (staffData.qrCodeUrl && (staffData.qrExpiresAt || staffData.qrExpiresAtMs)) {
+            const nowMs = Date.now();
+            const expMs = staffData.qrExpiresAtMs ||
+              (staffData.qrExpiresAt && staffData.qrExpiresAt.toDate
+                ? staffData.qrExpiresAt.toDate().getTime()
+                : 0);
+            if (typeof expMs !== 'number' || !Number.isFinite(expMs) || typeof staffData.qrCodeUrl !== 'string' || !staffData.qrCodeUrl) {
+              clearStaffQrDisplay();
+              await maybeRegenerateStaffQR({ reason: 'malformed_stored' });
+              return;
+            }
+            if (expMs <= nowMs) {
+              clearStaffQrDisplay();
+              const short = document.getElementById('qr-code-display');
+              if (short) {
+                const p = document.createElement('p');
+                p.textContent = LE.MESSAGES.STAFF_QR_EXPIRED_SHORT;
+                short.appendChild(p);
+              }
+              await maybeRegenerateStaffQR({ reason: 'auto_expiry' });
+              return;
+            }
+            if (gen !== staffQrGeneration) return;
+            renderStaffQrImage(staffData.qrCodeUrl, expMs);
+            return;
+          }
+
+          clearStaffQrDisplay();
+          await maybeRegenerateStaffQR({ reason: 'missing_stored' });
         } catch (error) {
-          qrDisplay.innerHTML = '<p>QRコードの読み込みに失敗しました<br>エラー: ' + error.message + '</p>';
-          expiryTime.textContent = '有効期限: -';
+          if (gen !== staffQrGeneration) return;
+          clearStaffQrDisplay();
+          const resolved = LE
+            ? LE.resolveUserFacingError({ operation: 'staff_qr_display', error: error })
+            : { message: 'QRコードを表示できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' };
+          showStaffQrResolvedError(resolved, () => { window.showStaffQRCode(); });
         }
       }
 
-      // 無限ループ防止付きのQR再生成関数
-      async function maybeRegenerateStaffQR() {
+      async function maybeRegenerateStaffQR(options) {
+        options = options || {};
+        const fromUserAction = options.fromUserAction === true;
+        const LE = window.LiffErrors;
         const now = Date.now();
-        
-        // QRコード生成中表示
+
+        if (staffQrRegenInFlight) {
+          return;
+        }
+        if (staffQrLastRegenAtMs > 0 && now - staffQrLastRegenAtMs < STAFF_QR_COOLDOWN_MS) {
+          clearStaffQrDisplay();
+          const resolved = {
+            message: LE ? LE.MESSAGES.STAFF_QR_COOLDOWN : 'しばらく待ってから更新してください。',
+            action: null,
+            retryLabel: null,
+            kind: 'confirmed_failure',
+          };
+          showStaffQrResolvedError(resolved, null);
+          return;
+        }
+
+        staffQrRegenInFlight = true;
+        staffQrLastRegenAtMs = now;
+        staffQrGeneration += 1;
+        const gen = staffQrGeneration;
+        clearStaffQrDisplay();
         const qrDisplay = document.getElementById('qr-code-display');
-        qrDisplay.innerHTML = '<p>QRコードを生成中...</p>';
-        
-        // 再生成中フラグとクールダウンチェック
-        if (regenInFlight) {
-          qrDisplay.innerHTML = '<p>QRコードを生成中...</p>';
-          return;
+        if (qrDisplay) {
+          const p = document.createElement('p');
+          p.textContent = LE ? LE.MESSAGES.STAFF_QR_LOADING : 'QRコードを読み込んでいます…';
+          qrDisplay.appendChild(p);
+          const spinner = document.createElement('div');
+          spinner.className = 'spinner';
+          qrDisplay.appendChild(spinner);
         }
-        if (lastRegenAtMs > 0 && now - lastRegenAtMs < 60000) {
-          const remainingSec = Math.ceil((60000 - (now - lastRegenAtMs)) / 1000);
-          qrDisplay.innerHTML = '<p>QRコードは60秒間隔で再生成できます。<br>あと' + remainingSec + '秒お待ちください。</p>';
-          return;
-        }
-        
-        regenInFlight = true;
-        lastRegenAtMs = now;
-        qrDisplay.innerHTML = '<div class="spinner"></div>';
-        
+        setStaffQrSectionBusy(true);
+        setStaffQrRefreshButtonBusy(true);
+
+        const useRefreshCopy = fromUserAction || options.reason === 'manual' || options.reason === 'auto_expiry';
+
         try {
-          setStaffQrSectionBusy(true);
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
           const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const generateQRCode = httpsCallable(functions, 'generateQRCode');
-          
           const result = await generateQRCode({ type: 'staff' });
-          
-          if (result.data.qrCode) {
-            const expectedExpMs = result.data.expiresAt || 0;
-            
-            await waitUntilServerUpdated(expectedExpMs, 10000);
+          if (gen !== staffQrGeneration) return;
 
-            await displayStoredStaffQRCode();
-          } else {
-            throw new Error('QRコードの生成に失敗しました');
+          const data = result && result.data;
+          if (!LE || !LE.isGenerateStaffQRCodeShape(data)) {
+            clearStaffQrDisplay();
+            const resolved = {
+              message: LE
+                ? (useRefreshCopy ? LE.MESSAGES.STAFF_QR_REFRESH_FAILED : LE.MESSAGES.STAFF_QR_LOAD_FAILED)
+                : 'QRコードを更新できませんでした。しばらくしてから再度お試しください。',
+              action: 'retry',
+              retryLabel: LE ? LE.MESSAGES.RETRY : '再試行',
+              kind: 'malformed',
+            };
+            showStaffQrResolvedError(resolved, () => {
+              maybeRegenerateStaffQR({ fromUserAction: true, reason: 'manual' });
+            });
+            return;
           }
+
+          const expectedExpMs = data.expiresAtMs;
+          try {
+            await waitUntilServerUpdated(expectedExpMs, 10000);
+          } catch (waitErr) {
+            // server wait 失敗でも response の URL で表示可能
+          }
+          if (gen !== staffQrGeneration) return;
+          renderStaffQrImage(data.qrCodeUrl, data.expiresAtMs);
         } catch (error) {
-          qrDisplay.innerHTML = '<p>QRコードの生成に失敗しました</p>';
-          alert('QRコード生成エラー: ' + error.message);
+          if (gen !== staffQrGeneration) return;
+          clearStaffQrDisplay();
+          let resolved;
+          if (LE) {
+            resolved = LE.resolveUserFacingError({
+              operation: useRefreshCopy ? 'generate_staff_qr' : 'staff_qr_display',
+              error: error,
+            });
+            if (useRefreshCopy && (resolved.kind === 'network' || resolved.kind === 'timeout' || resolved.kind === 'unknown')) {
+              const ek = error && ((error.details && error.details.errorKey) || error.errorKey);
+              if (!ek || ek === 'QR_INTERNAL_ERROR') {
+                resolved = {
+                  message: LE.MESSAGES.STAFF_QR_REFRESH_FAILED,
+                  action: 'retry',
+                  retryLabel: LE.MESSAGES.RETRY,
+                  kind: resolved.kind,
+                };
+              }
+            }
+          } else {
+            resolved = {
+              message: 'QRコードを更新できませんでした。しばらくしてから再度お試しください。',
+              action: 'retry',
+              retryLabel: '再試行',
+            };
+          }
+          showStaffQrResolvedError(resolved, () => {
+            maybeRegenerateStaffQR({ fromUserAction: true, reason: 'manual' });
+          });
         } finally {
           setStaffQrSectionBusy(false);
-          regenInFlight = false;
+          setStaffQrRefreshButtonBusy(false);
+          staffQrRegenInFlight = false;
         }
       }
 
-
-      // サーバ反映を待つ関数
       async function waitUntilServerUpdated(expectedExpMs, timeoutMs = 5000) {
         return new Promise(async (resolve, reject) => {
           const timeout = setTimeout(() => {
-            reject(new Error('タイムアウト'));
+            reject(new Error('timeout'));
           }, timeoutMs);
-          
+
           const { db } = window.Firebase;
           const { doc, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          
-          const unsubscribe = onSnapshot(doc(db, 'staffs', window.Firebase.auth.currentUser.uid), 
-            { includeMetadataChanges: true }, 
+          const uid = window.Firebase.auth.currentUser && window.Firebase.auth.currentUser.uid;
+          if (!uid) {
+            clearTimeout(timeout);
+            reject(new Error('no_user'));
+            return;
+          }
+
+          const unsubscribe = onSnapshot(doc(db, 'staffs', uid),
+            { includeMetadataChanges: true },
             (snap) => {
-              const isFromCache = snap.metadata.fromCache;
-              
-              // キャッシュの瞬間は無視（サーバ反映のみ見る）
-              if (isFromCache) {
+              if (snap.metadata.fromCache) {
                 return;
               }
-              
               const data = snap.data();
-              const expMs = data?.qrExpiresAtMs || 
-                           (data?.qrExpiresAt?.toDate ? data.qrExpiresAt.toDate().getTime() : 0);
-              
+              const expMs = data?.qrExpiresAtMs ||
+                (data?.qrExpiresAt?.toDate ? data.qrExpiresAt.toDate().getTime() : 0);
               if (expMs >= expectedExpMs) {
                 clearTimeout(timeout);
                 unsubscribe();
                 resolve();
               }
-            }
+            },
+            () => {
+              clearTimeout(timeout);
+              unsubscribe();
+              reject(new Error('snapshot_error'));
+            },
           );
         });
       }
 
-      // 既存の関数名を保持（後方互換性）
-      window.generateNewStaffQR = maybeRegenerateStaffQR;
+      window.generateNewStaffQR = () => maybeRegenerateStaffQR({ fromUserAction: true, reason: 'manual' });
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') return;
+        if (!qrPageEl || !qrPageEl.classList.contains('active')) return;
+        if (typeof staffQrExpiresAtMs === 'number' && staffQrExpiresAtMs <= Date.now()) {
+          clearStaffQrDisplay();
+          const LE = window.LiffErrors;
+          const qrDisplay = document.getElementById('qr-code-display');
+          if (qrDisplay) {
+            const p = document.createElement('p');
+            p.textContent = LE ? LE.MESSAGES.STAFF_QR_EXPIRED_SHORT : '有効期限切れ';
+            qrDisplay.appendChild(p);
+          }
+        }
+      });
 
 
       // ダッシュボード機能（グローバルに公開）
@@ -1492,6 +2039,10 @@
       let currentMonth = new Date();
       let selectedDates = []; // 複数の日付文字列を保存（YYYY-MM-DD形式の配列）
       let shiftEditData = {}; // 編集ページのデータ { dateKey: { startHour, startMinute, endHour, endMinute } }
+      let pendingShiftSubmission = null;
+      let shiftSubmitBusy = false;
+      let confirmedShiftGeneration = 0;
+      window.__SHIFT_BH_STATE__ = 'unknown'; // loading|success|closed|failure|malformed
 
       // 翌月の最初の日を取得
       function getNextMonth() {
@@ -1584,7 +2135,8 @@
         // 初期化フローを止めないために非同期で実行
         renderCalendar().catch(error => {
           console.error('カレンダー描画エラー:', error);
-          alert('カレンダーの描画中にエラーが発生しました。一部の機能が正しく表示されない可能性があります。');
+          window.__SHIFT_BH_STATE__ = 'failure';
+          showError(window.LiffErrors.MESSAGES.SHIFT_PAGE_LOAD_FAILED);
         });
         setupCalendarEventListeners();
       }
@@ -1611,28 +2163,49 @@
         // 営業時間データを取得（店休日判定用）
         const yearMonth = `${year}-${String(month + 1).padStart(2, '0')}`;
         let businessHoursMap = {};
-        let businessHoursLoadFailed = false;
+        window.__SHIFT_BH_STATE__ = 'loading';
         try {
-          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          const mapDocRef = doc(window.Firebase.db, 'businessHoursMonthlyMap', yearMonth);
-          const mapDocSnap = await getDoc(mapDocRef);
-          if (mapDocSnap.exists()) {
-            const mapData = mapDocSnap.data();
-            businessHoursMap = mapData.days || {};
-          }
+          const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const daysSnap = await getDocs(collection(window.Firebase.db, 'shifts', yearMonth, 'days'));
+          daysSnap.forEach((daySnap) => {
+            const data = daySnap.data() || {};
+            const dateKey =
+              typeof data.dateKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.dateKey)
+                ? data.dateKey
+                : daySnap.id;
+            if (
+              typeof dateKey === 'string' &&
+              dateKey.startsWith(`${yearMonth}-`) &&
+              data.businessHours &&
+              typeof data.businessHours === 'object'
+            ) {
+              businessHoursMap[dateKey.slice(8, 10)] = data.businessHours;
+            }
+          });
+          window.__SHIFT_BH_STATE__ = 'success';
         } catch (error) {
           console.warn('営業時間データの取得に失敗しました:', error);
-          businessHoursLoadFailed = true;
+          window.__SHIFT_BH_STATE__ = 'failure';
+          calendar.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_BUSINESS_HOURS_UNAVAILABLE}</p>`;
+          showError(window.LiffErrors.MESSAGES.SHIFT_BUSINESS_HOURS_UNAVAILABLE);
+          return;
         }
         
         // ②期間中で送信済みの場合、不足日・不足時間のみ選択可能にする
         let insufficientDaysSet = new Set();
         const isSchedulingPeriod = isInShiftSchedulingPeriod();
         if (isSchedulingPeriod) {
-          const notificationSent = await isInsufficientDaysNotificationSent(yearMonth);
-          if (notificationSent) {
-            const insufficientDays = await fetchInsufficientDays(yearMonth);
-            insufficientDaysSet = new Set(insufficientDays);
+          try {
+            const notificationSent = await isInsufficientDaysNotificationSent(yearMonth);
+            if (notificationSent) {
+              const insufficientDays = await fetchInsufficientDays(yearMonth);
+              insufficientDaysSet = new Set(insufficientDays);
+            }
+          } catch (_) {
+            window.__SHIFT_BH_STATE__ = 'failure';
+            calendar.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_PAGE_LOAD_FAILED}</p>`;
+            showError(window.LiffErrors.MESSAGES.SHIFT_PAGE_LOAD_FAILED);
+            return;
           }
         }
         
@@ -1653,23 +2226,6 @@
         } else if (typeof window !== 'undefined' && typeof window.JapaneseHolidays === 'undefined') {
           // ライブラリがまだ読み込まれていない可能性もあるが、エラーフラグがない場合は問題なし
           // ただし、少し待ってから再チェックする方が良いかもしれないが、今回は簡易的に
-        }
-        
-        // 機能が欠けた場合のalert（最初の1回のみ）
-        if (!window.__ALERTED_MISSING_FEATURES__) {
-          window.__ALERTED_MISSING_FEATURES__ = true;
-          const missingFeatures = [];
-          if (holidayLibFailed) {
-            missingFeatures.push('祝日判定ライブラリが読み込まれていません。簡易的な祝日判定を使用します。');
-          }
-          if (businessHoursLoadFailed) {
-            missingFeatures.push('営業時間データの取得に失敗しました。店休日のグレーアウト表示ができません。');
-          }
-          if (missingFeatures.length > 0) {
-            setTimeout(() => {
-              alert('一部の機能が正しく動作していません：\n\n' + missingFeatures.join('\n'));
-            }, 1000); // カレンダー描画後に表示
-          }
         }
         
         let calendarHTML = '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
@@ -1706,8 +2262,9 @@
           // 店休日・営業スタイル判定
           const dayStr = String(day).padStart(2, '0');
           const dayData = businessHoursMap[dayStr];
-          const isClosed = dayData && dayData.isClosed === true;
-          const styleId = dayData && dayData.styleId ? String(dayData.styleId) : '';
+          const bhUnavailable = !dayData || typeof dayData.isClosed !== 'boolean';
+          const isClosed = !bhUnavailable && dayData.isClosed === true;
+          const styleId = !bhUnavailable && dayData.styleId ? String(dayData.styleId) : '';
           
           // 祝日判定
           const isHoliday = isJapaneseHoliday(currentDate);
@@ -1731,21 +2288,23 @@
           
           // ②期間中で送信済みの場合、不足日・不足時間以外は選択不可
           const isInsufficient = insufficientDaysSet.has(dateStr);
-          const isSelectable = !isSchedulingPeriod || !insufficientDaysSet.size || isInsufficient;
+          const isSelectable =
+            !bhUnavailable &&
+            (!isSchedulingPeriod || !insufficientDaysSet.size || isInsufficient);
           
-          // 店休日または選択不可の場合はグレーアウト
+          // 店休日・BH不明・選択不可の場合はグレーアウト
           let dayStyle = 'min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem; position: relative;';
           let textColor = isToday ? '#0000ff' : dayColor;
-          if (isClosed || !isSelectable) {
+          if (isClosed || bhUnavailable || !isSelectable) {
             dayStyle += ' background-color: #e0e0e0; opacity: 0.6;';
             textColor = '#808080'; // グレー
           }
-          if (isSelected && !isClosed && isSelectable) {
+          if (isSelected && !isClosed && !bhUnavailable && isSelectable) {
             dayStyle += ' background-color: #4caf50;';
           }
           
-          calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" data-is-closed="${isClosed ? '1' : '0'}" data-is-selectable="${isSelectable ? '1' : '0'}" style="${dayStyle}"`;
-          if (!isClosed && isSelectable) {
+          calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" data-is-closed="${isClosed ? '1' : '0'}" data-is-selectable="${isSelectable ? '1' : '0'}" data-bh-unavailable="${bhUnavailable ? '1' : '0'}" style="${dayStyle}"`;
+          if (!isClosed && !bhUnavailable && isSelectable) {
             if (isSelected) {
               // 選択済みの場合は緑色を維持
               calendarHTML += ` onmouseover="this.style.backgroundColor='#4caf50'" onmouseout="this.style.backgroundColor='#4caf50'"`;
@@ -1789,6 +2348,7 @@
             })
             .catch((error) => {
               console.warn('申請中シフトの取得に失敗しました:', error);
+              showError(window.LiffErrors.MESSAGES.SHIFT_PENDING_STATUS_LOAD_FAILED);
             });
         }
       }
@@ -1832,13 +2392,16 @@
         const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
         const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
         const getShifts = httpsCallable(functions, "getShifts");
-        const result = await getShifts({ userId });
-        if (!result?.data?.success) return [];
-
-        const allShifts = result.data.shifts || [];
+        const result = await getShifts({});
+        if (!window.LiffErrors.isGetShiftsShape(result?.data)) {
+          const error = new Error('SHIFT_PENDING_STATUS_LOAD_FAILED');
+          error.errorKey = 'SHIFT_PENDING_STATUS_LOAD_FAILED';
+          throw error;
+        }
+        const allShifts = result.data.data.shifts;
         const pendingDates = allShifts
-          .filter((shift) => shift && shift.confirmed === null && typeof shift.date === "string" && shift.date.startsWith(prefix))
-          .map((shift) => shift.date);
+          .filter((shift) => shift && (shift.requestStatus === 'pending' || (shift.confirmed === null && shift.source === 'pending_request')) && shift.dateKey.startsWith(prefix))
+          .map((shift) => shift.dateKey);
 
         const uniqueDates = Array.from(new Set(pendingDates));
         
@@ -1951,36 +2514,27 @@
           }
           
           const yearMonth = dateStr.substring(0, 7); // "YYYY-MM"
-          const dayStr = dateStr.substring(8, 10); // "DD"
           
-          // businessHoursMonthlyMapから営業時間を取得
           const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          const mapDocRef = doc(window.Firebase.db, 'businessHoursMonthlyMap', yearMonth);
-          const mapDocSnap = await getDoc(mapDocRef);
-          
-          let openMinute = 540; // デフォルト: 09:00
-          let closeMinute = 1320; // デフォルト: 22:00
-          let isClosed = false;
-          
-          if (mapDocSnap.exists()) {
-            const mapData = mapDocSnap.data();
-            const days = mapData.days || {};
-            const dayData = days[dayStr];
-            
-            if (dayData) {
-              openMinute = dayData.openMinute || openMinute;
-              closeMinute = dayData.closeMinute || closeMinute;
-              isClosed = dayData.isClosed || false;
-            }
+          const daySnap = await getDoc(doc(window.Firebase.db, 'shifts', yearMonth, 'days', dateStr));
+          const dayData = daySnap.exists() ? daySnap.data()?.businessHours : null;
+          if (!dayData || typeof dayData.isClosed !== 'boolean' ||
+              (!dayData.isClosed && (!Number.isInteger(dayData.openMinute) || !Number.isInteger(dayData.closeMinute)))) {
+            window.__SHIFT_BH_STATE__ = 'malformed';
+            throw new Error('SHIFT_BUSINESS_HOURS_UNAVAILABLE');
           }
+          const openMinute = dayData.openMinute;
+          const closeMinute = dayData.closeMinute;
+          const isClosed = dayData.isClosed;
           
           // 営業時間に基づいて時刻選択のオプションを更新
           generateTimeOptionsForBusinessHours(openMinute, closeMinute, isClosed);
           
         } catch (error) {
           console.error('営業時間の取得に失敗しました:', error);
-          // エラー時はデフォルト値（09:00-22:00）を使用
-          generateTimeOptionsForBusinessHours(540, 1320, false);
+          window.__SHIFT_BH_STATE__ = 'failure';
+          generateTimeOptionsForBusinessHours(0, 0, true);
+          showError(window.LiffErrors.MESSAGES.SHIFT_BUSINESS_HOURS_UNAVAILABLE);
         }
       }
       
@@ -2048,6 +2602,14 @@
 
       // 日付選択（複数選択対応）
       async function selectDate(date, targetElement) {
+        if (pendingShiftSubmission?.state === 'result_unknown') {
+          showError(window.LiffErrors.MESSAGES.SHIFT_SUBMIT_RESULT_UNKNOWN);
+          return;
+        }
+        if (window.__SHIFT_BH_STATE__ !== 'success') {
+          showError(window.LiffErrors.MESSAGES.SHIFT_BUSINESS_HOURS_UNAVAILABLE);
+          return;
+        }
         // YYYY-MM-DD形式の日付文字列を取得
         let dateStr;
         if (date.includes('-')) {
@@ -2062,34 +2624,18 @@
         // 店休日判定
         try {
           const yearMonth = dateStr.substring(0, 7); // "YYYY-MM"
-          const dayStr = dateStr.substring(8, 10); // "DD"
           
           const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          const mapDocRef = doc(window.Firebase.db, 'businessHoursMonthlyMap', yearMonth);
-          const mapDocSnap = await getDoc(mapDocRef);
-          
-          let isClosed = false;
-          if (mapDocSnap.exists()) {
-            const mapData = mapDocSnap.data();
-            const days = mapData.days || {};
-            const dayData = days[dayStr];
-            
-            if (dayData) {
-              isClosed = dayData.isClosed || false;
-            }
+          const daySnap = await getDoc(doc(window.Firebase.db, 'shifts', yearMonth, 'days', dateStr));
+          const dayData = daySnap.exists() ? daySnap.data()?.businessHours : null;
+          if (!dayData || typeof dayData.isClosed !== 'boolean') {
+            throw new Error('SHIFT_BUSINESS_HOURS_UNAVAILABLE');
           }
+          const isClosed = dayData.isClosed;
           
           // 店休日の場合はダイアログを表示して処理を終了
           if (isClosed) {
-            const dateObj = new Date(dateStr + 'T00:00:00');
-            const year = dateObj.getFullYear();
-            const month = dateObj.getMonth() + 1;
-            const day = dateObj.getDate();
-            const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
-            const weekday = weekdayNames[dateObj.getDay()];
-            const formattedDate = `${year}年${month}月${day}日(${weekday})`;
-            
-            alert(formattedDate + ' は店休日です。');
+            alert(window.LiffErrors.MESSAGES.SHIFT_BUSINESS_DAY_CLOSED);
             return;
           }
           
@@ -2110,14 +2656,15 @@
                 const weekday = weekdayNames[dateObj.getDay()];
                 const formattedDate = `${year}年${month}月${day}日(${weekday})`;
                 
-                alert(formattedDate + ' は不足日・不足時間のみ申請可能です。');
+                alert(window.LiffErrors.MESSAGES.SHIFT_DATE_NOT_INSUFFICIENT);
                 return;
               }
             }
           }
         } catch (error) {
           console.error('日付選択判定エラー:', error);
-          // エラー時は通常の処理を続行
+          showError(window.LiffErrors.MESSAGES.SHIFT_BUSINESS_HOURS_UNAVAILABLE);
+          return;
         }
         
         // 既に選択されている場合は選択解除、そうでなければ選択追加
@@ -2187,6 +2734,10 @@
       
       // 編集ページを表示
       async function showEditPage() {
+        if (pendingShiftSubmission?.state === 'result_unknown') {
+          showError(window.LiffErrors.MESSAGES.SHIFT_SUBMIT_RESULT_UNKNOWN);
+          return;
+        }
         if (selectedDates.length === 0) {
           alert('日付を選択してください');
           return;
@@ -2213,15 +2764,33 @@
         // 営業時間データを取得
         let businessHoursMap = {};
         try {
-          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          const mapDocRef = doc(window.Firebase.db, 'businessHoursMonthlyMap', yearMonth);
-          const mapDocSnap = await getDoc(mapDocRef);
-          if (mapDocSnap.exists()) {
-            const mapData = mapDocSnap.data();
-            businessHoursMap = mapData.days || {};
-          }
+          const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const daysSnap = await getDocs(collection(window.Firebase.db, 'shifts', yearMonth, 'days'));
+          daysSnap.forEach((daySnap) => {
+            const data = daySnap.data() || {};
+            const dateKey =
+              typeof data.dateKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.dateKey)
+                ? data.dateKey
+                : daySnap.id;
+            if (
+              typeof dateKey === 'string' &&
+              dateKey.startsWith(`${yearMonth}-`) &&
+              data.businessHours &&
+              typeof data.businessHours === 'object'
+            ) {
+              businessHoursMap[dateKey.slice(8, 10)] = data.businessHours;
+            }
+          });
+          const missingSelected = selectedDates.some((dk) => {
+            const dd = dk.slice(8, 10);
+            const bh = businessHoursMap[dd];
+            return !bh || typeof bh.isClosed !== 'boolean';
+          });
+          if (missingSelected) throw new Error('SHIFT_BUSINESS_HOURS_UNAVAILABLE');
         } catch (error) {
           console.error('営業時間データの取得に失敗しました:', error);
+          showError(window.LiffErrors.MESSAGES.SHIFT_BUSINESS_HOURS_UNAVAILABLE);
+          return;
         }
         
         // 既存の申請データを取得（提出期間中のみ）
@@ -2284,13 +2853,13 @@
           const isSelected = selectedDates.includes(dateKey);
           
           // デフォルトの営業時間を取得
-          let defaultStartHour = '09';
-          let defaultEndHour = '22';
+          let defaultStartHour = '';
+          let defaultEndHour = '';
           
           if (isSelected && dayData && !isClosed) {
             // 選択された日付で店休日でない場合、営業時間をデフォルト値として設定
-            const openMinute = dayData.openMinute || 540; // デフォルト: 09:00
-            const closeMinute = dayData.closeMinute || 1320; // デフォルト: 22:00
+            const openMinute = dayData.openMinute;
+            const closeMinute = dayData.closeMinute;
             
             // 開始時刻（1時間刻み）
             defaultStartHour = String(Math.floor(openMinute / 60)).padStart(2, '0');
@@ -2304,12 +2873,12 @@
           }
           
           // 営業時間データを取得（選択した日のみ）
-          let openHour = 9;
-          let closeHour = 22;
-          let closeHourStr = '22';
+          let openHour = 0;
+          let closeHour = 0;
+          let closeHourStr = '';
           if (isSelected && !isClosed && dayData) {
-            const openMinute = dayData.openMinute || 540;
-            const closeMinute = dayData.closeMinute || 1320;
+            const openMinute = dayData.openMinute;
+            const closeMinute = dayData.closeMinute;
             openHour = Math.floor(openMinute / 60);
             if (closeMinute >= 1440) {
               closeHour = 24;
@@ -2336,7 +2905,7 @@
           }
           
           // 編集データを初期化（選択した日のみ）
-          if (isSelected && !isClosed) {
+          if (isSelected && !isClosed && dayData) {
             if (!shiftEditData[dateKey]) {
               // 既存の申請がある場合はそのデータを使用、ない場合はデフォルト値
               let initialStartHour = defaultStartHour;
@@ -2371,8 +2940,8 @@
           // 営業時間の表示用文字列を生成
           let businessHoursText = '';
           if (!isClosed && dayData) {
-            const openMinute = dayData.openMinute || 540;
-            const closeMinute = dayData.closeMinute || 1320;
+            const openMinute = dayData.openMinute;
+            const closeMinute = dayData.closeMinute;
             const openHourDisp = Math.floor(openMinute / 60);
             const openMinDisp = openMinute % 60;
             let closeHourDisp = Math.floor(closeMinute / 60);
@@ -2385,7 +2954,7 @@
               businessHoursText = `${String(openHourDisp).padStart(2, '0')}:${String(openMinDisp).padStart(2, '0')} - ${String(closeHourDisp).padStart(2, '0')}:${String(closeMinDisp).padStart(2, '0')}`;
             }
           } else if (!isClosed) {
-            businessHoursText = '09:00 - 22:00'; // デフォルト
+            businessHoursText = window.LiffErrors.MESSAGES.SHIFT_BUSINESS_HOURS_UNAVAILABLE;
           }
           
           html += `
@@ -2572,7 +3141,7 @@
         }
         
         if (enabledShifts.length === 0) {
-          alert('申請するシフトがありません。編集ページで「申請する」にチェックを入れてください。');
+          alert(window.LiffErrors.MESSAGES.SHIFT_EMPTY_INPUT);
           return;
         }
         
@@ -2641,104 +3210,96 @@
       
       // シフト申請を実行
       async function submitShifts() {
-        const shifts = window.confirmShifts || [];
-
-        if (shifts.length === 0) {
-          alert('申請するシフトがありません');
+        const LE = window.LiffErrors;
+        const submitBtn = document.getElementById('submit-shifts-btn');
+        const guard = LE.getShiftSubmitGuard(pendingShiftSubmission, shiftSubmitBusy);
+        if (!guard.allowNewNonce) {
+          if (guard.blockReason === 'pending_lock') showError(LE.MESSAGES.SHIFT_SUBMIT_RESULT_UNKNOWN);
+          return;
+        }
+        const rawShifts = window.confirmShifts || [];
+        if (rawShifts.length === 0) {
+          alert(LE.MESSAGES.SHIFT_EMPTY_INPUT);
+          return;
+        }
+        const toMinute = (time) => {
+          const match = typeof time === 'string' && /^(\d{2}):(\d{2})$/.exec(time);
+          if (!match) return null;
+          const hour = Number(match[1]);
+          const minute = Number(match[2]);
+          return hour === 24 && minute === 0 ? 1440 : hour * 60 + minute;
+        };
+        const normalized = LE.normalizeShiftSubmitPayloadItems(rawShifts.map((shift) => ({
+          dateKey: shift.date,
+          startMinute: toMinute(shift.start),
+          endMinute: toMinute(shift.end),
+        })));
+        if (!normalized) {
+          showError(LE.MESSAGES.SHIFT_INVALID_ARGUMENT);
           return;
         }
 
-        if (window.__submitShiftsInFlight) {
-          return;
+        const clientNonce = LE.createClientNonce();
+        pendingShiftSubmission = LE.createShiftSubmitPending(clientNonce, normalized);
+        shiftSubmitBusy = true;
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = LE.MESSAGES.SHIFT_BTN_SUBMITTING;
         }
-        window.__submitShiftsInFlight = true;
-
-        const navBtns = ['submit-shifts-btn', 'submit-all-shifts-btn', 'shift-application-btn', 'confirmed-shifts-btn']
-          .map((id) => document.getElementById(id))
-          .filter(Boolean);
-        navBtns.forEach((b) => {
-          b.disabled = true;
-        });
-
+        let result = null;
+        let callableError = null;
         try {
           await executeWithGlobalLoading(async () => {
-            const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-            const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
-
-            const shiftsToUpdate = [];
-            const shiftsToCreate = [];
-
-            shifts.forEach((shift) => {
-              if (shift.existingRequestId) {
-                shiftsToUpdate.push({
-                  requestId: shift.existingRequestId,
-                  start: shift.start,
-                  end: shift.end
-                });
-              } else {
-                shiftsToCreate.push({
-                  date: shift.date,
-                  start: shift.start,
-                  end: shift.end
-                });
-              }
-            });
-
-            const updatePromises = shiftsToUpdate.map((shift) => {
-              const updateShiftRequest = httpsCallable(functions, 'updateShiftRequest');
-              return updateShiftRequest({
-                requestId: shift.requestId,
-                start: shift.start,
-                end: shift.end,
-              });
-            });
-
-            let createResult = null;
-            if (shiftsToCreate.length > 0) {
-              const createMultipleShifts = httpsCallable(functions, 'createMultipleShifts');
-              createResult = await createMultipleShifts({ shifts: shiftsToCreate });
+            try {
+              const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+              const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
+              result = await httpsCallable(functions, 'submitShiftRequests')({ clientNonce, shifts: normalized });
+            } catch (error) {
+              callableError = error;
             }
+          }, '提出中…');
 
-            const updateResults = await Promise.all(updatePromises);
-
-            const updateErrors = updateResults.filter((result) => !result.data.success);
-            if (updateErrors.length > 0) {
-              throw new Error('一部のシフトの更新に失敗しました');
-            }
-
-            if (shiftsToCreate.length > 0 && (!createResult || !createResult.data.success)) {
-              throw new Error(createResult?.data?.error || '新規シフトの作成に失敗しました');
-            }
-
-            const updateCount = shiftsToUpdate.length;
-            const createCount = shiftsToCreate.length;
-            let message = '✅ シフト申請完了！\n\n';
-            if (updateCount > 0 && createCount > 0) {
-              message += `${updateCount}件のシフトを更新し、${createCount}件のシフトを新規作成しました。`;
-            } else if (updateCount > 0) {
-              message += `${updateCount}件のシフトを更新しました。`;
-            } else {
-              message += `${createCount}件のシフトが正常に保存されました。`;
-            }
-            alert(message);
-
+          const classified = LE.classifySubmitShiftRequestsOutcome({
+            data: result?.data,
+            error: callableError,
+            expectedNonce: clientNonce,
+            expectedShifts: normalized,
+          });
+          if (classified.outcome === 'success') {
+            pendingShiftSubmission = null;
             selectedDates = [];
             shiftEditData = {};
             window.confirmShifts = [];
-
+            window.__GET_SHIFTS_PREFETCH__ = null;
+            showSuccess(LE.MESSAGES.SHIFT_SUBMIT_SUCCESS);
             showPage(shiftPageEl);
-            showShiftApplication();
+            await showShiftApplication();
+            return;
+          }
+          if (classified.outcome === 'confirmed_failure') {
+            pendingShiftSubmission = null;
+            showError(classified.resolved);
+            if (['SHIFT_REQUEST_ALREADY_CONFIRMED', 'SHIFT_MONTH_FINALIZED', 'SHIFT_SCHEDULING_PERIOD_RESTRICTED', 'SHIFT_DATE_NOT_INSUFFICIENT'].includes(classified.errorKey)) {
+              await showShiftApplication();
+            }
+            return;
+          }
 
-            initializeCalendar();
-          }, 'シフト申請中...');
-        } catch (error) {
-          console.error('シフト申請エラー:', error);
-          alert(`❌ シフト申請失敗！\n\nエラー: ${error.message || error}\n\nシフトは保存されていません。\n再度お試しください。`);
+          pendingShiftSubmission = LE.transitionShiftSubmitPending(pendingShiftSubmission, 'result_unknown');
+          showError(LE.MESSAGES.SHIFT_SUBMIT_RESULT_UNKNOWN);
+          try {
+            const fresh = await fetchGetShiftsResponse();
+            if (LE.matchShiftSubmitPayloadInGetShifts(fresh, normalized).matched) pendingShiftSubmission = null;
+          } catch (_) {
+            // 保留状態を維持し、再送を防ぐ。
+          }
         } finally {
-          window.__submitShiftsInFlight = false;
-          navBtns.forEach((b) => {
-            b.disabled = false;
-          });
+          shiftSubmitBusy = false;
+          if (submitBtn) {
+            const locked = pendingShiftSubmission?.state === 'result_unknown';
+            submitBtn.disabled = locked;
+            submitBtn.textContent = LE.MESSAGES.SHIFT_BTN_SUBMIT;
+          }
         }
       }
       
@@ -2956,17 +3517,22 @@
       }
 
       async function fetchAllShiftsViaGetShifts(uid) {
+        void uid;
+        const response = await fetchGetShiftsResponse();
+        return response.data.shifts;
+      }
+
+      async function fetchGetShiftsResponse() {
         const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
         const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
         const getShifts = httpsCallable(functions, "getShifts");
-        const result = await getShifts({ userId: uid });
-        if (!result?.data?.success) {
-          throw new Error(result?.data?.error || "getShifts failed");
+        const result = await getShifts({});
+        if (!window.LiffErrors.isGetShiftsShape(result?.data)) {
+          const error = new Error('SHIFT_PAGE_LOAD_FAILED');
+          error.errorKey = 'SHIFT_PAGE_LOAD_FAILED';
+          throw error;
         }
-        const shifts = result.data.shifts || [];
-        console.log('[getShifts] 受信: success=' + result.data.success + ', shifts件数=' + (Array.isArray(shifts) ? shifts.length : '非配列') + ', uid=' + uid);
-        if (shifts.length > 0) console.log('[getShifts] 先頭1件:', shifts[0]);
-        return shifts;
+        return result.data;
       }
 
       function startPrefetchGetShifts(reason = "") {
@@ -2999,7 +3565,9 @@
             })
             .catch((err) => {
               cache.error = err;
-              cache.completedAt = Date.now();
+              cache.completedAt = null;
+              cache.data = null;
+              cache.promise = null;
               throw err;
             });
         } catch (_) {
@@ -3124,19 +3692,8 @@
         }
         
         try {
-          // localStorageキャッシュを確認
-          const cached = localStorage.getItem(cacheKey);
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed)) {
-              insufficientDaysCache = parsed;
-              insufficientDaysCacheKey = cacheKey;
-              return parsed;
-            }
-          }
-          
-          // Firestoreから直接取得
-          const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          // Firestoreから直接取得（localStorageは正本にしない）
+          const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
           const daysSnapshot = await getDocs(
             collection(window.Firebase.db, "shifts", yearMonth, "days")
           );
@@ -3152,14 +3709,15 @@
               businessHours.isClosed !== true &&
               data.isSufficient === false
             ) {
-              insufficientDates.push(data.dateKey);
+              const dateKey = typeof data.dateKey === 'string' ? data.dateKey : docSnap.id;
+              if (typeof dateKey === 'string') insufficientDates.push(dateKey);
             }
           });
           
           insufficientDaysCache = insufficientDates;
           insufficientDaysCacheKey = cacheKey;
           
-          // localStorageに保存
+          // visual hint 用にのみ保存
           try {
             localStorage.setItem(cacheKey, JSON.stringify(insufficientDates));
           } catch (_) {}
@@ -3167,7 +3725,7 @@
           return insufficientDates;
         } catch (error) {
           console.warn('不足日の取得に失敗しました:', error);
-          return [];
+          throw error;
         }
       }
       
@@ -3186,7 +3744,7 @@
           return data?.insufficientDaysNotificationSent === true;
         } catch (error) {
           console.warn('不足日送信フラグの取得に失敗しました:', error);
-          return false;
+          throw error;
         }
       }
       
@@ -3220,7 +3778,7 @@
           return data?.allDaysFinalized === true;
         } catch (error) {
           console.warn('次月の最終確定フラグの取得に失敗しました:', error);
-          return false;
+          throw error;
         }
       }
       
@@ -3265,11 +3823,11 @@
         if (!listContainer) return;
         
         try {
-          listContainer.innerHTML = '<div class="spinner"></div>';
+          listContainer.innerHTML = `<div class="spinner"></div><p>${window.LiffErrors.MESSAGES.SHIFT_LOADING_SUBMITTED}</p>`;
           
           const currentUid = getCurrentUid();
           if (!currentUid) {
-            listContainer.innerHTML = '<p>ユーザーIDを取得できませんでした。再度ログインしてください。</p>';
+            listContainer.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_SUBMITTED_LOAD_FAILED}</p>`;
             return;
           }
           
@@ -3278,25 +3836,24 @@
           
           // 申請中（pending）のシフトのみフィルタリング
           const pendingShifts = allShifts.filter(shift => {
-            // statusがnullまたは"pending"のものを申請中とみなす
-            return shift.status === null || shift.status === 'pending';
+            return shift.requestStatus === 'pending' || shift.source === 'pending_request';
           });
           
           if (pendingShifts.length === 0) {
-            listContainer.innerHTML = '<p>提出済みの申請はありません。</p>';
+            listContainer.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_SUBMITTED_EMPTY}</p>`;
             return;
           }
           
           // 日付順にソート
           pendingShifts.sort((a, b) => {
-            if (a.date < b.date) return -1;
-            if (a.date > b.date) return 1;
+            if (a.dateKey < b.dateKey) return -1;
+            if (a.dateKey > b.dateKey) return 1;
             return 0;
           });
           
           // リストを生成
           const listHTML = pendingShifts.map(shift => {
-            const dateObj = new Date(shift.date + 'T00:00:00');
+            const dateObj = new Date(shift.dateKey + 'T00:00:00');
             const year = dateObj.getFullYear();
             const month = dateObj.getMonth() + 1;
             const day = dateObj.getDate();
@@ -3331,7 +3888,7 @@
           listContainer.innerHTML = listHTML;
         } catch (error) {
           console.error('提出済み申請の取得エラー:', error);
-          listContainer.innerHTML = '<p>申請の取得に失敗しました。再度お試しください。</p>';
+          listContainer.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_SUBMITTED_LOAD_FAILED}</p>`;
         }
       }
 
@@ -3363,7 +3920,17 @@
         }
         
         // 次月が最終確定済みかどうかを判定
-        const isNextMonthFinalizedFlag = await isNextMonthFinalized();
+        let isNextMonthFinalizedFlag;
+        try {
+          isNextMonthFinalizedFlag = await isNextMonthFinalized();
+        } catch (_) {
+          const calendarContainer = document.getElementById('calendar-container');
+          const submittedListContainer = document.getElementById('submitted-shifts-list-container');
+          if (calendarContainer) calendarContainer.style.display = 'none';
+          if (submittedListContainer) submittedListContainer.style.display = 'none';
+          showErrorWithRetry(window.LiffErrors.MESSAGES.SHIFT_PAGE_LOAD_FAILED, null, () => showShiftApplication());
+          return;
+        }
         const calendarContainer = document.getElementById('calendar-container');
         const submittedListContainer = document.getElementById('submitted-shifts-list-container');
         const finalizedMessageContainer = document.getElementById('finalized-message-container');
@@ -3524,7 +4091,10 @@
       
              // 確定シフトの読み込み
        async function loadConfirmedShifts() {
+         const generation = ++confirmedShiftGeneration;
          try {
+           const calendarGrid = document.getElementById('calendar-grid');
+           if (calendarGrid) calendarGrid.innerHTML = `<div class="spinner"></div><p>${window.LiffErrors.MESSAGES.SHIFT_LOADING_CONFIRMED}</p>`;
            // 現在のユーザーのuidを取得
            let currentUid = null;
            
@@ -3535,7 +4105,7 @@
            }
            
            if (!currentUid) {
-             alert('ユーザーIDを取得できませんでした。再度ログインしてください。');
+             if (generation === confirmedShiftGeneration && calendarGrid) calendarGrid.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_CONFIRMED_LOAD_FAILED}</p>`;
              return;
            }
            
@@ -3561,29 +4131,25 @@
            }
 
           if (Array.isArray(allShifts)) {
+            if (generation !== confirmedShiftGeneration) return;
             
             // データ内訳を集計
-            const confirmedCount = allShifts.filter(s => s.confirmed === true).length;
-            const pendingCount = allShifts.filter(s => s.confirmed === null).length;
-            const rejectedCount = allShifts.filter(s => s.confirmed === false).length;
-            
             // 当日以降のシフトのみフィルタリング（確定シフトタブは「今日以降」のみ表示）
             // ローカル日付で比較（toISOStringはUTCのため日本時間でずれるのを防ぐ）
             const today = new Date();
             const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
             
-            const confirmedShifts = allShifts.filter(shift => {
-              // 却下済みを除外
-              if (shift.confirmed === false) return false;
-              
-              // 当日以降のシフトのみ
-              return shift.date >= todayStr;
-            });
+            const confirmedShifts = allShifts.filter((shift) => shift.confirmed === true && shift.dateKey >= todayStr);
             
             // デバッグ: 取得件数（確定シフトが空の原因切り分け用）
             console.log('[確定シフト] getShiftsで取得: ' + allShifts.length + '件, 当日以降に絞り込み後: ' + confirmedShifts.length + '件 (今日=' + todayStr + ')');
             
             // カレンダーを表示
+            if (confirmedShifts.length === 0) {
+              const calendarGrid = document.getElementById('calendar-grid');
+              if (calendarGrid) calendarGrid.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_CONFIRMED_EMPTY}</p>`;
+              return;
+            }
             renderConfirmedShiftsCalendar(confirmedShifts);
             
             
@@ -3591,19 +4157,15 @@
             // エラー時はスピナーを削除
             const calendarGrid = document.getElementById('calendar-grid');
             if (calendarGrid) {
-              calendarGrid.innerHTML = '<p>シフトの取得に失敗しました。</p>';
+              calendarGrid.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_CONFIRMED_LOAD_FAILED}</p>`;
             }
-            alert('シフト取得エラー: 不明なエラー');
           }
         } catch (error) {
           // エラー時はスピナーを削除
           const calendarGrid = document.getElementById('calendar-grid');
-          if (calendarGrid) {
-            calendarGrid.innerHTML = '<p>シフトの取得に失敗しました。</p>';
+          if (generation === confirmedShiftGeneration && calendarGrid) {
+            calendarGrid.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_CONFIRMED_LOAD_FAILED}</p>`;
           }
-          alert('❌ シフトの取得に失敗しました\n\n' +
-                'エラー: ' + error.message + '\n\n' +
-                '取得元: getShifts Cloud Function');
         }
       }
       
@@ -3758,7 +4320,7 @@
             }
             
             // その日のシフトがあるかチェック（フィルタリング済みのシフトを使用）
-            const dayShifts = filteredShifts.filter(shift => shift.date === dateStr);
+            const dayShifts = filteredShifts.filter(shift => shift.dateKey === dateStr);
           let dayClass = 'calendar-day';
           let shiftInfo = '';
           
@@ -3817,7 +4379,8 @@
           setupCalendarDayClickEvents();
         } catch (error) {
           console.error("カレンダー表示エラー:", error);
-          alert('カレンダーの表示に失敗しました: ' + error.message);
+          const calendarGrid = document.getElementById('calendar-grid');
+          if (calendarGrid) calendarGrid.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_CONFIRMED_LOAD_FAILED}</p>`;
           // エラーが発生しても処理を続行（ローディング画面を非表示にするため）
         }
       }
@@ -3949,7 +4512,7 @@
         const isClosed = dayData && dayData.isClosed === true;
         
         // 選択された日付のシフトをフィルタリング（フィルタリング済みから取得）
-        const dayShifts = filteredShifts.filter(shift => shift.date === date);
+        const dayShifts = filteredShifts.filter(shift => shift.dateKey === date);
         
         // 選択された日付の背景色を変更（視覚的フィードバック）
         const calendarDays = document.querySelectorAll('.calendar-day:not(.empty)');
@@ -4172,443 +4735,452 @@
         initializeAttendancePage();
       };
 
+      function getAttendanceMonthKey(year, month) {
+        return `${year}-${String(month).padStart(2, '0')}`;
+      }
+
+      function formatDateWeekdayJst(dateKey) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return String(dateKey || '');
+        const [y, m, d] = String(dateKey).split('-').map(Number);
+        const date = new Date(Date.UTC(y, m - 1, d));
+        const w = ['日', '月', '火', '水', '木', '金', '土'][date.getUTCDay()];
+        return `${dateKey} (${w})`;
+      }
+
+      function formatJstHmFromIso(isoValue) {
+        if (!isoValue || typeof isoValue !== 'string') return '';
+        const parsed = new Date(isoValue);
+        if (!Number.isFinite(parsed.getTime())) return '';
+        return new Intl.DateTimeFormat('ja-JP', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+          timeZone: 'Asia/Tokyo',
+        }).format(parsed);
+      }
+
+      function clearAttendanceDetailsView() {
+        window.selectedAttendanceDate = null;
+        hideCorrectionForm();
+        const detailsSection = document.getElementById('attendance-details');
+        const cardsContainer = document.getElementById('attendance-cards');
+        if (cardsContainer) cardsContainer.innerHTML = '';
+        if (detailsSection) detailsSection.style.display = 'none';
+      }
+
+      function setAttendanceCalendarLoading() {
+        const calendar = document.getElementById('attendance-calendar');
+        const LE = window.LiffErrors;
+        if (!calendar) return;
+        calendar.innerHTML =
+          '<div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px;">' +
+          '<div class="spinner"></div>' +
+          `<p>${LE ? LE.MESSAGES.ATT_LOADING_HISTORY : '勤怠履歴を読み込んでいます…'}</p>` +
+          '</div>';
+      }
+
+      function renderAttendanceCalendarError(message, onRetry) {
+        const calendar = document.getElementById('attendance-calendar');
+        const LE = window.LiffErrors;
+        if (!calendar) return;
+        const retryLabel = LE ? LE.MESSAGES.RETRY : '再試行';
+        calendar.innerHTML =
+          '<div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;">' +
+          `<p class="error" style="margin:0;">${message}</p>` +
+          `<button type="button" id="attendance-retry-btn" class="btn primary-btn">${retryLabel}</button>` +
+          '</div>';
+        const retryBtn = document.getElementById('attendance-retry-btn');
+        if (retryBtn && typeof onRetry === 'function') {
+          retryBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            onRetry();
+          });
+        }
+      }
+
+      function setCorrectionSubmitBusy(busy) {
+        const LE = window.LiffErrors;
+        const form = document.getElementById('correction-form');
+        const submitBtn = form ? form.querySelector('button[type="submit"]') : null;
+        if (submitBtn) {
+          submitBtn.textContent = busy
+            ? (LE ? LE.MESSAGES.ATT_BTN_SUBMITTING : '申請中…')
+            : (LE ? LE.MESSAGES.ATT_BTN_SUBMIT : '勤怠修正を申請');
+        }
+      }
+
+      function setCorrectionFormControlsDisabled(disabled) {
+        const form = document.getElementById('correction-form');
+        if (!form) return;
+        const controls = form.querySelectorAll('input, select, textarea, button');
+        controls.forEach((el) => {
+          el.disabled = !!disabled;
+        });
+      }
+
+      function getCorrectionStatusCache(date) {
+        if (!window.attendanceCorrectionStatusByDate) window.attendanceCorrectionStatusByDate = {};
+        return window.attendanceCorrectionStatusByDate[date] || null;
+      }
+
+      function setCorrectionStatusCache(date, statusObj) {
+        if (!window.attendanceCorrectionStatusByDate) window.attendanceCorrectionStatusByDate = {};
+        window.attendanceCorrectionStatusByDate[date] = statusObj;
+      }
+
       // 勤怠管理ページの初期化
       async function initializeAttendancePage() {
+        if (window.attendancePageInitDone !== true) {
+          window.attendancePageInitDone = true;
+          window.attendanceLoadGeneration = 0;
+          window.attendanceData = {};
+          window.attendanceLoadedMonthKey = null;
+          window.attendanceHistoryState = 'idle';
+          window.attendanceHistoryLoadFailed = false;
+          window.attendanceCorrectionStatusByDate = {};
+          window.attendanceCorrectionSubmitBusy = false;
+          window.pendingAttendanceCorrection = null;
+          window.attendanceCorrectionPreflightByDate = {};
+          setupMonthButtons();
+          setupCorrectionForm();
+          setupCorrectionFormButtons();
+        }
+
         const currentDate = new Date();
         window.currentMonth = currentDate.getMonth();
         window.currentYear = currentDate.getFullYear();
         updateMonthDisplay();
+        clearAttendanceDetailsView();
         generateAttendanceCalendar();
-        
-        // データ取得を完了してからカレンダーを再生成
         await loadAttendanceData();
-        
-                  // 月選択ボタンのイベントリスナーを設定
-          setupMonthButtons();
-          
-          // 勤怠修正申請フォームの送信イベントを設定
-          setupCorrectionForm();
-          
-          // 修正申請フォームのキャンセルボタンのイベントリスナーを設定
-          setupCorrectionFormButtons();
       }
-
-
 
       // 勤怠カレンダーを生成
       function generateAttendanceCalendar() {
         const calendar = document.getElementById('attendance-calendar');
+        if (!calendar) return;
         const firstDay = new Date(window.currentYear, window.currentMonth, 1);
         const lastDay = new Date(window.currentYear, window.currentMonth + 1, 0);
-        const startDate = new Date(firstDay);
-        startDate.setDate(startDate.getDate() - firstDay.getDay());
-        
-        // カレンダーHTMLを生成
+
         let html = '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
         const weekdayColors = [
-          { day: '日', color: '#ff0000' }, // 赤
-          { day: '月', color: '#000000' }, // 黒
-          { day: '火', color: '#000000' }, // 黒
-          { day: '水', color: '#000000' }, // 黒
-          { day: '木', color: '#000000' }, // 黒
-          { day: '金', color: '#000000' }, // 黒
-          { day: '土', color: '#0000ff' }  // 青
+          { day: '日', color: '#ff0000' },
+          { day: '月', color: '#000000' },
+          { day: '火', color: '#000000' },
+          { day: '水', color: '#000000' },
+          { day: '木', color: '#000000' },
+          { day: '金', color: '#000000' },
+          { day: '土', color: '#0000ff' },
         ];
         weekdayColors.forEach(({ day, color }) => {
           html += '<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem; font-weight: bold; color: ' + color + ';">' + day + '</div>';
         });
         html += '</div>';
-        
         html += '<div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
-        
-        // 前月の日付を埋める
+
         for (let i = 0; i < firstDay.getDay(); i++) {
           html += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
         }
-        
-        // 当月の日付を表示
+
         for (let day = 1; day <= lastDay.getDate(); day++) {
-          // 日付を文字列形式で生成（タイムゾーンを考慮）
           const year = window.currentYear;
           const month = window.currentMonth + 1;
-          const dateString = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-          
-          // 今日の日付かどうかを判定
+          const dateString = `${year}-${month.toString().padStart(2, '0')}-${day
+            .toString()
+            .padStart(2, '0')}`;
           const today = new Date();
-          const todayString = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
+          const todayString = `${today.getFullYear()}-${(today.getMonth() + 1)
+            .toString()
+            .padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
           const isToday = dateString === todayString;
-          
+
           const currentDate = new Date(year, month - 1, day);
-          const weekday = currentDate.getDay(); // 0=日曜日, 6=土曜日
-          
-          // 祝日判定
+          const weekday = currentDate.getDay();
           const isHoliday = isJapaneseHoliday(currentDate);
-          
-          // 曜日と祝日に応じた色を設定
-          let dayColor = '#000000'; // デフォルトは黒
-          if (weekday === 6) { // 土曜日
-            dayColor = isHoliday ? '#ff0000' : '#0000ff'; // 祝日なら赤、そうでなければ青
-          } else if (weekday === 0 || isHoliday) { // 日曜日または祝日
-            dayColor = '#ff0000'; // 赤
-          }
-          
+          let dayColor = '#000000';
+          if (weekday === 6) dayColor = isHoliday ? '#ff0000' : '#0000ff';
+          else if (weekday === 0 || isHoliday) dayColor = '#ff0000';
+
           let dayClass = 'calendar-day';
           if (isToday) dayClass += ' today';
-          if (window.attendanceData && window.attendanceData[dateString]) {
-            dayClass += ' has-attendance';
-          }
-          
+          if (window.attendanceData && window.attendanceData[dateString]) dayClass += ' has-attendance';
+
           html += '<div class="' + dayClass + '" data-date="' + dateString + '" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;">';
           html += '<span class="day-number" style="font-weight: bold; color: ' + (isToday ? '#0000ff' : dayColor) + ';">' + day + '</span>';
-          if (window.attendanceData && window.attendanceData[dateString]) {
-            html += '<span class="shift-indicator">●</span>';
-          }
+          if (window.attendanceData && window.attendanceData[dateString]) html += '<span class="shift-indicator">●</span>';
           html += '</div>';
         }
-        
-        // 次月の日付を埋める（42マス目まで）
+
         const totalDays = firstDay.getDay() + lastDay.getDate();
         for (let i = totalDays; i < 42; i++) {
           html += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
         }
-        
+
         html += '</div>';
         calendar.innerHTML = html;
-        
-        // 各日付要素にイベントリスナーを追加
+
         const dayElements = calendar.querySelectorAll('.calendar-day:not(.empty)');
-        
-        dayElements.forEach(dayElement => {
+        dayElements.forEach((dayElement) => {
           const date = dayElement.getAttribute('data-date');
-          
-          if (date) {
-            // タッチイベントとクリックイベントの両方に対応
-            dayElement.addEventListener('touchstart', (e) => {
+          if (!date) return;
+          dayElement.addEventListener(
+            'touchstart',
+            (e) => {
               e.preventDefault();
               showAttendanceDetails(date);
-            }, { passive: false });
-            
-            dayElement.addEventListener('click', (e) => {
-              e.preventDefault();
-              showAttendanceDetails(date);
-            });
-          }
+            },
+            { passive: false },
+          );
+          dayElement.addEventListener('click', (e) => {
+            e.preventDefault();
+            showAttendanceDetails(date);
+          });
         });
       }
 
-      // 月選択ボタンのイベントリスナーを設定
       function setupMonthButtons() {
-        // 既に設定済みの場合はスキップ
-        if (window.attendanceMonthButtonsSetup) {
-          return;
-        }
-        
+        if (window.attendanceMonthButtonsSetup) return;
         const previousBtn = document.getElementById('previous-month-btn');
         const nextBtn = document.getElementById('next-month-btn');
-        
-        // グローバル関数としてハンドラーを定義
-        window.previousMonthHandler = function(e) {
-            e.preventDefault();
-            previousMonth();
+        window.previousMonthHandler = function (e) {
+          e.preventDefault();
+          previousMonth();
         };
-          
-        window.nextMonthHandler = function(e) {
-            e.preventDefault();
+        window.nextMonthHandler = function (e) {
+          e.preventDefault();
           nextMonth();
         };
-        
         if (previousBtn) {
-          // 既存のリスナーを削除（念のため）
-          previousBtn.removeEventListener('touchstart', window.previousMonthHandler);
-          previousBtn.removeEventListener('click', window.previousMonthHandler);
-          
-          // 新しいリスナーを追加
           previousBtn.addEventListener('touchstart', window.previousMonthHandler, { passive: false });
           previousBtn.addEventListener('click', window.previousMonthHandler);
         }
-        
         if (nextBtn) {
-          // 既存のリスナーを削除（念のため）
-          nextBtn.removeEventListener('touchstart', window.nextMonthHandler);
-          nextBtn.removeEventListener('click', window.nextMonthHandler);
-          
-          // 新しいリスナーを追加
           nextBtn.addEventListener('touchstart', window.nextMonthHandler, { passive: false });
           nextBtn.addEventListener('click', window.nextMonthHandler);
         }
-        
-        // 設定済みフラグを立てる
         window.attendanceMonthButtonsSetup = true;
       }
 
-      // 前月ボタンクリック処理
       async function previousMonth() {
-        if (window.currentMonth > 0) {
-          window.currentMonth--;
-        } else {
+        if (window.currentMonth > 0) window.currentMonth--;
+        else {
           window.currentMonth = 11;
           window.currentYear--;
         }
         updateMonthDisplay();
+        clearAttendanceDetailsView();
         generateAttendanceCalendar();
-        // データ取得を完了してからカレンダーを再生成
         await loadAttendanceData();
       }
 
-      // 次月ボタンクリック処理
       async function nextMonth() {
-        if (window.currentMonth < 11) {
-          window.currentMonth++;
-        } else {
+        if (window.currentMonth < 11) window.currentMonth++;
+        else {
           window.currentMonth = 0;
           window.currentYear++;
         }
         updateMonthDisplay();
+        clearAttendanceDetailsView();
         generateAttendanceCalendar();
-        // データ取得を完了してからカレンダーを再生成
         await loadAttendanceData();
       }
 
-      // 月表示を更新
       function updateMonthDisplay() {
         const monthDisplay = document.getElementById('current-month-display');
-        if (monthDisplay) {
-          monthDisplay.textContent = `${window.currentYear}年${window.currentMonth + 1}月`;
-        }
+        if (monthDisplay) monthDisplay.textContent = `${window.currentYear}年${window.currentMonth + 1}月`;
       }
 
-      // 勤怠データを読み込み
       async function loadAttendanceData() {
+        const LE = window.LiffErrors;
         const calendar = document.getElementById('attendance-calendar');
         const prevBtn = document.getElementById('previous-month-btn');
         const nextBtn = document.getElementById('next-month-btn');
+        const generation = (window.attendanceLoadGeneration || 0) + 1;
+        window.attendanceLoadGeneration = generation;
+        const year = window.currentYear;
+        const month = window.currentMonth + 1;
+        const monthKey = getAttendanceMonthKey(year, month);
+        window.attendanceCurrentLoadingMonthKey = monthKey;
 
         try {
-          if (calendar) {
-            calendar.innerHTML = '<div class="spinner"></div>';
-          }
+          window.attendanceHistoryState = 'loading';
+          window.attendanceHistoryLoadFailed = false;
+          window.attendanceData = {};
+          if (calendar) setAttendanceCalendarLoading();
           if (prevBtn) prevBtn.disabled = true;
           if (nextBtn) nextBtn.disabled = true;
 
           const currentUser = window.Firebase.auth.currentUser;
           if (!currentUser) {
-            return;
+            const resolved = LE
+              ? LE.resolveUserFacingError({
+                  operation: 'get_attendance_history',
+                  errorKey: 'ATTENDANCE_UNAUTHENTICATED',
+                })
+              : { message: 'ログイン情報を確認できませんでした。ページを再読み込みしてください。' };
+            throw new Error(resolved.message);
           }
 
           const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
           const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
           const getStaffAttendance = httpsCallable(functions, 'getStaffAttendance');
+          const result = await getStaffAttendance({ year, month });
+          if (generation !== window.attendanceLoadGeneration) return;
 
-          const result = await getStaffAttendance({
-            staffId: currentUser.uid,
-            year: window.currentYear,
-            month: window.currentMonth + 1
-          });
-
-          if (result.data.success) {
-            window.attendanceData = {};
-            result.data.attendances.forEach((attendance) => {
-              if (attendance.date) {
-                window.attendanceData[attendance.date] = attendance;
-              }
-            });
-            generateAttendanceCalendar();
+          const payload = result ? result.data : null;
+          const isValid = LE
+            ? LE.isGetStaffAttendanceShape(payload, { year, month })
+            : payload && payload.success === true;
+          if (!isValid) {
+            throw new Error('malformed_get_staff_attendance');
           }
-        } catch (error) {
+
+          window.attendanceData = {};
+          payload.data.attendances.forEach((attendance) => {
+            if (attendance && attendance.date) {
+              window.attendanceData[attendance.date] = attendance;
+            }
+          });
+          window.attendanceLoadedMonthKey = monthKey;
+          window.attendanceHistoryState = 'success';
+          window.attendanceHistoryLoadFailed = false;
           generateAttendanceCalendar();
+        } catch (error) {
+          if (generation !== window.attendanceLoadGeneration) return;
+          window.attendanceData = {};
+          window.attendanceLoadedMonthKey = null;
+          window.attendanceHistoryState = 'failure';
+          window.attendanceHistoryLoadFailed = true;
+          const resolved = LE
+            ? LE.resolveUserFacingError({ operation: 'get_attendance_history', error: error })
+            : { message: '勤怠履歴を取得できませんでした。再試行してください。' };
+          renderAttendanceCalendarError(resolved.message, () => {
+            loadAttendanceData();
+          });
         } finally {
-          if (prevBtn) prevBtn.disabled = false;
-          if (nextBtn) nextBtn.disabled = false;
+          if (generation === window.attendanceLoadGeneration) {
+            if (prevBtn) prevBtn.disabled = false;
+            if (nextBtn) nextBtn.disabled = false;
+          }
         }
       }
 
-      // 勤怠詳細を表示
       async function showAttendanceDetails(date) {
+        const LE = window.LiffErrors;
         const detailsSection = document.getElementById('attendance-details');
         const titleElement = document.getElementById('selected-date-title');
         const cardsContainer = document.getElementById('attendance-cards');
-        
-        // 要素取得結果を確認
-        if (!detailsSection || !titleElement || !cardsContainer) {
+        if (!detailsSection || !titleElement || !cardsContainer) return;
+
+        window.selectedAttendanceDate = date;
+        titleElement.textContent = `${formatDateWeekdayJst(date)} の勤怠記録`;
+        detailsSection.style.display = 'block';
+        cardsContainer.innerHTML = '<div class="spinner"></div>';
+
+        if (window.attendanceHistoryLoadFailed === true) {
+          const msg = LE ? LE.MESSAGES.ATT_PAGE_LOAD_FAILED : '勤怠情報を取得できませんでした。再試行してください。';
+          cardsContainer.innerHTML = `<p class="error">${msg}</p>`;
           return;
         }
-        
-        // 選択された日付をグローバル変数に保存
-        window.selectedAttendanceDate = date;
-        
-        // 日付タイトルを更新（曜日付き）
-        const dateObj = new Date(date);
-        const weekday = ['日', '月', '火', '水', '木', '金', '土'][dateObj.getDay()];
-        titleElement.textContent = `${date} (${weekday}) の勤怠記録`;
-        
-        // セクションを表示
-        detailsSection.style.display = 'block';
-        
-        // スピナーを表示
-        cardsContainer.innerHTML = '<div class="spinner"></div>';
-        
-        // 非同期処理を待つため、少し遅延を入れる
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
-        if (window.attendanceData && window.attendanceData[date]) {
-          const attendance = window.attendanceData[date];
+
+        const attendance = window.attendanceData && window.attendanceData[date] ? window.attendanceData[date] : null;
+        if (attendance) {
           const cardClass = attendance.isManual ? 'attendance-card manual' : 'attendance-card qr';
-          
+          const dateText = formatDateWeekdayJst(date);
           let cardHTML = `<div class="${cardClass}">`;
-          
-          // ヘッダー部分
-          cardHTML += `<div class="attendance-header">`;
-          cardHTML += `<span class="attendance-date">${date} (${weekday})</span>`;
-          cardHTML += `<span class="attendance-status">${attendance.isManual ? '手動打刻' : 'QR打刻'}</span>`;
-          cardHTML += `</div>`;
-          
-          // 時間情報
-          cardHTML += `<div class="attendance-time">`;
+          cardHTML += `<div class="attendance-header"><span class="attendance-date">${dateText}</span><span class="attendance-status">${attendance.isManual ? '手動打刻' : 'QR打刻'}</span></div>`;
+          cardHTML += '<div class="attendance-time">';
           if (attendance.clockIn) {
-            const clockInTime = formatTime(attendance.clockIn);
-            cardHTML += `<div class="time-row"><span class="time-label">出勤:</span> <span class="time-value">${clockInTime}</span></div>`;
+            cardHTML += `<div class="time-row"><span class="time-label">出勤:</span> <span class="time-value">${formatTime(attendance.clockIn)}</span></div>`;
           }
-          
           if (attendance.clockOut) {
-            const clockOutTime = formatTime(attendance.clockOut);
-            cardHTML += `<div class="time-row"><span class="time-label">退勤:</span> <span class="time-value">${clockOutTime}</span></div>`;
+            cardHTML += `<div class="time-row"><span class="time-label">退勤:</span> <span class="time-value">${formatTime(attendance.clockOut)}</span></div>`;
           } else {
-            cardHTML += `<div class="time-row"><span class="time-label">退勤:</span> <span class="time-value working">勤務中</span></div>`;
+            cardHTML += '<div class="time-row"><span class="time-label">退勤:</span> <span class="time-value working">勤務中</span></div>';
           }
-          cardHTML += `</div>`;
-          
-          // 勤務時間情報（Phase4.1-F: actualWorkMinutes, nightWorkMinutes 優先）
-          cardHTML += `<div class="attendance-summary">`;
+          cardHTML += '</div>';
+
           const workMin = attendance.actualWorkMinutes ?? attendance.totalMinutes;
-          if (workMin) {
-            const hours = Math.floor(workMin / 60);
-            const minutes = workMin % 60;
-            cardHTML += `<div class="summary-row"><span class="summary-label">勤務時間:</span> <span class="summary-value">${hours}時間${minutes}分</span></div>`;
-          }
           const nightMin = attendance.nightWorkMinutes ?? attendance.nightMinutes;
-          if (nightMin) {
-            const hours = Math.floor(nightMin / 60);
-            const minutes = nightMin % 60;
-            cardHTML += `<div class="summary-row"><span class="summary-label">深夜時間:</span> <span class="summary-value">${hours}時間${minutes}分</span></div>`;
+          cardHTML += '<div class="attendance-summary">';
+          if (typeof workMin === 'number' && workMin >= 0) {
+            cardHTML += `<div class="summary-row"><span class="summary-label">勤務時間:</span> <span class="summary-value">${Math.floor(workMin / 60)}時間${workMin % 60}分</span></div>`;
+          }
+          if (typeof nightMin === 'number' && nightMin >= 0) {
+            cardHTML += `<div class="summary-row"><span class="summary-label">深夜時間:</span> <span class="summary-value">${Math.floor(nightMin / 60)}時間${nightMin % 60}分</span></div>`;
           }
           if (attendance.isDeleted) {
-            cardHTML += `<div class="summary-row"><span class="summary-label">状態:</span> <span class="summary-value" style="color:gray;">削除済み</span></div>`;
+            cardHTML += '<div class="summary-row"><span class="summary-label">状態:</span> <span class="summary-value" style="color:gray;">削除済み</span></div>';
           }
-          cardHTML += `</div>`;
-          
-          cardHTML += '</div>';
-          
-          // 勤怠修正申請ボタンを追加
+          cardHTML += '</div></div>';
           cardHTML += '<div class="attendance-card-actions">';
-          cardHTML += '<button class="btn primary-btn correction-request-btn" data-attendance=\'' + JSON.stringify(attendance) + '\'>勤怠修正申請</button>';
+          cardHTML += `<button class="btn primary-btn correction-request-btn" data-date="${date}">${LE ? LE.MESSAGES.ATT_BTN_SUBMIT : '勤怠修正を申請'}</button>`;
           cardHTML += '</div>';
-          
           cardsContainer.innerHTML = cardHTML;
-          
-          // 勤怠修正申請ボタンのイベントリスナーを設定
-          setupCorrectionRequestButtons();
-          
-          // 修正申請タブに勤怠データを設定
           setupCorrectionFormWithData(attendance);
-          
-          // 日付選択時点で申請済みかチェック
-          await checkExistingRequestOnDateSelect(date);
         } else {
-          cardsContainer.innerHTML = '<p>この日の勤怠記録はありません。</p>';
-          
-          // 修正申請タブにデータをクリア
+          cardsContainer.innerHTML =
+            `<p>${LE ? LE.MESSAGES.ATT_HISTORY_EMPTY_DAY : 'この日の勤怠記録はありません。'}</p>` +
+            `<div class="attendance-card-actions"><button class="btn primary-btn correction-request-btn" data-date="${date}">${LE ? LE.MESSAGES.ATT_BTN_SUBMIT : '勤怠修正を申請'}</button></div>`;
           setupCorrectionFormWithData(null);
         }
-        
+
+        setupCorrectionRequestButtons();
+        await checkExistingRequestOnDateSelect(date, { silent: true });
       }
 
-      // 勤怠詳細を非表示
       function hideAttendanceDetails() {
-        document.getElementById('attendance-details').style.display = 'none';
+        const el = document.getElementById('attendance-details');
+        if (el) el.style.display = 'none';
       }
 
-      // 勤怠データを修正申請フォームに設定
       function setupCorrectionFormWithData(attendanceData) {
+        const currentTimeDisplay = document.getElementById('current-time-display');
+        const newClockInEl = document.getElementById('new-clockin');
+        const newClockOutEl = document.getElementById('new-clockout');
+        const correctionType = document.getElementById('correction-type');
+
         if (attendanceData) {
-          // 修正対象日は削除したので、ここでは何もしない
-          
-          // 現在の記録を表示
-          const currentTimeDisplay = document.getElementById('current-time-display');
           if (currentTimeDisplay) {
-            let currentTimeHTML = '';
-            if (attendanceData.clockIn) {
-              currentTimeHTML += `出勤: ${formatTime(attendanceData.clockIn)}`;
-            }
-            if (attendanceData.clockOut) {
-              currentTimeHTML += currentTimeHTML ? ` - 退勤: ${formatTime(attendanceData.clockOut)}` : `退勤: ${formatTime(attendanceData.clockOut)}`;
-            } else {
-              currentTimeHTML += currentTimeHTML ? ' - 勤務中' : '勤務中';
-            }
-            currentTimeDisplay.innerHTML = currentTimeHTML;
+            let currentText = '';
+            if (attendanceData.clockIn) currentText += `出勤: ${formatTime(attendanceData.clockIn)}`;
+            if (attendanceData.clockOut) currentText += currentText ? ` - 退勤: ${formatTime(attendanceData.clockOut)}` : `退勤: ${formatTime(attendanceData.clockOut)}`;
+            else currentText += currentText ? ' - 勤務中' : '勤務中';
+            currentTimeDisplay.textContent = currentText;
           }
-          
-          // 新しい時刻の初期値を現在の時刻に設定
-          if (attendanceData.clockIn) {
-            const clockInTime = new Date(attendanceData.clockIn);
-            const hours = clockInTime.getHours().toString().padStart(2, '0');
-            const minutes = clockInTime.getMinutes().toString().padStart(2, '0');
-            document.getElementById('new-clockin').value = `${hours}:${minutes}`;
-          }
-          
-          if (attendanceData.clockOut) {
-            const clockOutTime = new Date(attendanceData.clockOut);
-            const hours = clockOutTime.getHours().toString().padStart(2, '0');
-            const minutes = clockOutTime.getMinutes().toString().padStart(2, '0');
-            document.getElementById('new-clockout').value = `${hours}:${minutes}`;
-          }
-          
-          // 修正種別の初期値を設定（bothに設定して両方のフィールドを有効化）
-          const correctionType = document.getElementById('correction-type');
-          if (correctionType) {
-            correctionType.value = 'both';
-            // 修正種別の変更イベントを設定
-            setupCorrectionTypeChange();
-          }
+          if (newClockInEl) newClockInEl.value = formatJstHmFromIso(attendanceData.clockIn) || '';
+          if (newClockOutEl) newClockOutEl.value = formatJstHmFromIso(attendanceData.clockOut) || '';
         } else {
-          // 勤怠データがない場合、今日の日付をデフォルトに設定
-          const today = new Date();
-          const todayString = today.toISOString().split('T')[0];
-          document.getElementById('correction-date').value = todayString;
-          
-          // 現在の記録をクリア
-          const currentTimeDisplay = document.getElementById('current-time-display');
-          if (currentTimeDisplay) {
-            currentTimeDisplay.innerHTML = '勤怠記録がありません';
-          }
+          if (currentTimeDisplay) currentTimeDisplay.textContent = '勤怠記録がありません';
+          if (newClockInEl) newClockInEl.value = '';
+          if (newClockOutEl) newClockOutEl.value = '';
+        }
+
+        if (correctionType) {
+          correctionType.value = 'both';
+          setupCorrectionTypeChange();
+          correctionType.dispatchEvent(new Event('change'));
         }
       }
 
-
-
-      // 勤怠修正申請パネルを閉じる
       function closeCorrectionPanel() {
         const panel = document.getElementById('correction-panel');
-        if (panel) {
-          panel.classList.remove('active');
-          // フォームをリセット
-          document.getElementById('correction-form').reset();
-        }
+        if (!panel) return;
+        panel.classList.remove('active');
+        const form = document.getElementById('correction-form');
+        if (form) form.reset();
       }
 
-      // 修正種別の変更イベントを設定
       function setupCorrectionTypeChange() {
         const correctionType = document.getElementById('correction-type');
         const newClockIn = document.getElementById('new-clockin');
         const newClockOut = document.getElementById('new-clockout');
-        
-        correctionType.addEventListener('change', function() {
-          const type = this.value;
-          
-          // 前の選択の影響をリセット（両方のフィールドを一旦有効化）
+        if (!correctionType || !newClockIn || !newClockOut) return;
+
+        correctionType.onchange = function () {
+          const type = correctionType.value;
           newClockIn.disabled = false;
           newClockOut.disabled = false;
-          
-          // 修正種別に応じて入力フィールドを制御
           if (type === 'clockIn') {
             newClockIn.required = true;
             newClockOut.required = false;
@@ -4620,350 +5192,447 @@
           } else if (type === 'both') {
             newClockIn.required = true;
             newClockOut.required = true;
-            newClockIn.disabled = false;
-            newClockOut.disabled = false;
-          } else if (type === 'other') {
+          } else {
             newClockIn.required = false;
             newClockOut.required = false;
             newClockIn.disabled = true;
             newClockOut.disabled = true;
           }
-        });
+        };
       }
 
-      // 修正申請フォームの送信処理
+      function validateCorrectionInput(date, type, newClockIn, newClockOut, reason) {
+        if (!date) return '日付を選択してください。';
+        if (!type) return '修正する内容を選択してください。';
+        const hhmm = /^([01]\d|2[0-3]):([0-5]\d)$/;
+        if ((type === 'clockIn' || type === 'both') && !newClockIn) return '修正後の時刻を入力してください。';
+        if ((type === 'clockOut' || type === 'both') && !newClockOut) return '修正後の時刻を入力してください。';
+        if (newClockIn && !hhmm.test(newClockIn)) return '入力内容を確認してください。';
+        if (newClockOut && !hhmm.test(newClockOut)) return '入力内容を確認してください。';
+        if (!reason) return '修正理由を入力してください。';
+        if (reason.length > 500) return '入力内容を確認してください。';
+        return null;
+      }
+
+      async function runFreshCorrectionStatusCheck(date, options = {}) {
+        const LE = window.LiffErrors;
+        try {
+          const runCheck = async () => {
+            const functions = window.Firebase.functions;
+            const checkExistingRequest = window.FirebaseFunctions.httpsCallable(functions, 'checkExistingCorrectionRequest');
+            const result = await checkExistingRequest({ date });
+            const payload = result ? result.data : null;
+            if (!LE || !LE.isCheckAttendanceCorrectionShape(payload, { date })) {
+              throw new Error('malformed_check_existing_correction');
+            }
+            setCorrectionStatusCache(date, payload.data);
+            return payload.data;
+          };
+          if (options.withLoading === true) {
+            return await executeWithGlobalLoading(runCheck, LE ? LE.MESSAGES.ATT_LOADING_CORRECTION_STATUS : '申請状況を確認しています…');
+          }
+          return await runCheck();
+        } catch (error) {
+          if (!options.silent) {
+            showError(
+              LE
+                ? LE.resolveUserFacingError({ operation: 'check_attendance_correction', error })
+                : '勤怠修正の申請状況を確認できませんでした。再試行してください。',
+            );
+          }
+          return null;
+        }
+      }
+
       async function submitCorrectionRequest(event) {
         event.preventDefault();
-        
-        // 現在選択されている日付を取得（グローバル変数から）
+        const LE = window.LiffErrors;
         const selectedDate = window.selectedAttendanceDate;
-        
-        // 現在の勤怠記録を取得
-        const currentAttendance = window.attendanceData && window.attendanceData[selectedDate] ? window.attendanceData[selectedDate] : null;
-        
-        // 現在の勤怠時刻をhh:mm形式で取得
-        let currentClockInHHMM = null;
-        let currentClockOutHHMM = null;
-        
-        if (currentAttendance) {
-          if (currentAttendance.clockIn) {
-            // 時刻をhh:mm形式に変換
-            const clockInDate = new Date(currentAttendance.clockIn);
-            const hours = clockInDate.getHours().toString().padStart(2, '0');
-            const minutes = clockInDate.getMinutes().toString().padStart(2, '0');
-            currentClockInHHMM = `${hours}:${minutes}`;
-          }
-          
-          if (currentAttendance.clockOut) {
-            // 時刻をhh:mm形式に変換
-            const clockOutDate = new Date(currentAttendance.clockOut);
-            const hours = clockOutDate.getHours().toString().padStart(2, '0');
-            const minutes = clockOutDate.getMinutes().toString().padStart(2, '0');
-            currentClockOutHHMM = `${hours}:${minutes}`;
-          }
+        const correctionTypeEl = document.getElementById('correction-type');
+        const newClockInEl = document.getElementById('new-clockin');
+        const newClockOutEl = document.getElementById('new-clockout');
+        const reasonEl = document.getElementById('correction-reason');
+        const type = correctionTypeEl ? correctionTypeEl.value : '';
+        const newClockIn = newClockInEl ? String(newClockInEl.value || '').trim() : '';
+        const newClockOut = newClockOutEl ? String(newClockOutEl.value || '').trim() : '';
+        const reason = reasonEl ? String(reasonEl.value || '').trim() : '';
+
+        const validationError = validateCorrectionInput(selectedDate, type, newClockIn, newClockOut, reason);
+        if (validationError) {
+          showError(validationError);
+          return;
         }
 
-        
-        // スタッフ情報を取得して名前を取得
-        let staffName = '不明';
-        try {
-          const { db } = window.Firebase;
-          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          
-          const staffDoc = await getDoc(doc(db, 'staffs', window.Firebase.auth.currentUser.uid));
-          
-          if (staffDoc.exists()) {
-            const staffData = staffDoc.data();
-            staffName = staffData.fullName || window.Firebase.auth.currentUser.uid;
-          } else {
-            staffName = window.Firebase.auth.currentUser.uid;
-          }
-        } catch (error) {
-          alert('スタッフ情報取得エラー: ' + error.message);
-          staffName = window.Firebase.auth.currentUser.uid;
+        const guard = LE
+          ? LE.getAttendanceCorrectionGuard(window.pendingAttendanceCorrection, window.attendanceCorrectionSubmitBusy === true)
+          : { allowNewNonce: true, blockReason: null };
+        if (guard.blockReason === 'pending_lock') {
+          showError(LE ? LE.MESSAGES.ATT_CORRECTION_RESULT_UNKNOWN : '勤怠修正申請の結果を確認できません。再度操作せず、申請状況を確認してください。');
+          return;
         }
-        
-        const formData = {
+        if (!guard.allowNewNonce) return;
+
+        const preflight = await runFreshCorrectionStatusCheck(selectedDate, { withLoading: true, silent: true });
+        if (!preflight) {
+          showError(LE ? LE.MESSAGES.ATT_CORRECTION_STATUS_LOAD_FAILED : '勤怠修正の申請状況を確認できませんでした。再試行してください。');
+          return;
+        }
+        if (preflight.exists === true) {
+          hideCorrectionForm();
+          showError(LE ? LE.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この日の勤怠修正はすでに申請されています。');
+          return;
+        }
+
+        const payload = {
           date: selectedDate,
-          type: document.getElementById('correction-type').value,
-          currentClockIn: currentClockInHHMM,
-          currentClockOut: currentClockOutHHMM,
-          newClockIn: document.getElementById('new-clockin').value,
-          newClockOut: document.getElementById('new-clockout').value,
-          reason: document.getElementById('correction-reason').value,
-          staffId: window.Firebase.auth.currentUser?.uid,
-          staffName: staffName,
-          status: 'pending',
-          createdAt: new Date().toISOString()
+          type,
+          reason,
+          ...(type === 'clockIn' || type === 'both' ? { newClockIn } : {}),
+          ...(type === 'clockOut' || type === 'both' ? { newClockOut } : {}),
         };
-        if (currentAttendance && currentAttendance.id) {
-          formData.attendanceId = currentAttendance.id;
-        }
-        
-        
-        const correctionForm = document.getElementById('correction-form');
+        const clientNonce = LE ? LE.createClientNonce() : `${Date.now()}_${Math.random()}`;
+        window.pendingAttendanceCorrection = LE
+          ? LE.createAttendanceCorrectionPending(clientNonce, selectedDate, payload)
+          : { clientNonce, date: selectedDate, payload, state: 'submitting', startedAt: Date.now() };
+        window.attendanceCorrectionSubmitBusy = true;
+        if (!window.attendanceCorrectionPreflightByDate) window.attendanceCorrectionPreflightByDate = {};
+        window.attendanceCorrectionPreflightByDate[selectedDate] = false;
+        setCorrectionSubmitBusy(true);
+        setCorrectionFormControlsDisabled(true);
 
-        const runCorrectionSubmit = async () => {
-          const functions = window.Firebase.functions;
-          const createCorrectionRequest = window.FirebaseFunctions.httpsCallable(functions, 'createAttendanceCorrectionRequest');
-
-          const result = await createCorrectionRequest(formData);
-
-          if (result.data.success) {
-            alert('修正申請を送信しました。承認までお待ちください。');
-            hideCorrectionForm();
-          } else {
-            alert('修正申請の送信に失敗しました: ' + result.data.error);
-          }
-        };
-
-        const controls = correctionForm?.querySelectorAll('input, select, textarea, button') || [];
-
-        controls.forEach((el) => {
-          el.disabled = true;
-        });
-
+        let classified = null;
         try {
-          await executeWithGlobalLoading(runCorrectionSubmit, '勤怠修正申請を送信中…');
+          await executeWithGlobalLoading(async () => {
+            const functions = window.Firebase.functions;
+            const createCorrectionRequest = window.FirebaseFunctions.httpsCallable(functions, 'createAttendanceCorrectionRequest');
+            const result = await createCorrectionRequest({
+              clientNonce,
+              ...payload,
+            });
+            classified = LE
+              ? LE.classifySubmitAttendanceCorrectionOutcome({
+                  data: result ? result.data : null,
+                  expectedNonce: clientNonce,
+                  expectedDate: selectedDate,
+                })
+              : { outcome: 'result_unknown', resolved: { message: '勤怠修正申請の結果を確認できません。再度操作せず、申請状況を確認してください。' } };
+          }, LE ? LE.MESSAGES.ATT_BTN_SUBMITTING : '申請中…');
         } catch (error) {
-          alert('修正申請送信エラー: ' + error.message);
-          alert('修正申請の送信に失敗しました。もう一度お試しください。');
-        } finally {
-          controls.forEach((el) => {
-            el.disabled = false;
+          classified = LE
+            ? LE.classifySubmitAttendanceCorrectionOutcome({
+                error,
+                expectedNonce: clientNonce,
+                expectedDate: selectedDate,
+              })
+            : { outcome: 'result_unknown', resolved: { message: '勤怠修正申請の結果を確認できません。再度操作せず、申請状況を確認してください。' } };
+        }
+
+        const transition = LE
+          ? LE.transitionAttendanceCorrectionPending(window.pendingAttendanceCorrection, classified.outcome)
+          : { pending: classified.outcome === 'result_unknown' ? window.pendingAttendanceCorrection : null, discardNonce: classified.outcome !== 'result_unknown' };
+        window.pendingAttendanceCorrection = transition.pending;
+        window.attendanceCorrectionSubmitBusy = false;
+        setCorrectionSubmitBusy(false);
+        setCorrectionFormControlsDisabled(window.pendingAttendanceCorrection && window.pendingAttendanceCorrection.state === 'result_unknown');
+
+        if (classified.outcome === 'success') {
+          setCorrectionStatusCache(selectedDate, {
+            exists: true,
+            date: selectedDate,
+            status: 'pending',
+            requestId: classified.data && classified.data.data ? classified.data.data.requestId : 'pending',
           });
-          document.getElementById('correction-type')?.dispatchEvent(new Event('change'));
+          hideCorrectionForm();
+          showSuccess(LE ? LE.MESSAGES.ATT_CORRECTION_SUCCESS : '勤怠修正を申請しました。');
+          return;
+        }
+
+        if (classified.outcome === 'confirmed_failure') {
+          showError(classified.resolved);
+          if (classified.errorKey === 'ATTENDANCE_CORRECTION_ALREADY_EXISTS') {
+            const fresh = await runFreshCorrectionStatusCheck(selectedDate, { withLoading: false, silent: true });
+            if (fresh && fresh.exists) hideCorrectionForm();
+          }
+          return;
+        }
+
+        showError(LE ? LE.MESSAGES.ATT_CORRECTION_RESULT_UNKNOWN : classified.resolved.message);
+        const freshAfterUnknown = await runFreshCorrectionStatusCheck(selectedDate, { withLoading: true, silent: true });
+        if (LE && freshAfterUnknown) {
+          const resolved = LE.resolveAttendanceCorrectionPendingFromFreshCheck(
+            window.pendingAttendanceCorrection,
+            freshAfterUnknown,
+            {
+              preflightExistsWasFalse: window.attendanceCorrectionPreflightByDate[selectedDate] === false,
+              fromStaleCache: false,
+            },
+          );
+          if (resolved.cleared) {
+            window.pendingAttendanceCorrection = null;
+            hideCorrectionForm();
+          }
         }
       }
 
-      // 勤怠修正申請フォームの設定
       function setupCorrectionForm() {
         const form = document.getElementById('correction-form');
-        if (form) {
-          form.addEventListener('submit', submitCorrectionRequest);
-        }
+        if (!form || form.dataset.boundSubmit === '1') return;
+        form.dataset.boundSubmit = '1';
+        form.addEventListener('submit', submitCorrectionRequest);
       }
 
-
-
-      // 日付選択時点で申請済みかチェック
-      async function checkExistingRequestOnDateSelect(date) {
-        try {
-          // 申請済みかチェック
-          const functions = window.Firebase.functions;
-          const checkExistingRequest = window.FirebaseFunctions.httpsCallable(functions, 'checkExistingCorrectionRequest');
-          
-          const result = await checkExistingRequest({
-            staffId: window.Firebase.auth.currentUser.uid,
-            date: date
-          });
-          
-          if (result.data.success && result.data.hasExistingRequest) {
-            // 申請済みの場合、既存の修正申請タブがあれば閉じる
-            hideCorrectionForm();
-            
-            let message = result.data.message;
-            
-            if (result.data.status === 'rejected') {
-              message += '\n\n既存の申請を削除して再度申請しますか？';
-              if (confirm(message)) {
-                // 却下された申請を削除する処理（今後実装予定）
-                alert('既存の申請を削除する機能は今後実装予定です。');
-              }
-            } else {
-              alert(message);
-            }
-          }
-        } catch (error) {
+      async function checkExistingRequestOnDateSelect(date, options = {}) {
+        const status = await runFreshCorrectionStatusCheck(date, {
+          withLoading: false,
+          silent: options.silent === true,
+        });
+        if (!status) return null;
+        if (status.exists === true && options.silent !== true) {
+          showError(window.LiffErrors ? window.LiffErrors.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この日の勤怠修正はすでに申請されています。');
         }
+        return status;
       }
 
-      // 申請済みかチェックしてから修正申請フォームを表示
       async function checkAndShowCorrectionForm(attendanceData) {
-        try {
-          // 申請済みかチェック
-          const functions = window.Firebase.functions;
-          const checkExistingRequest = window.FirebaseFunctions.httpsCallable(functions, 'checkExistingCorrectionRequest');
-          
-          const result = await checkExistingRequest({
-            staffId: window.Firebase.auth.currentUser.uid,
-            date: attendanceData.date
-          });
-          
-          if (result.data.success) {
-            if (result.data.hasExistingRequest) {
-              // 申請済みの場合、既存の修正申請タブがあれば閉じる
-              hideCorrectionForm();
-              
-              let message = result.data.message;
-              
-              if (result.data.status === 'rejected') {
-                message += '\n\n既存の申請を削除して再度申請しますか？';
-                if (confirm(message)) {
-                  // 却下された申請を削除する処理（今後実装予定）
-                  alert('既存の申請を削除する機能は今後実装予定です。');
-                }
-              } else {
-                alert(message);
-              }
-            } else {
-              // 申請可能な場合
-              showCorrectionForm(attendanceData);
-            }
-          } else {
-            alert('申請済みチェックに失敗しました: ' + result.data.error);
-          }
-        } catch (error) {
-          alert('申請済みチェックエラー: ' + error.message);
+        const LE = window.LiffErrors;
+        if (!attendanceData || !attendanceData.date) return;
+        const status = await runFreshCorrectionStatusCheck(attendanceData.date, {
+          withLoading: true,
+          silent: true,
+        });
+        if (!status) {
+          showError(LE ? LE.MESSAGES.ATT_CORRECTION_STATUS_LOAD_FAILED : '勤怠修正の申請状況を確認できませんでした。再試行してください。');
+          return;
         }
+        if (status.exists === true) {
+          hideCorrectionForm();
+          showError(LE ? LE.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この日の勤怠修正はすでに申請されています。');
+          return;
+        }
+        showCorrectionForm(attendanceData);
       }
 
-      // 修正申請フォームを表示
       function showCorrectionForm(attendanceData) {
-        // 修正申請フォームを表示
         const correctionFormContainer = document.getElementById('correction-form-container');
-        if (correctionFormContainer) {
-          correctionFormContainer.style.display = 'block';
-          
-          // 勤怠データをフォームに設定
-          setupCorrectionFormWithData(attendanceData);
-          
-          // 修正種別の変更イベントを設定
-          setupCorrectionTypeChange();
-          
-          // フォームが表示された位置までスクロール
-          correctionFormContainer.scrollIntoView({ behavior: 'smooth' });
-        }
+        if (!correctionFormContainer) return;
+        correctionFormContainer.style.display = 'block';
+        setupCorrectionFormWithData(attendanceData);
+        setupCorrectionTypeChange();
+        setCorrectionSubmitBusy(false);
+        correctionFormContainer.scrollIntoView({ behavior: 'smooth' });
       }
 
-      // 修正申請フォームを非表示
       function hideCorrectionForm() {
         const correctionFormContainer = document.getElementById('correction-form-container');
-        if (correctionFormContainer) {
-          correctionFormContainer.style.display = 'none';
-          // フォームをリセット
-          document.getElementById('correction-form').reset();
-        }
+        if (!correctionFormContainer) return;
+        correctionFormContainer.style.display = 'none';
+        const form = document.getElementById('correction-form');
+        if (form) form.reset();
       }
 
-      // 修正申請フォームのボタン設定
       function setupCorrectionFormButtons() {
         const cancelBtn = document.getElementById('cancel-correction-btn');
-        
-        if (cancelBtn) {
-          // キャンセルボタンにタッチイベントとクリックイベントを設定
-          cancelBtn.addEventListener('touchstart', (e) => {
+        if (!cancelBtn || cancelBtn.dataset.boundCancel === '1') return;
+        cancelBtn.dataset.boundCancel = '1';
+        cancelBtn.addEventListener(
+          'touchstart',
+          (e) => {
             e.preventDefault();
             hideCorrectionForm();
-          }, { passive: false });
-          
-          cancelBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            hideCorrectionForm();
-          });
-        }
-      }
-
-      // 勤怠詳細カード内の修正申請ボタンのイベントリスナーを設定
-      function setupCorrectionRequestButtons() {
-        const correctionBtns = document.querySelectorAll('.correction-request-btn');
-        
-        correctionBtns.forEach(btn => {
-          // 既存のイベントリスナーを削除（重複防止）
-          btn.replaceWith(btn.cloneNode(true));
-          const newBtn = document.querySelector('.correction-request-btn');
-          
-          if (newBtn) {
-            // タッチイベントとクリックイベントの両方に対応
-            newBtn.addEventListener('touchstart', (e) => {
-              e.preventDefault();
-              const attendanceData = JSON.parse(newBtn.getAttribute('data-attendance'));
-              checkAndShowCorrectionForm(attendanceData);
-            }, { passive: false });
-            
-            newBtn.addEventListener('click', (e) => {
-              e.preventDefault();
-              const attendanceData = JSON.parse(newBtn.getAttribute('data-attendance'));
-              checkAndShowCorrectionForm(attendanceData);
-            });
-          }
+          },
+          { passive: false },
+        );
+        cancelBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          hideCorrectionForm();
         });
       }
 
-      // 時間をフォーマット
+      function setupCorrectionRequestButtons() {
+        const buttons = document.querySelectorAll('.correction-request-btn');
+        buttons.forEach((btn) => {
+          if (btn.dataset.boundCorrection === '1') return;
+          btn.dataset.boundCorrection = '1';
+          const handler = (e) => {
+            e.preventDefault();
+            const date = btn.getAttribute('data-date');
+            if (!date) return;
+            const attendance = window.attendanceData && window.attendanceData[date] ? window.attendanceData[date] : null;
+            checkAndShowCorrectionForm(attendance || { date });
+          };
+          btn.addEventListener('touchstart', handler, { passive: false });
+          btn.addEventListener('click', handler);
+        });
+      }
+
       function formatTime(time) {
         if (typeof time === 'string') {
-          // ISO文字列形式の場合
           try {
             const date = new Date(time);
-            return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+            if (!Number.isFinite(date.getTime())) return '--:--';
+            return new Intl.DateTimeFormat('ja-JP', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+              timeZone: 'Asia/Tokyo',
+            }).format(date);
           } catch (e) {
             return '--:--';
           }
-        } else if (time && time.seconds) {
-          // Firestore Timestamp形式の場合
+        }
+        if (time && time.seconds) {
           const date = new Date(time.seconds * 1000);
-          return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-        } else if (time && time.toDate) {
-          // Firestore Timestamp形式（toDate()メソッドあり）
+          return new Intl.DateTimeFormat('ja-JP', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Asia/Tokyo',
+          }).format(date);
+        }
+        if (time && time.toDate) {
           const date = time.toDate();
-          return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+          return new Intl.DateTimeFormat('ja-JP', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Asia/Tokyo',
+          }).format(date);
         }
         return '--:--';
       }
 
       window.openProfileManagement = async () => {
+        const LE = window.LiffErrors;
+        showPage(profilePageEl);
+        // stale clear
+        if (profileInfoEl) {
+          profileInfoEl.innerHTML = '';
+          const spinner = document.createElement('div');
+          spinner.className = 'spinner';
+          profileInfoEl.appendChild(spinner);
+        }
+
+        const renderProfileError = (resolved, onRetry) => {
+          if (!profileInfoEl) return;
+          profileInfoEl.innerHTML = '';
+          const p = document.createElement('p');
+          p.className = 'error';
+          p.textContent = resolved.message;
+          profileInfoEl.appendChild(p);
+          if (resolved.action !== null && typeof onRetry === 'function') {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn primary-btn';
+            btn.textContent = resolved.retryLabel || '再試行';
+            btn.style.marginTop = '12px';
+            btn.addEventListener('click', (e) => {
+              e.preventDefault();
+              onRetry();
+            });
+            profileInfoEl.appendChild(btn);
+          }
+        };
+
+        const renderProfileSuccess = (staffData) => {
+          if (!profileInfoEl) return;
+          profileInfoEl.innerHTML = '';
+          const card = document.createElement('div');
+          card.className = 'info-card';
+          const h3 = document.createElement('h3');
+          h3.textContent = 'スタッフ情報';
+          card.appendChild(h3);
+          const grid = document.createElement('div');
+          grid.className = 'info-grid';
+          const rows = [
+            ['名前:', staffData.fullName || ''],
+            ['かな:', staffData.fullNameKana || ''],
+            ['誕生日（月日）:', staffData.birthMonthDay || ''],
+            ['ログインID:', staffData.loginId || staffData.loginID || ''],
+            ['メール:', staffData.email || ''],
+            ['電話番号:', staffData.phoneNumber || ''],
+          ];
+          rows.forEach(([label, value]) => {
+            const item = document.createElement('div');
+            item.className = 'info-item';
+            const strong = document.createElement('strong');
+            strong.textContent = label + ' ';
+            item.appendChild(strong);
+            item.appendChild(document.createTextNode(String(value)));
+            grid.appendChild(item);
+          });
+          card.appendChild(grid);
+          profileInfoEl.appendChild(card);
+        };
+
         try {
-          // プロフィール画面を表示
-          showPage(profilePageEl);
-          
-          // スタッフ情報を取得して表示
-          const { db } = window.Firebase;
-          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          
           if (!window.LiffFirebase || !window.LiffFirebase.user) {
-            profileInfoEl.innerHTML = '<p class="error">認証が完了していません。再度ログインしてください。</p>';
+            renderProfileError(
+              LE
+                ? LE.resolveUserFacingError({
+                    operation: 'get_staff_profile',
+                    errorKey: 'STAFF_UNAUTHENTICATED',
+                  })
+                : { message: 'ログイン情報を確認できませんでした。ページを再読み込みしてください。', action: 'retry', retryLabel: '再試行' },
+              () => { window.openProfileManagement(); },
+            );
             return;
           }
-          
+
+          const { db } = window.Firebase;
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
           const { user } = window.LiffFirebase;
-          const staffDocRef = doc(db, 'staffs', user.uid);
-          const staffDoc = await getDoc(staffDocRef);
-          
-          if (staffDoc.exists()) {
-            const staffData = staffDoc.data();
-            
-            profileInfoEl.innerHTML = `
-              <div class="info-card">
-                <h3>スタッフ情報</h3>
-                <div class="info-grid">
-                  <div class="info-item">
-                    <strong>名前:</strong> ${staffData.fullName || ''}
-                  </div>
-                  <div class="info-item">
-                    <strong>かな:</strong> ${staffData.fullNameKana || ''}
-                  </div>
-                  <div class="info-item">
-                    <strong>誕生日（月日）:</strong> ${staffData.birthMonthDay || ''}
-                  </div>
-                  <div class="info-item">
-                    <strong>ログインID:</strong> ${staffData.loginId || ''}
-                  </div>
-                  <div class="info-item">
-                    <strong>メール:</strong> ${staffData.email || ''}
-                  </div>
-                  <div class="info-item">
-                    <strong>電話番号:</strong> ${staffData.phoneNumber || ''}
-                  </div>
-                </div>
-              </div>
-            `;
-          } else {
-            profileInfoEl.innerHTML = '<p class="error">スタッフ情報が見つかりませんでした。</p>';
+          const staffDoc = await getDoc(doc(db, 'staffs', user.uid));
+
+          if (!staffDoc.exists()) {
+            window._staffStatus = 'not_found';
+            renderProfileError(
+              LE
+                ? LE.resolveUserFacingError({
+                    operation: 'get_staff_profile',
+                    errorKey: 'STAFF_NOT_FOUND',
+                  })
+                : { message: 'スタッフ情報が見つかりません。', action: 'retry', retryLabel: '再試行' },
+              () => { window.openProfileManagement(); },
+            );
+            return;
           }
+
+          const staffData = staffDoc.data();
+          if (!LE || !LE.isStaffProfileDataShape(staffData)) {
+            renderProfileError(
+              {
+                message: LE ? LE.MESSAGES.STAFF_PROFILE_LOAD_FAILED : 'プロフィール情報を取得できませんでした。再試行してください。',
+                action: 'retry',
+                retryLabel: LE ? LE.MESSAGES.RETRY : '再試行',
+                kind: 'malformed',
+              },
+              () => { window.openProfileManagement(); },
+            );
+            return;
+          }
+
+          const status = normalizeStaffStatusClient(staffData);
+          window._staffStatus = status;
+          if (status === 'retired') {
+            if (profileInfoEl) profileInfoEl.innerHTML = '';
+            showError(LE.MESSAGES.STAFF_REACTIVATION_REQUIRED);
+            setTimeout(() => {
+              initReactivationBirthdayOptions();
+              populateReactivationForm(staffData);
+              if (reactivationPageEl) showPage(reactivationPageEl);
+            }, 1500);
+            return;
+          }
+
+          renderProfileSuccess(staffData);
         } catch (error) {
-          console.error("プロフィール情報取得エラー:", error);
-          profileInfoEl.innerHTML = '<p class="error">プロフィール情報の取得に失敗しました。</p>';
+          console.error("プロフィール情報取得エラー");
+          renderProfileError(
+            LE
+              ? LE.resolveUserFacingError({ operation: 'get_staff_profile', error: error })
+              : { message: 'プロフィール情報を取得できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' },
+            () => { window.openProfileManagement(); },
+          );
         }
       };
 
@@ -5002,7 +5671,9 @@
     if (loadingRetryContainer) { loadingRetryContainer.innerHTML = ''; loadingRetryContainer.style.display = 'none'; }
     if (typeof window.updateInitProgress === 'function') window.updateInitProgress(0);
 
+    let initTimedOut = false;
     const slowWarnId = setTimeout(() => {
+      if (initTimedOut) return;
       const retryContainer = document.getElementById('loading-retry-container');
       if (retryContainer) {
         retryContainer.innerHTML = '';
@@ -5010,14 +5681,15 @@
         btn.type = 'button';
         btn.className = 'btn primary-btn';
         btn.textContent = '再試行';
-        btn.onclick = () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); };
+        btn.onclick = makeInitRetryHandler();
         retryContainer.appendChild(btn);
         retryContainer.style.display = 'block';
       }
     }, INIT_SLOW_WARN_MS);
     const timeoutId = setTimeout(() => {
+      initTimedOut = true;
       loadingEl.style.display = 'none';
-      showErrorWithRetry(TIMEOUT_MESSAGE, null, () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); });
+      showErrorWithRetry(resolveInitTimeout(), null, makeInitRetryHandler());
     }, INIT_TIMEOUT_MS);
 
     const clearInitTimers = () => { clearTimeout(slowWarnId); clearTimeout(timeoutId); };
@@ -5029,12 +5701,22 @@
       if (window._debugLog) window._debugLog('4b. initLiffAndFirebaseAuth呼び出し');
       try {
           await window.initLiffAndFirebaseAuth();
+        if (window.__LIFF_LOGIN_REDIRECTING__) {
+          // liff.login() リダイレクト開始済み。後続のスタッフ登録確認へ進まない
+          clearInitTimers();
+          return;
+        }
         if (window._debugLog) window._debugLog('4c. initLiffAndFirebaseAuth完了');
       } catch (liffError) {
         clearInitTimers();
+        if (initTimedOut) return;
         loadingEl.style.display = 'none';
-        const isTimeout = liffError?.message === TIMEOUT_MESSAGE;
-        showErrorWithRetry(isTimeout ? TIMEOUT_MESSAGE : 'LIFF初期化に失敗しました', isTimeout ? null : liffError, () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); });
+        const LE = window.LiffErrors;
+        const resolved = LE
+          ? LE.resolveUserFacingError({ error: liffError, operation: 'liff_init' })
+          : { message: 'アプリの起動に失敗しました。再試行してください。', action: 'retry', retryLabel: '再試行', kind: 'liff' };
+        const canRetry = resolved.action !== null;
+        showErrorWithRetry(resolved, liffError, canRetry ? makeInitRetryHandler() : null);
         return;
       }
 
@@ -5044,21 +5726,32 @@
         if (window._debugLog) window._debugLog('4e. checkStaffRegistration完了→showPage実行済み');
       } catch (checkError) {
         clearInitTimers();
+        if (initTimedOut) return;
         loadingEl.style.display = 'none';
-        showErrorWithRetry('スタッフ登録確認に失敗しました', checkError, () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); });
+        const LE = window.LiffErrors;
+        const resolved = LE
+          ? LE.resolveUserFacingError({ error: checkError, operation: 'staff_reg_check' })
+          : { message: 'スタッフ情報を確認できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行', kind: 'unknown' };
+        showErrorWithRetry(resolved, checkError, makeInitRetryHandler());
         return;
       }
 
       clearInitTimers();
+      if (initTimedOut) return;
       loadingEl.style.display = 'none';
       errorEl.style.display = 'none';
       if (typeof window.updateInitProgress === 'function') window.updateInitProgress(100);
     } catch (error) {
       clearInitTimers();
-      if (window._debugLog) window._debugLog('4-ERR. 初期化エラー: ' + (error?.message || String(error)), true);
-      console.error("[初期化エラー]:", error);
+      if (initTimedOut) return;
+      if (window._debugLog) window._debugLog('4-ERR. 初期化エラー', true);
+      console.error("[初期化エラー]");
       loadingEl.style.display = 'none';
-      showErrorWithRetry('初期化に失敗しました', error, () => { const r = () => location.reload(); const a = window.Firebase?.auth; a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r(); });
+      const LE = window.LiffErrors;
+      const resolved = LE
+        ? LE.resolveUserFacingError({ error, operation: 'liff_init' })
+        : { message: 'アプリの起動に失敗しました。再試行してください。', action: 'retry', retryLabel: '再試行', kind: 'unknown' };
+      showErrorWithRetry(resolved, error, makeInitRetryHandler());
     }
   }
 

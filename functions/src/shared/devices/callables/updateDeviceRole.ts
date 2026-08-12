@@ -2,6 +2,12 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { logOpsError, logOpsSuccess } from "../../logging/logOpsError";
+import {
+  assertNotRemovingLastActiveAdmin,
+  countActiveAdminDevicesInTx,
+  isActiveAdminDevice,
+  requireActiveAdminCaller,
+} from "../deviceAdminAuth";
 
 const db = getFirestore();
 
@@ -9,6 +15,9 @@ const payloadSchema = z.object({
   deviceId: z.string().min(1),
   role: z.enum(["admin", "terminal", "table"]),
 });
+
+const SELF_ROLE_CHANGE_MESSAGE = "自分自身の端末ロールは変更できません";
+const LAST_ADMIN_DEMOTE_MESSAGE = "最後の管理者端末のロールは変更できません";
 
 /**
  * 管理者用：指定デバイスの role を変更する。
@@ -21,54 +30,62 @@ export const updateDeviceRole = onCall(async (request) => {
     }
 
     const { deviceId, role } = payloadSchema.parse(request.data);
-
-    // 呼び出し元が admin 端末か検証
     const callerUid = request.auth.uid;
-    const callerSnap = await db
-      .collection("devices")
-      .where("uid", "==", callerUid)
-      .limit(1)
-      .get();
 
-    if (callerSnap.empty) {
-      throw new HttpsError("permission-denied", "呼び出し元デバイスが見つかりません");
-    }
-    const caller = callerSnap.docs[0].data();
-    if (caller.role !== "admin") {
-      throw new HttpsError("permission-denied", "管理者のみが実行できます");
-    }
-
+    const caller = await requireActiveAdminCaller(db, callerUid);
     const targetRef = db.collection("devices").doc(deviceId);
-    const targetDoc = await targetRef.get();
-    if (!targetDoc.exists) {
-      throw new HttpsError("not-found", "対象デバイスが存在しません");
-    }
 
-    const updateData: Record<string, unknown> = {
-      role,
-      updatedAt: FieldValue.serverTimestamp(),
-    };
-    if (role === "terminal" || role === "table") {
-      updateData.options = {};
-      updateData.optionParams = {};
-    } else if (role === "admin") {
-      updateData.options = FieldValue.delete();
-      updateData.optionParams = FieldValue.delete();
-    }
+    await db.runTransaction(async (tx) => {
+      const targetDoc = await tx.get(targetRef);
+      if (!targetDoc.exists) {
+        throw new HttpsError("not-found", "対象デバイスが存在しません");
+      }
 
-    await targetRef.update(updateData);
+      const targetData = targetDoc.data() ?? {};
+      const demotingActiveAdmin =
+        isActiveAdminDevice(targetData) && role !== "admin";
+
+      // 最後の active admin 保護を自己操作より先に判定する。
+      // sole admin が自分を demote する場合は「最後の管理者…」になる。
+      if (demotingActiveAdmin) {
+        const activeAdminCount = await countActiveAdminDevicesInTx(db, tx);
+        assertNotRemovingLastActiveAdmin(
+          targetData,
+          activeAdminCount,
+          LAST_ADMIN_DEMOTE_MESSAGE
+        );
+      }
+
+      if (caller.callerDeviceId === deviceId) {
+        throw new HttpsError("failed-precondition", SELF_ROLE_CHANGE_MESSAGE);
+      }
+
+      const updateData: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
+        role,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (role === "terminal" || role === "table") {
+        updateData.options = {};
+        updateData.optionParams = {};
+      } else if (role === "admin") {
+        updateData.options = FieldValue.delete();
+        updateData.optionParams = FieldValue.delete();
+      }
+
+      tx.update(targetRef, updateData);
+    });
+
     logOpsSuccess({
       message: "updateDeviceRole 成功",
       functionEntry: "updateDeviceRole",
       operation: "updateDeviceRoleCatch",
       context: {
         targetDeviceId: deviceId,
-        callerDeviceId: callerSnap.docs[0].id,
+        callerDeviceId: caller.callerDeviceId,
         callerUid,
         role,
       },
     });
-
 
     return { success: true, deviceId, role };
   } catch (error) {
@@ -84,11 +101,11 @@ export const updateDeviceRole = onCall(async (request) => {
       : { callerUid: request.auth?.uid, inputParseFailed: true as const };
 
     logOpsError({
-      message: 'updateDeviceRole failed',
-      functionEntry: 'updateDeviceRole',
-      operation: 'updateDeviceRoleCatch',
+      message: "updateDeviceRole failed",
+      functionEntry: "updateDeviceRole",
+      operation: "updateDeviceRoleCatch",
       cause: error,
-      sourceProductHint: 'firestore',
+      sourceProductHint: "firestore",
       context: errContext,
     });
     throw new HttpsError("internal", "デバイスrole更新に失敗しました");

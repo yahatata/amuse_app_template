@@ -226,6 +226,13 @@ body {
   opacity: 0.65;
 }
 
+.order-page.order-pending-lock .menu-categories button,
+.order-page.order-pending-lock #menu-items button,
+.order-page.order-pending-lock #view-cart-btn-container button {
+  pointer-events: none;
+  opacity: 0.65;
+}
+
 .tournament-calendar:has(.spinner) {
   display: flex;
   justify-content: center;

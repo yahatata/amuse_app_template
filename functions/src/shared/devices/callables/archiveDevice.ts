@@ -3,8 +3,10 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { logOpsError, logOpsSuccess } from "../../logging/logOpsError";
 import {
+  assertNotRemovingLastActiveAdmin,
   assertNotSelfOperation,
-  countActiveAdminDevices,
+  countActiveAdminDevicesInTx,
+  isActiveAdminDevice,
   requireActiveAdminCaller,
 } from "../deviceAdminAuth";
 import {
@@ -18,6 +20,8 @@ const db = getFirestore();
 const payloadSchema = z.object({
   deviceId: z.string().min(1),
 });
+
+const LAST_ADMIN_ARCHIVE_MESSAGE = "最後の管理者端末は削除できません";
 
 /**
  * 管理者用: デバイスをアーカイブ（店舗UI上の「削除」）
@@ -35,56 +39,60 @@ export const archiveDevice = onCall(async (request) => {
     assertNotSelfOperation(caller.callerDeviceId, deviceId, "削除");
 
     const targetRef = db.collection("devices").doc(deviceId);
-    const targetDoc = await targetRef.get();
-    if (!targetDoc.exists) {
-      throw new HttpsError("not-found", "対象デバイスが存在しません");
-    }
 
-    const targetData = targetDoc.data() ?? {};
-    const currentStatus = normalizeDeviceStatus(
-      targetData.status as string | undefined
-    );
+    const result = await db.runTransaction(async (tx) => {
+      const targetDoc = await tx.get(targetRef);
+      if (!targetDoc.exists) {
+        throw new HttpsError("not-found", "対象デバイスが存在しません");
+      }
 
-    if (isArchivedStatus(targetData.status as string | undefined)) {
-      throw new HttpsError(
-        "failed-precondition",
-        "このデバイスは既に削除済みです"
+      const targetData = targetDoc.data() ?? {};
+      const currentStatus = normalizeDeviceStatus(
+        targetData.status as string | undefined
       );
-    }
 
-    if (
-      targetData.role === "admin" &&
-      currentStatus === "active"
-    ) {
-      const activeAdminCount = await countActiveAdminDevices(db);
-      if (activeAdminCount <= 1) {
+      if (isArchivedStatus(targetData.status as string | undefined)) {
         throw new HttpsError(
           "failed-precondition",
-          "最後の管理者端末は削除できません"
+          "このデバイスは既に削除済みです"
         );
       }
-    }
 
-    const currentUid =
-      typeof targetData.uid === "string" && targetData.uid.length > 0
-        ? targetData.uid
-        : undefined;
+      if (isActiveAdminDevice(targetData)) {
+        const activeAdminCount = await countActiveAdminDevicesInTx(db, tx);
+        assertNotRemovingLastActiveAdmin(
+          targetData,
+          activeAdminCount,
+          LAST_ADMIN_ARCHIVE_MESSAGE
+        );
+      }
 
-    const updateData: Record<string, unknown> = {
-      status: DEVICE_STATUS_ARCHIVED,
-      archivedAt: FieldValue.serverTimestamp(),
-      archivedBy: caller.callerDeviceId,
-      updatedAt: FieldValue.serverTimestamp(),
-      options: {},
-      optionParams: {},
-      uid: FieldValue.delete(),
-    };
+      const currentUid =
+        typeof targetData.uid === "string" && targetData.uid.length > 0
+          ? targetData.uid
+          : undefined;
 
-    if (currentUid) {
-      updateData.previousUid = currentUid;
-    }
+      const updateData: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
+        status: DEVICE_STATUS_ARCHIVED,
+        archivedAt: FieldValue.serverTimestamp(),
+        archivedBy: caller.callerDeviceId,
+        updatedAt: FieldValue.serverTimestamp(),
+        options: {},
+        optionParams: {},
+        uid: FieldValue.delete(),
+      };
 
-    await targetRef.update(updateData);
+      if (currentUid) {
+        updateData.previousUid = currentUid;
+      }
+
+      tx.update(targetRef, updateData);
+
+      return {
+        currentStatus,
+        previousUid: currentUid ?? null,
+      };
+    });
 
     logOpsSuccess({
       message: "archiveDevice 成功",
@@ -93,8 +101,8 @@ export const archiveDevice = onCall(async (request) => {
         targetDeviceId: deviceId,
         callerDeviceId: caller.callerDeviceId,
         callerUid,
-        previousStatus: currentStatus,
-        previousUid: currentUid ?? null,
+        previousStatus: result.currentStatus,
+        previousUid: result.previousUid,
       },
     });
 
