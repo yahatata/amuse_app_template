@@ -165,10 +165,14 @@ class TournamentEndOkibakeGuard {
   /// `validateEndTournament` → 置きバケ解消 → `endTournament`（normal）の流れ。
   ///
   /// 順位確定画面からの終了では、最終確認ダイアログは呼び出し側で済ませている前提。
+  ///
+  /// [showProgressUi] が false のとき Guard 内 progress dialog は出さない。
+  /// RankingSetupPage のように呼び出し元が全画面 loading を持つ場合に使う。
   static Future<TournamentNormalEndOutcome> executeNormalEnd({
     required BuildContext context,
     required String tournamentId,
     required TournamentService service,
+    bool showProgressUi = true,
   }) async {
     var progressDialogOpen = false;
 
@@ -180,6 +184,7 @@ class TournamentEndOkibakeGuard {
     }
 
     void showProgressDialog() {
+      if (!showProgressUi) return;
       if (!context.mounted) return;
       showDialog(
         context: context,
@@ -285,6 +290,7 @@ class TournamentEndOkibakeGuard {
             context: context,
             tournamentId: tournamentId,
             service: service,
+            showProgressUi: showProgressUi,
           );
         }
         return TournamentNormalEndOutcome.cancelled;

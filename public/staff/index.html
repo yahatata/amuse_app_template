@@ -11,6 +11,7 @@
     <!-- 店舗別設定ファイル -->
     <script src="./config.js"></script>
     <script src="../js/liff_errors.js"></script>
+    <script src="../js/app_dialogs.js"></script>
     <!-- 日本の祝日判定ライブラリ: japanese-holidays-js -->
     <!-- 読み込み失敗してもフォールバック判定で動作します -->
     <script src="https://cdn.jsdelivr.net/gh/osamutake/japanese-holidays-js@master/lib/japanese-holidays.min.js" 
@@ -2635,7 +2636,7 @@
           
           // 店休日の場合はダイアログを表示して処理を終了
           if (isClosed) {
-            alert(window.LiffErrors.MESSAGES.SHIFT_BUSINESS_DAY_CLOSED);
+            await window.AppDialogs.showAppAlert(window.LiffErrors.MESSAGES.SHIFT_BUSINESS_DAY_CLOSED);
             return;
           }
           
@@ -2656,7 +2657,7 @@
                 const weekday = weekdayNames[dateObj.getDay()];
                 const formattedDate = `${year}年${month}月${day}日(${weekday})`;
                 
-                alert(window.LiffErrors.MESSAGES.SHIFT_DATE_NOT_INSUFFICIENT);
+                await window.AppDialogs.showAppAlert(window.LiffErrors.MESSAGES.SHIFT_DATE_NOT_INSUFFICIENT);
                 return;
               }
             }
@@ -2739,7 +2740,7 @@
           return;
         }
         if (selectedDates.length === 0) {
-          alert('日付を選択してください');
+          await window.AppDialogs.showAppAlert('日付を選択してください');
           return;
         }
         
@@ -3123,7 +3124,7 @@
       }
       
       // 確認ページを表示
-      function showConfirmPage() {
+      async function showConfirmPage() {
         // 編集ページのデータを取得
         const enabledShifts = [];
         for (const [dateKey, data] of Object.entries(shiftEditData)) {
@@ -3141,7 +3142,7 @@
         }
         
         if (enabledShifts.length === 0) {
-          alert(window.LiffErrors.MESSAGES.SHIFT_EMPTY_INPUT);
+          await window.AppDialogs.showAppAlert(window.LiffErrors.MESSAGES.SHIFT_EMPTY_INPUT);
           return;
         }
         
@@ -3219,7 +3220,7 @@
         }
         const rawShifts = window.confirmShifts || [];
         if (rawShifts.length === 0) {
-          alert(LE.MESSAGES.SHIFT_EMPTY_INPUT);
+          await window.AppDialogs.showAppAlert(LE.MESSAGES.SHIFT_EMPTY_INPUT);
           return;
         }
         const toMinute = (time) => {
@@ -3319,10 +3320,10 @@
       }
 
       // シフトを追加
-      function addShiftToList() {
+      async function addShiftToList() {
         if (!selectedDate) {
           showError('日付を選択してください');
-          alert('❌ エラー！\n\n日付を選択してください。');
+          await window.AppDialogs.showAppAlert('❌ エラー！\n\n日付を選択してください。');
           return;
         }
 
@@ -3334,7 +3335,7 @@
         
         if (!startHour || !endHour) {
           showError('開始時刻と終了時刻を入力してください');
-          alert('❌ エラー！\n\n開始時刻と終了時刻を入力してください。');
+          await window.AppDialogs.showAppAlert('❌ エラー！\n\n開始時刻と終了時刻を入力してください。');
           return;
         }
         
@@ -3344,7 +3345,7 @@
         
         if (start >= end) {
           showError('開始時刻は終了時刻より前である必要があります');
-          alert('❌ エラー！\n\n開始時刻は終了時刻より前である必要があります。');
+          await window.AppDialogs.showAppAlert('❌ エラー！\n\n開始時刻は終了時刻より前である必要があります。');
           return;
         }
 
@@ -3372,7 +3373,7 @@
         const isDuplicate = pendingShifts.some(shift => shift.date === dateStr);
         if (isDuplicate) {
           showError('同じ日付のシフトは既に追加されています');
-          alert('❌ エラー！\n\n同じ日付のシフトは既に追加されています。');
+          await window.AppDialogs.showAppAlert('❌ エラー！\n\n同じ日付のシフトは既に追加されています。');
           return;
         }
 
@@ -3390,7 +3391,7 @@
         showSuccess('シフトが追加されました');
         
         // ポップアップ通知
-        alert(`📅 シフト追加完了！\n\n日付: ${shiftData.date}\n時間: ${shiftData.start} - ${shiftData.end}\n\n未提出シフト一覧に追加されました。`);
+        await window.AppDialogs.showAppAlert(`📅 シフト追加完了！\n\n日付: ${shiftData.date}\n時間: ${shiftData.start} - ${shiftData.end}\n\n未提出シフト一覧に追加されました。`);
       }
 
       // 未提出シフト一覧を更新
@@ -3412,11 +3413,11 @@
       }
 
       // シフトを削除（グローバル関数として公開）
-      window.removeShift = function(index) {
+      window.removeShift = async function(index) {
         try {
           // インデックスの妥当性チェック
           if (index < 0 || index >= pendingShifts.length) {
-            alert('❌ エラー！\n\n削除するシフトが見つかりません。\nインデックス: ' + index);
+            await window.AppDialogs.showAppAlert('❌ エラー！\n\n削除するシフトが見つかりません。\nインデックス: ' + index);
             return;
           }
           
@@ -3424,7 +3425,7 @@
           const shiftToRemove = pendingShifts[index];
           const confirmMessage = `以下のシフトを削除しますか？\n\n日付: ${shiftToRemove.date}\n時間: ${shiftToRemove.start} - ${shiftToRemove.end}`;
           
-          if (!confirm(confirmMessage)) {
+          if (!await window.AppDialogs.showAppConfirm(confirmMessage)) {
             return; // キャンセルされた場合
           }
           
@@ -3438,12 +3439,12 @@
           
           // 成功通知
           showSuccess('シフトが削除されました');
-          alert('✅ シフト削除完了！\n\nシフトが正常に削除されました。');
+          await window.AppDialogs.showAppAlert('✅ シフト削除完了！\n\nシフトが正常に削除されました。');
           
         } catch (error) {
           const errorMessage = error.message || '不明なエラーが発生しました';
           showError('シフトの削除に失敗しました: ' + errorMessage);
-          alert('❌ シフト削除失敗！\n\nエラー: ' + errorMessage + '\n\n再度お試しください。');
+          await window.AppDialogs.showAppAlert('❌ シフト削除失敗！\n\nエラー: ' + errorMessage + '\n\n再度お試しください。');
         }
       }
 
@@ -3459,7 +3460,7 @@
       async function submitAllShifts() {
         if (pendingShifts.length === 0) {
           showError('提出するシフトがありません');
-          alert('❌ エラー！\n\n提出するシフトがありません。\n\nシフトを追加してから提出してください。');
+          await window.AppDialogs.showAppAlert('❌ エラー！\n\n提出するシフトがありません。\n\nシフトを追加してから提出してください。');
           return;
         }
 
@@ -3484,7 +3485,7 @@
             showSuccess(`${pendingShifts.length}件のシフト申請が完了しました`);
             
             // ポップアップ通知を追加
-            alert(`✅ シフト申請完了！\n\n${pendingShifts.length}件のシフトが正常に保存されました。\n\n日付: ${pendingShifts.map(s => s.date).join(', ')}`);
+            await window.AppDialogs.showAppAlert(`✅ シフト申請完了！\n\n${pendingShifts.length}件のシフトが正常に保存されました。\n\n日付: ${pendingShifts.map(s => s.date).join(', ')}`);
             
             // 未提出シフトをクリア
             pendingShifts = [];
@@ -3497,7 +3498,7 @@
             showError('シフト申請に失敗しました: ' + errorMessage);
             
             // 失敗時のポップアップ通知
-            alert(`❌ シフト申請失敗！\n\nエラー: ${errorMessage}\n\nシフトは保存されていません。\n再度お試しください。`);
+            await window.AppDialogs.showAppAlert(`❌ シフト申請失敗！\n\nエラー: ${errorMessage}\n\nシフトは保存されていません。\n再度お試しください。`);
           }
           }, 'シフト申請中...');
           
@@ -3506,7 +3507,7 @@
           showError('シフト申請に失敗しました: ' + errorMessage);
           
           // 失敗時のポップアップ通知
-          alert(`❌ シフト申請失敗！\n\nエラー: ${errorMessage}\n\nシフトは保存されていません。\n再度お試しください。`);
+          await window.AppDialogs.showAppAlert(`❌ シフト申請失敗！\n\nエラー: ${errorMessage}\n\nシフトは保存されていません。\n再度お試しください。`);
         }
       }
 

@@ -287,6 +287,8 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
                 context: context,
                 tournamentId: widget.tournamentId,
                 service: _service,
+                // 本ページの全画面 loading が責務。Guard progress と二重にしない。
+                showProgressUi: false,
               );
               if (!mounted) return;
               switch (endOutcome) {

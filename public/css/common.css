@@ -2520,3 +2520,78 @@ body {
   background-color: #fee;
   border-radius: 8px;
 }
+
+/* App-owned dialogs (replace window.alert / confirm; no Hosting origin title) */
+.app-dialog-root {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+.app-dialog-root.is-open {
+  display: flex;
+}
+
+.app-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.app-dialog-panel {
+  position: relative;
+  z-index: 1;
+  width: min(420px, 100%);
+  max-height: min(80vh, 560px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px 18px 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+}
+
+.app-dialog-message {
+  margin: 0 0 18px;
+  color: #333;
+  font-size: 1rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.app-dialog-btn {
+  min-width: 88px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-dialog-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.app-dialog-btn-primary {
+  background: var(--primary-color, #3a3a3a);
+  color: #fff;
+}
+
+.app-dialog-btn-secondary {
+  background: #ececec;
+  color: #333;
+}

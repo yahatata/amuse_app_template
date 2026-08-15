@@ -9,6 +9,7 @@
     <!-- 店舗別設定ファイル -->
     <script src="./config.js"></script>
     <script src="../js/liff_errors.js"></script>
+    <script src="../js/app_dialogs.js"></script>
     <script src="./liffTournamentDisplayHelpers.js?v=20260603-fee0"></script>
     <!-- Firebase初期化スクリプト -->
     <script type="module">
@@ -1094,7 +1095,7 @@
           // PIN形式はクライアントで確実に判定できる場合のみ個別文言
           if (!/^\d{4}$/.test(String(pin))) {
             const pinMsg = (LE && LE.MESSAGES.USER_PIN_INVALID) || 'PINは4桁の数字で入力してください。';
-            alert(pinMsg);
+            await window.AppDialogs.showAppAlert(pinMsg);
             return { aborted: true };
           }
 
@@ -1121,9 +1122,9 @@
           }
 
           if (data.alreadyRegistered === true) {
-            alert('このアカウントは既に登録済みです。');
+            await window.AppDialogs.showAppAlert('このアカウントは既に登録済みです。');
           } else {
-            alert((LE && LE.MESSAGES.USER_REGISTER_OK) || '登録が完了しました。');
+            await window.AppDialogs.showAppAlert((LE && LE.MESSAGES.USER_REGISTER_OK) || '登録が完了しました。');
           }
 
           const loadingElRegister = document.getElementById('loading');
@@ -1144,11 +1145,11 @@
           if (outcome && outcome.aborted) return;
         } catch (error) {
           if (error && error.liffResolved) {
-            alert(error.liffResolved.message);
+            await window.AppDialogs.showAppAlert(error.liffResolved.message);
           } else if (LE) {
-            alert(LE.mapCallableError(error, { operation: 'create_user_account' }).message);
+            await window.AppDialogs.showAppAlert(LE.mapCallableError(error, { operation: 'create_user_account' }).message);
           } else {
-            alert('登録に失敗しました。再度お試しください。');
+            await window.AppDialogs.showAppAlert('登録に失敗しました。再度お試しください。');
           }
         } finally {
           controls.forEach((el) => {
@@ -1931,25 +1932,25 @@
         }
       };
 
-      window.removeFromCart = (index) => {
+      window.removeFromCart = async (index) => {
         if (isCartLocked()) return;
         if (index >= 0 && index < cart.length) {
-          if (confirm(`${cart[index].name}をカートから削除しますか？`)) {
+          if (await window.AppDialogs.showAppConfirm(`${cart[index].name}をカートから削除しますか？`)) {
             cart.splice(index, 1);
             updateCartDisplay();
           }
         }
       };
 
-      window.clearCart = () => {
+      window.clearCart = async () => {
         if (isCartLocked()) return;
-        if (cart.length > 0 && confirm('カートを空にしますか？')) {
+        if (cart.length > 0 && await window.AppDialogs.showAppConfirm('カートを空にしますか？')) {
           cart = [];
           updateCartDisplay();
         }
       };
 
-      // dead-code 候補（HTML から未配線）— 削除せず維持
+      // dead-code 候補（HTML から未配線）— 削除せず維持（native confirm 残置）
       window.orderItem = (itemId, itemName, price, category) => {
         const quantityElement = document.getElementById(`quantity-${itemId}`);
         const quantity = parseInt(quantityElement && quantityElement.textContent, 10) || 1;
@@ -1963,11 +1964,11 @@
         const LE = window.LiffErrors;
         if (isOrderSubmitting) return;
         if (pendingOrder && pendingOrder.state === 'result_unknown') {
-          alert(LE.MESSAGES.ORDER_RESULT_UNKNOWN);
+          await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_RESULT_UNKNOWN);
           return;
         }
         if (cart.length === 0) {
-          alert(LE.MESSAGES.CART_EMPTY);
+          await window.AppDialogs.showAppAlert(LE.MESSAGES.CART_EMPTY);
           return;
         }
 
@@ -1979,14 +1980,14 @@
             operation: 'place_order_by_user',
             errorKey: normalized.errorKey,
           });
-          alert(resolved.message);
+          await window.AppDialogs.showAppAlert(resolved.message);
           return;
         }
 
         const totalQuantity = normalized.items.reduce((s, it) => s + it.quantity, 0);
         const clientPreviewTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
         if (
-          !confirm(
+          !await window.AppDialogs.showAppConfirm(
             `合計 ${totalQuantity}個 (表示額 ¥${clientPreviewTotal.toLocaleString()})\n\nこの注文を確定しますか？`,
           )
         ) {
@@ -2012,7 +2013,7 @@
           const { auth } = window.Firebase;
           if (!auth.currentUser) {
             clearPendingOrder();
-            alert(LE.MESSAGES.ORDER_AUTH);
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_AUTH);
             return;
           }
 
@@ -2025,18 +2026,18 @@
 
           if (!LE.isGetUserStatusShape(statusResult.data)) {
             clearPendingOrder();
-            alert(LE.MESSAGES.ORDER_STAY_UNKNOWN);
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_STAY_UNKNOWN);
             return;
           }
           const stay = LE.normalizeStayStatus(statusResult.data.user.isStaying);
           if (stay === false) {
             clearPendingOrder();
-            alert(LE.MESSAGES.ORDER_NOT_STAYING);
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_NOT_STAYING);
             return;
           }
           if (stay !== true) {
             clearPendingOrder();
-            alert(LE.MESSAGES.ORDER_STAY_UNKNOWN);
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_STAY_UNKNOWN);
             return;
           }
 
@@ -2060,7 +2061,7 @@
           });
 
           if (classified.outcome === 'success') {
-            alert(LE.MESSAGES.ORDER_SUCCESS);
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_SUCCESS);
             cart = [];
             clearPendingOrder();
             updateCartDisplay();
@@ -2074,14 +2075,14 @@
 
           if (classified.outcome === 'confirmed_failure') {
             clearPendingOrder();
-            alert(classified.resolved.message);
+            await window.AppDialogs.showAppAlert(classified.resolved.message);
             updateCartDisplay();
             return;
           }
 
           // result_unknown: nonce / cart 保持、編集ロック
           pendingOrder.state = 'result_unknown';
-          alert(LE.MESSAGES.ORDER_RESULT_UNKNOWN);
+          await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_RESULT_UNKNOWN);
           updateCartDisplay();
           applyOrderLockUi();
         } finally {
@@ -2434,8 +2435,8 @@
         return null;
       }
 
-      function showRegistrationBlockReasonDialog(message) {
-        alert(message);
+      async function await showRegistrationBlockReasonDialog(message) {
+        await window.AppDialogs.showAppAlert(message);
       }
 
       function renderTournamentCard(tournament, options) {
@@ -2787,7 +2788,7 @@
       window.showTournamentRegistration = async (tournamentId) => {
         const LE = window.LiffErrors;
         if (!LE) {
-          alert('処理に失敗しました。時間をおいてもう一度お試しください。');
+          await window.AppDialogs.showAppAlert('処理に失敗しました。時間をおいてもう一度お試しください。');
           return;
         }
 
@@ -2796,7 +2797,7 @@
           tournamentRegistrationBusy,
         );
         if (guard.blockReason === 'pending_lock') {
-          alert(LE.MESSAGES.TOUR_PENDING_LOCK);
+          await window.AppDialogs.showAppAlert(LE.MESSAGES.TOUR_PENDING_LOCK);
           return;
         }
         if (guard.blockReason === 'busy') {
@@ -2809,28 +2810,28 @@
         if (tournament) {
           const blockReason = getRegistrationBlockReason(tournament);
           if (blockReason) {
-            showRegistrationBlockReasonDialog(blockReason);
+            await showRegistrationBlockReasonDialog(blockReason);
             return;
           }
         } else {
           const stay = LE.normalizeStayStatus(window.userStayingStatus);
           if (stay === false) {
-            showRegistrationBlockReasonDialog(LE.MESSAGES.TOUR_NOT_STAYING);
+            await showRegistrationBlockReasonDialog(LE.MESSAGES.TOUR_NOT_STAYING);
             return;
           }
           if (stay === 'unknown') {
-            showRegistrationBlockReasonDialog(LE.MESSAGES.TOUR_STAY_UNKNOWN);
+            await showRegistrationBlockReasonDialog(LE.MESSAGES.TOUR_STAY_UNKNOWN);
             return;
           }
         }
 
         if (window.liffTournamentSettings.liffRegistrationEnabled !== true) {
-          showRegistrationBlockReasonDialog(LE.MESSAGES.TOUR_LIFF_REGISTRATION_DISABLED);
+          await showRegistrationBlockReasonDialog(LE.MESSAGES.TOUR_LIFF_REGISTRATION_DISABLED);
           return;
         }
 
         const tournamentName = (tournament && tournament.name) || 'このトーナメント';
-        if (!confirm(`${tournamentName}に参加登録しますか？`)) {
+        if (!await window.AppDialogs.showAppConfirm(`${tournamentName}に参加登録しますか？`)) {
           return;
         }
 
@@ -2884,7 +2885,7 @@
             pendingTournamentRegistration = next.pending;
 
             if (classified.outcome === 'success') {
-              alert(LE.MESSAGES.TOUR_REGISTRATION_SUCCESS);
+              await window.AppDialogs.showAppAlert(LE.MESSAGES.TOUR_REGISTRATION_SUCCESS);
               invalidateTournamentCaches({ upcoming: true, calendar: true });
               try {
                 await loadTodayTournaments({ force: true });
@@ -2895,7 +2896,7 @@
             }
 
             if (classified.outcome === 'confirmed_failure') {
-              alert(classified.resolved.message);
+              await window.AppDialogs.showAppAlert(classified.resolved.message);
               if (
                 classified.resolved.message === LE.MESSAGES.TOUR_ALREADY_REGISTERED
               ) {
@@ -2906,7 +2907,7 @@
             }
 
             // result_unknown: busy は finally で解除、pending/nonce は保持
-            alert(LE.MESSAGES.TOUR_REGISTRATION_RESULT_UNKNOWN);
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.TOUR_REGISTRATION_RESULT_UNKNOWN);
           }, LE.MESSAGES.TOUR_BTN_SUBMITTING);
         } finally {
           tournamentRegistrationBusy = false;
@@ -2917,6 +2918,7 @@
       };
 
       window.joinTournament = (tournamentName) => {
+        /* DEAD: keep native alert intentionally */
         alert(`${tournamentName}に参加しました`);
       };
 

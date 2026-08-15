@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
 import 'package:amuse_app_template/tournament/ranking_reward_point_candidates.dart';
+import 'package:amuse_app_template/user_actions/tournament_user_addon_counter.dart';
 import 'order_from_user_action_popup.dart';
 import 'bust_and_reentry_popup.dart';
 import 'bust_and_exit_popup.dart';
@@ -35,6 +34,12 @@ Future<void> showUserActionHome({
   final actions = _buildActionsForSource(sourcePage: sourcePage, user: user);
 
   final size = MediaQuery.of(context).size;
+  final showAddonCounter = sourcePage == 'tableHomeInScheduledTournament' &&
+      user['tournamentId'] is String &&
+      (user['tournamentId'] as String).isNotEmpty &&
+      user['userId'] is String &&
+      (user['userId'] as String).isNotEmpty;
+
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -42,83 +47,112 @@ Future<void> showUserActionHome({
       const double scale = 1.2; // ポップの縦横スケール
       // 画面からはみ出さない最大高さ（スクロールさせない想定のため広めに確保）
       final double maxHeight = size.height - 48;
+      var addonCountLoadFailed = false;
+      var addonCountBusy = false;
 
-      return Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 520 * scale,
-            maxHeight: maxHeight,
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+      return StatefulBuilder(
+        builder: (context, setMenuState) {
+          return Dialog(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 520 * scale,
+                maxHeight: maxHeight,
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.person, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          (user['pokerName'] ?? '(名前未設定)').toString(),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                      Row(
+                        children: [
+                          const Icon(Icons.person, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              (user['pokerName'] ?? '(名前未設定)').toString(),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(dialogContext).pop(),
+                      const SizedBox(height: 12),
+                      if (showAddonCounter) ...[
+                        TournamentUserAddonCounter(
+                          tournamentId: user['tournamentId'] as String,
+                          userId: user['userId'] as String,
+                          onLoadFailedChanged: (failed) {
+                            if (addonCountLoadFailed == failed) return;
+                            setMenuState(() => addonCountLoadFailed = failed);
+                          },
+                          onLoadBusyChanged: (busy) {
+                            if (addonCountBusy == busy) return;
+                            setMenuState(() => addonCountBusy = busy);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        padding: EdgeInsets.zero,
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 4,
+                          childAspectRatio: 0.9,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                        ),
+                        itemCount: actions.length,
+                        itemBuilder: (context, index) {
+                          final a = actions[index];
+                          final disableAddon = showAddonCounter &&
+                              (addonCountLoadFailed || addonCountBusy) &&
+                              a.label == 'Addon';
+                          return _ActionTile(
+                            label: a.label,
+                            iconData: a.icon,
+                            color: disableAddon ? Colors.grey : a.color,
+                            onTap: () {
+                              if (disableAddon) {
+                                if (addonCountLoadFailed) {
+                                  ScaffoldMessenger.of(dialogContext)
+                                      .showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        kTournamentUserAddonCountLoadFailedMessage,
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return;
+                              }
+                              // 親メニューは開いたまま子ダイアログを重ねる（キャンセルで戻れる）
+                              a.onSelected?.call(dialogContext, user);
+                            },
+                          );
+                        },
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  if (sourcePage == 'tableHomeInScheduledTournament' &&
-                      user['tournamentId'] is String &&
-                      (user['tournamentId'] as String).isNotEmpty &&
-                      user['userId'] is String &&
-                      (user['userId'] as String).isNotEmpty) ...[
-                    _TournamentUserAddonCounter(
-                      tournamentId: user['tournamentId'] as String,
-                      userId: user['userId'] as String,
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    padding: EdgeInsets.zero,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      childAspectRatio: 0.9,
-                      crossAxisSpacing: 8,
-                      mainAxisSpacing: 8,
-                    ),
-                    itemCount: actions.length,
-                    itemBuilder: (context, index) {
-                      final a = actions[index];
-                      return _ActionTile(
-                        label: a.label,
-                        iconData: a.icon,
-                        color: a.color,
-                        onTap: () {
-                          // 親メニューは開いたまま子ダイアログを重ねる（キャンセルで戻れる）
-                          a.onSelected?.call(dialogContext, user);
-                        },
-                      );
-                    },
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       );
     },
   );
@@ -741,153 +775,3 @@ class _ActionTile extends StatelessWidget {
     );
   }
 }
-
-class _TournamentUserAddonCounter extends StatelessWidget {
-  const _TournamentUserAddonCounter({
-    required this.tournamentId,
-    required this.userId,
-  });
-
-  final String tournamentId;
-  final String userId;
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<_AddonCounterSnapshot>(
-      future: _loadAddonCounterSnapshot(
-        tournamentId: tournamentId,
-        userId: userId,
-      ),
-      builder: (context, snap) {
-        final style = Theme.of(context)
-            .textTheme
-            .bodySmall
-            ?.copyWith(color: Colors.black54);
-
-        if (snap.connectionState == ConnectionState.waiting) {
-          return Text('Addon: 読み込み中...', style: style);
-        }
-        final data = snap.data;
-        if (data == null || data.loadFailed) {
-          return Text(
-            'Addon: 回数情報を取得できませんでした',
-            style: style,
-          );
-        }
-        if (!data.isAddonEnabled || data.limit <= 0) {
-          return Text('Addon: 無効', style: style);
-        }
-        return Text(
-          'Addon: 現在 ${data.count} / ${data.limit} 回',
-          style: style,
-        );
-      },
-    );
-  }
-}
-
-class _AddonCounterSnapshot {
-  const _AddonCounterSnapshot({
-    required this.isAddonEnabled,
-    required this.limit,
-    required this.count,
-    required this.loadFailed,
-  });
-
-  final bool isAddonEnabled;
-  final int limit;
-  final int count;
-  final bool loadFailed;
-}
-
-Future<_AddonCounterSnapshot> _loadAddonCounterSnapshot({
-  required String tournamentId,
-  required String userId,
-}) async {
-  try {
-    final tournamentDoc = await FirebaseFirestore.instance
-        .collection('scheduledTournaments')
-        .doc(tournamentId)
-        .get();
-    if (!tournamentDoc.exists) {
-      return const _AddonCounterSnapshot(
-        isAddonEnabled: false,
-        limit: 0,
-        count: 0,
-        loadFailed: true,
-      );
-    }
-
-    final tData = tournamentDoc.data() ?? <String, dynamic>{};
-    final snapshot =
-        Map<String, dynamic>.from((tData['snapshot'] as Map?) ?? {});
-    final isAddon = snapshot['isAddon'] == true;
-    final limit = resolveAddonLimitPerPlayerUi(
-      isAddon: isAddon,
-      addonLimitPerPlayer: snapshot['addonLimitPerPlayer'],
-    );
-
-    if (!isAddon || limit <= 0) {
-      return const _AddonCounterSnapshot(
-        isAddonEnabled: false,
-        limit: 0,
-        count: 0,
-        loadFailed: false,
-      );
-    }
-
-    final templateIdRaw = snapshot['templateId'] ?? tData['templateId'];
-    final templateId = templateIdRaw is String ? templateIdRaw.trim() : '';
-    if (templateId.isEmpty) {
-      return _AddonCounterSnapshot(
-        isAddonEnabled: true,
-        limit: limit,
-        count: 0,
-        loadFailed: true,
-      );
-    }
-
-    var addonCount = 0;
-    final activeStayDoc = await FirebaseFirestore.instance
-        .collection('activeStays')
-        .doc(userId)
-        .get();
-    if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
-      final billIdRaw = activeStayDoc.data()?['billId'];
-      final billId = billIdRaw is String ? billIdRaw : '';
-      if (billId.isNotEmpty) {
-        final billTournamentDoc = await FirebaseFirestore.instance
-            .collection('bills')
-            .doc(billId)
-            .collection('tournaments')
-            .doc(templateId)
-            .get();
-        if (billTournamentDoc.exists) {
-          final bd = billTournamentDoc.data() ?? <String, dynamic>{};
-          final c = bd['addonCount'];
-          if (c is int) {
-            addonCount = c;
-          } else if (c is num) {
-            addonCount = c.toInt();
-          }
-        }
-      }
-    }
-
-    return _AddonCounterSnapshot(
-      isAddonEnabled: true,
-      limit: limit,
-      count: addonCount,
-      loadFailed: false,
-    );
-  } catch (_) {
-    return const _AddonCounterSnapshot(
-      isAddonEnabled: false,
-      limit: 0,
-      count: 0,
-      loadFailed: true,
-    );
-  }
-}
-
-
