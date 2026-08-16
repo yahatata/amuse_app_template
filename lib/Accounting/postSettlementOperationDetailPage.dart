@@ -1477,6 +1477,7 @@ class _PostSettlementOperationDetailPageState
           .httpsCallable('createPostSettlementAdjustment')
           .call(payload);
       if (!mounted) return;
+      setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -1485,20 +1486,21 @@ class _PostSettlementOperationDetailPageState
         ),
       );
       Navigator.of(context).pop(true);
+      return;
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       setState(() {
         _error = '会計後操作に失敗しました: [${e.code}] ${e.message ?? '—'}';
+        _submitting = false;
       });
+      return;
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = '会計後操作に失敗しました: $e';
+        _submitting = false;
       });
-    } finally {
-      if (mounted) {
-        setState(() => _submitting = false);
-      }
+      return;
     }
   }
 
@@ -1562,68 +1564,84 @@ class _PostSettlementOperationDetailPageState
         : ((bill['party'] as Map<String, dynamic>?) ?? const {});
     final name = party['pokerName'] as String? ?? '名前未設定';
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('会計後操作'),
-        backgroundColor: Colors.indigo[700],
-        foregroundColor: Colors.white,
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null && bill == null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_error!, style: const TextStyle(color: Colors.red)),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: _load,
-                      child: const Text('再読み込み'),
+    return PopScope(
+      canPop: !_submitting,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('会計後操作'),
+          backgroundColor: Colors.indigo[700],
+          foregroundColor: Colors.white,
+        ),
+        body: Stack(
+          children: [
+            _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null && bill == null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_error!, style: const TextStyle(color: Colors.red)),
+                          const SizedBox(height: 12),
+                          ElevatedButton(
+                            onPressed: _load,
+                            child: const Text('再読み込み'),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSummaryCard(bill, name, status),
+                        const SizedBox(height: 16),
+                        Text('操作を選択', style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final kind in _OperationKind.values)
+                              ChoiceChip(
+                                label: Text(kind.label),
+                                selected: _operationKind == kind,
+                                onSelected: _submitting
+                                    ? null
+                                    : (selected) {
+                                        if (!selected) return;
+                                        setState(() {
+                                          _operationKind = kind;
+                                        });
+                                      },
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _buildOperationBody(),
+                        if (_error != null && bill != null) ...[
+                          const SizedBox(height: 12),
+                          Text(_error!, style: const TextStyle(color: Colors.red)),
+                        ],
+                      ],
+                    ),
+                  ),
+            if (_submitting)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
                 ),
               ),
-            )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSummaryCard(bill, name, status),
-                  const SizedBox(height: 16),
-                  Text('操作を選択', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final kind in _OperationKind.values)
-                        ChoiceChip(
-                          label: Text(kind.label),
-                          selected: _operationKind == kind,
-                          onSelected: _submitting
-                              ? null
-                              : (selected) {
-                                  if (!selected) return;
-                                  setState(() {
-                                    _operationKind = kind;
-                                  });
-                                },
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _buildOperationBody(),
-                  if (_error != null && bill != null) ...[
-                    const SizedBox(height: 12),
-                    Text(_error!, style: const TextStyle(color: Colors.red)),
-                  ],
-                ],
-              ),
-            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1756,13 +1774,7 @@ class _PostSettlementOperationDetailPageState
           alignment: Alignment.centerRight,
           child: FilledButton.icon(
             onPressed: _submitting ? null : _submitAdjustment,
-            icon: _submitting
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.playlist_add_check),
+            icon: const Icon(Icons.playlist_add_check),
             label: Text(_operationKind.label),
           ),
         ),

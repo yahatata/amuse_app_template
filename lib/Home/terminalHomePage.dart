@@ -13,7 +13,7 @@ import 'package:amuse_app_template/tournament/scheduling/pages/tournament_creati
 import 'package:amuse_app_template/Accounting/accountingPage.dart';
 import 'package:amuse_app_template/Accounting/requireSpecialAttentionPage.dart';
 // postAccountingAdjustmentsPage: 旧経路（to_be_deleted に移動済み 2026-05-29）
-import 'package:amuse_app_template/Accounting/postSettlementIdempotencyReplayPage.dart';
+// 会計後操作の冪等再送確認ページ: 正式 Terminal 導線から隔離（ページ本体は残置）
 import 'package:amuse_app_template/Accounting/postSettlementOperationsPage.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_list.dart';
 import 'package:amuse_app_template/OrderView/OrderManagement/order_management_page.dart';
@@ -1236,11 +1236,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
       (
         label: '会計後操作',
         destination: const PostSettlementOperationsPage(),
-        optionKeys: [DeviceOptionKeys.accounting],
-      ),
-      (
-        label: '会計後操作 冪等再送確認',
-        destination: const PostSettlementIdempotencyReplayPage(),
         optionKeys: [DeviceOptionKeys.accounting],
       ),
       (

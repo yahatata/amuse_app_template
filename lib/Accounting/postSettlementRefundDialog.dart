@@ -238,26 +238,31 @@ class _PostSettlementRefundDialogState
       });
 
       if (!mounted) return;
+      setState(() => _submitting = false);
+      final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text(
             '返金を記録しました（cashActionId: ${result.data['cashActionId'] ?? '—'}）',
           ),
         ),
       );
+      return;
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       setState(() {
         _error = '返金に失敗しました: [${e.code}] ${e.message ?? '—'}';
+        _submitting = false;
       });
+      return;
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '返金に失敗しました: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _submitting = false);
-      }
+      setState(() {
+        _error = '返金に失敗しました: $e';
+        _submitting = false;
+      });
+      return;
     }
   }
 
@@ -316,9 +321,17 @@ class _PostSettlementRefundDialogState
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
     return PopScope(
       canPop: !_submitting,
-      child: AlertDialog(
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Center(
+              child: AlertDialog(
       title: const Text('返金'),
       content: _loading
           ? const SizedBox(
@@ -445,16 +458,23 @@ class _PostSettlementRefundDialogState
           onPressed: (_submitting || _loading || _availableMethods.isEmpty)
               ? null
               : _submit,
-          child: _submitting
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('返金する'),
+          child: const Text('返金する'),
         ),
       ],
     ),
+            ),
+            if (_submitting)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
