@@ -441,7 +441,7 @@ helper: `assertUserFreeForMigration(uid)` を双方に実行する。一つで�
 | 4 | 卓・席紐付け | `users.currentTable != null` または `users.currentSeat != null` | `USER_HAS_ACTIVE_TABLE_SEAT` |
 | 5 | 未完了トーナメント参加 | **当日営業日**かつ未終了の `scheduledTournaments`（status が ended/cancelled/force_ended/canceled 以外）について、`tablesSeat/waiting.waiting[uid]` が存在する、またはいずれかの卓席に当該 uid が着席している。過去営業日の未終了残留は対象外 | `USER_HAS_ACTIVE_TOURNAMENT` |
 | 6 | サイドゲーム着席 | 現行サイドゲーム卓ドキュメントのいずれかの `seats.seat*UserId === uid` | `USER_HAS_SIDE_GAME_SEAT` |
-| 7 | 置きバケ進行中リンク | collectionGroup `okibakeTemporaryEntries` で `linkedUserId === uid`、`billLinkStatus in ('unlinked','pending_review')`、`entryStatus !== 'voided'` | `USER_HAS_PENDING_OKIBAKE_LINK` |
+| 7 | 置きバケ進行中リンク | collectionGroup `okibakeTemporaryEntries` で `linkedUserId === uid`、`billLinkStatus in ('unlinked','pending_review')`、`entryStatus !== 'voided'`。**`pending_review`**: 親トーナメントの日付・status に関係なく拒否（過去営業日も未完了義務）。**`unlinked`**: 親 `scheduledTournaments` が未終了（`ended` / `force_ended` / `cancelled` / `canceled` 以外）のときのみ拒否。終了済みに残った legacy/stale `unlinked` は migration block しない。parent missing / status 欠損・未知は安全側で拒否。判定に businessDate は使わない | `USER_HAS_PENDING_OKIBAKE_LINK` |
 
 #### 9-7-3. ドメイン別カバー
 
@@ -460,7 +460,7 @@ helper: `assertUserFreeForMigration(uid)` を双方に実行する。一つで�
 
 - トーナメント: `getBusinessDateForAttendance` で現在営業日を取得し、その営業日の未終了トーナメントだけ待機・着席を走査
 - サイドゲーム: 現在の `sideGame` 席を走査
-- 置きバケ: collectionGroup queryで未解消リンクを検査し、過去営業日の `pending_review` も拒否
+- 置きバケ: collectionGroup queryで未解消リンクを検査する。`pending_review` は過去営業日でも拒否。`unlinked` は親トーナメントが未終了の場合のみ拒否（終了済みは legacy/stale として通す）
 
 #### 9-7-4. UIでの扱い
 

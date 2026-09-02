@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:holiday_jp/holiday_jp.dart' as holiday_jp;
+import 'package:amuse_app_template/StaffDate/errors/staff_shift_errors.dart';
 import 'shift_repository.dart';
 import 'shiftHomePage.dart'; // BusinessHours型を使用するため
 import '../Utils/time_converter.dart';
@@ -35,8 +36,14 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
   
   bool _isLoading = false;
   bool _isSaving = false;
-  /// 保存処理中に立てる。snapshot で該当月の更新を検知したらローディング解除・成功メッセージ表示
+  /// 読込失敗（未設定と区別）
+  bool _businessHoursLoadFailed = false;
+  /// 保存処理中に立てる。snapshot で該当月の更新を検知したら UI 反映
   String? _pendingSaveYearMonth;
+  /// 営業時間保存後にシフト日初期化待ち（成功メッセージを延期）
+  bool _awaitingShiftInitAfterHoursSave = false;
+  /// STAFF-14: 営業時間は保存済みだがシフト初期化が未完了
+  bool _shiftInitFailedAfterHoursSave = false;
   
   StreamSubscription<Map<String, BusinessHours>>? _businessHoursSubscription;
   
@@ -64,7 +71,10 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
   void _subscribeBusinessHours() {
     _businessHoursSubscription?.cancel();
     final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _businessHoursLoadFailed = false;
+    });
     _businessHoursSubscription = _repository.streamBusinessHoursForMonth(yearMonth).listen(
       (existingData) {
         if (!mounted) return;
@@ -72,19 +82,30 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
       },
       onError: (e) {
         if (!mounted) return;
-        _initializeMonthWithDefaults();
-        setState(() => _isLoading = false);
+        // STAFF-12: 読込失敗を未設定と同一視しない（保存禁止）
+        setState(() {
+          _isLoading = false;
+          _businessHoursLoadFailed = true;
+          _daysData = {};
+          _existingBusinessHours = {};
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('既存データの読み込みに失敗しました: $e'),
+            content: const Text(kBusinessHoursLoadFailedMessage),
             backgroundColor: Colors.orange,
+            action: SnackBarAction(
+              label: '再読込',
+              onPressed: _subscribeBusinessHours,
+            ),
           ),
         );
       },
     );
   }
   
-  /// snapshot で受け取った営業時間を UI に反映（保存完了時はローディング解除・成功メッセージも snapshot で行う）
+  /// snapshot で受け取った営業時間を UI に反映。
+  ///
+  /// 保存完了メッセージはシフト日初期化完了まで延期する（STAFF-14）。
   void _applyBusinessHoursFromSnapshot(Map<String, BusinessHours> existingData) {
     final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
     final daysInMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0).day;
@@ -114,39 +135,14 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
       _daysData = newDaysData;
       _existingBusinessHours = existingData;
       _isLoading = false;
+      _businessHoursLoadFailed = false;
       if (wasPendingSave) {
-        _isSaving = false;
         _pendingSaveYearMonth = null;
+        // シフト初期化待ち中はロック継続（成功メッセージも出さない）
+        if (!_awaitingShiftInitAfterHoursSave) {
+          _isSaving = false;
+        }
       }
-    });
-    if (wasPendingSave && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${DateFormat('yyyy年M月').format(_selectedMonth)}の営業時間を保存し、シフト日を初期化しました'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-  }
-  
-  /// 月の初期化（デフォルト値で各日を設定）
-  void _initializeMonthWithDefaults() {
-    final daysInMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0).day;
-    final newDaysData = <int, DayBusinessHours>{};
-    
-    for (int day = 1; day <= daysInMonth; day++) {
-      // 既存データがあれば保持、なければデフォルト値
-      newDaysData[day] = _daysData[day] ?? DayBusinessHours(
-        startTime: _defaultStartTime,
-        endTime: _defaultEndTime,
-        isClosed: false,
-        styleId: null,
-      );
-    }
-    
-    setState(() {
-      _daysData = newDaysData;
-      _isLoading = false;
     });
   }
   
@@ -184,6 +180,22 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
   
   /// 営業時間を保存（ローディング解除・成功メッセージは snapshot で行う）
   Future<void> _saveBusinessHours() async {
+    if (_businessHoursLoadFailed) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(kBusinessHoursLoadFailedMessage),
+            backgroundColor: Colors.orange,
+            action: SnackBarAction(
+              label: '再読込',
+              onPressed: _subscribeBusinessHours,
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
     final days = <Map<String, dynamic>>[];
 
@@ -244,6 +256,8 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
         setState(() {
           _isSaving = true;
           _pendingSaveYearMonth = yearMonth;
+          _awaitingShiftInitAfterHoursSave = true;
+          _shiftInitFailedAfterHoursSave = false;
         });
 
         // 編集された日のみ営業時間を保存（該当日のフィールドのみ上書き）
@@ -251,32 +265,70 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
           yearMonth: yearMonth,
           days: days,
         );
-        // ここで Firestore に書き込まれる → snapshot が発火 → ローディング解除・成功メッセージ表示
+        // ここで Firestore に書き込まれる → snapshot が発火するが、
+        // シフト初期化完了まで全成功メッセージは出さない
 
         // 営業時間保存後、自動的にシフト日も初期化
         try {
           await _repository.initShiftDaysForMonth(yearMonth);
+          if (!mounted) return;
+          setState(() {
+            _awaitingShiftInitAfterHoursSave = false;
+            _isSaving = false;
+            _pendingSaveYearMonth = null;
+            _shiftInitFailedAfterHoursSave = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${DateFormat('yyyy年M月').format(_selectedMonth)}の営業時間を保存し、シフト日を初期化しました'),
+              backgroundColor: Colors.green,
+            ),
+          );
         } catch (initError) {
-          // シフト日初期化に失敗した場合でも、営業時間保存は成功している（snapshot で既に成功表示済み）
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('営業時間は保存しましたが、シフト日の初期化に失敗しました: ${initError.toString()}'),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 5),
+          // STAFF-14: 営業時間は保存済み。シフト初期化だけ失敗を明示（ロールバックしない）。
+          final outcome = resolveBusinessHoursShiftInitOutcome(
+            hoursSaved: true,
+            shiftInitSucceeded: false,
+          );
+          if (!mounted) return;
+          setState(() {
+            _awaitingShiftInitAfterHoursSave = false;
+            _shiftInitFailedAfterHoursSave =
+                outcome == BusinessHoursShiftInitOutcome.hoursSavedShiftInitFailed;
+            _isSaving = false;
+            _pendingSaveYearMonth = null;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                messageForBusinessHoursShiftInitOutcome(outcome) ??
+                    kBusinessHoursSavedShiftInitFailedMessage,
               ),
-            );
-          }
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 6),
+              action: SnackBarAction(
+                label: '初期化を再試行',
+                onPressed: () => _initShiftDays(silent: true),
+              ),
+            ),
+          );
         }
       } catch (e) {
         if (mounted) {
           setState(() {
             _isSaving = false;
             _pendingSaveYearMonth = null;
+            _awaitingShiftInitAfterHoursSave = false;
+            _shiftInitFailedAfterHoursSave = false;
           });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('エラー: ${e.toString()}'),
+              content: Text(
+                mapStaffShiftCallableError(
+                  e,
+                  operation: 'initBusinessHoursForMonth',
+                ),
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -284,7 +336,7 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
       }
   }
 
-  /// シフト日を初期化
+  /// シフト日を初期化（STAFF-14 部分成功後の再試行入口）
   Future<void> _initShiftDays({bool silent = false}) async {
     if (!silent) {
       final confirmed = await showDialog<bool>(
@@ -309,36 +361,48 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
     }
     
     setState(() {
-      _isLoading = true;
+      _isSaving = true;
     });
-    
+
+    var didSucceed = false;
+    Object? caught;
     try {
       final yearMonth = DateFormat('yyyy-MM').format(_selectedMonth);
       await _repository.initShiftDaysForMonth(yearMonth);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${DateFormat('yyyy年M月').format(_selectedMonth)}のシフト日を初期化しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      didSucceed = true;
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラー: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      caught = e;
     } finally {
       if (mounted) {
         setState(() {
-          _isLoading = false;
+          _isSaving = false;
+          if (didSucceed) {
+            _shiftInitFailedAfterHoursSave = false;
+          }
         });
       }
+    }
+
+    if (!mounted) return;
+    if (didSucceed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${DateFormat('yyyy年M月').format(_selectedMonth)}のシフト日を初期化しました'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapStaffShiftCallableError(
+              caught!,
+              operation: 'initShiftDaysForMonth',
+            ),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -358,6 +422,28 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
+          : _businessHoursLoadFailed
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          kBusinessHoursLoadFailedMessage,
+                          style: TextStyle(color: Colors.orange[800], fontSize: 16),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _subscribeBusinessHours,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('再読込'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
           : Column(
               children: [
                 // 月選択とデフォルト値設定
@@ -547,9 +633,27 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
+                      if (_businessHoursLoadFailed)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(
+                            kBusinessHoursLoadFailedMessage,
+                            style: TextStyle(color: Colors.orange[800], fontSize: 13),
+                          ),
+                        ),
+                      if (_shiftInitFailedAfterHoursSave)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(
+                            kBusinessHoursSavedShiftInitFailedMessage,
+                            style: TextStyle(color: Colors.orange[800], fontSize: 13),
+                          ),
+                        ),
                       // 保存ボタン（保存時に自動的にシフト日も初期化される）
                       ElevatedButton.icon(
-                        onPressed: _isSaving ? null : () => _saveBusinessHours(),
+                        onPressed: (_isSaving || _businessHoursLoadFailed)
+                            ? null
+                            : () => _saveBusinessHours(),
                         icon: const Icon(Icons.save),
                         label: const Text(
                           '営業時間を保存',
@@ -561,6 +665,22 @@ class _BusinessDayEditPageState extends State<BusinessDayEditPage> {
                           foregroundColor: Colors.white,
                         ),
                       ),
+                      if (_shiftInitFailedAfterHoursSave) ...[
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: _isSaving
+                              ? null
+                              : () => _initShiftDays(silent: true),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text(
+                            'シフト日を初期化',
+                            style: TextStyle(fontSize: 16),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 48),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

@@ -3,6 +3,10 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'package:amuse_app_template/Accounting/errors/accounting_error_operations.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
+import 'package:amuse_app_template/Accounting/errors/map_accounting_error.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/user/balance_display.dart';
 import 'package:amuse_app_template/user/point_ids.dart';
 import 'package:amuse_app_template/user/side_game_chip_display.dart';
@@ -118,10 +122,11 @@ class _PostSettlementCollectionDialogState
         _effectiveAdjustments = list;
         _loading = false;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_loadData collection] エラー: $e\n$stackTrace');
       if (!mounted) return;
       setState(() {
-        _error = '対象 adjustment の取得に失敗しました: $e';
+        _error = kAccountingPostSettlementAdjustmentContextLoadFailedMessage;
         _loading = false;
       });
     }
@@ -143,6 +148,7 @@ class _PostSettlementCollectionDialogState
       _error = null;
     });
 
+    var succeeded = false;
     try {
       final target = _effectiveAdjustments.first;
       final allocAmount = amount > target.remaining ? target.remaining : amount;
@@ -161,27 +167,40 @@ class _PostSettlementCollectionDialogState
       });
 
       if (!mounted) return;
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '追加徴収を記録しました（cashActionId: ${result.data['cashActionId'] ?? '—'}）',
-          ),
-        ),
+
+      final data = result.data;
+      if (!isCallableSuccessResponse(data)) {
+        final mapped = mapAccountingSoftFailError(
+          data,
+          operation: AccountingErrorOperations.recordPostSettlementCollection,
+        );
+        setState(() => _error = mapped.message);
+        return;
+      }
+
+      succeeded = true;
+    } catch (e, stackTrace) {
+      debugPrint('[recordPostSettlementCollection] エラー: $e\n$stackTrace');
+      if (!mounted) return;
+      final mapped = mapAccountingCallableError(
+        e,
+        operation: AccountingErrorOperations.recordPostSettlementCollection,
       );
-    } on FirebaseFunctionsException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = '徴収に失敗しました: [${e.code}] ${e.message ?? '—'}';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = '徴収に失敗しました: $e');
+      setState(() => _error = mapped.message);
     } finally {
       if (mounted) {
         setState(() => _submitting = false);
       }
     }
+
+    if (!succeeded || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pop();
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(kAccountingPostSettlementCollectionRecordedMessage),
+      ),
+    );
   }
 
   List<DropdownMenuItem<String>> _buildMethodItems() {
@@ -247,14 +266,49 @@ class _PostSettlementCollectionDialogState
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
     return PopScope(
       canPop: !_submitting,
-      child: AlertDialog(
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Center(
+              child: AlertDialog(
       title: const Text('追加徴収'),
       content: _loading
           ? const SizedBox(
               height: 80,
               child: Center(child: CircularProgressIndicator()),
+            )
+          : _error != null && _effectiveAdjustments.isEmpty
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.red, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _submitting
+                        ? null
+                        : () {
+                            setState(() {
+                              _loading = true;
+                              _error = null;
+                            });
+                            _loadData();
+                          },
+                    child: const Text('再試行'),
+                  ),
+                ),
+              ],
             )
           : SingleChildScrollView(
               child: Column(
@@ -320,17 +374,26 @@ class _PostSettlementCollectionDialogState
           child: const Text('キャンセル'),
         ),
         ElevatedButton(
-          onPressed: (_submitting || _loading) ? null : _submit,
-          child: _submitting
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('徴収する'),
+          onPressed: (_submitting || _loading || _effectiveAdjustments.isEmpty)
+              ? null
+              : _submit,
+          child: const Text('徴収する'),
         ),
       ],
-    ),
+              ),
+            ),
+            if (_submitting)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

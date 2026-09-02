@@ -603,19 +603,22 @@
   - `isAdmin()`: デバイスが管理者かチェック（331-340行目）
   - 内部実装: `devices`コレクションから現在のデバイスを取得し、`role === 'admin'`を確認
 
-### 10.4 既存の手動open/closeの入口（確認済み）
+### 10.4 手動open/closeの入口（廃止済み — 履歴）
 
-**手動開店**:
+**2026-09-03 Batch 9 batch 3 にて `openStore` / `closeStore` を削除・undeploy 済み。** 正式経路は `openStoreTerminal` / `closeStoreTerminal`（§10 参照）。
+
+<details>
+<summary>旧記載（参照用）</summary>
+
+**手動開店（廃止）**:
 - `functions/src/storeManagement/openStore.ts`: `onCall`関数
 - 呼び出し方法: `FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('openStore')`
-- 認証: Firebase Auth（`request.auth`）
-- 権限チェック: デバイスが`role === 'admin'`かつ`status === 'active'`であることを確認
 
-**手動閉店**:
+**手動閉店（廃止）**:
 - `functions/src/storeManagement/closeStore.ts`: `onCall`関数
 - 呼び出し方法: `FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('closeStore')`
-- 認証: Firebase Auth（`request.auth`）
-- 権限チェック: デバイスが`role === 'admin'`かつ`status === 'active'`であることを確認
+
+</details>
 
 ---
 

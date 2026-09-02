@@ -1,12 +1,16 @@
 /**
  * Phase6 Step3: processingLease の獲得・延長・解放のテスト。
- * §6.5 の分岐（新規獲得 / failed-precondition / resume / stale takeover）を検証。
+ * §6.5 の分岐（新規獲得 / lease conflict / resume / stale takeover）を検証。
+ *
+ * 対象層は service 単体（Callable 境界ではない）。
+ * 現行実装は競合時に FunctionCustomError(errorKey=STORE_PROCESSING_LEASE_CONFLICT) を throw する。
  * Firestore Emulator 使用。
  */
 
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { FunctionCustomError } from '../../../src/shared/logging/functionCustomError';
 
 const PROJECT_ID = 'test-project-processing-lease';
 
@@ -75,12 +79,20 @@ describe('processingLease (Phase6 Step3)', () => {
       expect(snap.data()?.processing?.kind).toBe('close');
     });
 
-    it('(2-1) processing 有効で requestRunId なし → failed-precondition', async () => {
+    it('(2-1) processing 有効で requestRunId なし → STORE_PROCESSING_LEASE_CONFLICT', async () => {
       if (!emulatorAvailable) return;
       await acquireProcessing(db, { runId: 'close_2026-02-09_1', kind: 'close' });
       await expect(
         acquireProcessing(db, { runId: 'close_2026-02-09_2', kind: 'close' })
-      ).rejects.toMatchObject({ code: 'failed-precondition' });
+      ).rejects.toEqual(
+        expect.objectContaining({
+          name: 'FunctionCustomError',
+          errorKey: 'STORE_PROCESSING_LEASE_CONFLICT',
+        }),
+      );
+      await expect(
+        acquireProcessing(db, { runId: 'close_2026-02-09_2', kind: 'close' })
+      ).rejects.toBeInstanceOf(FunctionCustomError);
     });
 
     it('(2-2) processing 有効で requestRunId 一致 → resume OK', async () => {
@@ -95,7 +107,7 @@ describe('processingLease (Phase6 Step3)', () => {
       expect(result.resumed).toBe(true);
     });
 
-    it('(2-3) processing 有効で requestRunId 不一致 → failed-precondition', async () => {
+    it('(2-3) processing 有効で requestRunId 不一致 → STORE_PROCESSING_LEASE_CONFLICT', async () => {
       if (!emulatorAvailable) return;
       await acquireProcessing(db, { runId: 'close_2026-02-09_1', kind: 'close' });
       await expect(
@@ -104,7 +116,12 @@ describe('processingLease (Phase6 Step3)', () => {
           kind: 'close',
           requestRunId: 'close_2026-02-09_2',
         })
-      ).rejects.toMatchObject({ code: 'failed-precondition' });
+      ).rejects.toEqual(
+        expect.objectContaining({
+          name: 'FunctionCustomError',
+          errorKey: 'STORE_PROCESSING_LEASE_CONFLICT',
+        }),
+      );
     });
 
     it('(3) processing 期限切れ → stale takeover、旧 run が stale になる', async () => {

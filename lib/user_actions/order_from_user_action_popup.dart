@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../Utils/menuItemsManager.dart';
 import '../services/store_config_defaults.dart';
 import '../services/store_config_service.dart';
 import 'action_feedback_dialogs.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 
 /// When: 「注文」ブロックから注文フローを開始したい時
 /// Where: userActionHome（別ダイアログ）
@@ -18,7 +21,7 @@ Future<void> showOrderFromUserDialog({
   if (billId.isEmpty) {
     ScaffoldMessenger.of(
       pageContext,
-    ).showSnackBar(const SnackBar(content: Text('伝票IDが見つかりません')));
+    ).showSnackBar(SnackBar(content: Text(kUserActionBillIdMissingMessage)));
     return;
   }
 
@@ -27,26 +30,60 @@ Future<void> showOrderFromUserDialog({
 
   // 初期カテゴリーは All 相当
   String selectedCategory = 'All';
-  bool loading = false;
+  var loading = false;
   String? loadError;
 
-  // データが無ければロード
-  if (MenuItemsManager.allMenuItems.isEmpty) {
+  Future<bool> loadMenus() async {
     loading = true;
     final ok = await MenuItemsManager.fetchMenuItems();
     loading = false;
     if (!ok) {
-      loadError = MenuItemsManager.lastError ?? 'メニュー取得に失敗しました';
+      // USER-22: MenuItemsManager.lastError は raw を含むため使わない
+      loadError = kUserActionMenuLoadFailedMessage;
+      return false;
     }
+    loadError = null;
+    return true;
+  }
+
+  // データが無ければロード
+  if (MenuItemsManager.allMenuItems.isEmpty) {
+    await loadMenus();
   }
 
   if (loadError != null) {
-    if (pageContext.mounted) {
-      ScaffoldMessenger.of(
-        pageContext,
-      ).showSnackBar(SnackBar(content: Text(loadError)));
+    if (!pageContext.mounted) return;
+    // 失敗 ≠ 0件メニュー。注文ブロック。再読み込み可。
+    final retry = await showDialog<bool>(
+      context: pageContext,
+      builder: (dCtx) => AlertDialog(
+        title: const Text('メニュー取得エラー'),
+        content: const Text(kUserActionMenuLoadFailedMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dCtx).pop(false),
+            child: const Text('閉じる'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dCtx).pop(true),
+            child: const Text('再読み込み'),
+          ),
+        ],
+      ),
+    );
+    if (retry == true && pageContext.mounted) {
+      final ok = await loadMenus();
+      if (!ok || !pageContext.mounted) {
+        if (pageContext.mounted) {
+          ScaffoldMessenger.of(pageContext).showSnackBar(
+            const SnackBar(content: Text(kUserActionMenuLoadFailedMessage)),
+          );
+        }
+        return;
+      }
+    } else {
+      return;
     }
-    return;
   }
 
   if (!pageContext.mounted) {
@@ -340,7 +377,7 @@ Future<void> _showQuantityAndConfirm({
     final data = resp.data;
     feedback.hideLoading();
 
-    if (data is Map && data['success'] == true) {
+    if (isCallableSuccessResponse(data)) {
       if (orderDialogContext.mounted) {
         Navigator.of(orderDialogContext).pop();
       }
@@ -353,9 +390,12 @@ Future<void> _showQuantityAndConfirm({
       return;
     }
 
-    final err = (data is Map ? data['error'] : null) ?? '注文に失敗しました';
+    // USER-23 soft-fail: raw error / toString 非表示
     if (pageContext.mounted) {
-      await showActionErrorDialog(pageContext, message: err.toString());
+      await showActionErrorDialog(
+        pageContext,
+        message: mapCallableSoftFailMessage(data),
+      );
     }
   } catch (e) {
     feedback.hideLoading();

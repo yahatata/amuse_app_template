@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_end_okibake_guard.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:amuse_app_template/tournament/prize_conversion_preview.dart';
 
 class RankingSetupPage extends StatefulWidget {
@@ -54,7 +56,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
         'tournamentId': widget.tournamentId,
       });
       
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         setState(() {
           _mainViewData = Map<String, dynamic>.from(result.data['mainViewData']);
           _bustedPlayers = List<Map<String, dynamic>>.from(
@@ -64,12 +66,15 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
         });
       } else {
         setState(() {
-          _errorMessage = result.data['error'] ?? 'データの取得に失敗しました';
+          _errorMessage = mapCallableSoftFailMessage(result.data);
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'エラーが発生しました: $e';
+        _errorMessage = mapTournamentOpsCallableError(
+          e,
+          operation: 'getRankingData',
+        );
       });
     } finally {
       setState(() {
@@ -200,7 +205,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('prizeConversion がありません。プライズを再確定してください。'),
+            content: Text(kTournamentPrizeConversionMissingMessage),
           ),
         );
       }
@@ -236,7 +241,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
         'grantIdempotencyKey': grantIdempotencyKey,
       });
 
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         // 二度目の付与スキップ時は先にポップで表示
         if (result.data['prizeGrantSkipped'] == true) {
           await showDialog<void>(
@@ -287,6 +292,8 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
                 context: context,
                 tournamentId: widget.tournamentId,
                 service: _service,
+                // 本ページの全画面 loading が責務。Guard progress と二重にしない。
+                showProgressUi: false,
               );
               if (!mounted) return;
               switch (endOutcome) {
@@ -324,15 +331,23 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
         }
         _grantIdempotencyKeyForSubmit = null; // 次回の確定用にクリア
         Navigator.of(context).pop();
-      } else {
-        setState(() {
-          _errorMessage = result.data['error'] ?? '順位の確定に失敗しました';
-        });
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(mapCallableSoftFailMessage(result.data)),
+          ),
+        );
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = 'エラーが発生しました: $e';
-      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentOpsCallableError(e, operation: 'setRankingData'),
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -419,7 +434,7 @@ class _RankingSetupPageState extends State<RankingSetupPage> {
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          'prizeConversion がありません。プライズを再確定してください。',
+                          kTournamentPrizeConversionMissingMessage,
                           style: TextStyle(color: Colors.red.shade700, fontSize: 12),
                         ),
                       ),

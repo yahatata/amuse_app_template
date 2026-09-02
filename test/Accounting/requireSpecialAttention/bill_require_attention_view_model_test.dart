@@ -201,7 +201,10 @@ void main() {
 
   group('computeDisplayLabel', () {
     test('全 cardType のラベル', () {
-      expect(computeDisplayLabel(BillCardType.carryoverUnsettled), '未会計');
+      expect(
+        computeDisplayLabel(BillCardType.carryoverUnsettled),
+        '入店者の未会計',
+      );
       expect(
         computeDisplayLabel(BillCardType.postSettlementCollectionPending),
         '追加徴収',
@@ -209,6 +212,10 @@ void main() {
       expect(
         computeDisplayLabel(BillCardType.postSettlementRefundPending),
         '要返金',
+      );
+      expect(
+        computeDisplayLabel(BillCardType.okibakePendingReview),
+        '未入店参加の未会計',
       );
     });
   });
@@ -237,8 +244,8 @@ void main() {
   });
 
   group('primaryActionLabel', () {
-    test('resumeAccounting → 会計を再開する', () {
-      expect(primaryActionLabel(PrimaryActionType.resumeAccounting), '会計を再開する');
+    test('resumeAccounting → この伝票を精算（fallback）', () {
+      expect(primaryActionLabel(PrimaryActionType.resumeAccounting), 'この伝票を精算');
     });
 
     test('collect → 徴収する', () {
@@ -247,6 +254,37 @@ void main() {
 
     test('refund → 返金する', () {
       expect(primaryActionLabel(PrimaryActionType.refund), '返金する');
+    });
+
+    test('resolveOkibakePendingReview → 対応する', () {
+      expect(
+        primaryActionLabel(PrimaryActionType.resolveOkibakePendingReview),
+        '対応する',
+      );
+    });
+  });
+
+  group('carryoverPrimaryActionLabel / carryoverAccountingPageTitle', () {
+    test('no activeStay → 来店なし入金', () {
+      expect(
+        carryoverPrimaryActionLabel(userHasActiveStay: false),
+        '来店なし入金',
+      );
+      expect(
+        carryoverAccountingPageTitle(userHasActiveStay: false),
+        '来店なし入金',
+      );
+    });
+
+    test('activeStay → 過去伝票を精算 / 過去伝票の精算', () {
+      expect(
+        carryoverPrimaryActionLabel(userHasActiveStay: true),
+        '過去伝票を精算',
+      );
+      expect(
+        carryoverAccountingPageTitle(userHasActiveStay: true),
+        '過去伝票の精算',
+      );
     });
   });
 
@@ -273,7 +311,7 @@ void main() {
       expect(vm, isNotNull);
       expect(vm!.billId, 'B1');
       expect(vm.cardType, BillCardType.carryoverUnsettled);
-      expect(vm.displayLabel, '未会計');
+      expect(vm.displayLabel, '入店者の未会計');
       expect(vm.businessDate, '2026-05-01');
       expect(vm.displayTitle, 'TestUser');
       expect(vm.displayAmountIncl, 3500);

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 
 /// SideGame用chip参照ポップアップ
 Future<void> showSideGameChipViewDialog({
@@ -14,7 +16,7 @@ Future<void> showSideGameChipViewDialog({
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(
         outerCtx,
-      ).showSnackBar(const SnackBar(content: Text('ユーザー識別子が見つかりません')));
+      ).showSnackBar(SnackBar(content: Text(kUserActionUserIdMissingMessage)));
     }
     return;
   }
@@ -60,17 +62,15 @@ class _SideGameChipViewDialog extends StatelessWidget {
                 const Icon(Icons.error, color: Colors.red, size: 48),
                 const SizedBox(height: 16),
                 Text(
-                  'エラーが発生しました',
+                  userActionStreamErrorMessage(
+                    kUserActionUserDocLoadFailedMessage,
+                    snapshot.error,
+                  ),
                   style: TextStyle(
                     fontSize: 16,
                     color: Colors.red[700],
                     fontWeight: FontWeight.bold,
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  snapshot.error.toString(),
-                  style: const TextStyle(fontSize: 14),
                   textAlign: TextAlign.center,
                 ),
               ],

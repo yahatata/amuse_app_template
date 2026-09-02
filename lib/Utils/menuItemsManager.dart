@@ -1,3 +1,5 @@
+import 'package:amuse_app_template/OrderView/MenuView/menu_user_facing_errors.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -114,32 +116,41 @@ class MenuItemsManager {
       });
 
       final response = result.data;
-      
-      if (response is Map && response['success'] == true) {
-        final data = response['data'];
-        if (data is List) {
-          _allMenuItems = data.map((item) {
-            if (item is Map) {
-              final menuItem = MenuItem.fromMap(Map<String, dynamic>.from(item));
-              print('Loaded menu item: ${menuItem.name}, imageUrl: ${menuItem.imageUrl}');
-              return menuItem;
-            } else {
-              throw Exception('Invalid item format');
-            }
-          }).toList();
-        } else {
-          throw Exception('Data is not a list');
-        }
-      } else {
-        final error = response is Map ? response['error'] : 'メニューアイテムの取得に失敗しました';
-        throw Exception(error);
+
+      if (!isCallableSuccessResponse(response)) {
+        // soft-fail: raw error/message は lastError に入れない（MENU-05）
+        _lastError = mapGetMenuItemsSoftFail(response);
+        _isLoading = false;
+        return false;
       }
 
+      final data = response is Map ? response['data'] : null;
+      if (data is! List) {
+        _lastError = kMenuItemsLoadFailedMessage;
+        _isLoading = false;
+        return false;
+      }
+
+      final parsed = <MenuItem>[];
+      for (final item in data) {
+        if (item is! Map) {
+          _lastError = kMenuItemsLoadFailedMessage;
+          _isLoading = false;
+          return false;
+        }
+        final menuItem = MenuItem.fromMap(Map<String, dynamic>.from(item));
+        print('Loaded menu item: ${menuItem.name}, imageUrl: ${menuItem.imageUrl}');
+        parsed.add(menuItem);
+      }
+
+      // 成功時のみキャッシュを差し替え（失敗時は既存を保持）
+      _allMenuItems = parsed;
       _isLoading = false;
       return true;
     } catch (e) {
       _isLoading = false;
-      _lastError = 'メニューアイテムの取得に失敗しました: $e';
+      // MENU-05: raw / $e を lastError に格納しない
+      _lastError = mapGetMenuItemsError(e);
       return false;
     }
   }

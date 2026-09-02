@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
 import 'package:amuse_app_template/tournament/ranking_reward_point_candidates.dart';
 import 'order_from_user_action_popup.dart';
 import 'bust_and_reentry_popup.dart';
@@ -18,6 +16,12 @@ import 'tournament_history_popup.dart';
 import 'profile_popup.dart';
 import 'current_seat_popup.dart';
 import 'current_accounting_popup.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
+import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
+import 'package:amuse_app_template/user_actions/tournament_user_addon_counter.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
+import 'package:amuse_app_template/user_actions/side_game_dialog_layout.dart';
 
 /// When: ユーザー行をタップしてアクションを選択したいとき
 /// Where: StayingUsersListPage などユーザー一覧系の画面
@@ -34,91 +38,120 @@ Future<void> showUserActionHome({
   // How: switch相当の分岐でメニュー定義を返す
   final actions = _buildActionsForSource(sourcePage: sourcePage, user: user);
 
-  final size = MediaQuery.of(context).size;
+  final showAddonCounter = sourcePage == 'tableHomeInScheduledTournament' &&
+      user['tournamentId'] is String &&
+      (user['tournamentId'] as String).isNotEmpty &&
+      user['userId'] is String &&
+      (user['userId'] as String).isNotEmpty;
+
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
     builder: (dialogContext) {
       const double scale = 1.2; // ポップの縦横スケール
-      // 画面からはみ出さない最大高さ（スクロールさせない想定のため広めに確保）
-      final double maxHeight = size.height - 48;
+      // USER-14: Addon 回数読込失敗時は操作を止める（失敗を 0 回扱いにしない）
+      // 読込中も操作不可（waiting は failure 扱いしないが busy でロック）
+      var addonCountLoadFailed = false;
+      var addonCountBusy = false;
 
-      return Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 520 * scale,
-            maxHeight: maxHeight,
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+      return StatefulBuilder(
+        builder: (context, setMenuState) {
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: KeyboardSafeDialogBody(
+              maxWidth: 520 * scale,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.person, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          (user['pokerName'] ?? '(名前未設定)').toString(),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                      Row(
+                        children: [
+                          const Icon(Icons.person, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              (user['pokerName'] ?? '(名前未設定)').toString(),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(dialogContext).pop(),
+                      const SizedBox(height: 12),
+                      if (showAddonCounter) ...[
+                        TournamentUserAddonCounter(
+                          tournamentId: user['tournamentId'] as String,
+                          userId: user['userId'] as String,
+                          onLoadFailedChanged: (failed) {
+                            if (addonCountLoadFailed == failed) return;
+                            setMenuState(() => addonCountLoadFailed = failed);
+                          },
+                          onLoadBusyChanged: (busy) {
+                            if (addonCountBusy == busy) return;
+                            setMenuState(() => addonCountBusy = busy);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        padding: EdgeInsets.zero,
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 4,
+                          childAspectRatio: 0.9,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                        ),
+                        itemCount: actions.length,
+                        itemBuilder: (context, index) {
+                          final a = actions[index];
+                          final disableAddon =
+                              showAddonCounter &&
+                              (addonCountLoadFailed || addonCountBusy) &&
+                              a.label == 'Addon';
+                          return _ActionTile(
+                            label: a.label,
+                            iconData: a.icon,
+                            color: disableAddon ? Colors.grey : a.color,
+                            onTap: () {
+                              if (disableAddon) {
+                                if (addonCountLoadFailed) {
+                                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        kUserActionAddonCountLoadFailedMessage,
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return;
+                              }
+                              // 親メニューは開いたまま子ダイアログを重ねる（キャンセルで戻れる）
+                              a.onSelected?.call(dialogContext, user);
+                            },
+                          );
+                        },
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  if (sourcePage == 'tableHomeInScheduledTournament' &&
-                      user['tournamentId'] is String &&
-                      (user['tournamentId'] as String).isNotEmpty &&
-                      user['userId'] is String &&
-                      (user['userId'] as String).isNotEmpty) ...[
-                    _TournamentUserAddonCounter(
-                      tournamentId: user['tournamentId'] as String,
-                      userId: user['userId'] as String,
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    padding: EdgeInsets.zero,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      childAspectRatio: 0.9,
-                      crossAxisSpacing: 8,
-                      mainAxisSpacing: 8,
-                    ),
-                    itemCount: actions.length,
-                    itemBuilder: (context, index) {
-                      final a = actions[index];
-                      return _ActionTile(
-                        label: a.label,
-                        iconData: a.icon,
-                        color: a.color,
-                        onTap: () {
-                          // 親メニューは開いたまま子ダイアログを重ねる（キャンセルで戻れる）
-                          a.onSelected?.call(dialogContext, user);
-                        },
-                      );
-                    },
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       );
     },
   );
@@ -226,7 +259,7 @@ _UserActionItem _buildBlockC(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || userId.isEmpty) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -263,7 +296,7 @@ _UserActionItem _buildBlockE(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || userId.isEmpty) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -300,7 +333,7 @@ _UserActionItem _buildBlockG(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || userId.isEmpty) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -324,7 +357,7 @@ _UserActionItem _buildBlockH(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || userId.isEmpty) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -354,7 +387,7 @@ _UserActionItem _buildBlockI(
         
         if (tournamentId == null || tableId == null || seatNumber == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('トーナメント情報が不足しています')),
+            SnackBar(content: Text(kUserActionTournamentInfoInsufficientMessage)),
           );
           return;
         }
@@ -387,7 +420,7 @@ _UserActionItem _buildBlockJ(
         
         if (tournamentId == null || tableId == null || seatNumber == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('トーナメント情報が不足しています')),
+            SnackBar(content: Text(kUserActionTournamentInfoInsufficientMessage)),
           );
           return;
         }
@@ -418,7 +451,7 @@ _UserActionItem _buildBlockK(
         
         if (tournamentId == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('トーナメント情報が不足しています')),
+            SnackBar(content: Text(kUserActionTournamentInfoInsufficientMessage)),
           );
           return;
         }
@@ -460,7 +493,7 @@ _UserActionItem _buildBlockM(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || pokerName == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -484,7 +517,7 @@ _UserActionItem _buildBlockN(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || pokerName == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -510,7 +543,7 @@ _UserActionItem _buildBlockO(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || pokerName == null || tableId == null || seatNumber == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('SideGame情報が不足しています')),
+            SnackBar(content: Text(kUserActionSideGameInfoMissingMessage)),
           );
           return;
         }
@@ -521,6 +554,7 @@ _UserActionItem _buildBlockO(Map<String, dynamic> user) => _UserActionItem(
           pokerName: pokerName,
           tableId: tableId,
           seatNumber: seatNumber,
+          closeUserActionMenuOnLeaveSuccess: true,
         );
       },
     );
@@ -536,7 +570,7 @@ _UserActionItem _buildBlockP(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || pokerName == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -561,7 +595,7 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || pokerName == null || tableId == null || seatNumber == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('SideGame情報が不足しています')),
+            SnackBar(content: Text(kUserActionSideGameInfoMissingMessage)),
           );
           return;
         }
@@ -592,6 +626,7 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
         
         if (confirmed == true) {
           if (!ctx.mounted) return;
+          // 更新系: 全面ロック + CPI（成功・失敗とも finally で解除）
           showDialog<void>(
             context: ctx,
             barrierDismissible: false,
@@ -613,29 +648,39 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
               );
             },
           );
+          var leaveSucceeded = false;
           try {
             final functions = FunctionsClient.instance;
             final callable = functions.httpsCallable('leaveSeat');
 
-            await callable.call({
+            final result = await callable.call({
               'tableId': tableId,
               'seatNumber': seatNumber,
               'userId': userId,
             });
 
-            if (ctx.mounted) {
+            // USER-13: success==true のときのみ退席完了扱い。
+            leaveSucceeded = isCallableSuccessResponse(result.data);
+            if (!ctx.mounted) return;
+            if (!leaveSucceeded) {
               ScaffoldMessenger.of(ctx).showSnackBar(
                 SnackBar(
-                  content: Text('${pokerName}様を退席させました'),
-                  backgroundColor: Colors.green,
+                  content: Text(mapCallableSoftFailMessage(result.data)),
+                  backgroundColor: Colors.red,
                 ),
               );
             }
           } catch (e) {
+            leaveSucceeded = false;
             if (ctx.mounted) {
               ScaffoldMessenger.of(ctx).showSnackBar(
                 SnackBar(
-                  content: Text('退席処理に失敗しました: $e'),
+                  content: Text(
+                    buildAsyncActionErrorMessage(
+                      e,
+                      defaultMessage: kUserActionLeaveSeatFailedMessage,
+                    ),
+                  ),
                   backgroundColor: Colors.red,
                 ),
               );
@@ -643,6 +688,23 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
           } finally {
             if (ctx.mounted) {
               Navigator.of(ctx, rootNavigator: true).pop();
+            }
+          }
+
+          if (!ctx.mounted) return;
+          if (leaveSucceeded) {
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              SnackBar(
+                content: Text('${pokerName}様を退席させました'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            // CLN-B3: 退席成功後は参加前提の操作メニューを閉じる（失敗時は残す）。
+            if (shouldCloseUserActionMenuAfterLeave(
+              operationSucceeded: true,
+              leftSeat: true,
+            )) {
+              Navigator.of(ctx).pop();
             }
           }
         }
@@ -741,153 +803,4 @@ class _ActionTile extends StatelessWidget {
     );
   }
 }
-
-class _TournamentUserAddonCounter extends StatelessWidget {
-  const _TournamentUserAddonCounter({
-    required this.tournamentId,
-    required this.userId,
-  });
-
-  final String tournamentId;
-  final String userId;
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<_AddonCounterSnapshot>(
-      future: _loadAddonCounterSnapshot(
-        tournamentId: tournamentId,
-        userId: userId,
-      ),
-      builder: (context, snap) {
-        final style = Theme.of(context)
-            .textTheme
-            .bodySmall
-            ?.copyWith(color: Colors.black54);
-
-        if (snap.connectionState == ConnectionState.waiting) {
-          return Text('Addon: 読み込み中...', style: style);
-        }
-        final data = snap.data;
-        if (data == null || data.loadFailed) {
-          return Text(
-            'Addon: 回数情報を取得できませんでした',
-            style: style,
-          );
-        }
-        if (!data.isAddonEnabled || data.limit <= 0) {
-          return Text('Addon: 無効', style: style);
-        }
-        return Text(
-          'Addon: 現在 ${data.count} / ${data.limit} 回',
-          style: style,
-        );
-      },
-    );
-  }
-}
-
-class _AddonCounterSnapshot {
-  const _AddonCounterSnapshot({
-    required this.isAddonEnabled,
-    required this.limit,
-    required this.count,
-    required this.loadFailed,
-  });
-
-  final bool isAddonEnabled;
-  final int limit;
-  final int count;
-  final bool loadFailed;
-}
-
-Future<_AddonCounterSnapshot> _loadAddonCounterSnapshot({
-  required String tournamentId,
-  required String userId,
-}) async {
-  try {
-    final tournamentDoc = await FirebaseFirestore.instance
-        .collection('scheduledTournaments')
-        .doc(tournamentId)
-        .get();
-    if (!tournamentDoc.exists) {
-      return const _AddonCounterSnapshot(
-        isAddonEnabled: false,
-        limit: 0,
-        count: 0,
-        loadFailed: true,
-      );
-    }
-
-    final tData = tournamentDoc.data() ?? <String, dynamic>{};
-    final snapshot =
-        Map<String, dynamic>.from((tData['snapshot'] as Map?) ?? {});
-    final isAddon = snapshot['isAddon'] == true;
-    final limit = resolveAddonLimitPerPlayerUi(
-      isAddon: isAddon,
-      addonLimitPerPlayer: snapshot['addonLimitPerPlayer'],
-    );
-
-    if (!isAddon || limit <= 0) {
-      return const _AddonCounterSnapshot(
-        isAddonEnabled: false,
-        limit: 0,
-        count: 0,
-        loadFailed: false,
-      );
-    }
-
-    final templateIdRaw = snapshot['templateId'] ?? tData['templateId'];
-    final templateId = templateIdRaw is String ? templateIdRaw.trim() : '';
-    if (templateId.isEmpty) {
-      return _AddonCounterSnapshot(
-        isAddonEnabled: true,
-        limit: limit,
-        count: 0,
-        loadFailed: true,
-      );
-    }
-
-    var addonCount = 0;
-    final activeStayDoc = await FirebaseFirestore.instance
-        .collection('activeStays')
-        .doc(userId)
-        .get();
-    if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
-      final billIdRaw = activeStayDoc.data()?['billId'];
-      final billId = billIdRaw is String ? billIdRaw : '';
-      if (billId.isNotEmpty) {
-        final billTournamentDoc = await FirebaseFirestore.instance
-            .collection('bills')
-            .doc(billId)
-            .collection('tournaments')
-            .doc(templateId)
-            .get();
-        if (billTournamentDoc.exists) {
-          final bd = billTournamentDoc.data() ?? <String, dynamic>{};
-          final c = bd['addonCount'];
-          if (c is int) {
-            addonCount = c;
-          } else if (c is num) {
-            addonCount = c.toInt();
-          }
-        }
-      }
-    }
-
-    return _AddonCounterSnapshot(
-      isAddonEnabled: true,
-      limit: limit,
-      count: addonCount,
-      loadFailed: false,
-    );
-  } catch (_) {
-    return const _AddonCounterSnapshot(
-      isAddonEnabled: false,
-      limit: 0,
-      count: 0,
-      loadFailed: true,
-    );
-  }
-}
-
 

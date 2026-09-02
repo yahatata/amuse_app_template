@@ -14,6 +14,7 @@ import 'package:amuse_app_template/tournament/active/models/scheduled_tournament
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/assign_seat_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_seat_action_dialog.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_read_only.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
@@ -49,12 +50,19 @@ class _TableDetailPageState extends State<TableDetailPage> {
   Map<String, dynamic>? _mainViewData;
   final TournamentService _tournamentService = TournamentServiceImpl();
   bool _isTableDevice = false;
+  int _detailStreamRetryToken = 0;
 
   @override
   void initState() {
     super.initState();
     _loadTableData();
     _loadCurrentDevice();
+  }
+
+  void _retryDetailStreams() {
+    setState(() {
+      _detailStreamRetryToken++;
+    });
   }
 
   Future<void> _loadCurrentDevice() async {
@@ -305,26 +313,38 @@ class _TableDetailPageState extends State<TableDetailPage> {
 
   Widget _buildTableDetailBody({required bool isReadOnly}) {
     return StreamBuilder<DocumentSnapshot>(
+      key: ValueKey('table-detail-table-$_detailStreamRetryToken'),
       stream: _getTableDataStream(),
       builder: (context, tableSnapshot) {
         return StreamBuilder<DocumentSnapshot>(
+          key: ValueKey('table-detail-main-$_detailStreamRetryToken'),
           stream: _getMainViewDataStream(),
           builder: (context, mainSnapshot) {
-            // エラーハンドリング
-            if (tableSnapshot.hasError || mainSnapshot.hasError) {
+            final tableDoc = tableSnapshot.data;
+            final tableExists = tableDoc != null && tableDoc.exists;
+            final hasStaleTable = _tableData != null;
+            final streamError =
+                tableSnapshot.hasError || mainSnapshot.hasError;
+
+            // TOUR-111: 初回エラーは全画面。raw snapshot.error は出さない。
+            if (streamError && !hasStaleTable && !tableExists) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.error, color: Colors.red, size: 48),
+                    const Icon(Icons.error, color: Colors.red, size: 48),
                     const SizedBox(height: 16),
-                    Text(
-                      'エラー: ${tableSnapshot.hasError ? tableSnapshot.error : mainSnapshot.error}',
-                      style: const TextStyle(color: Colors.red),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(
+                        tournamentOpsStreamMessage(hasStaleData: false),
+                        style: const TextStyle(color: Colors.red),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     ElevatedButton(
-                      onPressed: _loadTableData,
+                      onPressed: _retryDetailStreams,
                       child: const Text('再試行'),
                     ),
                   ],
@@ -332,21 +352,23 @@ class _TableDetailPageState extends State<TableDetailPage> {
               );
             }
 
-            // ローディング状態
+            // 初回のみ CPI。stale がある場合は無限ローディングにしない。
             if ((tableSnapshot.connectionState == ConnectionState.waiting &&
-                    _tableData == null) ||
+                    !hasStaleTable &&
+                    !tableExists) ||
                 (mainSnapshot.connectionState == ConnectionState.waiting &&
-                    _mainViewData == null)) {
+                    _mainViewData == null &&
+                    !mainSnapshot.hasData)) {
               return const Center(child: CircularProgressIndicator());
             }
 
-            // データ存在チェック
-            if (!tableSnapshot.hasData || !tableSnapshot.data!.exists) {
+            // not-found ≠ load fail
+            if (!tableExists && !hasStaleTable && !tableSnapshot.hasError) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.error, color: Colors.red, size: 48),
+                    const Icon(Icons.error, color: Colors.red, size: 48),
                     const SizedBox(height: 16),
                     const Text(
                       'テーブルが見つかりません',
@@ -354,7 +376,7 @@ class _TableDetailPageState extends State<TableDetailPage> {
                     ),
                     const SizedBox(height: 16),
                     ElevatedButton(
-                      onPressed: _loadTableData,
+                      onPressed: _retryDetailStreams,
                       child: const Text('再試行'),
                     ),
                   ],
@@ -362,11 +384,75 @@ class _TableDetailPageState extends State<TableDetailPage> {
               );
             }
 
-            // リアルタイムデータを更新
-            _tableData = tableSnapshot.data!.data() as Map<String, dynamic>?;
-            _mainViewData = mainSnapshot.data?.data() as Map<String, dynamic>?;
+            if (tableExists) {
+              _tableData = tableDoc.data() as Map<String, dynamic>?;
+            }
+            if (mainSnapshot.hasData && mainSnapshot.data != null) {
+              _mainViewData =
+                  mainSnapshot.data!.data() as Map<String, dynamic>?;
+            }
 
-            return _buildTableContent(isReadOnly: isReadOnly);
+            if (_tableData == null) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error, color: Colors.red, size: 48),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(
+                        tournamentOpsStreamMessage(hasStaleData: false),
+                        style: const TextStyle(color: Colors.red),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _retryDetailStreams,
+                      child: const Text('再試行'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return Column(
+              children: [
+                if (streamError && hasStaleTable)
+                  Material(
+                    color: Colors.orange.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.orange.shade800,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              tournamentOpsStreamMessage(hasStaleData: true),
+                              style: TextStyle(color: Colors.orange.shade900),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _retryDetailStreams,
+                            child: const Text('再試行'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                Expanded(
+                  child: _buildTableContent(isReadOnly: isReadOnly),
+                ),
+              ],
+            );
           },
         );
       },
@@ -551,11 +637,12 @@ class _TableDetailPageState extends State<TableDetailPage> {
     return StreamBuilder<QuerySnapshot>(
       stream: _getTablesSeatStream(),
       builder: (context, snapshot) {
+        // TOUR-113: fail ≠ 0。短い固定表示。raw「エラー」は使わない。
         if (snapshot.hasError) {
           return _buildTournamentInfoItem(
             Icons.event_seat,
             '着席中人数',
-            'エラー',
+            kTournamentCountUnavailableDisplay,
             iconSize: iconSize,
             labelFontSize: labelFontSize,
             valueFontSize: valueFontSize,
@@ -563,7 +650,8 @@ class _TableDetailPageState extends State<TableDetailPage> {
           );
         }
 
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return _buildTournamentInfoItem(
             Icons.event_seat,
             '着席中人数',
@@ -621,11 +709,12 @@ class _TableDetailPageState extends State<TableDetailPage> {
     return StreamBuilder<DocumentSnapshot>(
       stream: _getWaitingDocumentStream(),
       builder: (context, snapshot) {
+        // TOUR-114: fail ≠ 0。短い固定表示。
         if (snapshot.hasError) {
           return _buildTournamentInfoItem(
             Icons.people_outline,
             'Waiting Player',
-            'エラー',
+            kTournamentCountUnavailableDisplay,
             iconSize: iconSize,
             labelFontSize: labelFontSize,
             valueFontSize: valueFontSize,
@@ -633,7 +722,8 @@ class _TableDetailPageState extends State<TableDetailPage> {
           );
         }
 
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return _buildTournamentInfoItem(
             Icons.people_outline,
             'Waiting Player',

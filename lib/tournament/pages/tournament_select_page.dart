@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 
 /// トーナメント選択ページ
 /// 開催中と今後開催で分けて表示
@@ -37,6 +38,20 @@ class _TournamentSelectPageState extends State<TournamentSelectPage>
 
   String? _myTableId;
   bool _isLoadingDevice = true;
+  int _listStreamReloadToken = 0;
+  int _filterFutureReloadToken = 0;
+
+  void _retryListStream() {
+    setState(() {
+      _listStreamReloadToken++;
+    });
+  }
+
+  void _retryFilterFuture() {
+    setState(() {
+      _filterFutureReloadToken++;
+    });
+  }
 
   @override
   void initState() {
@@ -95,8 +110,56 @@ class _TournamentSelectPageState extends State<TournamentSelectPage>
           .doc('currentBusinessDay')
           .snapshots(),
       builder: (context, stateSnapshot) {
-        if (!stateSnapshot.hasData) {
+        if (stateSnapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    tournamentOpsStreamErrorMessage(
+                      kTournamentListLoadFailedMessage,
+                      stateSnapshot.error,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: _retryListStream,
+                    child: const Text('再試行'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        if (stateSnapshot.connectionState == ConnectionState.waiting &&
+            !stateSnapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
+        if (!stateSnapshot.hasData) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    tournamentOpsStreamErrorMessage(
+                      kTournamentListLoadFailedMessage,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: _retryListStream,
+                    child: const Text('再試行'),
+                  ),
+                ],
+              ),
+            ),
+          );
         }
         
         final stateData = stateSnapshot.data?.data() as Map<String, dynamic>?;
@@ -112,6 +175,9 @@ class _TournamentSelectPageState extends State<TournamentSelectPage>
         }
         
         return StreamBuilder<QuerySnapshot>(
+          key: ValueKey(
+            'tn-select-$businessDateKey-$_listStreamReloadToken',
+          ),
           stream: _firestore
               .collection('scheduledTournaments')
               .where('businessDate', isEqualTo: businessDateKey)
@@ -119,10 +185,32 @@ class _TournamentSelectPageState extends State<TournamentSelectPage>
               .snapshots(),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return Center(child: Text('エラー: ${snapshot.error}'));
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        tournamentOpsStreamErrorMessage(
+                          kTournamentListLoadFailedMessage,
+                          snapshot.error,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _retryListStream,
+                        child: const Text('再試行'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
             }
 
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
 
@@ -138,7 +226,7 @@ class _TournamentSelectPageState extends State<TournamentSelectPage>
               return _buildFilteredByTableList(statusFilteredDocs, statuses);
             }
 
-            // 通常表示
+            // 通常表示（空一覧 ≠ 失敗）
             return _buildListView(statusFilteredDocs);
           },
         );
@@ -149,6 +237,7 @@ class _TournamentSelectPageState extends State<TournamentSelectPage>
   /// 卓番でフィルタリングしたトーナメントリストを構築
   Widget _buildFilteredByTableList(List<QueryDocumentSnapshot> docs, List<String> statuses) {
     return FutureBuilder<List<QueryDocumentSnapshot>>(
+      key: ValueKey('tn-filter-$_filterFutureReloadToken'),
       future: _filterTournamentsByTable(docs),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -156,7 +245,28 @@ class _TournamentSelectPageState extends State<TournamentSelectPage>
         }
 
         if (snapshot.hasError) {
-          return Center(child: Text('エラー: ${snapshot.error}'));
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    tournamentOpsStreamErrorMessage(
+                      kTournamentListLoadFailedMessage,
+                      snapshot.error,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: _retryFilterFuture,
+                    child: const Text('再試行'),
+                  ),
+                ],
+              ),
+            ),
+          );
         }
 
         final filteredDocs = snapshot.data ?? [];

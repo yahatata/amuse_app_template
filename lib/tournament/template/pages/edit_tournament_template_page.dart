@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
@@ -116,7 +117,7 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
       final result = await callable.call();
       final response = result.data;
 
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         final templatesRaw = response['blindTemplates'] as List;
         setState(() {
           _blindTemplates = templatesRaw.map((template) => 
@@ -131,12 +132,12 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
         });
       } else {
         setState(() {
-          _errorMessage = response['error'] ?? 'ブラインドテンプレートの読み込みに失敗しました';
+          _errorMessage = mapCallableSoftFailMessage(response);
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'ブラインドテンプレートの読み込みに失敗しました: $e';
+        _errorMessage = mapCallableError(e).message;
       });
     } finally {
       setState(() {
@@ -154,7 +155,7 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
       });
       final response = result.data;
 
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         final tournamentsRaw = response['tournaments'] as List;
         setState(() {
           _scheduledTournaments = tournamentsRaw.map((tournament) {
@@ -191,12 +192,12 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
         });
       } else {
         setState(() {
-          _errorMessage = response['error'] ?? 'スケジュール済みトーナメントの読み込みに失敗しました';
+          _errorMessage = mapCallableSoftFailMessage(response);
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'スケジュール済みトーナメントの読み込みに失敗しました: $e';
+        _errorMessage = mapCallableError(e).message;
       });
     }
   }
@@ -275,19 +276,19 @@ class _EditTournamentTemplatePageState extends State<EditTournamentTemplatePage>
       final result = await callable.call(payload);
       final response = result.data;
 
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(response['message'] ?? '更新が完了しました')),
         );
         Navigator.pop(context);
       } else {
         setState(() {
-          _errorMessage = response['error'] ?? '更新に失敗しました';
+          _errorMessage = mapCallableSoftFailMessage(response);
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = '更新に失敗しました: $e';
+        _errorMessage = mapCallableError(e).message;
       });
     } finally {
       setState(() {

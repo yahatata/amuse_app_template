@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 
 import 'dart:math';
 
@@ -24,7 +27,7 @@ Future<void> showBustAndReentryDialog({
   if (userId.isEmpty) {
     ScaffoldMessenger.of(
       outerCtx,
-    ).showSnackBar(const SnackBar(content: Text('ユーザー識別子が見つかりません')));
+    ).showSnackBar(SnackBar(content: Text(kUserActionUserIdMissingMessage)));
     return;
   }
 
@@ -42,45 +45,47 @@ Future<void> showBustAndReentryDialog({
         .get();
 
     if (!tournamentDoc.exists) {
-      throw Exception('トーナメントが見つかりません');
-    }
+      isLoading = false;
+      errorMessage = 'トーナメントが見つかりません';
+    } else {
+      tournamentData = tournamentDoc.data()!;
 
-    tournamentData = tournamentDoc.data()!;
+      // activeStays から billId を取得
+      final activeStayDoc = await FirebaseFirestore.instance
+          .collection('activeStays')
+          .doc(userId)
+          .get();
 
-    // activeStays から billId を取得
-    final activeStayDoc = await FirebaseFirestore.instance
-        .collection('activeStays')
-        .doc(userId)
-        .get();
+      if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
+        final billId = activeStayDoc.data()!['billId'] as String?;
 
-    if (activeStayDoc.exists && activeStayDoc.data()?['isActive'] == true) {
-      final billId = activeStayDoc.data()!['billId'] as String?;
+        if (billId != null) {
+          // bills サブコレクションからトーナメント情報を取得
+          final tournamentDoc = await FirebaseFirestore.instance
+              .collection('bills')
+              .doc(billId)
+              .collection('tournaments')
+              .doc(tournamentId)
+              .get();
 
-      if (billId != null) {
-        // bills サブコレクションからトーナメント情報を取得
-        final tournamentDoc = await FirebaseFirestore.instance
-            .collection('bills')
-            .doc(billId)
-            .collection('tournaments')
-            .doc(tournamentId)
-            .get();
-
-        if (tournamentDoc.exists) {
-          final tournamentData = tournamentDoc.data()!;
-          currentReentryCount = tournamentData['reentryCount'] as int? ?? 0;
+          if (tournamentDoc.exists) {
+            final tournamentData = tournamentDoc.data()!;
+            currentReentryCount = tournamentData['reentryCount'] as int? ?? 0;
+          }
         }
       }
-    }
 
+      isLoading = false;
+    }
+  } catch (_) {
+    // USER-47: raw 非表示。失敗 ≠ トーナメント不在
     isLoading = false;
-  } catch (e) {
-    isLoading = false;
-    errorMessage = e.toString();
+    errorMessage = kUserActionTournamentLoadFailedMessage;
   }
 
   if (errorMessage != null) {
     if (outerCtx.mounted) {
-      await showActionErrorDialog(outerCtx, message: 'エラー: $errorMessage');
+      await showActionErrorDialog(outerCtx, message: errorMessage);
     }
     return;
   }
@@ -235,7 +240,7 @@ Future<void> _executeBustAndReentry({
 
     feedback.hideLoading();
 
-    if (data['success'] == true) {
+    if (isCallableSuccessResponse(data)) {
       if (context.mounted) {
         await showActionSuccessDialog(
           context,
@@ -246,10 +251,11 @@ Future<void> _executeBustAndReentry({
         }
       }
     } else {
+      // USER-48 soft-fail: raw error 非表示
       if (context.mounted) {
         await showActionErrorDialog(
           context,
-          message: 'リエントリー処理に失敗しました: ${data['error'] ?? '不明なエラー'}',
+          message: mapCallableSoftFailMessage(data),
         );
       }
     }

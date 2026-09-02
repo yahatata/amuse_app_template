@@ -1,4 +1,3 @@
-import 'package:amuse_app_template/StaffDate/createStaffAccountPage.dart';
 import 'package:amuse_app_template/StaffDate/businessDayMenuPage.dart';
 import 'package:amuse_app_template/StaffDate/shiftMenuPage.dart';
 import 'package:flutter/material.dart';
@@ -8,9 +7,8 @@ import 'package:amuse_app_template/AttendanceManagement/all_staff_attendance_pag
 import 'package:amuse_app_template/AttendanceManagement/attendanceCorrectionRequestsPage.dart';
 import 'package:amuse_app_template/pages/device_management_page.dart';
 import 'package:amuse_app_template/pages/admin_detail_settings_page.dart';
-import 'package:amuse_app_template/pages/log_ops_error_sample_page.dart';
-import 'package:amuse_app_template/Home/adminUserListPage.dart';
 import 'package:amuse_app_template/Home/staffListPage.dart';
+import 'package:amuse_app_template/dashboard/home/dashboard_home_page.dart';
 import 'package:amuse_app_template/payroll/payroll_calc_page.dart';
 import 'package:amuse_app_template/payroll/widgets/notification_list.dart';
 
@@ -84,11 +82,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
         (label: '勤怠修正申請', destination: const AttendanceCorrectionRequestsPage()),
         (label: 'デバイス管理', destination: const DeviceManagementPage()),
         (label: '詳細設定', destination: const AdminDetailSettingsPage()),
-        (label: 'logOpsError 代表サンプル', destination: const LogOpsErrorSamplePage()),
         (label: 'スタッフ一覧', destination: const StaffListPage()),
-        (label: 'ユーザー一覧', destination: const AdminUserListPage()),
-        (label: 'Staff作成', destination: const CreateStaffAccount()),
         (label: '給与計算', destination: const PayrollCalcPage()),
+        (label: '売上ダッシュボード', destination: const DashboardHomePage()),
       ];
 
     return Scaffold(
@@ -151,20 +147,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class PlaceholderPage extends StatelessWidget {
-  final String title;
-
-  const PlaceholderPage({super.key, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(child: Text('$title の遷移先（未実装）')),
     );
   }
 }

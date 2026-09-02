@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:amuse_app_template/OrderView/OrderManagement/order_user_facing_errors.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -28,6 +30,8 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
   final List<TextEditingController> _quantityControllers = [];
   bool _isLoading = true;
   bool _isUpdating = false;
+  /// ORDER-06: 読込失敗（見つからないとは別）。null でなし。
+  String? _loadError;
 
   @override
   void initState() {
@@ -72,7 +76,7 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
       if (quantity == null) {
         if (showError && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('数量は1以上の整数で入力してください')),
+            const SnackBar(content: Text(kOrderQuantityValidationMessage)),
           );
         }
         return false;
@@ -98,20 +102,7 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
                 title: const Text('注文編集'),
                 content: SizedBox(
                   width: double.maxFinite,
-                  child: _isLoading || _quantityControllers.length != _items.length
-                      ? const Center(child: CircularProgressIndicator())
-                      : Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('注文内容を編集してください'),
-                            const SizedBox(height: 16),
-                            ..._items.asMap().entries.map((entry) {
-                              final index = entry.key;
-                              final item = entry.value;
-                              return _buildItemEditor(index, item);
-                            }).toList(),
-                          ],
-                        ),
+                  child: _buildDialogContent(),
                 ),
                 actions: [
                   TextButton(
@@ -119,11 +110,15 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
                     child: const Text('キャンセル'),
                   ),
                   TextButton(
-                    onPressed: _isUpdating ? null : _cancelOrder,
+                    onPressed: (_isUpdating || _isLoading || _loadError != null || _items.isEmpty)
+                        ? null
+                        : _cancelOrder,
                     child: const Text('注文取り消し', style: TextStyle(color: Colors.red)),
                   ),
                   ElevatedButton(
-                    onPressed: _isUpdating ? null : _updateOrder,
+                    onPressed: (_isUpdating || _isLoading || _loadError != null || _items.isEmpty)
+                        ? null
+                        : _updateOrder,
                     child: const Text('更新'),
                   ),
                 ],
@@ -146,6 +141,44 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
     );
   }
 
+  Widget _buildDialogContent() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    // ORDER-06: 読込失敗時は編集 UI に入らず再試行可能
+    if (_loadError != null) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _loadError!,
+            style: const TextStyle(color: Colors.red),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _isUpdating ? null : _loadOrderData,
+            child: const Text('再試行'),
+          ),
+        ],
+      );
+    }
+    if (_quantityControllers.length != _items.length) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('注文内容を編集してください'),
+        const SizedBox(height: 16),
+        ..._items.asMap().entries.map((entry) {
+          final index = entry.key;
+          final item = entry.value;
+          return _buildItemEditor(index, item);
+        }),
+      ],
+    );
+  }
   /// アイテムエディターを構築
   Widget _buildItemEditor(int index, Map<String, dynamic> item) {
     final quantityController = _quantityControllers[index];
@@ -253,6 +286,22 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
 
   /// 注文データを読み込み
   Future<void> _loadOrderData() async {
+    // initState からの初回は既に _isLoading=true のため setState しない
+    final needsLoadingUi =
+        !_isLoading || _loadError != null || _items.isNotEmpty;
+    if (needsLoadingUi) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = true;
+        _loadError = null;
+        _items = [];
+      });
+    } else {
+      _loadError = null;
+      _items = [];
+    }
+    _disposeQuantityControllers();
+
     try {
       // billId がある場合は /bills/{billId}/items/{orderId} から取得
       // ない場合は /orders/{date}/_TodaysOrders/{orderId} から取得（後方互換性）
@@ -275,18 +324,16 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
               'totalPriceIncl': data['totalPriceIncl'] ?? 0,
             }];
             _isLoading = false;
+            _loadError = null;
             _syncQuantityControllers();
           });
         } else {
+          // ORDER-06: 欠落（見つからない）は失敗と区別。編集状態には入らない。
           setState(() {
             _isLoading = false;
+            _items = [];
+            _loadError = kOrderEditNotFoundMessage;
           });
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('注文データが見つかりません')),
-            );
-            Navigator.of(context).pop();
-          }
         }
       } else {
         // 後方互換性: _TodaysOrders から取得
@@ -310,35 +357,31 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
               'quantity': data['quantity'] ?? 1,
             }];
             _isLoading = false;
+            _loadError = null;
             _syncQuantityControllers();
           });
         } else {
           setState(() {
             _isLoading = false;
+            _items = [];
+            _loadError = kOrderEditNotFoundMessage;
           });
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('注文データが見つかりません')),
-            );
-            Navigator.of(context).pop();
-          }
         }
       }
-    } catch (e) {
+    } catch (_) {
+      // ORDER-06: raw 非表示。編集 UI に入らず再試行可能。
       setState(() {
         _isLoading = false;
+        _items = [];
+        _disposeQuantityControllers();
+        _loadError = kOrderEditLoadFailedMessage;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('データの読み込みに失敗しました: $e')),
-        );
-        Navigator.of(context).pop();
-      }
     }
   }
 
   /// 注文を更新
   Future<void> _updateOrder() async {
+    if (_isUpdating) return;
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('注文アイテムがありません')),
@@ -395,9 +438,15 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
         },
       );
 
-      final data = result.data as Map<String, dynamic>? ?? {};
-      if (data['success'] != true) {
-        throw Exception(data['error'] ?? '注文数量の更新に失敗しました');
+      final data = result.data;
+      // ORDER-04: success==true のみ確定。ダイアログは閉じず入力保持。
+      if (!isCallableSuccessResponse(data)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(mapUpdateOrderQuantitySoftFail(data))),
+          );
+        }
+        return;
       }
 
       if (mounted) {
@@ -408,9 +457,10 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
         );
       }
     } catch (e) {
+      // ORDER-04: D-1。ダイアログ維持・入力維持・ロック解除は finally。
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('更新に失敗しました: $e')),
+          SnackBar(content: Text(mapUpdateOrderQuantityError(e))),
         );
       }
     } finally {
@@ -424,6 +474,7 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
 
   /// 注文を取り消し
   Future<void> _cancelOrder() async {
+    if (_isUpdating) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -463,8 +514,9 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
         },
       );
 
-      final data = result.data as Map<String, dynamic>? ?? {};
-      if (data['success'] == true) {
+      final data = result.data;
+      // ORDER-05: success のみ一覧から外す（pop）。失敗時は注文を残す。
+      if (isCallableSuccessResponse(data)) {
         if (mounted) {
           Navigator.of(context).pop();
           widget.onOrderUpdated();
@@ -473,12 +525,16 @@ class _OrderEditDialogState extends State<OrderEditDialog> {
           );
         }
       } else {
-        throw Exception(data['error'] ?? '注文の取り消しに失敗しました');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(mapCancelOrderSoftFail(data))),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('取り消しに失敗しました: $e')),
+          SnackBar(content: Text(mapCancelOrderError(e))),
         );
       }
     } finally {

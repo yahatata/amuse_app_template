@@ -1,8 +1,10 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
+import 'errors/staff_shift_errors.dart';
 import 'shiftHomePage.dart';
 import 'shiftDraftPage.dart';
 import '../services/device_service.dart';
@@ -308,7 +310,20 @@ class ShiftRepository {
       'installationId': installationId,
     });
 
-    return List<String>.from(result.data['dateKeys'] as List);
+    const operation = 'calculateInsufficientDays';
+    final data = result.data;
+    if (!isCallableSuccessResponse(data)) {
+      throw StaffShiftUserFacingException(
+        mapStaffShiftSoftFailMessage(data, operation: operation),
+      );
+    }
+    final dateKeys = (data as Map)['dateKeys'];
+    if (dateKeys is! List) {
+      throw StaffShiftUserFacingException(
+        mapStaffShiftSoftFailMessage(data, operation: operation),
+      );
+    }
+    return List<String>.from(dateKeys.map((e) => e.toString()));
   }
 
   /// 募集内容を管理者に送信
@@ -367,8 +382,14 @@ class ShiftRepository {
     });
   }
 
-  /// 申請情報を取得（originalStartMinute/originalEndMinute取得用）
-  Future<({int? originalStartMinute, int? originalEndMinute})?> getShiftRequestById(String requestId) async {
+  /// 申請情報を取得（最新申請時間 + original audit 用）
+  Future<
+      ({
+        int? startMinute,
+        int? endMinute,
+        int? originalStartMinute,
+        int? originalEndMinute,
+      })?> getShiftRequestById(String requestId) async {
     try {
       final doc = await _firestore.collection('shiftRequests').doc(requestId).get();
       if (!doc.exists) {
@@ -377,6 +398,8 @@ class ShiftRepository {
       
       final data = doc.data()!;
       return (
+        startMinute: data['startMinute'] as int?,
+        endMinute: data['endMinute'] as int?,
         originalStartMinute: data['originalStartMinute'] as int?,
         originalEndMinute: data['originalEndMinute'] as int?,
       );

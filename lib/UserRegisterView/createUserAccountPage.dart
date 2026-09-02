@@ -1,4 +1,5 @@
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/HomeBackAction.dart';
@@ -41,29 +42,52 @@ class _CreateUserAccountState extends State<CreateUserAccount> {
 
     try {
       final callable = FunctionsClient.instance.httpsCallable('createUserByApp');
-      await callable.call({
+      final result = await callable.call({
         'pokerName': name,
         'email': email,
         'pin': pin,
         'birthMonthDay': birthDay,
       });
 
+      final response = result.data;
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("アカウントが作成されました")),
-      );
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _resetForm();
-      });
+      if (isCallableSuccessResponse(response)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('アカウントが作成されました')),
+        );
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _resetForm();
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapCallableSoftFailMessage(
+                response,
+                operation: 'createUserByApp',
+              ),
+            ),
+          ),
+        );
+      }
     } on FirebaseFunctionsException catch (e) {
-      final message = e.message ?? "登録に失敗しました";
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapCallableError(e, operation: 'createUserByApp').message,
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("エラーが発生しました")),
+          SnackBar(
+            content: Text(
+              mapCallableError(e, operation: 'createUserByApp').message,
+            ),
+          ),
         );
       }
     } finally {
@@ -154,14 +178,3 @@ class _CreateUserAccountState extends State<CreateUserAccount> {
   }
 }
 
-class PlaceholderPage extends StatelessWidget {
-  final String title;
-  const PlaceholderPage({super.key, required this.title});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(child: Text('$title の遷移先（未実装）')),
-    );
-  }
-}

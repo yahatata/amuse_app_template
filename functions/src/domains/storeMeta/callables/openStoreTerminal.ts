@@ -10,8 +10,14 @@ import { acquireProcessing, extendProcessing, releaseProcessing } from '../servi
 import { generateJstDateKey } from '../../../shared/time';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { restoreUnsettledBillsOnSameDayReopenCore } from '../services/restoreUnsettledBillsOnSameDayReopen';
 
-const OPEN_STEPS = ['verifyPreconditions', 'forceCleanup', 'finalizeOpenStateDoc'] as const;
+const OPEN_STEPS = [
+  'verifyPreconditions',
+  'forceCleanup',
+  'restoreSameDayUnsettledBills',
+  'finalizeOpenStateDoc',
+] as const;
 
 export const openStoreTerminal = onCall(
   { region: 'asia-northeast1' },
@@ -171,6 +177,38 @@ export const openStoreTerminal = onCall(
             forceCleanupApplied: { counts, summaries },
             updatedAt: FieldValue.serverTimestamp(),
           });
+        } else if (stepName === 'restoreSameDayUnsettledBills') {
+          const currentData = (await stateRef.get()).data()!;
+          const lastClosedBusinessDateKey =
+            typeof currentData?.lastClosedBusinessDateKey === 'string'
+              ? currentData.lastClosedBusinessDateKey.trim()
+              : '';
+          const isSameDayReopen =
+            lastClosedBusinessDateKey.length > 0 &&
+            lastClosedBusinessDateKey === businessDateKey;
+
+          if (isSameDayReopen) {
+            const restoreResult = await restoreUnsettledBillsOnSameDayReopenCore(db, {
+              reopenBusinessDate: businessDateKey,
+              openRunId: runId,
+            });
+            await openRunsRef.update({
+              lastCompletedStep: stepName,
+              sameDayUnsettledRestore: restoreResult,
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+          } else {
+            await openRunsRef.update({
+              lastCompletedStep: stepName,
+              sameDayUnsettledRestore: {
+                applied: false,
+                reason: 'next_day_open',
+                reopenBusinessDate: businessDateKey,
+                lastClosedBusinessDateKey: lastClosedBusinessDateKey || null,
+              },
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+          }
         } else if (stepName === 'finalizeOpenStateDoc') {
           const currentData = (await stateRef.get()).data()!;
           await stateRef.update({

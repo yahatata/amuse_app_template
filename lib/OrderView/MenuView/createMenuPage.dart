@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:amuse_app_template/OrderView/MenuView/menu_user_facing_errors.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -110,10 +112,13 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
     try {
       final bytes = await imageFile.readAsBytes();
       return base64Encode(bytes);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('画像の変換に失敗しました: $e')),
-      );
+    } catch (_) {
+      // MENU-02: path / codec / raw 非表示。フォーム保持・再選択可。
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(kMenuImageConvertFailedMessage)),
+        );
+      }
       return null;
     }
   }
@@ -187,10 +192,11 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
       final result = await callable.call(data);
       final response = result.data;
 
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         // MenuItemsManagerを更新
         await MenuItemsManager.fetchMenuItems();
 
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(widget.menuItem != null ? 'メニューが更新されました' : 'メニューが登録されました')),
         );
@@ -198,14 +204,20 @@ class _CreateMenuPageState extends State<CreateMenuPage> {
         // 前の画面に戻る
         Navigator.pop(context);
       } else {
-        final error = response['error'] ?? 'メニューの保存に失敗しました';
+        // MENU-01 soft-fail: raw error 非表示、入力保持・pop なし
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error)),
+          SnackBar(content: Text(mapCallableSoftFailMessage(response))),
         );
       }
     } catch (e) {
+      if (!mounted) return;
+      final operation =
+          widget.menuItem != null ? 'updateMenuItem' : 'createMenuItem';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('メニューの保存に失敗しました: $e')),
+        SnackBar(
+          content: Text(mapCallableError(e, operation: operation).message),
+        ),
       );
     } finally {
       if (mounted) {

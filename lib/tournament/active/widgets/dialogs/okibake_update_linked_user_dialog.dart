@@ -1,5 +1,6 @@
 import 'package:amuse_app_template/services/active_stays_service.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_user_picker_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -30,6 +31,8 @@ class _OkibakeUpdateLinkedUserDialogState
   Set<String> _usedLinkedUserIds = const {};
   Future<void>? _usersLoadFuture;
   OkibakeLinkCandidate? _selected;
+  int _usersRetryToken = 0;
+  int _stayRetryToken = 0;
 
   @override
   void initState() {
@@ -51,6 +54,25 @@ class _OkibakeUpdateLinkedUserDialogState
     setState(() {
       _allCandidates = list;
       _usedLinkedUserIds = used;
+      if (_selected != null &&
+          !list.any((c) => c.userId == _selected!.userId)) {
+        _selected = null;
+      }
+    });
+  }
+
+  void _retryUsersLoad() {
+    setState(() {
+      _selected = null;
+      _usersRetryToken++;
+      _usersLoadFuture = _loadUsersDocuments();
+    });
+  }
+
+  void _retryStayStream() {
+    setState(() {
+      _selected = null;
+      _stayRetryToken++;
     });
   }
 
@@ -163,9 +185,11 @@ class _OkibakeUpdateLinkedUserDialogState
                 content: SizedBox(
                   width: 460,
                   child: FutureBuilder<void>(
+                    key: ValueKey('okibake-setuser-users-$_usersRetryToken'),
                     future: _usersLoadFuture,
                     builder: (context, loadSnap) {
                       return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        key: ValueKey('okibake-setuser-stay-$_stayRetryToken'),
                         stream: ActiveStaysService.instance.stream,
                         builder: (context, stayShot) {
                           final usersLoaded =
@@ -177,9 +201,27 @@ class _OkibakeUpdateLinkedUserDialogState
                               usersLoaded &&
                                   stayShot.hasData &&
                                   stayShot.data != null &&
-                                  !stayShot.hasError
+                                  !stayShot.hasError &&
+                                  !loadSnap.hasError
                               ? _filterNotStaying(stayShot.data!)
                               : <OkibakeLinkCandidate>[];
+
+                          if (_selected != null &&
+                              usersLoaded &&
+                              stayReady &&
+                              !stayShot.hasError &&
+                              !loadSnap.hasError &&
+                              !notStaying.any(
+                                  (c) => c.userId == _selected!.userId)) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (!mounted || _selected == null) return;
+                              if (notStaying.any(
+                                  (c) => c.userId == _selected!.userId)) {
+                                return;
+                              }
+                              setState(() => _selected = null);
+                            });
+                          }
 
                           Widget userArea;
                           if (loadSnap.connectionState ==
@@ -189,20 +231,48 @@ class _OkibakeUpdateLinkedUserDialogState
                               child: Center(child: CircularProgressIndicator()),
                             );
                           } else if (loadSnap.hasError) {
-                            userArea = Text(
-                              'ユーザー一覧の取得に失敗しました: ${loadSnap.error}',
-                              style: const TextStyle(
-                                color: Colors.red,
-                                fontSize: 13,
-                              ),
+                            userArea = Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  kTournamentUsersLoadFailedMessage,
+                                  style: TextStyle(
+                                    color: Colors.red.shade700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton(
+                                    onPressed:
+                                        _submitting ? null : _retryUsersLoad,
+                                    child: const Text('再試行'),
+                                  ),
+                                ),
+                              ],
                             );
                           } else if (stayShot.hasError) {
-                            userArea = Text(
-                              '入店情報の取得に失敗しました: ${stayShot.error}',
-                              style: const TextStyle(
-                                color: Colors.red,
-                                fontSize: 13,
-                              ),
+                            userArea = Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  kTournamentActiveStaysLoadFailedMessage,
+                                  style: TextStyle(
+                                    color: Colors.red.shade700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton(
+                                    onPressed:
+                                        _submitting ? null : _retryStayStream,
+                                    child: const Text('再試行'),
+                                  ),
+                                ),
+                              ],
                             );
                           } else if (!stayReady) {
                             userArea = const Padding(

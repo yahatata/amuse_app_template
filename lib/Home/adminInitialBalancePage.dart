@@ -1,4 +1,5 @@
 import 'package:amuse_app_template/Home/adminInitialPointSettingPage.dart';
+import 'package:amuse_app_template/Home/home_list_load_errors.dart';
 import 'package:amuse_app_template/user/user_type_display.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -55,7 +56,7 @@ class _AdminInitialBalancePageState extends State<AdminInitialBalancePage> {
       if (!mounted) return;
       setState(() {
         _usersLoading = false;
-        _usersError = e.toString();
+        _usersError = kHomeUsersListLoadFailedMessage;
       });
     }
   }

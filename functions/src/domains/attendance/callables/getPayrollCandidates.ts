@@ -18,6 +18,11 @@ import { PAYROLL_ERRORS } from '../helpers/payrollErrors';
 import type { CandidateReasonType } from '../types/payrollCalcTypes';
 import { buildPayrollDisplayContext } from '../helpers/payrollDisplayContext';
 import type { PayrollDisplayContext } from '../helpers/payrollDisplayContext';
+import {
+  findWageMissingStaff,
+  staffDocsToMap,
+  type WageMissingStaffEntry,
+} from '../helpers/payrollHourlyWageValidation';
 
 const PERIOD_KEY_REGEX = /^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/;
 
@@ -46,6 +51,8 @@ export interface GetPayrollCandidatesResponse {
   group1: CandidateEntry[];
   group2: CandidateEntry[];
   group3: CandidateEntry[];
+  /** 時給未設定の staff（group1/2 に登場する staff 単位） */
+  wageMissingStaff: WageMissingStaffEntry[];
   /** Callable と同一経路で算出した UI 表示用メタ */
   displayContext: PayrollDisplayContext;
   /** monthlyPayroll.status が confirmed または paid */
@@ -141,6 +148,35 @@ export function classifyCandidates(
   applyMaxCountLimit(group1, group2, group3, maxCount);
 
   return { group1, group2, group3 };
+}
+
+/** group1/2 から staffId を重複排除して収集 */
+export function collectCandidateStaffIds(
+  group1: CandidateEntry[],
+  group2: CandidateEntry[]
+): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of [...group1, ...group2]) {
+    if (!entry.staffId || seen.has(entry.staffId)) continue;
+    seen.add(entry.staffId);
+    ids.push(entry.staffId);
+  }
+  return ids;
+}
+
+/** CandidateEntry 群から staffName フォールバック Map を構築 */
+export function buildStaffNameFallbackFromCandidates(
+  group1: CandidateEntry[],
+  group2: CandidateEntry[]
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const entry of [...group1, ...group2]) {
+    if (entry.staffId && entry.staffName && !map.has(entry.staffId)) {
+      map.set(entry.staffId, entry.staffName);
+    }
+  }
+  return map;
 }
 
 /**
@@ -252,12 +288,30 @@ export const getPayrollCandidates = onCall(async (request: CallableRequest) => {
     maxCount
   );
 
+  const candidateStaffIds = collectCandidateStaffIds(group1, group2);
+  const staffDocSnaps = await Promise.all(
+    candidateStaffIds.map((id) => db.collection('staffs').doc(id).get())
+  );
+  const staffDocsById = staffDocsToMap(
+    staffDocSnaps.map((snap) => ({
+      id: snap.id,
+      exists: snap.exists,
+      data: () => (snap.exists ? (snap.data() as Record<string, unknown>) : undefined),
+    }))
+  );
+  const wageMissingStaff = findWageMissingStaff({
+    staffIds: candidateStaffIds,
+    staffDocsById,
+    staffNameFallback: buildStaffNameFallbackFromCandidates(group1, group2),
+  });
+
   const response: GetPayrollCandidatesResponse = {
     periodStart,
     periodEnd,
     group1,
     group2,
     group3,
+    wageMissingStaff,
     displayContext,
     isConfirmed,
   };
@@ -270,6 +324,7 @@ export const getPayrollCandidates = onCall(async (request: CallableRequest) => {
       group1Count: group1.length,
       group2Count: group2.length,
       group3Count: group3.length,
+      wageMissingStaffCount: wageMissingStaff.length,
       isConfirmed,
     },
   });

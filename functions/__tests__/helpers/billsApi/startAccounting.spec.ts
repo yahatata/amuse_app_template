@@ -8,16 +8,18 @@
  * - happy path（正常な会計開始、status='settling'、ops.accountingStartedAt設定）
  * - invalid-argument（billId未指定、idempotencyKey未指定）
  * - not-found（billId不存在）
- * - failed-precondition（statusがopen/in_progress以外、requestHash不一致）
+ * - 業務エラー（statusがopen/in_progress以外、requestHash不一致 → FunctionCustomError）
  * - idempotent-replay（reused: true、updatedAt不変）
  * - DualWrite ON/OFF（todaysBills.statusの更新確認、idempotent replay時のDualWriteスキップ）
+ *
+ * 対象層は repo/helper 単体。Callable 境界の HttpsError 変換は accounting.spec / a7PaymentRejects 側。
  */
 
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { startAccounting } from '../../../src/domains/bills/repos/startAccounting';
-
+import { FunctionCustomError } from '../../../src/shared/logging/functionCustomError';
 describe('startAccounting', () => {
   let testEnv: RulesTestEnvironment;
   let db: admin.firestore.Firestore;
@@ -190,8 +192,8 @@ describe('startAccounting', () => {
     });
   });
 
-  describe('failed-precondition', () => {
-    it('status が settled の場合 → failed-precondition', async () => {
+  describe('業務エラー（FunctionCustomError）', () => {
+    it('status が settled の場合 → ACCOUNTING_INVALID_STATE', async () => {
       const billId = 'bill_test_failed_001';
       const userId = 'user_test_failed_001';
       const accountingStartedBy = 'admin_test_001';
@@ -199,19 +201,28 @@ describe('startAccounting', () => {
 
       await createTestBill(billId, userId, 'settled');
 
-      try {
-        await startAccounting({
+      await expect(
+        startAccounting({
           billId,
           idempotencyKey,
           accountingStartedBy,
-        });
-        fail('Should have thrown an error');
-      } catch (error: any) {
-        expect(error.code).toBe('failed-precondition');
-      }
+        }),
+      ).rejects.toEqual(
+        expect.objectContaining({
+          name: 'FunctionCustomError',
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+        }),
+      );
+      await expect(
+        startAccounting({
+          billId,
+          idempotencyKey,
+          accountingStartedBy,
+        }),
+      ).rejects.toBeInstanceOf(FunctionCustomError);
     });
 
-    it('status が settling の場合 → failed-precondition', async () => {
+    it('status が settling の場合 → ACCOUNTING_INVALID_STATE', async () => {
       const billId = 'bill_test_failed_002';
       const userId = 'user_test_failed_002';
       const accountingStartedBy = 'admin_test_001';
@@ -219,19 +230,21 @@ describe('startAccounting', () => {
 
       await createTestBill(billId, userId, 'settling');
 
-      try {
-        await startAccounting({
+      await expect(
+        startAccounting({
           billId,
           idempotencyKey,
           accountingStartedBy,
-        });
-        fail('Should have thrown an error');
-      } catch (error: any) {
-        expect(error.code).toBe('failed-precondition');
-      }
+        }),
+      ).rejects.toEqual(
+        expect.objectContaining({
+          name: 'FunctionCustomError',
+          errorKey: 'ACCOUNTING_INVALID_STATE',
+        }),
+      );
     });
 
-    it('requestHash 不一致 → failed-precondition', async () => {
+    it('requestHash 不一致 → ACCOUNTING_IDEMPOTENCY_MISMATCH', async () => {
       const billId = 'bill_test_failed_003';
       const userId = 'user_test_failed_003';
       const accountingStartedBy = 'admin_test_001';
@@ -248,17 +261,19 @@ describe('startAccounting', () => {
       });
 
       // 異なる requestHash で再実行
-      try {
-        await startAccounting({
+      await expect(
+        startAccounting({
           billId,
           idempotencyKey,
           accountingStartedBy,
           requestHash: 'hash_002',
-        });
-        fail('Should have thrown an error');
-      } catch (error: any) {
-        expect(error.code).toBe('failed-precondition');
-      }
+        }),
+      ).rejects.toEqual(
+        expect.objectContaining({
+          name: 'FunctionCustomError',
+          errorKey: 'ACCOUNTING_IDEMPOTENCY_MISMATCH',
+        }),
+      );
     });
   });
 

@@ -2,7 +2,7 @@
   "name": "functions",
   "scripts": {
     "lint": "eslint .",
-    "audit:floating-promises": "ESLINT_USE_FLAT_CONFIG=false eslint \"src/**/*.ts\" --no-eslintrc --env es2022 --env node --parser @typescript-eslint/parser --parser-options project:./tsconfig.json --plugin @typescript-eslint --ignore-pattern \"src/unused_function_lib/**\" --rule \"@typescript-eslint/no-floating-promises: [error, {ignoreVoid: true, ignoreIIFE: true}]\"",
+    "audit:floating-promises": "ESLINT_USE_FLAT_CONFIG=false eslint \"src/**/*.ts\" --no-eslintrc --env es2022 --env node --parser @typescript-eslint/parser --parser-options project:./tsconfig.json --plugin @typescript-eslint --rule \"@typescript-eslint/no-floating-promises: [error, {ignoreVoid: true, ignoreIIFE: true}]\"",
     "build": "tsc",
     "verify:logops-operation": "node scripts/verifyLogOpsOperation.cjs",
     "audit:logops-catch": "node scripts/auditLogopsCatch.cjs",

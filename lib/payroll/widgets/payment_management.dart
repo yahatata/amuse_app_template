@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:amuse_app_template/services/payroll_config_service.dart';
 import 'package:amuse_app_template/payroll/utils/payment_date_utils.dart';
 import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
+import '../errors/payroll_user_facing_errors.dart';
 import '../services/payroll_callable_service.dart';
 import 'staff_card.dart';
 
@@ -91,16 +92,39 @@ class _PaymentManagementState extends State<PaymentManagement> {
   Future<void> _registerStatus(String staffId, String status) async {
     _setProcessing(true);
     try {
-      await _service.registerPaymentStatus(
+      final result = await _service.registerPaymentStatus(
         paymentPeriodKey: widget.paymentPeriodKey,
         entries: [
           {'staffId': staffId, 'status': status}
         ],
       );
+      if (!mounted) return;
+      if (!isPayrollCallableSuccess(
+        result,
+        shapeValidator: isRegisterPaymentStatusShape,
+      )) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapPayrollSoftFail(
+                result,
+                operation: kRegisterPaymentStatusOperation,
+              ),
+            ),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('登録に失敗: $e')),
+          SnackBar(
+            content: Text(
+              mapPayrollCallableError(
+                e,
+                operation: kRegisterPaymentStatusOperation,
+              ),
+            ),
+          ),
         );
       }
     } finally {
@@ -291,7 +315,7 @@ class _BulkPaidConfirmDialog extends StatefulWidget {
   });
 
   final int unpaidCount;
-  final Future<void> Function() onSubmit;
+  final Future<Map<String, dynamic>> Function() onSubmit;
 
   @override
   State<_BulkPaidConfirmDialog> createState() => _BulkPaidConfirmDialogState();
@@ -303,12 +327,37 @@ class _BulkPaidConfirmDialogState extends State<_BulkPaidConfirmDialog> {
   Future<void> _onConfirm() async {
     setState(() => _submitting = true);
     try {
-      await widget.onSubmit();
-      if (mounted) Navigator.of(context).pop();
+      final result = await widget.onSubmit();
+      if (!mounted) return;
+      if (!isPayrollCallableSuccess(
+        result,
+        shapeValidator: isRegisterPaymentStatusShape,
+      )) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapPayrollSoftFail(
+                result,
+                operation: kRegisterPaymentStatusOperation,
+              ),
+            ),
+          ),
+        );
+        setState(() => _submitting = false);
+        return;
+      }
+      Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('一括登録に失敗: $e')),
+          SnackBar(
+            content: Text(
+              mapPayrollCallableError(
+                e,
+                operation: kRegisterPaymentStatusOperation,
+              ),
+            ),
+          ),
         );
         setState(() => _submitting = false);
       }

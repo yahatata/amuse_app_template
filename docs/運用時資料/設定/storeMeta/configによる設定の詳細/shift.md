@@ -59,7 +59,7 @@ submissionStartDay / submissionEndDay / schedulingStartDay（storeMeta/config �
 - シフト画面の①提出期間・②シフト組む期間の表示（「前月○日〜○日」「前月○日〜」）
 - 提出期間内か・シフト組む期間内かの判定（shiftHomePage の `_isInSubmissionPeriod` / `_isInSchedulingPeriod`）
 - タブの表示・ボタンの有効化の切り替え
-- シフト申請・修正可否の判定（`createMultipleShifts`・`updateShiftRequest` の `isInShiftSchedulingPeriod`）
+- シフト申請・修正可否の判定（`submitShiftRequests`・`updateShiftRequest` の `isInShiftSchedulingPeriod`）
 
 ---
 
@@ -71,7 +71,7 @@ submissionStartDay / submissionEndDay / schedulingStartDay（storeMeta/config �
 | ts | `functions/src/shared/config/configLoader.ts` | config 取得・フォールバック |
 | ts | `functions/src/shared/config/types.ts` | StoreConfig 型定義 |
 | ts | `functions/src/domains/shift/services/helpers.ts` | isInShiftSchedulingPeriod（schedulingStartDay を引数で受け取る） |
-| ts | `functions/src/domains/staff/callables/createMultipleShifts.ts` | config 取得→isInShiftSchedulingPeriod に schedulingStartDay を渡す |
+| ts | `functions/src/domains/staff/callables/submitShiftRequests.ts` | config 取得→isInShiftSchedulingPeriod に schedulingStartDay を渡す（`submitShiftRequestsAtomic` 経由） |
 | ts | `functions/src/domains/staff/callables/updateShiftRequest.ts` | config 取得→isInShiftSchedulingPeriod に schedulingStartDay を渡す |
 | dart | `lib/services/store_config_service.dart` | config パース・StoreConfigData |
 | dart | `lib/services/store_config_defaults.dart` | デフォルト値（kDefaultShiftSubmissionStartDay 等） |

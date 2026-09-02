@@ -162,7 +162,7 @@ export const DEFAULT_SIDE_GAME_CHIP_ROUNDING_UNIT = 100;
 // D-04: LINE プラン
 // =============================================================================
 
-/** LINE プラン種別。communication=シフト辞退なし, light/standard=シフト辞退あり */
+/** LINE プラン種別（storeMeta/config.linePlan）。旧シフト要請確認/辞退ゲートは CLN-F2 で削除済み */
 export const DEFAULT_LINE_PLAN = 'communication';
 
 // =============================================================================

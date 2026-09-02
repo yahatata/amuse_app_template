@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/tournament/active/models/scheduled_tournament_seat_map.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 
 class RemoveTableDialog extends StatefulWidget {
   final String tournamentId;
@@ -23,9 +25,10 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
   String? _selectedTableId;
   bool _isLoading = false;
   bool _isLoadingTables = true;
+  bool _tablesLoadFailed = false;
   List<Map<String, dynamic>> _emptyTables = [];
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +58,21 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
                       const SizedBox(height: 16),
                       if (_isLoadingTables)
                         const Center(child: CircularProgressIndicator())
+                      else if (_tablesLoadFailed)
+                        Column(
+                          children: [
+                            Text(
+                              kTournamentTablesLoadFailedMessage,
+                              style: TextStyle(color: Colors.red.shade700),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            ElevatedButton(
+                              onPressed: _isLoading ? null : _loadEmptyTables,
+                              child: const Text('再試行'),
+                            ),
+                          ],
+                        )
                       else if (_emptyTables.isEmpty)
                         const Text(
                           '削除可能な卓がありません',
@@ -72,14 +90,17 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
                           items: _emptyTables
                               .map((table) => DropdownMenuItem<String>(
                                     value: table['tableId'] as String,
-                                    child: Text('${table['name']} (${table['maxSeats']}席)'),
+                                    child: Text(
+                                        '${table['name']} (${table['maxSeats']}席)'),
                                   ))
                               .toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedTableId = value;
-                            });
-                          },
+                          onChanged: _isLoading
+                              ? null
+                              : (value) {
+                                  setState(() {
+                                    _selectedTableId = value;
+                                  });
+                                },
                         ),
                       ],
                     ],
@@ -87,11 +108,15 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                    onPressed:
+                        _isLoading ? null : () => Navigator.of(context).pop(),
                     child: const Text('キャンセル'),
                   ),
                   ElevatedButton(
-                    onPressed: _isLoading || _selectedTableId == null || _emptyTables.isEmpty
+                    onPressed: _isLoading ||
+                            _tablesLoadFailed ||
+                            _selectedTableId == null ||
+                            _emptyTables.isEmpty
                         ? null
                         : _removeTableFromTournament,
                     style: ElevatedButton.styleFrom(
@@ -120,10 +145,14 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
     );
   }
 
-  /// 空いている卓を読み込み
   Future<void> _loadEmptyTables() async {
+    setState(() {
+      _isLoadingTables = true;
+      _tablesLoadFailed = false;
+      _selectedTableId = null;
+    });
+
     try {
-      // scheduledTournamentsのtablesSeatサブコレクションから卓を取得
       final tablesSeatSnapshot = await _firestore
           .collection('scheduledTournaments')
           .doc(widget.tournamentId)
@@ -133,10 +162,9 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
       final emptyTables = <Map<String, dynamic>>[];
 
       for (final doc in tablesSeatSnapshot.docs) {
-        // 'waiting'と'busted'は除外
         if (doc.id == 'waiting' || doc.id == 'busted') continue;
 
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data();
         if (data['isEnabled'] == false) continue;
         final seats = data['seats'] as Map<String, dynamic>? ?? {};
 
@@ -144,8 +172,8 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
           continue;
         }
 
-        // tablesコレクションから卓情報を取得
-        final tableDoc = await _firestore.collection('tables').doc(doc.id).get();
+        final tableDoc =
+            await _firestore.collection('tables').doc(doc.id).get();
         if (tableDoc.exists) {
           final tableData = tableDoc.data() as Map<String, dynamic>;
           emptyTables.add({
@@ -156,28 +184,25 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _emptyTables = emptyTables;
         _isLoadingTables = false;
+        _tablesLoadFailed = false;
       });
-    } catch (e) {
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
+        _emptyTables = [];
         _isLoadingTables = false;
+        _tablesLoadFailed = true;
+        _selectedTableId = null;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('卓情報の読み込みに失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     }
   }
 
-  /// 卓をトーナメントから削除
   Future<void> _removeTableFromTournament() async {
-    if (_selectedTableId == null) return;
+    if (_isLoading || _tablesLoadFailed || _selectedTableId == null) return;
 
     setState(() {
       _isLoading = true;
@@ -189,19 +214,34 @@ class _RemoveTableDialogState extends State<RemoveTableDialog> {
         tableId: _selectedTableId!,
       );
 
-      if (result['success'] == true) {
-        if (mounted) {
-          Navigator.of(context).pop();
-          widget.onTableRemoved();
-        }
+      if (!mounted) return;
+
+      if (isCallableSuccessResponse(result)) {
+        Navigator.of(context).pop();
+        widget.onTableRemoved();
       } else {
-        throw Exception('卓削除に失敗しました');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentOpsSoftFail(
+                result,
+                operation: kRemoveTableFromTournamentOperation,
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('エラーが発生しました: $e'),
+            content: Text(
+              mapTournamentOpsCallableError(
+                e,
+                operation: kRemoveTableFromTournamentOperation,
+              ),
+            ),
             backgroundColor: Colors.red,
           ),
         );

@@ -12,7 +12,7 @@ import 'package:amuse_app_template/Accounting/requireSpecialAttention/userAttent
 /// ここでは画面ロジックの肝になるフィルタ / グルーピング / 件数を unit 相当で確認する。
 void main() {
   group('classifyBill 流れの結合（仕様書 §9.x / §14）', () {
-    test('§16.1: status=open + closeSummary.unresolved=true が `未会計` に出る', () {
+    test('§16.1: status=open + closeSummary.unresolved=true が `入店者の未会計` に出る', () {
       final vm = BillRequireAttentionViewModel.fromBill('B1', {
         'status': 'open',
         'businessDate': '2026-05-01',
@@ -25,8 +25,27 @@ void main() {
       });
       expect(vm, isNotNull);
       expect(vm!.cardType, BillCardType.carryoverUnsettled);
-      expect(vm.displayLabel, '未会計');
+      expect(vm.displayLabel, '入店者の未会計');
       expect(vm.primaryActionType, PrimaryActionType.resumeAccounting);
+    });
+
+    test('§16.1b: okibake pending_review が `未入店参加の未会計` に出る', () {
+      final vm = BillRequireAttentionViewModel.fromOkibakePendingReview(
+        tournamentId: 't1',
+        okibakeEntryId: 'e1',
+        entry: {
+          'linkedUserId': 'u1',
+          'linkedUserPokerName': 'OkibakeUser',
+          'estimatedAmountIncl': 1000,
+          'businessDate': '2026-05-01',
+        },
+      );
+      expect(vm.cardType, BillCardType.okibakePendingReview);
+      expect(vm.displayLabel, '未入店参加の未会計');
+      expect(
+        vm.primaryActionType,
+        PrimaryActionType.resolveOkibakePendingReview,
+      );
     });
 
     test('§16.2: post_settlement_pending + collection が `追加徴収` に出る', () {
@@ -255,7 +274,7 @@ void main() {
 
   // §16.5 各カードから正しい導線に遷移する
   group('§16.5: primaryActionType の導線', () {
-    test('carryover → resumeAccounting', () {
+    test('carryover → resumeAccounting（遷移先は AccountingPage。ラベルは activeStay で分岐）', () {
       final vm = BillRequireAttentionViewModel.fromBill('B1', {
         'status': 'open',
         'closeSummary': {'unresolved': true, 'displayAmountAtMark': 0},
@@ -263,6 +282,35 @@ void main() {
         'party': {'userId': 'u', 'pokerName': 'P'},
       });
       expect(vm!.primaryActionType, PrimaryActionType.resumeAccounting);
+      expect(
+        carryoverPrimaryActionLabel(userHasActiveStay: false),
+        '来店なし入金',
+      );
+      expect(
+        carryoverPrimaryActionLabel(userHasActiveStay: true),
+        '過去伝票を精算',
+      );
+    });
+
+    test('okibake → resolveOkibakePendingReview（対応する）', () {
+      final vm = BillRequireAttentionViewModel.fromOkibakePendingReview(
+        tournamentId: 't1',
+        okibakeEntryId: 'e1',
+        entry: {
+          'linkedUserId': 'u1',
+          'linkedUserPokerName': 'OkibakeUser',
+          'estimatedAmountIncl': 1000,
+          'businessDate': '2026-05-01',
+        },
+      );
+      expect(
+        vm.primaryActionType,
+        PrimaryActionType.resolveOkibakePendingReview,
+      );
+      expect(
+        primaryActionLabel(PrimaryActionType.resolveOkibakePendingReview),
+        '対応する',
+      );
     });
 
     test('collection → collect', () {

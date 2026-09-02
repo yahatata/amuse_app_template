@@ -149,6 +149,38 @@ export function getPaymentPeriodKey(
 }
 
 /**
+ * asOfDateJst 時点で直前に終了している給与期間（calc target）を返す。
+ *
+ * processPayrollNotifications の recentPeriod 導出と同一:
+ * activePeriod = getPayrollPeriodRange(asOf)
+ * recent = getPayrollPeriodRange(activePeriod.periodStart - 1 day)
+ *
+ * 参照: 01_TOBE_DETAILED_SPEC §3.3 / §8.2, payment_window.md
+ */
+export function getCalcTargetPeriodRange(
+  asOfDateJst: string,
+  startDay: number,
+  endDay: number
+): { periodStart: string; periodEnd: string } {
+  const activePeriod = getPayrollPeriodRange(asOfDateJst, startDay, endDay);
+  return getPayrollPeriodRange(addDays(activePeriod.periodStart, -1), startDay, endDay);
+}
+
+/**
+ * calc target の paymentPeriodKey を算出する。
+ *
+ * @returns "YYYY-MM-DD_YYYY-MM-DD" 形式
+ */
+export function getCalcTargetPaymentPeriodKey(
+  asOfDateJst: string,
+  startDay: number,
+  endDay: number
+): string {
+  const { periodStart, periodEnd } = getCalcTargetPeriodRange(asOfDateJst, startDay, endDay);
+  return `${periodStart}_${periodEnd}`;
+}
+
+/**
  * 対象期間に対する実支給日を算出する。
  *
  * - paymentDayOfMonth は '0'..'31' または null

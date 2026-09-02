@@ -1,4 +1,4 @@
-import { onCall } from "firebase-functions/v2/https";
+import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
@@ -9,33 +9,34 @@ import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError"
  * Where（どこで）: LIFF側のユーザーホーム画面
  * What（何を）: ユーザーの入店状態（isStaying）と基本情報を取得
  * How（どうやって）: users から基本情報、activeStays から入店状態を取得（users.isStaying は廃止）
+ *
+ * 認証: request.auth 必須。照会対象は常に request.auth.uid。
+ * request.data.uid が渡されても一致する場合のみ許容し、不一致は permission-denied。
  */
 export const getUserStatus = onCall(async (request) => {
-  const rawUid = (request.data as { uid?: unknown } | undefined)?.uid;
-  const logContext: Record<string, unknown> =
-    typeof rawUid === "string" && rawUid ? { uid: rawUid } : {};
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "認証が必要です。");
+  }
+
+  const uid = request.auth.uid;
+  const requestedUid = (request.data as { uid?: unknown } | undefined)?.uid;
+  if (typeof requestedUid === "string" && requestedUid.length > 0 && requestedUid !== uid) {
+    throw new HttpsError("permission-denied", "他のユーザー情報は参照できません。");
+  }
+
+  const logContext: Record<string, unknown> = { uid };
 
   try {
-    const { uid } = request.data ?? {};
-
-    // パラメータの検証
-    if (!uid || typeof uid !== "string") {
-      return {
-        success: false,
-        error: "ユーザーIDが無効です。"
-      };
-    }
-
     const db = admin.firestore();
 
-    // Firestoreからユーザー情報を取得
+    // Firestoreからユーザー情報を取得（auth UID のみ）
     const userRef = db.collection("users").doc(uid);
     const userSnap = await userRef.get();
 
     if (!userSnap.exists) {
       return {
         success: false,
-        error: "ユーザーが見つかりません。"
+        error: "ユーザーが見つかりません。",
       };
     }
 
@@ -51,7 +52,7 @@ export const getUserStatus = onCall(async (request) => {
       context: { uid, isStaying },
     });
 
-    // 成功レスポンス
+    // 成功レスポンス（L2 LINE 契約維持）
     return {
       success: true,
       user: {
@@ -59,21 +60,23 @@ export const getUserStatus = onCall(async (request) => {
         loginId: userData.loginId || "",
         pokerName: userData.pokerName || "",
         isStaying, // activeStays.isActive から取得
-        lastCheckInAt: userData.lastCheckInAt,   // 最後の入店時刻
-      }
+        lastCheckInAt: userData.lastCheckInAt, // 最後の入店時刻
+      },
     };
-    
   } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
     logOpsError({
-      message: 'getUserStatus error',
-      functionEntry: 'getUserStatus',
+      message: "getUserStatus error",
+      functionEntry: "getUserStatus",
       cause: error,
-      errorKey: 'USER_VISIT_STATUS_FETCH_FAILED',
+      errorKey: "USER_VISIT_STATUS_FETCH_FAILED",
       context: logContext,
     });
-    return { 
-      success: false, 
-      error: "ユーザー状態の取得に失敗しました。" 
+    return {
+      success: false,
+      error: "ユーザー状態の取得に失敗しました。",
     };
   }
-}); 
+});

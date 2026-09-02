@@ -1,5 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/AttendanceManagement/attendance_user_facing_errors.dart';
+import 'package:amuse_app_template/AttendanceManagement/attendance_correction_mutation_gate.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
@@ -16,6 +19,8 @@ class _AttendanceCorrectionRequestsPageState extends State<AttendanceCorrectionR
   List<Map<String, dynamic>> _correctionRequests = [];
   bool _isLoading = true;
   String? _errorMessage;
+  final AttendanceCorrectionMutationGate _mutationGate =
+      AttendanceCorrectionMutationGate();
 
   @override
   void initState() {
@@ -38,7 +43,7 @@ class _AttendanceCorrectionRequestsPageState extends State<AttendanceCorrectionR
         'limit': 100,
       });
 
-      if (result.data['success']) {
+      if (isCallableSuccessResponse(result.data)) {
         final List<dynamic> requestsData = result.data['requests'];
         final List<Map<String, dynamic>> requests = [];
         
@@ -51,70 +56,132 @@ class _AttendanceCorrectionRequestsPageState extends State<AttendanceCorrectionR
           _isLoading = false;
         });
       } else {
-        throw Exception(result.data['error'] ?? 'Unknown error');
+        setState(() {
+          _errorMessage = mapAttendanceCallableSoftFail(
+            result.data,
+            operation: 'getAttendanceCorrectionRequests',
+          );
+          _isLoading = false;
+        });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'データの読み込みに失敗しました: $e';
+        _errorMessage = mapAttendanceCallableError(
+          e,
+          operation: 'getAttendanceCorrectionRequests',
+        );
+        // 空一覧と区別するため、失敗時は専用文言へ寄せる（詳細は D-1）
+        if (_errorMessage == kFinalFallbackErrorMessage) {
+          _errorMessage = kAttendanceCorrectionRequestsLoadFailedMessage;
+        }
         _isLoading = false;
       });
     }
   }
 
+  bool get _isMutating => _mutationGate.isLocked;
+
+  Future<bool> _runLockedMutation(Future<void> Function() action) async {
+    if (!_mutationGate.tryAcquire()) return false;
+    setState(() {});
+    try {
+      await action();
+      return true;
+    } finally {
+      _mutationGate.release();
+      if (mounted) setState(() {});
+    }
+  }
+
   // 申請を承認
   Future<void> _approveRequest(String requestId) async {
-    try {
-      // Cloud Functions経由で承認処理
-      const String adminUserId = 'admin_user';
-      const String adminUserName = '管理者';
+    String? successMessage;
+    String? errorMessage;
+    final ran = await _runLockedMutation(() async {
+      try {
+        const String adminUserId = 'admin_user';
+        const String adminUserName = '管理者';
 
-      final HttpsCallable callable = _functions.httpsCallable('approveAttendanceCorrectionRequest');
-      final result = await callable.call({
-        'requestId': requestId,
-        'adminUserId': adminUserId,
-        'adminUserName': adminUserName,
-      });
+        final HttpsCallable callable =
+            _functions.httpsCallable('approveAttendanceCorrectionRequest');
+        final result = await callable.call({
+          'requestId': requestId,
+          'adminUserId': adminUserId,
+          'adminUserName': adminUserName,
+        });
 
-      if (result.data['success']) {
-        _showSuccessSnackBar('申請を承認しました');
-        _loadCorrectionRequests(); // リストを再読み込み
-      } else {
-        throw Exception(result.data['error'] ?? 'Unknown error');
+        if (isCallableSuccessResponse(result.data)) {
+          await _loadCorrectionRequests();
+          successMessage = '申請を承認しました';
+        } else {
+          errorMessage = mapCallableSoftFailMessage(
+            result.data,
+            operation: 'approveAttendanceCorrectionRequest',
+          );
+        }
+      } catch (e) {
+        errorMessage = mapCallableError(
+          e,
+          operation: 'approveAttendanceCorrectionRequest',
+        ).message;
       }
-    } catch (e) {
-      _showErrorSnackBar('承認処理に失敗しました: $e');
+    });
+    if (!ran || !mounted) return;
+    final ok = successMessage;
+    final err = errorMessage;
+    if (ok != null) {
+      _showSuccessSnackBar(ok);
+    } else if (err != null) {
+      _showErrorSnackBar(err);
     }
   }
 
   // 申請を却下
   Future<void> _rejectRequest(String requestId) async {
-    try {
-      // 却下理由を入力するダイアログを表示
-      final String? rejectionReason = await _showRejectionReasonDialog();
-      if (rejectionReason == null || rejectionReason.trim().isEmpty) {
-        return; // キャンセルまたは空文字
+    final String? rejectionReason = await _showRejectionReasonDialog();
+    if (rejectionReason == null || rejectionReason.trim().isEmpty) {
+      return;
+    }
+
+    String? successMessage;
+    String? errorMessage;
+    final ran = await _runLockedMutation(() async {
+      try {
+        const String adminUserId = 'admin_user';
+        const String adminUserName = '管理者';
+
+        final HttpsCallable callable =
+            _functions.httpsCallable('rejectAttendanceCorrectionRequest');
+        final result = await callable.call({
+          'requestId': requestId,
+          'adminUserId': adminUserId,
+          'adminUserName': adminUserName,
+          'rejectionReason': rejectionReason.trim(),
+        });
+
+        if (isCallableSuccessResponse(result.data)) {
+          await _loadCorrectionRequests();
+          successMessage = '申請を却下しました';
+        } else {
+          errorMessage = mapCallableSoftFailMessage(
+            result.data,
+            operation: 'rejectAttendanceCorrectionRequest',
+          );
+        }
+      } catch (e) {
+        errorMessage = mapCallableError(
+          e,
+          operation: 'rejectAttendanceCorrectionRequest',
+        ).message;
       }
-
-      // Cloud Functions経由で却下処理
-      const String adminUserId = 'admin_user';
-      const String adminUserName = '管理者';
-
-      final HttpsCallable callable = _functions.httpsCallable('rejectAttendanceCorrectionRequest');
-      final result = await callable.call({
-        'requestId': requestId,
-        'adminUserId': adminUserId,
-        'adminUserName': adminUserName,
-        'rejectionReason': rejectionReason.trim(),
-      });
-
-      if (result.data['success']) {
-        _showSuccessSnackBar('申請を却下しました');
-        _loadCorrectionRequests(); // リストを再読み込み
-      } else {
-        throw Exception(result.data['error'] ?? 'Unknown error');
-      }
-    } catch (e) {
-      _showErrorSnackBar('却下処理に失敗しました: $e');
+    });
+    if (!ran || !mounted) return;
+    final ok = successMessage;
+    final err = errorMessage;
+    if (ok != null) {
+      _showSuccessSnackBar(ok);
+    } else if (err != null) {
+      _showErrorSnackBar(err);
     }
   }
 
@@ -228,13 +295,17 @@ class _AttendanceCorrectionRequestsPageState extends State<AttendanceCorrectionR
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_isMutating,
+      child: Stack(
+        children: [
+          Scaffold(
       appBar: AppBar(
         title: const Text('勤怠修正申請管理'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadCorrectionRequests,
+            onPressed: _isMutating ? null : _loadCorrectionRequests,
             tooltip: '更新',
           ),
         ],
@@ -253,7 +324,7 @@ class _AttendanceCorrectionRequestsPageState extends State<AttendanceCorrectionR
                       ),
                       const SizedBox(height: 16),
                       ElevatedButton(
-                        onPressed: _loadCorrectionRequests,
+                        onPressed: _isMutating ? null : _loadCorrectionRequests,
                         child: const Text('再試行'),
                       ),
                     ],
@@ -291,6 +362,20 @@ class _AttendanceCorrectionRequestsPageState extends State<AttendanceCorrectionR
                         },
                       ),
                     ),
+          ),
+          if (_isMutating)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -392,7 +477,9 @@ class _AttendanceCorrectionRequestsPageState extends State<AttendanceCorrectionR
               children: [
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: () => _approveRequest(request['id']),
+                    onPressed: _isMutating
+                        ? null
+                        : () => _approveRequest(request['id']),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
@@ -403,7 +490,9 @@ class _AttendanceCorrectionRequestsPageState extends State<AttendanceCorrectionR
                 const SizedBox(width: 16),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: () => _rejectRequest(request['id']),
+                    onPressed: _isMutating
+                        ? null
+                        : () => _rejectRequest(request['id']),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,

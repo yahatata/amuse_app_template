@@ -1,25 +1,23 @@
 import 'package:amuse_app_template/Home/close_pre_confirmation_page.dart';
+import 'package:amuse_app_template/Home/home_list_load_errors.dart';
+import 'package:amuse_app_template/Home/store_terminal_callable_result.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
-import 'package:amuse_app_template/Home/unclocked_attendance_list_page.dart';
-import 'package:amuse_app_template/Home/stayingUsersListPage.dart';
 import 'package:amuse_app_template/AttendanceManagement/staff_attendance_page_from_terminalHome.dart';
 import 'package:amuse_app_template/OrderView/MenuView/categorySelectPage.dart';
 import 'package:amuse_app_template/OrderView/MenuView/menuEditorListPage.dart';
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
 import 'package:amuse_app_template/UserLogin/userCheckInPage.dart';
 import 'package:amuse_app_template/tournament/scheduling/pages/scheduled_tournament_list_page.dart';
-import 'package:amuse_app_template/Home/systemSettingsPage.dart';
 import 'package:amuse_app_template/tournament/scheduling/pages/tournament_creation_menu_page.dart';
 import 'package:amuse_app_template/Accounting/accountingPage.dart';
 import 'package:amuse_app_template/Accounting/requireSpecialAttentionPage.dart';
-import 'package:amuse_app_template/Accounting/payment_split_test_page.dart';
 // postAccountingAdjustmentsPage: 旧経路（to_be_deleted に移動済み 2026-05-29）
-import 'package:amuse_app_template/Accounting/postSettlementIdempotencyReplayPage.dart';
+// 会計後操作の冪等再送確認ページ: 正式 Terminal 導線から隔離（ページ本体は残置）
 import 'package:amuse_app_template/Accounting/postSettlementOperationsPage.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_list.dart';
 import 'package:amuse_app_template/OrderView/OrderManagement/order_management_page.dart';
-import 'package:amuse_app_template/dashboard/home/dashboard_home_page.dart';
-import 'package:amuse_app_template/Utils/firestore_size_page.dart';
+import 'package:amuse_app_template/Home/adminUserListPage.dart';
 import 'package:amuse_app_template/Home/table_home_page.dart';
 import 'package:amuse_app_template/tournament/active/pages/blind_timer_tournament_select_page.dart';
 import 'package:flutter/material.dart';
@@ -30,7 +28,6 @@ import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
 import 'package:amuse_app_template/utils/store_strong_warning_ui.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
@@ -222,7 +219,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
           return _wrapDateChip(
             context,
             const Icon(Icons.error_outline, color: Colors.orange, size: 20),
-            onPressed: () => _showLastErrorDialog(context, data.lastError),
+            onPressed: () => _showLastErrorDialog(context),
           );
         }
         return const SizedBox.shrink();
@@ -230,32 +227,14 @@ class _terminalHomePageState extends State<terminalHomePage> {
     );
   }
 
-  /// status === 'error' 時: lastError の内容をそのまま表示するダイアログ
-  void _showLastErrorDialog(BuildContext context, LastErrorDoc? lastError) {
-    final lines = <String>[];
-    if (lastError == null) {
-      lines.add('エラー状態です。詳細は取得できませんでした。');
-    } else {
-      if (lastError.code != null && lastError.code!.isNotEmpty)
-        lines.add('code: ${lastError.code}');
-      if (lastError.message != null && lastError.message!.isNotEmpty)
-        lines.add('message: ${lastError.message}');
-      if (lastError.failedStep != null && lastError.failedStep!.isNotEmpty)
-        lines.add('failedStep: ${lastError.failedStep}');
-      if (lastError.at != null) lines.add('at: ${lastError.at}');
-      if (lastError.context != null && lastError.context!.isNotEmpty) {
-        lines.add('context: ${lastError.context}');
-      }
-      if (lines.isEmpty) lines.add('エラー状態です。詳細は取得できませんでした。');
-    }
+  /// status === 'error' 時: 利用者向け固定文言（raw lastError 非表示）
+  void _showLastErrorDialog(BuildContext context) {
     showDialog<void>(
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          title: const Text('エラー詳細'),
-          content: SingleChildScrollView(
-            child: SelectableText(lines.join('\n')),
-          ),
+          title: const Text('店舗状態'),
+          content: const Text(kStoreMetaSyncFailedMessage),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
@@ -349,20 +328,16 @@ class _terminalHomePageState extends State<terminalHomePage> {
       );
       await callable.call(<String, dynamic>{'password': password});
       return true;
-    } on FirebaseFunctionsException catch (e) {
-      if (!mounted) return false;
-      ScaffoldMessenger.of(this.context).showSnackBar(
-        SnackBar(
-          content: Text(e.message ?? 'パスワード認証に失敗しました。'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return false;
     } catch (e) {
       if (!mounted) return false;
       ScaffoldMessenger.of(this.context).showSnackBar(
         SnackBar(
-          content: Text('パスワード認証に失敗しました。${e.toString()}'),
+          content: Text(
+            mapCallableError(
+              e,
+              operation: 'verifyOpenBusinessDateAdjustmentPassword',
+            ).message,
+          ),
           backgroundColor: Colors.orange,
         ),
       );
@@ -426,20 +401,12 @@ class _terminalHomePageState extends State<terminalHomePage> {
 
                   final children = <Widget>[];
                   if (meta.isError) {
-                    final le = meta.lastError;
-                    final lines = <String>['エラー状態です。'];
-                    if (le != null) {
-                      if (le.code != null && le.code!.isNotEmpty) {
-                        lines.add('code: ${le.code}');
-                      }
-                      if (le.message != null && le.message!.isNotEmpty) {
-                        lines.add('message: ${le.message}');
-                      }
-                      if (le.failedStep != null && le.failedStep!.isNotEmpty) {
-                        lines.add('failedStep: ${le.failedStep}');
-                      }
-                    }
-                    children.add(SelectableText(lines.join('\n')));
+                    children.add(
+                      const Text(
+                        kStoreMetaSyncFailedMessage,
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    );
                     children.add(const SizedBox(height: 12));
                   }
 
@@ -845,34 +812,40 @@ class _terminalHomePageState extends State<terminalHomePage> {
       if (!context.mounted) return false;
 
       final data = result.data;
-      if (data['success'] == true) {
+      if (isStoreTerminalCallableSuccess(data)) {
         // 仕様: 閉店処理完了時はダイアログで表示する（§4.8）
-        await _showCloseCompletedDialog(context, data);
+        await _showCloseCompletedDialog(
+          context,
+          Map<String, dynamic>.from(data as Map),
+        );
         return true;
       }
+      // STORE-01a: soft-fail / 不正 shape は利用者へ失敗表示（raw message/error 非表示）
+      final softFail = mapStoreTerminalSoftFail(data);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(softFail.message),
+          backgroundColor: Colors.red,
+        ),
+      );
       return false;
     } catch (e) {
       hideLoading();
       if (!context.mounted) return false;
-      String? resumeRunId;
-      if (e is FirebaseFunctionsException) {
-        if (e.code == 'failed-precondition') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('閉店処理が他の操作で実行中です。完了するまでお待ちください。'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-          return false;
-        }
-        final details = e.details;
-        if (details is Map && details['runId'] != null) {
-          resumeRunId = details['runId'] as String?;
-        }
+      if (isStoreTerminalBusyPrecondition(e)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('閉店処理が他の操作で実行中です。完了するまでお待ちください。'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return false;
       }
-      final message = e is FirebaseFunctionsException
-          ? (e.message ?? e.code)
-          : e.toString();
+      final resumeRunId = extractStoreTerminalResumeRunId(e);
+      final message = mapStoreTerminalCallableException(
+        e,
+        operation: 'closeStoreTerminal',
+      );
       if (resumeRunId != null) {
         showDialog<void>(
           context: context,
@@ -900,7 +873,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: $message'), backgroundColor: Colors.red),
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
         );
       }
       return false;
@@ -979,37 +952,42 @@ class _terminalHomePageState extends State<terminalHomePage> {
       if (!context.mounted) return;
 
       final data = result.data;
-      if (data['success'] == true) {
-        final date = data['businessDateKey'] ?? data['closedBusinessDate'];
+      if (isStoreTerminalCallableSuccess(data)) {
+        final map = data as Map;
+        final date = map['businessDateKey'] ?? map['closedBusinessDate'];
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(data['message'] ?? '$date の営業を開始しました。'),
+            content: Text(map['message'] ?? '$date の営業を開始しました。'),
             backgroundColor: Colors.green,
           ),
         );
+        return;
       }
+      // STORE-03a: soft-fail / 不正 shape は利用者へ失敗表示（raw message/error 非表示）
+      final softFail = mapStoreTerminalSoftFail(data);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(softFail.message),
+          backgroundColor: Colors.red,
+        ),
+      );
     } catch (e) {
       hideLoading();
       if (!context.mounted) return;
-      String? resumeRunId;
-      if (e is FirebaseFunctionsException) {
-        if (e.code == 'failed-precondition') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('開店処理が他の操作で実行中です。完了するまでお待ちください。'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-          return;
-        }
-        final details = e.details;
-        if (details is Map && details['runId'] != null) {
-          resumeRunId = details['runId'] as String?;
-        }
+      if (isStoreTerminalBusyPrecondition(e)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('開店処理が他の操作で実行中です。完了するまでお待ちください。'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
       }
-      final message = e is FirebaseFunctionsException
-          ? (e.message ?? e.code)
-          : e.toString();
+      final resumeRunId = extractStoreTerminalResumeRunId(e);
+      final message = mapStoreTerminalCallableException(
+        e,
+        operation: 'openStoreTerminal',
+      );
       if (resumeRunId != null) {
         showDialog<void>(
           context: context,
@@ -1037,329 +1015,9 @@ class _terminalHomePageState extends State<terminalHomePage> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: $message'), backgroundColor: Colors.red),
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
         );
       }
-    }
-  }
-
-  /// createInitialStateDocCallable Cloud Functionを呼び出す
-  Future<void> _callCreateInitialStateDoc(BuildContext context) async {
-    final overlayState = Overlay.maybeOf(context, rootOverlay: true);
-    OverlayEntry? loadingOverlay;
-    bool loadingShown = false;
-
-    void hideLoading() {
-      if (loadingShown) {
-        try {
-          loadingOverlay?.remove();
-        } catch (_) {
-          // noop
-        }
-        loadingOverlay = null;
-        loadingShown = false;
-      }
-    }
-
-    try {
-      // 認証状態を確認（未認証の場合は匿名認証を実行）
-      final auth = FirebaseAuth.instance;
-      if (auth.currentUser == null) {
-        await auth.signInAnonymously();
-      }
-
-      // ローディング表示
-      loadingOverlay = OverlayEntry(
-        builder: (_) => Material(
-          color: Colors.black54,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 16),
-                  Text('初期化処理中...'),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-      if (overlayState != null) {
-        overlayState.insert(loadingOverlay!);
-        loadingShown = true;
-      }
-
-      // Cloud Function呼び出し
-      final functions = FunctionsClient.instance;
-      final callable = functions.httpsCallable('createInitialStateDocCallable');
-
-      final result = await callable
-          .call({})
-          .timeout(
-            const Duration(seconds: 30),
-            onTimeout: () =>
-                throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました'),
-          );
-
-      hideLoading();
-
-      if (!context.mounted) return;
-
-      final data = result.data as Map<String, dynamic>? ?? {};
-      final bool success = data['success'] == true;
-
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(data['message'] ?? '初期化が完了しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('初期化に失敗しました'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      hideLoading();
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('エラー: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  /// openStore Cloud Functionを呼び出す
-  Future<void> _callOpenStore(BuildContext context) async {
-    final overlayState = Overlay.maybeOf(context, rootOverlay: true);
-    OverlayEntry? loadingOverlay;
-    bool loadingShown = false;
-
-    void hideLoading() {
-      if (loadingShown) {
-        try {
-          loadingOverlay?.remove();
-        } catch (_) {
-          // noop
-        }
-        loadingOverlay = null;
-        loadingShown = false;
-      }
-    }
-
-    try {
-      // 認証状態を確認（未認証の場合は匿名認証を実行）
-      final auth = FirebaseAuth.instance;
-      if (auth.currentUser == null) {
-        await auth.signInAnonymously();
-      }
-
-      // ローディング表示
-      loadingOverlay = OverlayEntry(
-        builder: (_) => Material(
-          color: Colors.black54,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 16),
-                  Text('開店処理中...'),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-      if (overlayState != null) {
-        overlayState.insert(loadingOverlay!);
-        loadingShown = true;
-      }
-
-      // Cloud Function呼び出し
-      // 注意: リージョン指定が必要な場合は、Firebase Functionsのデフォルト設定で
-      // リージョンが設定されている場合、instanceForを使用する必要がありますが、
-      // 認証トークンが正しく送信されない可能性があるため、まずはinstanceを試します
-      final functions = FunctionsClient.instance;
-      final callable = functions.httpsCallable('openStore');
-
-      final result = await callable
-          .call({})
-          .timeout(
-            const Duration(seconds: 30),
-            onTimeout: () =>
-                throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました'),
-          );
-
-      hideLoading();
-
-      if (!context.mounted) return;
-
-      final data = result.data as Map<String, dynamic>? ?? {};
-      final bool success = data['success'] == true;
-
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('開店しました。営業日: ${data['businessDateKey'] ?? '不明'}'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('開店に失敗しました'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      hideLoading();
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('エラー: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  /// closeStore Cloud Functionを呼び出す
-  Future<void> _callCloseStore(BuildContext context) async {
-    final overlayState = Overlay.maybeOf(context, rootOverlay: true);
-    OverlayEntry? loadingOverlay;
-    bool loadingShown = false;
-
-    void hideLoading() {
-      if (loadingShown) {
-        try {
-          loadingOverlay?.remove();
-        } catch (_) {
-          // noop
-        }
-        loadingOverlay = null;
-        loadingShown = false;
-      }
-    }
-
-    try {
-      // 認証状態を確認（未認証の場合は匿名認証を実行）
-      final auth = FirebaseAuth.instance;
-      if (auth.currentUser == null) {
-        await auth.signInAnonymously();
-      }
-
-      // ローディング表示
-      loadingOverlay = OverlayEntry(
-        builder: (_) => Material(
-          color: Colors.black54,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 16),
-                  Text('閉店処理中...'),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-      if (overlayState != null) {
-        overlayState.insert(loadingOverlay!);
-        loadingShown = true;
-      }
-
-      // Cloud Function呼び出し
-      // 注意: リージョン指定が必要な場合は、Firebase Functionsのデフォルト設定で
-      // リージョンが設定されている場合、instanceForを使用する必要がありますが、
-      // 認証トークンが正しく送信されない可能性があるため、まずはinstanceを試します
-      final functions = FunctionsClient.instance;
-      final callable = functions.httpsCallable('closeStore');
-
-      final result = await callable
-          .call({})
-          .timeout(
-            const Duration(seconds: 30),
-            onTimeout: () =>
-                throw TimeoutException('Cloud Functionの呼び出しがタイムアウトしました'),
-          );
-
-      hideLoading();
-
-      if (!context.mounted) return;
-
-      final data = result.data as Map<String, dynamic>? ?? {};
-      final bool success = data['success'] == true;
-
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '閉店しました。最終営業日: ${data['lastClosedBusinessDateKey'] ?? '不明'}',
-            ),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('閉店に失敗しました'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      hideLoading();
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('エラー: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
     }
   }
 
@@ -1393,8 +1051,8 @@ class _terminalHomePageState extends State<terminalHomePage> {
         optionKeys: [DeviceOptionKeys.order],
       ),
       (
-        label: '入店中user一覧',
-        destination: const StayingUsersListPage(),
+        label: '入店中ユーザー一覧',
+        destination: const AdminUserListPage(),
         optionKeys: null,
       ),
       (
@@ -1436,11 +1094,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
         optionKeys: [DeviceOptionKeys.staffEntryExit],
       ),
       (
-        label: '未退勤一覧',
-        destination: const UnclockedAttendanceListPage(),
-        optionKeys: [DeviceOptionKeys.storeManagement],
-      ),
-      (
         label: '会計管理',
         destination: const AccountingPage(),
         optionKeys: [DeviceOptionKeys.accounting],
@@ -1454,26 +1107,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
         label: '会計後操作',
         destination: const PostSettlementOperationsPage(),
         optionKeys: [DeviceOptionKeys.accounting],
-      ),
-      (
-        label: '会計後操作 冪等再送確認',
-        destination: const PostSettlementIdempotencyReplayPage(),
-        optionKeys: [DeviceOptionKeys.accounting],
-      ),
-      (
-        label: '売上ダッシュボード',
-        destination: const DashboardHomePage(),
-        optionKeys: null,
-      ),
-      (
-        label: '支払い分割テスト',
-        destination: const PaymentSplitTestPage(),
-        optionKeys: null,
-      ),
-      (
-        label: 'Firestoreサイズ計算',
-        destination: const FirestoreSizePage(),
-        optionKeys: null,
       ),
       // 旧経路ボタン（postAccountingAdjustmentsPage）は to_be_deleted に移動済み 2026-05-29
     ];
@@ -1509,18 +1142,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
         actions: [
           // 営業状態表示（日付は横長楕円枠で囲み、タップで開閉店管理ダイアログを開く）
           _buildStoreStatusAction(context),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SystemSettingsPage(),
-                ),
-              );
-            },
-            tooltip: 'システム設定',
-          ),
         ],
       ),
       body: _loadingDevice
@@ -1661,6 +1282,24 @@ class _terminalHomePageState extends State<terminalHomePage> {
                                             !pageContext.mounted) {
                                           return;
                                         }
+                                        if (!isCallableSuccessResponse(
+                                          result.data,
+                                        )) {
+                                          ScaffoldMessenger.of(pageContext)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                mapCallableSoftFailMessage(
+                                                  result.data,
+                                                  operation:
+                                                      'temporaryUnlockAlreadyRunningDifferentDateTerminal',
+                                                ),
+                                              ),
+                                              backgroundColor: Colors.orange,
+                                            ),
+                                          );
+                                          return;
+                                        }
                                         dialogClosed = true;
                                         Navigator.of(dialogContext).pop();
                                         final minutes =
@@ -1676,25 +1315,17 @@ class _terminalHomePageState extends State<terminalHomePage> {
                                             backgroundColor: Colors.green,
                                           ),
                                         );
-                                      } on FirebaseFunctionsException catch (e) {
-                                        if (!pageContext.mounted) return;
-                                        ScaffoldMessenger.of(pageContext)
-                                            .showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              e.message ??
-                                                  '緊急一時解除に失敗しました。',
-                                            ),
-                                            backgroundColor: Colors.orange,
-                                          ),
-                                        );
                                       } catch (e) {
                                         if (!pageContext.mounted) return;
                                         ScaffoldMessenger.of(pageContext)
                                             .showSnackBar(
                                           SnackBar(
                                             content: Text(
-                                              '緊急一時解除に失敗しました。${e.toString()}',
+                                              mapCallableError(
+                                                e,
+                                                operation:
+                                                    'temporaryUnlockAlreadyRunningDifferentDateTerminal',
+                                              ).message,
                                             ),
                                             backgroundColor: Colors.orange,
                                           ),
@@ -1825,7 +1456,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
                                               .httpsCallable(
                                         'continueBusinessTerminal',
                                       );
-                                      await callable
+                                      final result = await callable
                                           .call(<String, dynamic>{
                                             'intendedBusinessDateKey':
                                                 targetBusinessDateKey,
@@ -1842,6 +1473,24 @@ class _terminalHomePageState extends State<terminalHomePage> {
                                           !pageContext.mounted) {
                                         return;
                                       }
+                                      if (!isCallableSuccessResponse(
+                                        result.data,
+                                      )) {
+                                        ScaffoldMessenger.of(pageContext)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              mapCallableSoftFailMessage(
+                                                result.data,
+                                                operation:
+                                                    'continueBusinessTerminal',
+                                              ),
+                                            ),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                        return;
+                                      }
                                       dialogClosed = true;
                                       Navigator.of(dialogContext).pop();
                                       ScaffoldMessenger.of(pageContext)
@@ -1853,25 +1502,17 @@ class _terminalHomePageState extends State<terminalHomePage> {
                                           backgroundColor: Colors.green,
                                         ),
                                       );
-                                    } on FirebaseFunctionsException catch (e) {
-                                      if (!pageContext.mounted) return;
-                                      ScaffoldMessenger.of(pageContext)
-                                          .showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            e.message ??
-                                                '営業継続に失敗しました（リマインド予約を含む）。',
-                                          ),
-                                          backgroundColor: Colors.orange,
-                                        ),
-                                      );
                                     } catch (e) {
                                       if (!pageContext.mounted) return;
                                       ScaffoldMessenger.of(pageContext)
                                           .showSnackBar(
                                         SnackBar(
                                           content: Text(
-                                            '営業継続に失敗しました。${e.toString()}',
+                                            mapCallableError(
+                                              e,
+                                              operation:
+                                                  'continueBusinessTerminal',
+                                            ).message,
                                           ),
                                           backgroundColor: Colors.orange,
                                         ),
@@ -1913,20 +1554,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
           },
         );
       },
-    );
-  }
-}
-
-class PlaceholderPage extends StatelessWidget {
-  final String title;
-
-  const PlaceholderPage({super.key, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(child: Text('$title の遷移先（未実装）')),
     );
   }
 }

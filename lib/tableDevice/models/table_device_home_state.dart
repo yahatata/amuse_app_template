@@ -80,7 +80,7 @@ class TableDeviceHomeStateResolver {
           currentStatus: tableStatus ?? 'open',
           tournamentId: detailTournamentId,
           tournamentName: detailTournamentName,
-          message: 'status == open なのに tournamentDetail が残っています',
+          message: '卓の状態に不整合があります。画面を更新して再度お試しください。',
         );
       }
       return TableDeviceHomeState(
@@ -100,7 +100,7 @@ class TableDeviceHomeStateResolver {
           tableName: resolvedTableName,
           registrationEnabled: registrationEnabled,
           currentStatus: tableStatus,
-          message: 'status == tournament なのに tournamentDetail がありません',
+          message: '卓の状態に不整合があります。画面を更新して再度お試しください。',
         );
       }
 
@@ -139,7 +139,7 @@ class TableDeviceHomeStateResolver {
         currentStatus: tableStatus,
         tournamentId: detailTournamentId,
         tournamentName: detailTournamentName,
-        message: 'トーナメント状態ですが、参照先トーナメントの状態が不正です',
+        message: '卓の状態に不整合があります。画面を更新して再度お試しください。',
       );
     }
 
@@ -166,7 +166,7 @@ class TableDeviceHomeStateResolver {
         gameName: tableStatus,
         tournamentId: detailTournamentId,
         tournamentName: detailTournamentName,
-        message: 'sideGame.active が true ではありません',
+        message: '卓の状態に不整合があります。画面を更新して再度お試しください。',
       );
     }
 
@@ -176,7 +176,7 @@ class TableDeviceHomeStateResolver {
       tableName: resolvedTableName,
       registrationEnabled: registrationEnabled,
       currentStatus: tableStatus,
-      message: '$tableStatus 使用中',
+      message: '現在ほかの用途で使用中です',
     );
   }
 }

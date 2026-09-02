@@ -3,6 +3,7 @@
 // 参照: 06_UI_SPEC §4-4, §4-5
 
 import 'package:flutter/material.dart';
+import '../errors/payroll_user_facing_errors.dart';
 import '../services/payroll_callable_service.dart';
 
 class ConfirmSection extends StatefulWidget {
@@ -60,24 +61,85 @@ class _ConfirmSectionState extends State<ConfirmSection> {
     if (confirmed != true || !mounted) return;
 
     setState(() => _confirming = true);
+    _openProcessingOverlay();
+    String? successMessage;
+    String? errorMessage;
     try {
-      await _service.confirmPayrollRun(
+      final result = await _service.confirmPayrollRun(
         paymentPeriodKey: widget.paymentPeriodKey,
         runId: widget.runId,
       );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('確定しました')),
+      if (!mounted) return;
+      if (!isPayrollCallableSuccess(
+        result,
+        shapeValidator: isConfirmPayrollRunShape,
+      )) {
+        errorMessage = mapPayrollSoftFail(
+          result,
+          operation: kConfirmPayrollRunOperation,
         );
+        return;
       }
+      successMessage = '確定しました';
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('確定に失敗: $e')),
+        errorMessage = mapPayrollCallableError(
+          e,
+          operation: kConfirmPayrollRunOperation,
         );
       }
     } finally {
-      if (mounted) setState(() => _confirming = false);
+      if (mounted) {
+        _closeProcessingOverlay();
+        setState(() => _confirming = false);
+      }
+    }
+
+    if (!mounted) return;
+    if (successMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(successMessage)),
+      );
+    } else if (errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage)),
+      );
+    }
+  }
+
+  /// 確定（更新系）: 画面全体の黒半透明 + CPI。ボタン内スピナーは使わない。
+  void _openProcessingOverlay() {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withValues(alpha: 0.35),
+      useRootNavigator: true,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: Colors.white),
+              const SizedBox(height: 16),
+              Text(
+                '確定処理中…',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.95),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _closeProcessingOverlay() {
+    final nav = Navigator.of(context, rootNavigator: true);
+    if (nav.canPop()) {
+      nav.pop();
     }
   }
 
@@ -108,13 +170,7 @@ class _ConfirmSectionState extends State<ConfirmSection> {
             ),
           ElevatedButton.icon(
             onPressed: _canConfirm && !_confirming ? _confirm : null,
-            icon: _confirming
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.check_circle),
+            icon: const Icon(Icons.check_circle),
             label: const Text('計算結果を確定する'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,

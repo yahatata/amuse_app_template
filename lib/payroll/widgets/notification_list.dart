@@ -5,6 +5,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../errors/payroll_user_facing_errors.dart';
+
 class PayrollNotificationListPage extends StatefulWidget {
   const PayrollNotificationListPage({super.key});
 
@@ -16,6 +18,8 @@ class PayrollNotificationListPage extends StatefulWidget {
 class _PayrollNotificationListPageState
     extends State<PayrollNotificationListPage> {
   String _filter = 'all'; // all, unread, flagged
+  int _streamRetryToken = 0;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _cachedDocs;
 
   Query<Map<String, dynamic>> _buildQuery() {
     final twoMonthsAgo = DateTime.now().subtract(const Duration(days: 60));
@@ -47,6 +51,45 @@ class _PayrollNotificationListPageState
     return q;
   }
 
+  void _retryStream() {
+    setState(() {
+      _streamRetryToken++;
+      _cachedDocs = null;
+    });
+  }
+
+  void _onFilterSelected(String value) {
+    setState(() {
+      _filter = value;
+      _cachedDocs = null;
+      _streamRetryToken++;
+    });
+  }
+
+  Widget _buildErrorPanel({required bool hasStaleData}) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              payrollNotificationsStreamMessage(hasStaleData: hasStaleData),
+              textAlign: TextAlign.center,
+            ),
+            if (!hasStaleData) ...[
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _retryStream,
+                child: const Text('再試行'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -55,7 +98,7 @@ class _PayrollNotificationListPageState
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.filter_list),
-            onSelected: (value) => setState(() => _filter = value),
+            onSelected: _onFilterSelected,
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'all', child: Text('すべて')),
               const PopupMenuItem(value: 'unread', child: Text('未読のみ')),
@@ -65,30 +108,65 @@ class _PayrollNotificationListPageState
         ],
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        key: ValueKey('payroll-notif-$_filter-$_streamRetryToken'),
         stream: _buildQuery().snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('エラー: ${snapshot.error}'));
+          if (snapshot.hasData && !snapshot.hasError) {
+            _cachedDocs = snapshot.data!.docs;
           }
-          if (!snapshot.hasData) {
+
+          final hasStaleData =
+              _cachedDocs != null && _cachedDocs!.isNotEmpty;
+
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !hasStaleData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final docs = snapshot.data!.docs;
-          if (docs.isEmpty) {
+          if (snapshot.hasError && !hasStaleData) {
+            return _buildErrorPanel(hasStaleData: false);
+          }
+
+          final docs = snapshot.hasData && !snapshot.hasError
+              ? snapshot.data!.docs
+              : (_cachedDocs ?? []);
+
+          if (docs.isEmpty && !snapshot.hasError) {
             return const Center(child: Text('通知はありません'));
           }
 
-          return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              final doc = docs[index];
-              final data = doc.data();
-              return _NotificationTile(
-                docId: doc.id,
-                data: data,
-              );
-            },
+          if (docs.isEmpty && snapshot.hasError) {
+            return _buildErrorPanel(hasStaleData: false);
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (snapshot.hasError && hasStaleData)
+                Material(
+                  color: Colors.orange.shade100,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      payrollNotificationsStreamMessage(hasStaleData: true),
+                      style: TextStyle(color: Colors.orange.shade900),
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data();
+                    return _NotificationTile(
+                      docId: doc.id,
+                      data: data,
+                    );
+                  },
+                ),
+              ),
+            ],
           );
         },
       ),

@@ -3,7 +3,7 @@
  *
  * 検証内容:
  * - requireAdmin を利用する Callable: admin / terminal+store_management で通過、terminal のみ・0件・2件・非アクティブで permission-denied
- * - openStore / closeStore: terminal+store_management で開店・閉店が成功すること
+ * - openStoreTerminal / closeStoreTerminal: terminal+store_management で開店・閉店が成功すること
  * - cleanupActiveStaysOnClose: terminal+store_management で成功すること
  * - permission-denied 時のメッセージが「営業管理の権限がありません」であること
  *
@@ -21,8 +21,8 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
   let db: admin.firestore.Firestore;
   let getUnsettledBillsForClose: typeof import('../../src/domains/storeMeta/services/getUnsettledBillsForClose').getUnsettledBillsForClose;
   let applyCloseSnapshot: typeof import('../../src/domains/storeMeta/services/applyCloseSnapshot').applyCloseSnapshot;
-  let openStore: typeof import('../../src/unused_function_lib/openStore').openStore;
-  let closeStore: typeof import('../../src/unused_function_lib/closeStore').closeStore;
+  let openStoreTerminal: typeof import('../../src/domains/storeMeta/callables/openStoreTerminal').openStoreTerminal;
+  let closeStoreTerminal: typeof import('../../src/domains/storeMeta/callables/closeStoreTerminal').closeStoreTerminal;
   let cleanupActiveStaysOnClose: typeof import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose').cleanupActiveStaysOnClose;
 
   let emulatorAvailable = true;
@@ -39,14 +39,14 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
 
     const getMod = await import('../../src/domains/storeMeta/services/getUnsettledBillsForClose');
     const applyMod = await import('../../src/domains/storeMeta/services/applyCloseSnapshot');
-    const openMod = await import('../../src/unused_function_lib/openStore');
-    const closeMod = await import('../../src/unused_function_lib/closeStore');
+    const openMod = await import('../../src/domains/storeMeta/callables/openStoreTerminal');
+    const closeMod = await import('../../src/domains/storeMeta/callables/closeStoreTerminal');
     const cleanupMod = await import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose');
 
     getUnsettledBillsForClose = getMod.getUnsettledBillsForClose;
     applyCloseSnapshot = applyMod.applyCloseSnapshot;
-    openStore = openMod.openStore;
-    closeStore = closeMod.closeStore;
+    openStoreTerminal = openMod.openStoreTerminal;
+    closeStoreTerminal = closeMod.closeStoreTerminal;
     cleanupActiveStaysOnClose = cleanupMod.cleanupActiveStaysOnClose;
   });
 
@@ -306,8 +306,8 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
     });
   });
 
-  describe('openStore / closeStore', () => {
-    it('terminal + store_management で closeStore が成功する', async () => {
+  describe('openStoreTerminal / closeStoreTerminal', () => {
+    it('terminal + store_management で closeStoreTerminal が成功する', async () => {
       if (!emulatorAvailable) return;
       await db.collection('devices').doc('dev-sm-2').set({
         uid: 'uid-sm-2',
@@ -324,10 +324,10 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
         lastError: null,
       });
 
-      const result = await closeStore.run({
+      const result = await (closeStoreTerminal as any).run({
         auth: { uid: 'uid-sm-2' },
-        data: {},
-      } as any);
+        data: { forceClose: true },
+      });
 
       expect(result.success).toBe(true);
       const snap = await db.collection('storeMeta').doc('currentBusinessDay').get();
@@ -335,7 +335,7 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
       expect(snap.data()?.currentBusinessDateKey).toBeNull();
     });
 
-    it('terminal + store_management で openStore が成功する', async () => {
+    it('terminal + store_management で openStoreTerminal が成功する', async () => {
       if (!emulatorAvailable) return;
       await db.collection('devices').doc('dev-sm-3').set({
         uid: 'uid-sm-3',
@@ -352,10 +352,10 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
         lastError: null,
       });
 
-      const result = await openStore.run({
+      const result = await (openStoreTerminal as any).run({
         auth: { uid: 'uid-sm-3' },
         data: { businessDateKey: '2026-02-12' },
-      } as any);
+      });
 
       expect(result.success).toBe(true);
       const snap = await db.collection('storeMeta').doc('currentBusinessDay').get();
@@ -363,7 +363,7 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
       expect(snap.data()?.currentBusinessDateKey).toBe('2026-02-12');
     });
 
-    it('terminal（store_management なし）で closeStore を呼ぶと permission-denied', async () => {
+    it('terminal（store_management なし）で closeStoreTerminal を呼ぶと permission-denied', async () => {
       if (!emulatorAvailable) return;
       await db.collection('devices').doc('dev-no-sm-2').set({
         uid: 'uid-no-sm-2',
@@ -381,14 +381,20 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
       });
 
       await expect(
-        closeStore.run({
+        (closeStoreTerminal as any).run({
           auth: { uid: 'uid-no-sm-2' },
           data: {},
-        } as any)
+        })
       ).rejects.toMatchObject({
         code: 'permission-denied',
         message: PERMISSION_DENIED_MESSAGE,
       });
+
+      const snap = await db.collection('storeMeta').doc('currentBusinessDay').get();
+      expect(snap.data()?.status).toBe('running');
+      expect(snap.data()?.currentBusinessDateKey).toBe('2026-02-12');
+      const runs = await db.collection('storeMeta').doc('closeRuns').collection('runs').get();
+      expect(runs.empty).toBe(true);
     });
   });
 

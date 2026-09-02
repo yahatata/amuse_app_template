@@ -430,6 +430,26 @@ describe('bulkAddon', () => {
           assignedSeatKey: 'seat01',
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+      // bulkAddon は tableId 指定時に tablesSeat/{tableId} を必須とし、
+      // 通常ユーザーは seats 内の *UserId に含まれている必要がある
+      await db
+        .collection('scheduledTournaments')
+        .doc(tournamentId)
+        .collection('tablesSeat')
+        .doc('tableA')
+        .set({
+          isEnabled: true,
+          maxSeats: 6,
+          seats: {
+            seat01UserId: null,
+            seat01PokerName: '置きバケA',
+            seat01OkibakeEntryId: okibakeEntryId,
+            seat02UserId: normal.userId,
+            seat02PokerName: normal.pokerName,
+            seat02OkibakeEntryId: null,
+          },
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
 
       const adminId = 'admin_bulk_with_okibake_001';
       await createAdminDevice(adminId);

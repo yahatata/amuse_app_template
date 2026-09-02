@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/tournament/active/utils/blind_stage_display_helpers.dart';
 import 'package:amuse_app_template/tournament/active/utils/blind_avg_stack_display_helpers.dart';
 import 'package:amuse_app_template/tournament/active/utils/blind_timer_display_helpers.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:amuse_app_template/tournament/active/services/stage_builder.dart';
 import 'package:amuse_app_template/tournament/active/services/server_time_helper.dart';
 import 'package:amuse_app_template/tournament/active/widgets/display/timer_widget.dart';
@@ -52,6 +53,8 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
   Map<String, dynamic>? _runtimeData;
   bool _isLoading = true;
   String? _error;
+  bool _notFound = false;
+  int _runtimeStreamReloadToken = 0;
 
   @override
   void initState() {
@@ -70,6 +73,9 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
       setState(() {
         _isLoading = true;
         _error = null;
+        _notFound = false;
+        _tournamentData = null;
+        _mainViewData = null;
       });
 
       // トーナメント基本データを取得
@@ -79,7 +85,12 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
           .get();
 
       if (!tournamentSnapshot.exists) {
-        throw Exception('トーナメントが見つかりません');
+        setState(() {
+          _notFound = true;
+          _error = kTournamentNotFoundMessage;
+          _isLoading = false;
+        });
+        return;
       }
 
       // main view データを取得
@@ -94,10 +105,16 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
         _tournamentData = tournamentSnapshot.data();
         _mainViewData = mainViewSnapshot.exists ? mainViewSnapshot.data() : {};
         _isLoading = false;
+        _error = null;
+        _notFound = false;
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        // fail ≠ no blinds: タイマーを開始せず固定文言のみ
+        _error = kTournamentBlindLoadFailedMessage;
+        _notFound = false;
+        _tournamentData = null;
+        _mainViewData = null;
         _isLoading = false;
       });
     }
@@ -128,7 +145,7 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     if (_error != null) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('エラー'),
+          title: Text(_notFound ? 'トーナメント未検出' : 'エラー'),
           backgroundColor: Colors.red[700],
           foregroundColor: Colors.white,
         ),
@@ -143,7 +160,7 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
               ),
               const SizedBox(height: 16),
               Text(
-                'エラーが発生しました',
+                _notFound ? 'トーナメントが見つかりません' : 'エラーが発生しました',
                 style: TextStyle(
                   fontSize: screenSize.height * 0.025,
                   color: Colors.red[600],
@@ -151,13 +168,21 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                _error!,
-                style: TextStyle(
-                  fontSize: screenSize.height * 0.015,
-                  color: Colors.red[600],
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  _error!,
+                  style: TextStyle(
+                    fontSize: screenSize.height * 0.015,
+                    color: Colors.red[600],
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _isLoading ? null : _loadTournamentData,
+                child: const Text('再試行'),
               ),
             ],
           ),
@@ -167,6 +192,7 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
 
     return Scaffold(
       body: StreamBuilder<DocumentSnapshot>(
+        key: ValueKey('blind-runtime-$_runtimeStreamReloadToken'),
         stream: _firestore
             .collection('scheduledTournaments')
             .doc(widget.tournamentId)
@@ -174,15 +200,36 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
             .doc('runtime')
             .snapshots(),
         builder: (context, runtimeSnapshot) {
-          if (runtimeSnapshot.hasError) {
-            return _buildErrorWidget(runtimeSnapshot.error.toString(), screenSize);
+          final hasStaleRuntime =
+              runtimeSnapshot.hasData && (runtimeSnapshot.data?.exists ?? false);
+
+          if (runtimeSnapshot.hasError && !hasStaleRuntime) {
+            return _buildErrorWidget(
+              tournamentOpsStreamErrorMessage(
+                kTournamentBlindLoadFailedMessage,
+                runtimeSnapshot.error,
+              ),
+              screenSize,
+              onRetry: () {
+                setState(() {
+                  _runtimeStreamReloadToken++;
+                });
+              },
+            );
           }
 
-          if (!runtimeSnapshot.hasData || !runtimeSnapshot.data!.exists) {
+          if (runtimeSnapshot.connectionState == ConnectionState.waiting &&
+              !runtimeSnapshot.hasData) {
             return _buildLoadingWidget(screenSize);
           }
 
-          final runtimeData = runtimeSnapshot.data!.data() as Map<String, dynamic>?;
+          if (!runtimeSnapshot.hasData || !runtimeSnapshot.data!.exists) {
+            // 空 ≠ 失敗: ブラインド未開始として読込継続表示（誤タイマー開始はしない）
+            return _buildLoadingWidget(screenSize);
+          }
+
+          final runtimeData =
+              runtimeSnapshot.data!.data() as Map<String, dynamic>?;
           if (runtimeData == null) {
             return _buildLoadingWidget(screenSize);
           }
@@ -196,15 +243,52 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
                 .snapshots(),
             builder: (context, mainSnapshot) {
               if (mainSnapshot.hasData) {
-                _mainViewData = mainSnapshot.data!.data() as Map<String, dynamic>? ?? {};
+                _mainViewData =
+                    mainSnapshot.data!.data() as Map<String, dynamic>? ?? {};
               }
-              
-              // リアルタイムで更新するためにStreamBuilderを使用
-              return StreamBuilder<int>(
-                stream: Stream.periodic(const Duration(seconds: 1), (count) => count),
-                builder: (context, timerSnapshot) {
-                  return _buildMainContent(runtimeData, screenSize);
-                },
+
+              return Column(
+                children: [
+                  if (runtimeSnapshot.hasError && hasStaleRuntime)
+                    Material(
+                      color: Colors.orange.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                tournamentOpsStreamMessage(
+                                  hasStaleData: true,
+                                  error: runtimeSnapshot.error,
+                                ),
+                                style: TextStyle(color: Colors.orange.shade900),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _runtimeStreamReloadToken++;
+                                });
+                              },
+                              child: const Text('再試行'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  Expanded(
+                    child: StreamBuilder<int>(
+                      stream: Stream.periodic(
+                        const Duration(seconds: 1),
+                        (count) => count,
+                      ),
+                      builder: (context, timerSnapshot) {
+                        return _buildMainContent(runtimeData, screenSize);
+                      },
+                    ),
+                  ),
+                ],
               );
             },
           );
@@ -213,7 +297,11 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
     );
   }
 
-  Widget _buildErrorWidget(String error, Size screenSize) {
+  Widget _buildErrorWidget(
+    String error,
+    Size screenSize, {
+    VoidCallback? onRetry,
+  }) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -225,7 +313,7 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Runtime データの読み込みエラー',
+            'ブラインド情報の読み込みエラー',
             style: TextStyle(
               fontSize: screenSize.height * 0.025,
               color: Colors.red[600],
@@ -233,14 +321,24 @@ class _BlindTimerPageState extends State<BlindTimerPage> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            error,
-            style: TextStyle(
-              fontSize: screenSize.height * 0.015,
-              color: Colors.red[600],
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              error,
+              style: TextStyle(
+                fontSize: screenSize.height * 0.015,
+                color: Colors.red[600],
+              ),
+              textAlign: TextAlign.center,
             ),
-            textAlign: TextAlign.center,
           ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: onRetry,
+              child: const Text('再試行'),
+            ),
+          ],
         ],
       ),
     );

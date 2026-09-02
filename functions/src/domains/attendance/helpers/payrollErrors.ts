@@ -19,6 +19,7 @@ export const PAYROLL_ERRORS = {
   ALREADY_PAID: 'already-paid',
   STAFF_ALREADY_PAID: 'staff-already-paid',
   ATTENDANCE_NOT_READY_FOR_PAYROLL_RUN: 'attendance-not-ready-for-payroll-run',
+  HOURLY_WAGE_MISSING: 'hourly-wage-missing',
 } as const;
 
 export type PayrollErrorCode = typeof PAYROLL_ERRORS[keyof typeof PAYROLL_ERRORS];

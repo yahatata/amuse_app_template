@@ -1,8 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'package:amuse_app_template/Accounting/errors/accounting_error_operations.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
+import 'package:amuse_app_template/Accounting/errors/map_accounting_error.dart';
+import 'package:amuse_app_template/Accounting/okibake_remote_payment_display_amount.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/Utils/menuItemsManager.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
@@ -344,10 +348,11 @@ class _PostSettlementOperationDetailPageState
         _immediateUserId = userId;
         _immediateUserBalance = userBalance;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_loadBillDetail] エラー: $e\n$stackTrace');
       if (!mounted) return;
       setState(() {
-        _error = '伝票詳細の取得に失敗しました: $e';
+        _error = kAccountingPostSettlementDetailLoadFailedMessage;
       });
     } finally {
       if (mounted) {
@@ -905,16 +910,9 @@ class _PostSettlementOperationDetailPageState
   }
 
   int _grandTotalIncl() {
-    final settlementSnapshot =
-        (_bill?['settlementSnapshot'] as Map<String, dynamic>?) ?? const {};
-    final snapshotAmounts =
-        (settlementSnapshot['amounts'] as Map<String, dynamic>?) ?? const {};
-    final rootAmounts =
-        (_bill?['amounts'] as Map<String, dynamic>?) ?? const {};
-    return ((snapshotAmounts['grandTotalIncl'] ?? rootAmounts['grandTotalIncl'])
-                as num?)
-            ?.toInt() ??
-        0;
+    final bill = _bill;
+    if (bill == null) return 0;
+    return resolveBillClaimDisplayAmountIncl(bill);
   }
 
   /// 即時精算ドロップダウンの選択肢を構築する。
@@ -1461,6 +1459,7 @@ class _PostSettlementOperationDetailPageState
       _error = null;
     });
 
+    var succeeded = false;
     try {
       final payload = <String, dynamic>{
         'billId': widget.billId,
@@ -1477,29 +1476,39 @@ class _PostSettlementOperationDetailPageState
           .httpsCallable('createPostSettlementAdjustment')
           .call(payload);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '会計後操作を記録しました（adjustmentId: ${result.data['adjustmentId'] ?? '—'}）',
-          ),
-        ),
+
+      final data = result.data;
+      if (!isCallableSuccessResponse(data)) {
+        final mapped = mapAccountingSoftFailError(
+          data,
+          operation: AccountingErrorOperations.createPostSettlementAdjustment,
+        );
+        setState(() => _error = mapped.message);
+        return;
+      }
+
+      succeeded = true;
+    } catch (e, stackTrace) {
+      debugPrint('[createPostSettlementAdjustment] エラー: $e\n$stackTrace');
+      if (!mounted) return;
+      final mapped = mapAccountingCallableError(
+        e,
+        operation: AccountingErrorOperations.createPostSettlementAdjustment,
       );
-      Navigator.of(context).pop(true);
-    } on FirebaseFunctionsException catch (e) {
-      if (!mounted) return;
       setState(() {
-        _error = '会計後操作に失敗しました: [${e.code}] ${e.message ?? '—'}';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = '会計後操作に失敗しました: $e';
+        _error = mapped.message;
       });
     } finally {
       if (mounted) {
         setState(() => _submitting = false);
       }
     }
+
+    if (!succeeded || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text(kAccountingPostSettlementRecordedMessage)),
+    );
+    Navigator.of(context).pop(true);
   }
 
   List<String> get _itemCategories {
@@ -1562,68 +1571,84 @@ class _PostSettlementOperationDetailPageState
         : ((bill['party'] as Map<String, dynamic>?) ?? const {});
     final name = party['pokerName'] as String? ?? '名前未設定';
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('会計後操作'),
-        backgroundColor: Colors.indigo[700],
-        foregroundColor: Colors.white,
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null && bill == null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_error!, style: const TextStyle(color: Colors.red)),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: _load,
-                      child: const Text('再読み込み'),
+    return PopScope(
+      canPop: !_submitting,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('会計後操作'),
+          backgroundColor: Colors.indigo[700],
+          foregroundColor: Colors.white,
+        ),
+        body: Stack(
+          children: [
+            _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null && bill == null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_error!, style: const TextStyle(color: Colors.red)),
+                          const SizedBox(height: 12),
+                          ElevatedButton(
+                            onPressed: _load,
+                            child: const Text('再読み込み'),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSummaryCard(bill, name, status),
+                        const SizedBox(height: 16),
+                        Text('操作を選択', style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final kind in _OperationKind.values)
+                              ChoiceChip(
+                                label: Text(kind.label),
+                                selected: _operationKind == kind,
+                                onSelected: _submitting
+                                    ? null
+                                    : (selected) {
+                                        if (!selected) return;
+                                        setState(() {
+                                          _operationKind = kind;
+                                        });
+                                      },
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _buildOperationBody(),
+                        if (_error != null && bill != null) ...[
+                          const SizedBox(height: 12),
+                          Text(_error!, style: const TextStyle(color: Colors.red)),
+                        ],
+                      ],
+                    ),
+                  ),
+            if (_submitting)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
                 ),
               ),
-            )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSummaryCard(bill, name, status),
-                  const SizedBox(height: 16),
-                  Text('操作を選択', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final kind in _OperationKind.values)
-                        ChoiceChip(
-                          label: Text(kind.label),
-                          selected: _operationKind == kind,
-                          onSelected: _submitting
-                              ? null
-                              : (selected) {
-                                  if (!selected) return;
-                                  setState(() {
-                                    _operationKind = kind;
-                                  });
-                                },
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _buildOperationBody(),
-                  if (_error != null && bill != null) ...[
-                    const SizedBox(height: 12),
-                    Text(_error!, style: const TextStyle(color: Colors.red)),
-                  ],
-                ],
-              ),
-            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1756,13 +1781,7 @@ class _PostSettlementOperationDetailPageState
           alignment: Alignment.centerRight,
           child: FilledButton.icon(
             onPressed: _submitting ? null : _submitAdjustment,
-            icon: _submitting
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.playlist_add_check),
+            icon: const Icon(Icons.playlist_add_check),
             label: Text(_operationKind.label),
           ),
         ),

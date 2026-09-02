@@ -4,12 +4,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/Accounting/accountingHistoryPage.dart';
 import 'package:amuse_app_template/Accounting/accountingEditDialog.dart';
-import 'package:amuse_app_template/Accounting/accountingCancelDialog.dart';
 // refundProcessingDialog: 旧経路（to_be_deleted に移動済み 2026-05-29）
+import 'package:amuse_app_template/Accounting/errors/accounting_error_operations.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
+import 'package:amuse_app_template/Accounting/errors/map_accounting_error.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/Accounting/paymentMethodDialog.dart';
 import 'package:amuse_app_template/Accounting/categoryDetailDialog.dart';
 import 'package:amuse_app_template/Accounting/categoryPaymentMethodDialog.dart';
 import 'package:amuse_app_template/Accounting/payment_split_calculator.dart';
+import 'package:amuse_app_template/Accounting/settlement_date.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/user/balance_display.dart';
@@ -43,11 +47,15 @@ class AccountingPage extends StatefulWidget {
     super.key,
     this.forUnsettledBillId,
     this.forUnsettledUserId,
+    this.unsettledAppBarTitle,
   });
 
   /// 未会計会計フローから遷移した場合の対象 billId（指定時はこの 1 件のみ表示し、完了時に finalize を呼ぶ）
   final String? forUnsettledBillId;
   final String? forUnsettledUserId;
+
+  /// 未会計フロー時の AppBar タイトル上書き（未指定時は「未会計の会計」）。
+  final String? unsettledAppBarTitle;
 
   @override
   State<AccountingPage> createState() => _AccountingPageState();
@@ -109,10 +117,9 @@ class _AccountingPageState extends State<AccountingPage> {
             Text('会計設定エラー'),
           ],
         ),
-        content: Text(
-          'ポイント関連の会計設定に不備があります（categoryOrder 等を含む）。\n'
-          '店舗設定を確認してください。\n\n'
-          '詳細: ${result?.message ?? '設定を取得できませんでした'}',
+        content: const Text(
+          '$kAccountingPointConfigInvalidMessage\n'
+          '（categoryOrder 等を含む設定を確認してください）',
         ),
         actions: [
           TextButton(
@@ -173,12 +180,13 @@ class _AccountingPageState extends State<AccountingPage> {
         _activeBills = [mappedData];
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_loadSingleUnsettledBill] エラー: $e\n$stackTrace');
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('請求書の取得に失敗しました: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(kAccountingSingleBillLoadFailedMessage)),
+        );
       }
     }
   }
@@ -237,11 +245,12 @@ class _AccountingPageState extends State<AccountingPage> {
           _activeBills = mappedActiveBills;
         });
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_loadActiveBills] エラー: $e\n$stackTrace');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('データの取得に失敗しました: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(kAccountingActiveBillsLoadFailedMessage)),
+        );
       }
     } finally {
       if (mounted) {
@@ -252,43 +261,46 @@ class _AccountingPageState extends State<AccountingPage> {
     }
   }
 
-  Future<void> _loadSettledBills(String businessDate) async {
+  Future<void> _loadSettledBills(String settlementDateKey) async {
     try {
-      // 当日の営業日の会計完了済み / 差額対応中の請求書を取得
-      debugPrint('[_loadSettledBills] 検索営業日: $businessDate');
+      // 会計完了日（ops.accountingCompletedAt の JST calendar date）基準。
+      // bill.businessDate（売上帰属）は変更・参照しない。
+      debugPrint('[_loadSettledBills] 検索会計日: $settlementDateKey');
 
-      final querySnapshot = await _firestore
+      final range = jstDayRangeTimestamps(settlementDateKey);
+      final primarySnap = await _firestore
           .collection('bills')
-          .where('businessDate', isEqualTo: businessDate)
+          .where(
+            'ops.accountingCompletedAt',
+            isGreaterThanOrEqualTo: range.start,
+          )
+          .where('ops.accountingCompletedAt', isLessThan: range.end)
           .get();
 
-      debugPrint('[_loadSettledBills] 取得件数: ${querySnapshot.docs.length}');
+      // Legacy: accountingCompletedAt 欠損 bill のみ businessDate で拾う
+      final legacySnap = await _firestore
+          .collection('bills')
+          .where('businessDate', isEqualTo: settlementDateKey)
+          .get();
 
-      // 取得したドキュメントの詳細をログ出力
-      for (var doc in querySnapshot.docs) {
+      final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+      for (final doc in primarySnap.docs) {
         final data = doc.data();
-        debugPrint('[_loadSettledBills] ドキュメントID: ${doc.id}');
-        debugPrint('[_loadSettledBills] businessDate: ${data['businessDate']}');
-        debugPrint('[_loadSettledBills] status: ${data['status']}');
-        debugPrint(
-          '[_loadSettledBills] pokerName: ${(data['party'] as Map<String, dynamic>?)?['pokerName']}',
-        );
-        debugPrint(
-          '[_loadSettledBills] amounts.grandTotalRounded: ${(data['amounts'] as Map<String, dynamic>?)?['grandTotalRounded']}',
-        );
-        debugPrint(
-          '[_loadSettledBills] ops.accountingCompletedAt: ${(data['ops'] as Map<String, dynamic>?)?['accountingCompletedAt']}',
-        );
+        if (!isPostSettlementListStatus(data['status'] as String?)) continue;
+        byId[doc.id] = doc;
+      }
+      for (final doc in legacySnap.docs) {
+        if (byId.containsKey(doc.id)) continue;
+        final data = doc.data();
+        if (!isPostSettlementListStatus(data['status'] as String?)) continue;
+        if (!isLegacySettlementDateFallbackBill(data)) continue;
+        byId[doc.id] = doc;
       }
 
+      debugPrint('[_loadSettledBills] 取得件数: ${byId.length}');
+
       final mappedSettledBills = await Future.wait(
-        querySnapshot.docs
-            .where((doc) {
-              final data = doc.data();
-              final status = data['status'] as String?;
-              return status == 'settled' || status == 'post_settlement_pending';
-            })
-            .map((doc) async {
+        byId.values.map((doc) async {
               final data = doc.data();
               final sideGameChipSummary =
                   await _fetchSideGameChipPurchaseSummary(doc.id);
@@ -347,7 +359,9 @@ class _AccountingPageState extends State<AccountingPage> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('会計完了データの取得に失敗しました: $e')));
+        ).showSnackBar(
+          const SnackBar(content: Text(kAccountingSettledBillsLoadFailedMessage)),
+        );
       }
     }
   }
@@ -719,7 +733,7 @@ class _AccountingPageState extends State<AccountingPage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  '※この表示は UI補助用途のみです。金額の正は amounts.* および verifyPaymentSplit にあります。',
+                  '※この表示は UI補助用途のみです。金額の正は amounts.* および startAccounting 内のサーバ再計算にあります。',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
@@ -733,11 +747,14 @@ class _AccountingPageState extends State<AccountingPage> {
           ],
         ),
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_showCategoryBreakdownDialog] エラー: $e\n$stackTrace');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('合計金額の計算に失敗しました: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(kAccountingCategoryBreakdownLoadFailedMessage),
+          ),
+        );
       }
     }
   }
@@ -1327,43 +1344,52 @@ class _AccountingPageState extends State<AccountingPage> {
         displayValues: displayValues,
         monetaryValues: monetaryValues,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_fetchCategoryAmountsFromServer] エラー: $e\n$stackTrace');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('会計プレビュー情報の取得に失敗しました: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(kAccountingBillPreviewLoadFailedMessage)),
+        );
       }
       return null;
     }
   }
 
   /// A-7: 標準残高（pointA〜E, sideGameChip）を全て読み取る。
-  /// フィールド不在は 0。明示 null・非 int・負数等はデータ不整合として例外にする
-  /// （§6.2。0 へ隠さない）。
-  Future<Map<String, int>> _getUserBalances(String? userId) async {
-    final Map<String, int> balances = {for (final id in kAllBalanceIds) id: 0};
+  ///
+  /// [loadFailed] が true のときはネットワーク等の取得失敗。0 残高として扱わない。
+  Future<({Map<String, int> balances, bool loadFailed})> _getUserBalances(
+    String? userId,
+  ) async {
+    final Map<String, int> zeroBalances = {
+      for (final id in kAllBalanceIds) id: 0,
+    };
 
     if (userId == null || userId.isEmpty) {
-      return balances;
+      return (balances: zeroBalances, loadFailed: false);
     }
 
     DocumentSnapshot<Map<String, dynamic>> userDoc;
     try {
       userDoc = await _firestore.collection('users').doc(userId).get();
-    } catch (e) {
-      // Firestore 取得自体の失敗は既存挙動どおり黙って 0 残高扱い（ネットワーク断等）。
-      debugPrint('残高取得エラー: $e');
-      return balances;
+    } catch (e, stackTrace) {
+      debugPrint('残高取得エラー: $e\n$stackTrace');
+      return (balances: zeroBalances, loadFailed: true);
     }
 
     if (userDoc.exists) {
-      // readAllStandardBalancesForMigration はフィールド不在を 0 とするが、
-      // 明示 null・非 int・負数等のデータ不整合は StateError で呼び出し元へ伝える
-      // （§6.2。0 へ隠さない）。
-      return readAllStandardBalancesForMigration(userDoc.data());
+      try {
+        return (
+          balances: readAllStandardBalancesForMigration(userDoc.data()),
+          loadFailed: false,
+        );
+      } catch (e, stackTrace) {
+        debugPrint('残高データ不整合: $e\n$stackTrace');
+        return (balances: zeroBalances, loadFailed: true);
+      }
     }
 
-    return balances;
+    return (balances: zeroBalances, loadFailed: false);
   }
 
   Map<String, dynamic> _buildFullPaymentCategorySelection(
@@ -1797,33 +1823,26 @@ class _AccountingPageState extends State<AccountingPage> {
     if (!mounted) return;
 
     if (caughtError != null) {
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.error_outline, color: Colors.red),
-              SizedBox(width: 8),
-              Text('会計開始エラー'),
-            ],
-          ),
-          content: Text(
-            _extractUserFriendlyMessage(caughtError.toString()),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('閉じる'),
-            ),
-          ],
-        ),
+      final billStatus = await _fetchBillStatus(billId);
+      if (_currentBusinessDateKey != null) {
+        _loadActiveBills(_currentBusinessDateKey!);
+      }
+      final mapped = mapAccountingCallableError(
+        caughtError,
+        operation: AccountingErrorOperations.start,
+        billStatus: billStatus,
+      );
+      await _showAccountingErrorDialog(
+        title: '会計開始エラー',
+        message: mapped.message,
       );
       return;
     }
 
     if (result == null) return;
 
-    if (result.data['success'] == true) {
+    final startData = _asStringKeyedMap(result.data);
+    if (startData != null && startData['success'] == true) {
       final shouldComplete = await showDialog<bool>(
         context: context,
         barrierDismissible: false,
@@ -1867,24 +1886,13 @@ class _AccountingPageState extends State<AccountingPage> {
         }
       }
     } else {
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.error_outline, color: Colors.red),
-              SizedBox(width: 8),
-              Text('会計開始エラー'),
-            ],
-          ),
-          content: Text(result!.data['message'] ?? '会計開始に失敗しました'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('閉じる'),
-            ),
-          ],
-        ),
+      final mapped = mapAccountingSoftFailError(
+        startData ?? result.data,
+        operation: AccountingErrorOperations.start,
+      );
+      await _showAccountingErrorDialog(
+        title: '会計開始エラー',
+        message: mapped.message,
       );
     }
   }
@@ -1992,7 +2000,16 @@ class _AccountingPageState extends State<AccountingPage> {
         return;
       }
 
-      final userBalances = await _getUserBalances(bill['userId']?.toString());
+      final balanceLoad = await _getUserBalances(bill['userId']?.toString());
+      if (balanceLoad.loadFailed) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text(kAccountingBalancesLoadFailedMessage)),
+          );
+        }
+        return;
+      }
+      final userBalances = balanceLoad.balances;
       final sideGameChipSummary = await _fetchSideGameChipPurchaseSummary(
         billId,
       );
@@ -2058,7 +2075,11 @@ class _AccountingPageState extends State<AccountingPage> {
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('自動計算に失敗しました: $e')),
+              const SnackBar(
+                content: Text(
+                  '自動計算に失敗しました。画面を更新して再度お試しください。',
+                ),
+              ),
             );
           }
           return;
@@ -2106,9 +2127,13 @@ class _AccountingPageState extends State<AccountingPage> {
       );
     } catch (e) {
       if (mounted) {
+        final mapped = mapAccountingCallableError(
+          e,
+          operation: AccountingErrorOperations.start,
+        );
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('会計開始処理中にエラーが発生しました: $e')));
+        ).showSnackBar(SnackBar(content: Text(mapped.message)));
       }
     } finally {
       closeStartAccountingLoading();
@@ -2159,17 +2184,18 @@ class _AccountingPageState extends State<AccountingPage> {
         }
       }
 
-      if (startResult.data['success'] == true) {
+      final startData = _asStringKeyedMap(startResult.data);
+      if (startData != null && startData['success'] == true) {
         // startAccountingが成功したら、completeAccountingV2を呼ぶ
         await _completeAccounting(billId);
       } else {
         if (mounted) {
+          final mapped = mapAccountingSoftFailError(
+            startData ?? startResult.data,
+            operation: AccountingErrorOperations.start,
+          );
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '会計開始に失敗しました: ${startResult.data['message'] ?? '不明なエラー'}',
-              ),
-            ),
+            SnackBar(content: Text(mapped.message)),
           );
         }
       }
@@ -2181,9 +2207,13 @@ class _AccountingPageState extends State<AccountingPage> {
         } catch (_) {
           // ダイアログが既に閉じられている場合は無視
         }
+        final mapped = mapAccountingCallableError(
+          e,
+          operation: AccountingErrorOperations.start,
+        );
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('0円会計処理に失敗しました: $e')));
+        ).showSnackBar(SnackBar(content: Text(mapped.message)));
       }
     }
   }
@@ -2216,11 +2246,6 @@ class _AccountingPageState extends State<AccountingPage> {
           .httpsCallable('completeAccountingV2')
           .call({'billId': billId});
 
-      // デバッグログを追加
-      print('会計完了結果: ${result.data}');
-      print('success値: ${result.data['success']}');
-      print('successの型: ${result.data['success'].runtimeType}');
-
       // ローディングダイアログを閉じる
       if (mounted) {
         try {
@@ -2230,7 +2255,8 @@ class _AccountingPageState extends State<AccountingPage> {
         }
       }
 
-      if (result.data['success'] == true) {
+      final completeData = _asStringKeyedMap(result.data);
+      if (completeData != null && completeData['success'] == true) {
         if (mounted) {
           ScaffoldMessenger.of(
             context,
@@ -2246,9 +2272,13 @@ class _AccountingPageState extends State<AccountingPage> {
                 .call({'billId': billId});
           } catch (e) {
             if (mounted) {
+              final mapped = mapAccountingCallableError(
+                e,
+                operation: AccountingErrorOperations.complete,
+              );
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('未会計後処理に失敗しました: $e'),
+                  content: Text(mapped.message),
                   backgroundColor: Colors.orange,
                 ),
               );
@@ -2264,8 +2294,12 @@ class _AccountingPageState extends State<AccountingPage> {
         }
       } else {
         if (mounted) {
+          final mapped = mapAccountingSoftFailError(
+            completeData ?? result.data,
+            operation: AccountingErrorOperations.complete,
+          );
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('会計完了に失敗しました: ${result.data['message']}')),
+            SnackBar(content: Text(mapped.message)),
           );
         }
       }
@@ -2279,11 +2313,18 @@ class _AccountingPageState extends State<AccountingPage> {
         }
       }
 
-      print('会計完了エラー: $e');
       if (mounted) {
+        final mapped = mapAccountingCallableError(
+          e,
+          operation: AccountingErrorOperations.complete,
+        );
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('会計完了に失敗しました: $e')));
+        ).showSnackBar(SnackBar(content: Text(mapped.message)));
+        if (_currentBusinessDateKey != null) {
+          _loadActiveBills(_currentBusinessDateKey!);
+          _loadSettledBills(_currentBusinessDateKey!);
+        }
       }
     }
   }
@@ -2293,36 +2334,44 @@ class _AccountingPageState extends State<AccountingPage> {
     return balanceDisplayName(paymentMethod);
   }
 
-  // エラーメッセージからユーザーフレンドリーな部分のみを抽出
-  String _extractUserFriendlyMessage(String errorMessage) {
-    // A-7: 自動充当のクライアント計算とサーバ再計算が不一致（PAYMENT_SPLIT_MISMATCH）。
-    // 黙ってサーバ結果へ差し替えず、再確認・再実行を促す。
-    if (errorMessage.contains('PAYMENT_SPLIT_MISMATCH') ||
-        errorMessage.contains('支払い内容が最新の残高・設定と一致しません')) {
-      return '支払い内容が最新の残高・設定と一致しません。内容を再確認して、もう一度会計してください。';
+  Future<String?> _fetchBillStatus(String billId) async {
+    try {
+      final doc = await _firestore.collection('bills').doc(billId).get();
+      return doc.data()?['status']?.toString();
+    } catch (_) {
+      return null;
     }
+  }
 
-    // Firebase Functions のエラーメッセージから実際のメッセージ部分を抽出
-    final regex = RegExp(r'の残高が不足しています。現在の残高: \d+円、必要な金額: \d+円');
-    final match = regex.firstMatch(errorMessage);
+  Map<String, dynamic>? _asStringKeyedMap(Object? data) {
+    if (data is! Map) return null;
+    return Map<String, dynamic>.from(data);
+  }
 
-    if (match != null) {
-      // マッチした部分の前後を含めて、より自然なメッセージを構築
-      final beforeMatch = errorMessage.substring(0, match.start);
-      final matchedPart = match.group(0)!;
-
-      // 技術的な部分を除去して、ポイント名と残高不足メッセージのみを抽出
-      if (beforeMatch.contains('ポイントA')) {
-        return 'ポイントA$matchedPart';
-      } else if (beforeMatch.contains('ポイントB')) {
-        return 'ポイントB$matchedPart';
-      } else if (beforeMatch.contains('サイドゲームチップ')) {
-        return 'サイドゲームチップ$matchedPart';
-      }
-    }
-
-    // マッチしない場合は元のメッセージを返す（フォールバック）
-    return errorMessage;
+  Future<void> _showAccountingErrorDialog({
+    required String title,
+    required String message,
+  }) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red),
+            const SizedBox(width: 8),
+            Text(title),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -2330,9 +2379,14 @@ class _AccountingPageState extends State<AccountingPage> {
     // 未会計会計フロー: 1 件のみ表示し、完了時に finalize して pop
     if (widget.forUnsettledBillId != null &&
         widget.forUnsettledBillId!.isNotEmpty) {
+      final unsettledTitle =
+          (widget.unsettledAppBarTitle != null &&
+              widget.unsettledAppBarTitle!.trim().isNotEmpty)
+          ? widget.unsettledAppBarTitle!.trim()
+          : '未会計の会計';
       return Scaffold(
         appBar: AppBar(
-          title: const Text('未会計の会計'),
+          title: Text(unsettledTitle),
           backgroundColor: Colors.blue[600],
           foregroundColor: Colors.white,
           leading: IconButton(
@@ -2724,20 +2778,44 @@ class _AccountingPageState extends State<AccountingPage> {
       final result = await _functions.httpsCallable('cancelAccounting').call({
         'billId': billId,
       });
+      final data = _asStringKeyedMap(result.data);
+      if (data != null && data['success'] == true) {
+        if (mounted) {
+          if (_currentBusinessDateKey != null) {
+            _loadActiveBills(_currentBusinessDateKey!);
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('会計開始を取り消しました')),
+          );
+        }
+        return true;
+      }
+
       if (mounted) {
+        final mapped = mapAccountingSoftFailError(
+          data ?? result.data,
+          operation: AccountingErrorOperations.cancel,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(mapped.message)),
+        );
         if (_currentBusinessDateKey != null) {
           _loadActiveBills(_currentBusinessDateKey!);
         }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.data['message'] ?? '会計開始を取り消しました')),
-        );
       }
-      return true;
+      return false;
     } catch (e) {
       if (mounted) {
+        final mapped = mapAccountingCallableError(
+          e,
+          operation: AccountingErrorOperations.cancel,
+        );
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('取り消しに失敗しました: $e')));
+        ).showSnackBar(SnackBar(content: Text(mapped.message)));
+        if (_currentBusinessDateKey != null) {
+          _loadActiveBills(_currentBusinessDateKey!);
+        }
       }
       return false;
     }
@@ -2848,6 +2926,9 @@ class _AccountingPageState extends State<AccountingPage> {
       }
     }
 
+    Object? caughtError;
+    Object? responseData;
+
     try {
       final billId = bill['id'] as String;
 
@@ -2881,46 +2962,63 @@ class _AccountingPageState extends State<AccountingPage> {
             'reason': confirmation.reason.isEmpty ? null : confirmation.reason,
           });
 
-      await closeLoadingDialog();
-      if (!mounted) return;
-      await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
-
-      await showDialog<void>(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            title: const Text('会計前に戻しました'),
-            content: Text(
-              'oldCycle: ${result.data['oldCycleNo'] ?? '—'} / newCycle: ${result.data['newCycleNo'] ?? '—'}\n未会計一覧に戻しました。',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
-
-      if (!mounted) return;
-      await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
-
-      if (!mounted) return;
-      await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
-      if (_currentBusinessDateKey != null) {
-        await _loadActiveBills(_currentBusinessDateKey!);
-        await _loadSettledBills(_currentBusinessDateKey!);
-      }
+      responseData = result.data;
     } catch (e) {
+      caughtError = e;
+    } finally {
       await closeLoadingDialog();
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('会計前に戻す処理に失敗しました: $e')));
+    }
+
+    if (!mounted) return;
+
+    if (caughtError != null) {
+      final mapped = mapAccountingCallableError(
+        caughtError,
+        operation: AccountingErrorOperations.reopen,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mapped.message)),
+      );
+      return;
+    }
+
+    if (!isCallableSuccessResponse(responseData)) {
+      final mapped = mapAccountingSoftFailError(
+        responseData,
+        operation: AccountingErrorOperations.reopen,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mapped.message)),
+      );
+      return;
+    }
+
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('会計前に戻しました'),
+          content: Text(resolveAccountingReopenSuccessMessage(responseData)),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted) return;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+
+    if (_currentBusinessDateKey != null) {
+      await _loadActiveBills(_currentBusinessDateKey!);
+      await _loadSettledBills(_currentBusinessDateKey!);
     }
   }
 
@@ -3081,7 +3179,8 @@ class _AccountingPageState extends State<AccountingPage> {
                 // 支払い方法ごとの合計金額を表示
                 _buildPaymentMethodsByAmount(bill),
                 const SizedBox(height: 8),
-                // 右下：アクションボタン
+                // 右下：アクションボタン（会計後の正規操作のみ。
+                // 旧「修正」「キャンセル」は settled に不適合のため削除）
                 Align(
                   alignment: Alignment.centerRight,
                   child: Wrap(
@@ -3089,35 +3188,6 @@ class _AccountingPageState extends State<AccountingPage> {
                     runSpacing: 8,
                     alignment: WrapAlignment.end,
                     children: [
-                      OutlinedButton.icon(
-                        onPressed: () => _showEditDialog(bill),
-                        icon: const Icon(Icons.edit, size: 16),
-                        label: const Text('修正', style: TextStyle(fontSize: 11)),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.blue,
-                          side: const BorderSide(color: Colors.blue),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 6,
-                          ),
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _showCancelDialog(bill),
-                        icon: const Icon(Icons.cancel, size: 16),
-                        label: const Text(
-                          'キャンセル',
-                          style: TextStyle(fontSize: 11),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 6,
-                          ),
-                        ),
-                      ),
                       FilledButton.icon(
                         onPressed: () => _reopenSettledBill(bill),
                         icon: const Icon(Icons.undo, size: 16),
@@ -3553,21 +3623,6 @@ class _AccountingPageState extends State<AccountingPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AccountingEditDialog(
-        bill: bill,
-        onUpdated: () {
-          if (_currentBusinessDateKey != null) {
-            _loadActiveBills(_currentBusinessDateKey!);
-            _loadSettledBills(_currentBusinessDateKey!);
-          }
-        },
-      ),
-    );
-  }
-
-  void _showCancelDialog(Map<String, dynamic> bill) {
-    showDialog(
-      context: context,
-      builder: (context) => AccountingCancelDialog(
         bill: bill,
         onUpdated: () {
           if (_currentBusinessDateKey != null) {

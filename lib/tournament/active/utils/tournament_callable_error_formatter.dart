@@ -1,5 +1,7 @@
 import 'package:cloud_functions/cloud_functions.dart';
 
+import 'package:amuse_app_template/core/errors/errors.dart';
+
 /// Callable 業務拒否など、サーバーから返る既知 message のユーザー向け文言。
 const Map<String, String> _knownOkibakeCallableMessages = {
   '置きバケ一時参加者が見つかりません':
@@ -27,12 +29,25 @@ const Map<String, String> _knownOkibakeCallableMessages = {
       'この伝票にはすでに同一トーナメントの参加情報があります。',
   'この状態の伝票には紐付けできません':
       'この状態の伝票には紐付けできません。精算済みでないか確認してください。',
+  '対象ユーザーはすでに設定されています':
+      '対象ユーザーはすでに設定されています',
+  '請求額と入金額が一致していません':
+      '請求額と入金額が一致していません',
 };
 
-/// 既知 message をユーザー向け文言へ寄せる（テスト・再利用用）。
+/// 既知 message をユーザー向け文言へ寄せる。未知は null。
+String? lookupKnownTournamentCallableMessage(String message) {
+  final trimmed = message.trim();
+  if (trimmed.isEmpty) return null;
+  return _knownOkibakeCallableMessages[trimmed];
+}
+
+/// 既知 message をユーザー向け文言へ寄せる（未知は入力をそのまま返す・互換用）。
+///
+/// UI 表示には [formatTournamentCallableError] を使うこと。
 String mapKnownTournamentCallableMessage(String message) {
   final trimmed = message.trim();
-  return _knownOkibakeCallableMessages[trimmed] ?? trimmed;
+  return lookupKnownTournamentCallableMessage(trimmed) ?? trimmed;
 }
 
 /// `failed-precondition: ...` 形式の先頭 code プレフィックスを除去する。
@@ -44,26 +59,37 @@ String stripCallableErrorCodePrefix(String text) {
   return text.trim();
 }
 
+String _stripExceptionWrappers(String text) {
+  var value = text.trim();
+  if (value.startsWith('Exception: ')) {
+    value = value.substring('Exception: '.length).trim();
+  }
+  value = stripCallableErrorCodePrefix(value);
+  if (value.startsWith('Exception: ')) {
+    value = value.substring('Exception: '.length).trim();
+  }
+  return stripCallableErrorCodePrefix(value);
+}
+
 /// Cloud Functions Callable エラーをスタッフ向け UI 用の短文へ整形する。
+///
+/// 既知 message 辞書は維持。未知時は raw message / toString を出さず D-1 へ委譲。
 String formatTournamentCallableError(Object error) {
   if (error is FirebaseFunctionsException) {
     final message = error.message;
     if (message != null && message.trim().isNotEmpty) {
-      return mapKnownTournamentCallableMessage(message.trim());
+      final known = lookupKnownTournamentCallableMessage(message);
+      if (known != null) return known;
     }
-    return error.code;
+    return mapCallableError(error).message;
   }
 
-  var text = error.toString();
-  if (text.startsWith('Exception: ')) {
-    text = text.substring('Exception: '.length);
-  }
-  text = stripCallableErrorCodePrefix(text);
-  if (text.startsWith('Exception: ')) {
-    text = text.substring('Exception: '.length);
-  }
-  text = stripCallableErrorCodePrefix(text);
-  return mapKnownTournamentCallableMessage(text);
+  // 非 FFE: toString は既知辞書の照合にのみ使い、未知なら表示しない。
+  final known = lookupKnownTournamentCallableMessage(
+    _stripExceptionWrappers(error.toString()),
+  );
+  if (known != null) return known;
+  return mapCallableError(error).message;
 }
 
 /// 置きバケ登録成功時の SnackBar 文言（replay 時も同一）。

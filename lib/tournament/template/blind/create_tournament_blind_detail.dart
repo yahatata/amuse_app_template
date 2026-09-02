@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'tournament_blind_template_list_page.dart';
 
 class CreateTournamentBlindDetail extends StatefulWidget {
@@ -286,7 +287,7 @@ class _CreateTournamentBlindDetailState extends State<CreateTournamentBlindDetai
       final result = await callable.call(blindTemplateData);
       final response = result.data;
 
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(response['message'] ?? 
@@ -307,12 +308,12 @@ class _CreateTournamentBlindDetailState extends State<CreateTournamentBlindDetai
         }
       } else {
         setState(() {
-          _errorMessage = response['error'] ?? '保存に失敗しました';
+          _errorMessage = mapCallableSoftFailMessage(response);
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = '保存に失敗しました: $e';
+        _errorMessage = mapCallableError(e).message;
       });
     } finally {
       setState(() {

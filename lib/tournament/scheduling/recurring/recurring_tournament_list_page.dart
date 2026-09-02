@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/tournament/scheduling/recurring/create_recurring_tournament_page.dart';
 import 'package:amuse_app_template/tournament/scheduling/recurring/edit_recurring_tournament_page.dart';
+import 'package:amuse_app_template/tournament/scheduling/errors/tournament_admin_user_facing_errors.dart';
 
 /// 定期開催トーナメント一覧画面
 class RecurringTournamentListPage extends StatefulWidget {
@@ -16,6 +18,8 @@ class RecurringTournamentListPage extends StatefulWidget {
 class _RecurringTournamentListPageState extends State<RecurringTournamentListPage> {
   List<Map<String, dynamic>> _recurrences = [];
   bool _isLoading = true;
+  bool _loadFailed = false;
+  bool _isDeleting = false;
 
   @override
   void initState() {
@@ -27,6 +31,7 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
   Future<void> _loadRecurrences() async {
     setState(() {
       _isLoading = true;
+      _loadFailed = false;
     });
 
     try {
@@ -35,17 +40,15 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
           .httpsCallable('getTournamentRecurrences')
           .call();
 
-      debugPrint('Cloud Function レスポンス: ${result.data}');
-      
-      if (result.data['success'] == true) {
-        final recurrencesRaw = result.data['recurrences'] as List;
+      debugPrint('Cloud Function レスポンス完了');
+
+      if (isCallableSuccessResponse(result.data)) {
+        final recurrencesRaw = result.data['recurrences'] as List? ?? [];
         debugPrint('取得した定期開催数: ${recurrencesRaw.length}');
-        
-        // 型変換を明示的に行う
+
         final recurrences = recurrencesRaw.map((recurrence) {
           final recurrenceMap = Map<String, dynamic>.from(recurrence as Map);
-          
-          // 日付フィールドの型変換
+
           if (recurrenceMap['startOn'] != null) {
             recurrenceMap['startOn'] = recurrenceMap['startOn'].toString();
           }
@@ -58,29 +61,56 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
           if (recurrenceMap['updatedAt'] != null) {
             recurrenceMap['updatedAt'] = recurrenceMap['updatedAt'].toString();
           }
-          
+
           return recurrenceMap;
         }).toList();
-        
+
         setState(() {
           _recurrences = recurrences;
+          _loadFailed = false;
         });
-        
+
         debugPrint('定期開催読み込み完了: ${_recurrences.length}件');
       } else {
-        debugPrint('Cloud Function エラー: ${result.data['error']}');
+        if (mounted) {
+          setState(() {
+            _recurrences = [];
+            _loadFailed = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(mapTournamentAdminSoftFail(result.data)),
+              action: SnackBarAction(
+                label: '再試行',
+                onPressed: _loadRecurrences,
+              ),
+            ),
+          );
+        }
       }
     } catch (e) {
-      debugPrint('定期開催の読み込みに失敗しました: $e');
+      debugPrint('定期開催の読み込みに失敗しました');
       if (mounted) {
+        setState(() {
+          _recurrences = [];
+          _loadFailed = true;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('定期開催の読み込みに失敗しました: $e')),
+          SnackBar(
+            content: const Text(kTournamentAdminRecurrencesLoadFailedMessage),
+            action: SnackBarAction(
+              label: '再試行',
+              onPressed: _loadRecurrences,
+            ),
+          ),
         );
       }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -104,7 +134,7 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
 
       if (!doc.exists) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('定期開催データが見つかりませんでした')),
+          const SnackBar(content: Text(kTournamentAdminRecurrenceNotFoundMessage)),
         );
         return;
       }
@@ -149,33 +179,61 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
       if (!mounted) return;
       Navigator.of(context).pop(); // ローディングを閉じる
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('データの取得に失敗しました: $e')),
+        const SnackBar(content: Text(kTournamentAdminRecurrenceDetailLoadFailedMessage)),
       );
     }
   }
 
   /// 定期開催を削除
   Future<void> _deleteRecurrence(String recurrenceId) async {
+    if (_isDeleting) return;
+
+    setState(() {
+      _isDeleting = true;
+    });
+
     try {
       final result = await FunctionsClient.instance
           .httpsCallable('deleteTournamentRecurrence')
           .call({'recurrenceId': recurrenceId});
 
+      if (!mounted) return;
+
       if (result.data['success'] == true) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(result.data['message'])),
-          );
-          await _loadRecurrences();
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('定期開催を削除しました')),
+        );
+        await _loadRecurrences();
       } else {
-        throw Exception(result.data['error'] ?? '削除に失敗しました');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentAdminSoftFail(
+                result.data,
+                operation: kDeleteTournamentRecurrenceOperation,
+              ),
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('削除に失敗しました: $e')),
+          SnackBar(
+            content: Text(
+              mapTournamentAdminCallableError(
+                e,
+                operation: kDeleteTournamentRecurrenceOperation,
+              ),
+            ),
+          ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
       }
     }
   }
@@ -194,7 +252,9 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
               child: const Text('キャンセル'),
             ),
             ElevatedButton(
-              onPressed: () async {
+              onPressed: _isDeleting
+                  ? null
+                  : () async {
                 Navigator.of(context).pop();
                 await _deleteRecurrence(recurrenceId);
               },
@@ -274,6 +334,29 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
+          : _loadFailed
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                      const SizedBox(height: 16),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          kTournamentAdminRecurrencesLoadFailedMessage,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 18),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: _loadRecurrences,
+                        child: const Text('再試行'),
+                      ),
+                    ],
+                  ),
+                )
           : _recurrences.isEmpty
               ? const Center(
                   child: Column(

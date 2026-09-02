@@ -287,9 +287,8 @@ class _UserCheckInPageState extends State<UserCheckInPage> {
                                                   content: Text(
                                                     res.success
                                                         ? '伝票紐付けしました'
-                                                        : (res.errorMessage?.isNotEmpty ?? false)
-                                                            ? '伝票紐付けに失敗しました: ${res.errorMessage}'
-                                                            : '伝票紐付けに失敗しました',
+                                                        : (res.errorMessage ??
+                                                            '伝票紐付けに失敗しました'),
                                                   ),
                                                   backgroundColor: res.success
                                                       ? Colors.green

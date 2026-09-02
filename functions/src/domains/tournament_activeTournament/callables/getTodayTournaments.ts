@@ -1,4 +1,4 @@
-import { onCall } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { FieldPath, getFirestore } from "firebase-admin/firestore";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
@@ -114,6 +114,9 @@ export const getTodayTournaments = onCall(async (request) => {
       success: true,
       data: tournaments,
       count: tournaments.length,
+      /** 一覧フィルタに使った営業日（yyyy-MM-dd）。LIFF 見出しと揃える */
+      targetBusinessDate,
+      todayDateSource,
       liffSettings,
       message: `${tournaments.length}件の本日開催トーナメントを取得しました`,
     };
@@ -126,16 +129,13 @@ export const getTodayTournaments = onCall(async (request) => {
       context: logContext,
     });
 
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      data: [],
-      count: 0,
-      liffSettings: {
-        liffRegistrationEnabled: true,
-        liffCalendarEnabled: true,
-      },
-      message: '本日開催トーナメントの取得に失敗しました',
-    };
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    // soft-fail + raw error / 空配列は廃止。失敗は throw（空成功と区別）
+    throw new HttpsError('internal', 'Failed to get today tournaments', {
+      errorKey: 'TOURNAMENT_INTERNAL_ERROR',
+    });
   }
 });

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/OrderView/MenuView/menu_user_facing_errors.dart';
 import 'menuListPage.dart';
 import '../../services/store_config_defaults.dart';
 import '../../services/store_config_service.dart';
@@ -15,6 +16,8 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
   List<String> _categories = [];
   bool _isLoading = false;
   String? _errorMessage;
+  /// MENU-07: カテゴリーが本当に空か（読込失敗とは別）。
+  bool _categoriesEmpty = false;
 
   @override
   void initState() {
@@ -35,6 +38,7 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
     setState(() {
       _categories =
           StoreConfigService.instance.latestData?.menuCategories ?? kDefaultMenuCategories;
+      _categoriesEmpty = _categories.isEmpty;
     });
   }
 
@@ -48,13 +52,18 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
       _errorMessage = null;
     });
 
-    // 既に取得済みのデータを使用（Cloud Functions呼び出しなし）
     final hasData = MenuItemsManager.allMenuItems.isNotEmpty;
-    
+    final managerError = MenuItemsManager.lastError;
+
     setState(() {
       _isLoading = false;
-      if (!hasData) {
-        _errorMessage = 'データが取得されていません。更新ボタンを押してください。';
+      // MENU-07/08: キャッシュありなら注文導線を塞がない（前回エラー残存を許容）
+      if (hasData) {
+        _errorMessage = null;
+      } else if (managerError != null) {
+        _errorMessage = safeMenuItemsManagerErrorMessage(managerError);
+      } else {
+        _errorMessage = kMenuItemsNotLoadedMessage;
       }
     });
   }
@@ -70,11 +79,18 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
     });
 
     final success = await MenuItemsManager.fetchMenuItems();
-    
+
     setState(() {
       _isLoading = false;
       if (!success) {
-        _errorMessage = MenuItemsManager.lastError;
+        // MENU-08: lastError raw 非表示。エラー時は注文導線へ進ませない。
+        _errorMessage = safeMenuItemsManagerErrorMessage(
+          MenuItemsManager.lastError,
+        );
+      } else if (MenuItemsManager.allMenuItems.isEmpty) {
+        // 取得成功だがメニュー0件 — カテゴリー空とは別メッセージにしない
+        // （カテゴリー選択は可能。メニュー一覧側で空表示）
+        _errorMessage = null;
       }
     });
   }
@@ -125,6 +141,7 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    // MENU-08: エラー時はカテゴリー一覧を出さず注文へ進めない
     if (_errorMessage != null) {
       return Center(
         child: Column(
@@ -141,6 +158,16 @@ class _CategorySelectPageState extends State<CategorySelectPage> {
               child: const Text('再試行'),
             ),
           ],
+        ),
+      );
+    }
+
+    // MENU-07: 本当にカテゴリーが空
+    if (_categoriesEmpty || _categories.isEmpty) {
+      return const Center(
+        child: Text(
+          kMenuCategoriesEmptyMessage,
+          style: TextStyle(fontSize: 16),
         ),
       );
     }

@@ -226,6 +226,13 @@ body {
   opacity: 0.65;
 }
 
+.order-page.order-pending-lock .menu-categories button,
+.order-page.order-pending-lock #menu-items button,
+.order-page.order-pending-lock #view-cart-btn-container button {
+  pointer-events: none;
+  opacity: 0.65;
+}
+
 .tournament-calendar:has(.spinner) {
   display: flex;
   justify-content: center;
@@ -1154,41 +1161,6 @@ body {
   flex-wrap: wrap;
 }
 
-/* 未提出シフト関連のスタイル */
-.pending-shifts-container {
-  background: white;
-  padding: 30px;
-  border-radius: 20px;
-  margin-bottom: 30px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.pending-shifts-container h3 {
-  color: var(--primary-color);
-  margin-bottom: 20px;
-  font-size: 1.5rem;
-  text-align: center;
-  font-weight: 700;
-}
-
-.pending-shifts-list {
-  margin-bottom: 20px;
-}
-
-.pending-shift-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 15px;
-  border-bottom: 2px solid #f8f9fa;
-  gap: 20px;
-}
-
-.pending-shift-item:last-child {
-  border-bottom: none;
-}
-
 .shift-info {
   font-weight: 600;
   color: #333;
@@ -1574,37 +1546,6 @@ body {
   width: 100%;
   padding: 12px;
   font-size: 1rem;
-}
-
-/* 未提出シフトリストのレスポンシブ対応 */
-.pending-shifts-container {
-  max-width: 100%;
-  overflow-x: hidden;
-}
-
-.pending-shifts-container h3 {
-  font-size: 1.3rem;
-  margin-bottom: 15px;
-  word-wrap: break-word;
-}
-
-.pending-shifts-list {
-  max-width: 100%;
-}
-
-.pending-shifts-list .shift-item {
-  padding: 12px;
-  margin-bottom: 10px;
-  word-wrap: break-word;
-}
-
-.shift-item .shift-info {
-  font-size: 0.9rem;
-}
-
-.shift-item .remove-btn {
-  padding: 6px 12px;
-  font-size: 0.8rem;
 }
 
 /* 確定シフト表示のレスポンシブ対応 */
@@ -2512,4 +2453,79 @@ body {
   padding: 20px;
   background-color: #fee;
   border-radius: 8px;
+}
+
+/* App-owned dialogs (replace window.alert / confirm; no Hosting origin title) */
+.app-dialog-root {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+.app-dialog-root.is-open {
+  display: flex;
+}
+
+.app-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.app-dialog-panel {
+  position: relative;
+  z-index: 1;
+  width: min(420px, 100%);
+  max-height: min(80vh, 560px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px 18px 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+}
+
+.app-dialog-message {
+  margin: 0 0 18px;
+  color: #333;
+  font-size: 1rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.app-dialog-btn {
+  min-width: 88px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-dialog-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.app-dialog-btn-primary {
+  background: var(--primary-color, #3a3a3a);
+  color: #fff;
+}
+
+.app-dialog-btn-secondary {
+  background: #ececec;
+  color: #333;
 }

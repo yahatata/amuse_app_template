@@ -8,11 +8,9 @@
  * 観点:
  * 1. config 基盤 — defaults.ts / configLoader の整合性
  * 2. 会計ロジック — snapshots.ts の金額計算
- * 3. 支払い分割 — paymentSplitCalculator の純関数
- * 4. 営業日ヘルパー — JST 変換、月キー生成
- * 5. contentHash — 同一入力で同一ハッシュ
- * 6. dualWrite フラグ — getStoreConfig mock 経由で制御可能か
- * 7. Firestore 統合 — config 読み書き（Emulator）
+ * 3. 営業日ヘルパー — JST 変換、月キー生成
+ * 4. contentHash — 同一入力で同一ハッシュ
+ * 5. Firestore 統合 — config 読み書き（Emulator）
  */
 
 jest.unmock('../../src/shared/config/configLoader');
@@ -63,8 +61,6 @@ import {
   calculateContentHash,
   buildSideGameChipsSummary,
 } from '../../src/domains/bills/services/snapshots';
-
-import { calculatePaymentSplit } from '../../src/domains/bills/services/paymentSplitCalculator';
 
 import {
   convertToJst,
@@ -260,65 +256,9 @@ describe('2. 会計ロジック (snapshots)', () => {
   });
 });
 
-// ---------- 3. 支払い分割 ----------
+// ---------- 3. 営業日ヘルパー ----------
 
-describe('3. 支払い分割 (paymentSplitCalculator)', () => {
-  it('ポイント残高なし → 全額を baseMethod で支払う', () => {
-    const result = calculatePaymentSplit({
-      selectedBaseMethod: 'cash',
-      bill: { items: 5000, extraCost: 1000 },
-      balances: {},
-    });
-    expect(result.cashLikeAmount).toBe(6000);
-    expect(Object.values(result.usedPoints).reduce((a, b) => a + b, 0)).toBe(0);
-  });
-
-  it('pointA が items カテゴリで使われる', () => {
-    const result = calculatePaymentSplit({
-      selectedBaseMethod: 'cash',
-      bill: { items: 5000 },
-      balances: { pointA: 2000 },
-    });
-    expect(result.usedPoints.pointA).toBe(2000);
-    expect(result.cashLikeAmount).toBe(3000);
-  });
-
-  it('extraCost は cash/credit_card/electronic_money のみ（pointA 不可）', () => {
-    const result = calculatePaymentSplit({
-      selectedBaseMethod: 'cash',
-      bill: { extraCost: 1000, items: 0 },
-      balances: { pointA: 5000 },
-    });
-    expect(result.usedPoints.pointA ?? 0).toBe(0);
-    expect(result.cashLikeAmount).toBe(1000);
-  });
-
-  it('無効な baseMethod はエラー', () => {
-    expect(() =>
-      calculatePaymentSplit({
-        selectedBaseMethod: 'bitcoin' as any,
-        bill: { items: 100 },
-        balances: {},
-      })
-    ).toThrow('selectedBaseMethod must be one of');
-  });
-
-  it('sideGameChip ポイントは chipRate で円換算される', () => {
-    const result = calculatePaymentSplit({
-      selectedBaseMethod: 'cash',
-      bill: { items: 10000 },
-      balances: { sideGameChip: 100 },
-      sideGameChipExchangeRate: 10,
-    });
-    // 100チップ * 10円 = 1000円分
-    expect(result.usedPoints.sideGameChip).toBe(1000);
-    expect(result.cashLikeAmount).toBe(9000);
-  });
-});
-
-// ---------- 4. 営業日ヘルパー ----------
-
-describe('4. 営業日ヘルパー (calcBusinessDateHelpers)', () => {
+describe('3. 営業日ヘルパー (calcBusinessDateHelpers)', () => {
   it('convertToJst: UTC → JST (+9h)', () => {
     const utc = new Date('2025-11-10T00:00:00Z');
     const jst = convertToJst(utc);
@@ -349,9 +289,9 @@ describe('4. 営業日ヘルパー (calcBusinessDateHelpers)', () => {
   });
 });
 
-// ---------- 5. contentHash ----------
+// ---------- 4. contentHash ----------
 
-describe('5. contentHash の決定論性', () => {
+describe('4. contentHash の決定論性', () => {
   const baseParams = {
     amounts: { subTotalIncl: 1000, discountTotalIncl: 0, serviceChargeIncl: 0, grandTotalIncl: 1000, roundingDelta: 0, grandTotalRounded: 1000 },
     categoryBreakdown: { items: 1000, extraCost: 0, sideGameChips: 0, tournaments: 0 } as any,
@@ -385,9 +325,9 @@ describe('5. contentHash の決定論性', () => {
   });
 });
 
-// ---------- 6. getStoreConfig Firestore 統合 ----------
+// ---------- 5. getStoreConfig Firestore 統合 ----------
 
-describe('6. getStoreConfig Firestore 統合', () => {
+describe('5. getStoreConfig Firestore 統合', () => {
   const runEmulatorTests = process.env.RUN_EMULATOR_TESTS === '1';
   const itWithEmulator = runEmulatorTests ? it : it.skip;
   const projectId = 'test-system-health';

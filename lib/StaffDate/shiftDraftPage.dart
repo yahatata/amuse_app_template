@@ -3,6 +3,9 @@ import 'dart:ui' as ui;
 import 'package:intl/intl.dart';
 import 'shiftHomePage.dart';
 import 'shift_repository.dart';
+import 'shift_draft_allocation.dart';
+import 'shift_draft_selection.dart';
+import 'errors/staff_shift_errors.dart';
 import '../Utils/time_converter.dart';
 
 /// ドラフト画面（中間確定用）
@@ -32,9 +35,13 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
   Map<String, List<ShiftRequest>> _requests = {};
   Map<String, BusinessHours> _businessHours = {};
   bool _isLoading = false;
+  /// 読込失敗（未設定・空と区別）
+  bool _loadFailed = false;
   
   final Set<String> _selectedRequestIds = {};
   final Map<String, bool> _isSufficientManual = {}; // 手動必要十分フラグ
+  /// Admin 割当時間（requestId → local allocation）。Firestore request start/end は immutable。
+  final Map<String, ShiftMinuteRange> _allocationByRequestId = {};
 
   @override
   void initState() {
@@ -78,16 +85,20 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
       setState(() {
         _requests = requests;
         _businessHours = businessHours;
+        _syncAllocationsFromRequests(requests);
+        _loadFailed = false;
         _isLoading = false;
       });
     } catch (e) {
       setState(() {
         _isLoading = false;
+        _loadFailed = true;
+        // 失敗を空／未設定と同一視しない（前回成功分は残す）
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('データの読み込みに失敗しました: ${e.toString()}'),
+          const SnackBar(
+            content: Text(kShiftDraftLoadFailedMessage),
             backgroundColor: Colors.red,
           ),
         );
@@ -106,7 +117,26 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
   void _selectDate(DateTime date) {
     setState(() {
       _selectedDate = date;
+      _selectedRequestIds.clear();
     });
+  }
+
+  Set<String> _pendingRequestIdsForSelectedDate() {
+    if (_selectedDate == null) return {};
+    final dateKey = _getDateKey(_selectedDate!);
+    final requests = _requests[dateKey] ?? [];
+    return pendingRequestIdsOnDate(
+      requests.map(
+        (r) => (requestId: r.requestId, status: r.status),
+      ),
+    );
+  }
+
+  Set<String> _selectedRequestIdsForCurrentDate() {
+    return selectedRequestIdsForDate(
+      selectedRequestIds: _selectedRequestIds,
+      pendingRequestIdsOnDate: _pendingRequestIdsForSelectedDate(),
+    );
   }
 
   void _toggleRequestSelection(String requestId) {
@@ -119,35 +149,59 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
     });
   }
 
-  void _updateRequestTime(String requestId, String dateKey, int startMinute, int endMinute) {
-    setState(() {
-      final requests = _requests[dateKey];
-      if (requests != null) {
-        final index = requests.indexWhere((r) => r.requestId == requestId);
-        if (index != -1) {
-          requests[index] = requests[index].copyWith(
-            startMinute: startMinute,
-            endMinute: endMinute,
-          );
-        }
+  void _syncAllocationsFromRequests(Map<String, List<ShiftRequest>> requests) {
+    _allocationByRequestId.clear();
+    for (final list in requests.values) {
+      for (final request in list) {
+        if (request.status != 'pending') continue;
+        _allocationByRequestId[request.requestId] = initialAllocationRange(
+          startMinute: request.startMinute,
+          endMinute: request.endMinute,
+        );
       }
+    }
+  }
+
+  ShiftMinuteRange _allocationFor(ShiftRequest request) {
+    return _allocationByRequestId[request.requestId] ??
+        initialAllocationRange(
+          startMinute: request.startMinute,
+          endMinute: request.endMinute,
+        );
+  }
+
+  void _updateAllocation(String requestId, int startMinute, int endMinute) {
+    setState(() {
+      _allocationByRequestId[requestId] = (
+        startMinute: startMinute,
+        endMinute: endMinute,
+      );
     });
   }
 
   void _confirmInterim() {
-    if (_selectedDate == null || _selectedRequestIds.isEmpty) {
+    if (_loadFailed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(kShiftDraftLoadFailedMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final selectedForDate = _selectedRequestIdsForCurrentDate();
+    if (_selectedDate == null || selectedForDate.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('日付と申請を選択してください')),
       );
       return;
     }
 
-    final dateKey = _getDateKey(_selectedDate!);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('${DateFormat('M月d日').format(_selectedDate!)}を中間確定'),
-        content: Text('選択した${_selectedRequestIds.length}件の申請を中間確定しますか？'),
+        content: Text('選択した${selectedForDate.length}件の申請を中間確定しますか？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -163,26 +217,35 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
               setState(() {
                 _isLoading = true;
               });
+
+              var didSucceed = false;
+              Object? caught;
               
               // 中間確定処理
               try {
                 final dateKey = _getDateKey(_selectedDate!);
+                final pendingOnDate = _pendingRequestIdsForSelectedDate();
+                final selectedForConfirm = _selectedRequestIdsForCurrentDate();
                 final requests = _requests[dateKey] ?? [];
-                
-                // 選択された申請の情報を準備
-                final selections = <Map<String, dynamic>>[];
-                for (var requestId in _selectedRequestIds) {
-                  final request = requests.firstWhere(
-                    (r) => r.requestId == requestId,
-                    orElse: () => throw Exception('Request not found: $requestId'),
+                final allocationByRequestId = <String, InterimConfirmAllocation>{};
+                for (final request in requests) {
+                  if (!selectedForConfirm.contains(request.requestId)) continue;
+                  final allocation = _allocationFor(request);
+                  allocationByRequestId[request.requestId] = (
+                    startMinute: allocation.startMinute,
+                    endMinute: allocation.endMinute,
                   );
-                  selections.add({
-                    'requestId': request.requestId,
-                    'startMinute': request.startMinute,
-                    'endMinute': request.endMinute,
-                  });
                 }
-                
+                final selections = buildInterimConfirmSelectionsForDate(
+                  selectedRequestIds: _selectedRequestIds,
+                  pendingRequestIdsOnDate: pendingOnDate,
+                  allocationByRequestId: allocationByRequestId,
+                );
+
+                if (selections.isEmpty) {
+                  throw StateError('selected_request_missing');
+                }
+
                 await _repository.interimConfirmRequests(
                   dateKey: dateKey,
                   selections: selections,
@@ -191,21 +254,9 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
                 // データを再読み込み
                 await _loadData();
                 _selectedRequestIds.clear();
-                
-                if (mounted) {
-                  scaffoldMessenger.showSnackBar(
-                    const SnackBar(content: Text('中間確定しました')),
-                  );
-                }
+                didSucceed = true;
               } catch (e) {
-                if (mounted) {
-                  scaffoldMessenger.showSnackBar(
-                    SnackBar(
-                      content: Text('エラー: ${e.toString()}'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
+                caught = e;
               } finally {
                 // ローディング終了
                 if (mounted) {
@@ -213,6 +264,24 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
                     _isLoading = false;
                   });
                 }
+              }
+
+              if (didSucceed) {
+                scaffoldMessenger.showSnackBar(
+                  const SnackBar(content: Text('中間確定しました')),
+                );
+              } else if (caught != null) {
+                scaffoldMessenger.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      mapStaffShiftCallableError(
+                        caught,
+                        operation: 'interimConfirmRequests',
+                      ),
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             },
             child: const Text('確定'),
@@ -341,6 +410,7 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
     final pendingRequests = requests.where((r) => r.status == 'pending').toList();
     final businessHours = _businessHours[dateKey];
     final isManualSufficient = _isSufficientManual[dateKey] ?? false;
+    final selectedCountOnDate = _selectedRequestIdsForCurrentDate().length;
 
     if (businessHours == null) {
       return const Center(child: Text('営業時間データが見つかりません'));
@@ -479,8 +549,8 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
                     const SizedBox(width: 16),
                     // 選択して中間確定ボタン
                     ElevatedButton(
-                      onPressed: (businessHours.isClosed || _selectedRequestIds.isEmpty) 
-                          ? null 
+                      onPressed: (businessHours.isClosed || selectedCountOnDate == 0)
+                          ? null
                           : _confirmInterim, // 店休日は無効化
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.deepPurple,
@@ -488,9 +558,9 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       ),
                       child: Text(
-                        _selectedRequestIds.isEmpty
+                        selectedCountOnDate == 0
                             ? '申請を選択してください'
-                            : '選択した${_selectedRequestIds.length}件を中間確定',
+                            : '選択した${selectedCountOnDate}件を中間確定',
                       ),
                     ),
                   ],
@@ -506,6 +576,11 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
   Widget _buildRequestCard(ShiftRequest request, BusinessHours businessHours) {
     final isSelected = _selectedRequestIds.contains(request.requestId);
     final isClosed = businessHours.isClosed; // 店休日フラグ
+    final requestRange = requestDisplayRange(
+      startMinute: request.startMinute,
+      endMinute: request.endMinute,
+    );
+    final allocation = _allocationFor(request);
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -522,21 +597,20 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
                   request.staffName,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                if (request.originalStartMinute != null && request.originalEndMinute != null)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: Text(
-                      '申請時間: ${formatMinutes(request.originalStartMinute!)} - ${formatMinutes(request.originalEndMinute!)}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Text(
+                    '申請時間: ${formatMinutes(requestRange.startMinute)} - ${formatMinutes(requestRange.endMinute)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
                     ),
                   ),
+                ),
                 Padding(
                   padding: const EdgeInsets.only(left: 15),
                   child: Text(
-                    '割当時間: ${formatMinutes(request.startMinute)} - ${formatMinutes(request.endMinute)}',
+                    '割当時間: ${formatMinutes(allocation.startMinute)} - ${formatMinutes(allocation.endMinute)}',
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.black,
@@ -578,17 +652,22 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
     // 営業時間全体を表示
     final openMinute = businessHours.openMinute;
     final closeMinute = businessHours.closeMinute;
-    final startMinutes = request.startMinute;
-    final endMinutes = request.endMinute;
+    final allocation = _allocationFor(request);
+    final startMinutes = allocation.startMinute;
+    final endMinutes = allocation.endMinute;
+    final requestRange = sliderConstraintRange(
+      startMinute: request.startMinute,
+      endMinute: request.endMinute,
+      originalStartMinute: request.originalStartMinute,
+      originalEndMinute: request.originalEndMinute,
+    );
+    final minMinute = requestRange.startMinute;
+    final maxMinute = requestRange.endMinute;
     
     // 店休日の場合はスライダーを表示しない
     if (businessHours.isClosed) {
       return const SizedBox.shrink();
     }
-    
-    // 申請時間の範囲を取得（申請時間が存在しない場合は現在の割当時間を使用）
-    final minMinute = request.originalStartMinute ?? startMinutes;
-    final maxMinute = request.originalEndMinute ?? endMinutes;
     
     // スライダー用のキーを取得または作成
     final sliderKey = _sliderKeys.putIfAbsent('${dateKey}_${request.requestId}', () => GlobalKey());
@@ -657,27 +736,26 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
                     // 1時間刻みに丸める
                     final newStart = (values.start / 60).round() * 60;
                     final newEnd = (values.end / 60).round() * 60;
-                    
-                    // 申請時間の範囲内に制限（内側にしか動かせない）
-                    final clampedStart = newStart.clamp(minMinute, maxMinute);
-                    final clampedEnd = newEnd.clamp(minMinute, maxMinute);
-                    
-                    // 最小間隔を確保（1時間）かつ申請時間内であることを確認
-                    if (clampedEnd - clampedStart >= 60 && 
-                        clampedStart >= minMinute && clampedEnd <= maxMinute) {
-                      _updateRequestTime(
+
+                    final clamped = clampAllocationWithinRequest(
+                      requestStartMinute: minMinute,
+                      requestEndMinute: maxMinute,
+                      newStartMinute: newStart,
+                      newEndMinute: newEnd,
+                    );
+                    if (clamped != null) {
+                      _updateAllocation(
                         request.requestId,
-                        dateKey,
-                        clampedStart,
-                        clampedEnd,
+                        clamped.startMinute,
+                        clamped.endMinute,
                       );
                     }
                   } : null,
                 );
           },
         ),
-        // 申請時間表示用ライン（操作不可、黄色でハイライト）
-        if (request.originalStartMinute != null && request.originalEndMinute != null) ...[
+        // 最新申請時間表示用ライン（操作不可）
+        ...[
           const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -695,8 +773,8 @@ class _ShiftDraftPageState extends State<ShiftDraftPage> {
                 return const SizedBox.shrink();
               }
               
-              final startRatio = (request.originalStartMinute! - openMinute) / totalMinutes;
-              final endRatio = (request.originalEndMinute! - openMinute) / totalMinutes;
+              final startRatio = (request.startMinute - openMinute) / totalMinutes;
+              final endRatio = (request.endMinute - openMinute) / totalMinutes;
               final startPosition = leftPadding + startRatio * trackWidth;
               final endPosition = leftPadding + endRatio * trackWidth;
               final lineWidth = endPosition - startPosition;
@@ -866,8 +944,8 @@ class ShiftRequest {
   final int startMinute; // 0:00からの分数（例: 540 = 09:00）
   final int endMinute; // 0:00からの分数（例: 1080 = 18:00）
   final String status; // pending, interim_confirmed, final_confirmed
-  final int? originalStartMinute; // 元の申請時間（スライダー調整前）
-  final int? originalEndMinute; // 元の申請時間（スライダー調整前）
+  final int? originalStartMinute; // 初回申請 audit 用（UI 制限には使わない）
+  final int? originalEndMinute; // 初回申請 audit 用（UI 制限には使わない）
 
   ShiftRequest({
     required this.requestId,

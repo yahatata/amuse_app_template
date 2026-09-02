@@ -40,7 +40,7 @@ class DeviceOptionKeys {
     staffEntryExit: 'スタッフ出退勤操作',
     accounting: '会計操作',
     tournament: 'トーナメント運営',
-    tournamentTable: 'トーナメント卓専用',
+    tournamentTable: 'トーナメント卓操作',
     kitchen: 'キッチン画面操作',
     sideGame: 'サイドゲーム操作',
     storeManagement: '営業管理',

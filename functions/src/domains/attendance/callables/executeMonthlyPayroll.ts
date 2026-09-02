@@ -26,10 +26,15 @@ import {
   buildRunSnapshot,
 } from '../helpers/payrollRunHelpers';
 import {
+  assertNoHourlyWageMissingStaff,
+  findWageMissingStaff,
+  staffDocsToMap,
+} from '../helpers/payrollHourlyWageValidation';
+import type { AttendanceForRun } from '../helpers/payrollRunHelpers';
+import {
   createPayrollNotification,
   buildEventIdempotencyKey,
 } from '../helpers/payrollNotificationHelper';
-import type { AttendanceForRun } from '../helpers/payrollRunHelpers';
 
 export const executeMonthlyPayroll = onCall(
   { timeoutSeconds: 300 },
@@ -145,6 +150,50 @@ export const executeMonthlyPayroll = onCall(
     const targetStaffCount = staffGroups.length;
     const targetAttendanceCount = attendanceIds.length;
     const carryOverAttendanceCount = classified.carryOver.length;
+
+    const targetStaffIds = staffGroups.map((g) => g.staffId);
+    const staffDocSnaps = await Promise.all(
+      targetStaffIds.map((id) => db.collection('staffs').doc(id).get())
+    );
+    const staffDocsById = staffDocsToMap(
+      staffDocSnaps.map((snap) => ({
+        id: snap.id,
+        exists: snap.exists,
+        data: () => (snap.exists ? (snap.data() as Record<string, unknown>) : undefined),
+      }))
+    );
+    const staffNameById = new Map<string, string>();
+    for (const attDoc of attendanceDocs) {
+      if (!attDoc.exists) continue;
+      const data = attDoc.data()!;
+      const sid = (data.staffId as string) ?? '';
+      const name = (data.staffsFullName as string) ?? '';
+      if (sid && name && !staffNameById.has(sid)) {
+        staffNameById.set(sid, name);
+      }
+    }
+    const wageMissingStaff = findWageMissingStaff({
+      staffIds: targetStaffIds,
+      staffDocsById,
+      staffNameFallback: staffNameById,
+    });
+    if (wageMissingStaff.length > 0) {
+      logOpsError({
+        message: 'executeMonthlyPayroll: hourly wage missing for target staff',
+        functionEntry: 'executeMonthlyPayroll',
+        operation: 'validateHourlyWageBeforePayrollRun',
+        errorSource: 'function_custom',
+        errorKey: 'PAYROLL_HOURLY_WAGE_MISSING',
+        cause: new Error('payroll_hourly_wage_missing'),
+        context: {
+          paymentPeriodKey,
+          attendanceIdsCount: attendanceIds.length,
+          wageMissingStaffCount: wageMissingStaff.length,
+          wageMissingStaffIds: wageMissingStaff.map((s) => s.staffId),
+        },
+      });
+      assertNoHourlyWageMissingStaff(wageMissingStaff);
+    }
 
     // snapshot 構築
     const snapshot = buildRunSnapshot(payrollConfig, paymentPeriodKey, periodStart, periodEnd);

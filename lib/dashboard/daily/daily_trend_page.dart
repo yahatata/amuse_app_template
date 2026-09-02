@@ -4,6 +4,7 @@
 /// 参照フィールド: analyticsMonthly/{YYYY-MM}/days/{YYYY-MM-DD}
 /// 遅延ロード: あり（日次データは初回ロード時）
 
+import 'package:amuse_app_template/dashboard/errors/dashboard_user_facing_errors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -147,8 +148,12 @@ class _DailyTrendPageState extends ConsumerState<DailyTrendPage> {
           return _buildDailyContent(context, dailyData);
         },
         loading: () => _buildSkeletonContent(context),
-        error: (error, stack) => Center(
-          child: Text('エラーが発生しました: $error'),
+        error: (error, stack) => dashboardLoadErrorWidget(
+          message: mapDashboardLoadError(error),
+          onRetry: () {
+            final month = ref.read(selectedMonthProvider);
+            ref.invalidate(dailyDataProvider(month));
+          },
         ),
       ),
     );

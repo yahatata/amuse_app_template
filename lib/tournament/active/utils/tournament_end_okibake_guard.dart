@@ -1,5 +1,8 @@
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_callable_error_formatter.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_update_linked_user_dialog.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
@@ -165,10 +168,14 @@ class TournamentEndOkibakeGuard {
   /// `validateEndTournament` → 置きバケ解消 → `endTournament`（normal）の流れ。
   ///
   /// 順位確定画面からの終了では、最終確認ダイアログは呼び出し側で済ませている前提。
+  ///
+  /// [showProgressUi] が false のとき Guard 内 progress dialog は出さない。
+  /// RankingSetupPage のように呼び出し元が全画面 loading を持つ場合に使う。
   static Future<TournamentNormalEndOutcome> executeNormalEnd({
     required BuildContext context,
     required String tournamentId,
     required TournamentService service,
+    bool showProgressUi = true,
   }) async {
     var progressDialogOpen = false;
 
@@ -180,6 +187,7 @@ class TournamentEndOkibakeGuard {
     }
 
     void showProgressDialog() {
+      if (!showProgressUi) return;
       if (!context.mounted) return;
       showDialog(
         context: context,
@@ -203,7 +211,7 @@ class TournamentEndOkibakeGuard {
 
         if (!context.mounted) return TournamentNormalEndOutcome.cancelled;
 
-        if (validateResult.data['success'] != true) {
+        if (!isCallableSuccessResponse(validateResult.data)) {
           final errorKey = validateResult.data['errorKey'] as String?;
           if (errorKey == 'TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED') {
             final blockingEntries = parseBlockingOkibakeEntries(
@@ -221,8 +229,7 @@ class TournamentEndOkibakeGuard {
             return TournamentNormalEndOutcome.cancelled;
           }
 
-          final message =
-              validateResult.data['message'] as String? ?? '検証に失敗しました';
+          final message = mapCallableSoftFailMessage(validateResult.data);
           await showDialog<void>(
             context: context,
             builder: (ctx) => AlertDialog(
@@ -253,11 +260,11 @@ class TournamentEndOkibakeGuard {
 
       if (!context.mounted) return TournamentNormalEndOutcome.cancelled;
 
-      if (endResult.data['success'] == true) {
+      if (isCallableSuccessResponse(endResult.data)) {
         return TournamentNormalEndOutcome.ended;
       }
 
-      final error = endResult.data['error'] as String? ?? '終了処理に失敗しました';
+      final error = mapCallableSoftFailMessage(endResult.data);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error)),
       );
@@ -285,20 +292,25 @@ class TournamentEndOkibakeGuard {
             context: context,
             tournamentId: tournamentId,
             service: service,
+            showProgressUi: showProgressUi,
           );
         }
         return TournamentNormalEndOutcome.cancelled;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('エラーが発生しました: ${e.message ?? e.code}')),
+        SnackBar(content: Text(formatTournamentCallableError(e))),
       );
       return TournamentNormalEndOutcome.failed;
     } catch (e) {
       await closeProgressDialog();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラーが発生しました: $e')),
+          SnackBar(
+            content: Text(
+              mapTournamentOpsCallableError(e, operation: 'endTournament'),
+            ),
+          ),
         );
       }
       return TournamentNormalEndOutcome.failed;

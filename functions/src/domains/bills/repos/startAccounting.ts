@@ -17,6 +17,13 @@ import { FunctionCustomError } from '../../../shared/logging/functionCustomError
 import * as crypto from 'crypto';
 import { shouldDualWrite, legacyStartAccountingUpdate } from './dualWrite';
 import { buildDraftAccountingInput } from '../services/parentSummary';
+import {
+  ACCOUNTING_START_IDEMPOTENCY_STALE,
+  ACCOUNTING_START_REQUEST_CANCELLED,
+  ACTIVE_ACCOUNTING_START_IDEMPOTENCY_KEY_FIELD,
+  buildActiveAccountingStartIdempotencyDoc,
+  isIdempotencyCancelled,
+} from './accountingStartIdempotency';
 
 /**
  * リクエストペイロードの正規化ハッシュを生成
@@ -41,6 +48,8 @@ export interface StartAccountingResponse {
     accountingStartedAt: string; // ISO8601形式
     accountingStartedBy: string;
   };
+  /** 開始直前の status。commit 失敗時の補償で復元する */
+  previousStatus: 'open' | 'in_progress';
   diagnostics?: {
     reason?: string;
     reused?: boolean;
@@ -79,8 +88,22 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
       const idemSnap = await tx.get(idempotencyRef);
       if (idemSnap.exists) {
         const idemData = idemSnap.data()!;
+
+        if (isIdempotencyCancelled(idemData)) {
+          throw new FunctionCustomError({
+            errorKey: ACCOUNTING_START_REQUEST_CANCELLED,
+            message:
+              'この会計開始リクエストは取り消されています。画面を更新してやり直してください。',
+            context: {
+              billId,
+              idempotencyKey,
+              idempotencyStatus: 'cancelled',
+            },
+          });
+        }
+
         const existingRequestHash = idemData.requestHash;
-        
+
         if (existingRequestHash && existingRequestHash !== requestHash) {
           throw new FunctionCustomError({
             errorKey: 'ACCOUNTING_IDEMPOTENCY_MISMATCH',
@@ -91,25 +114,41 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
             },
           });
         }
-        
+
         // 既存の idempotency ドキュメントから情報を取得
         reused = true;
-        
-        // 既存のレスポンスを返す（updatedAt は変更しない）
+
         const billSnap = await tx.get(billRef);
         if (!billSnap.exists) {
           throw new HttpsError('not-found', `Bill ${billId} not found`);
         }
-        
+
         const billData = billSnap.data()!;
         const accountingStartedAt = billData.ops?.accountingStartedAt;
-        
+
         if (!accountingStartedAt) {
-          throw new HttpsError('internal', 'Accounting started but ops.accountingStartedAt is missing');
+          // active idem だが startedAt 欠落 = stale（cancel後の旧形式など）。internal 禁止。
+          throw new FunctionCustomError({
+            errorKey: ACCOUNTING_START_IDEMPOTENCY_STALE,
+            message:
+              '会計開始の再送状態が不正です。画面を更新してやり直してください。',
+            context: {
+              billId,
+              idempotencyKey,
+              billStatus: billData.status ?? null,
+              reason: 'active_idem_without_started_at',
+            },
+          });
         }
-        
-        const accountingStartedAtIso = accountingStartedAt.toDate ? accountingStartedAt.toDate().toISOString() : new Date().toISOString();
-        
+
+        const accountingStartedAtIso = accountingStartedAt.toDate
+          ? accountingStartedAt.toDate().toISOString()
+          : new Date().toISOString();
+        const reusedPrevious =
+          billData.ops?.accountingStartPreviousStatus === 'in_progress'
+            ? 'in_progress'
+            : 'open';
+
         return {
           success: true,
           billId,
@@ -118,6 +157,7 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
             accountingStartedAt: accountingStartedAtIso,
             accountingStartedBy: billData.ops?.accountingStartedBy || accountingStartedBy,
           },
+          previousStatus: reusedPrevious,
           diagnostics: {
             reused: true,
           },
@@ -152,29 +192,31 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
       }
 
       const now = admin.firestore.Timestamp.now();
+      const previousStatus = currentStatus as 'open' | 'in_progress';
 
-      // 4) /bills/{billId} の status を 'settling' に更新
-      // 5) /bills/{billId}.ops.accountingStartedAt を設定
-      // 6) /bills/{billId}.ops.accountingStartedBy を設定
-      // 7) /bills/{billId}.updatedAt を更新（初回のみ）
+      // 4–7) settling + ops + active key
       tx.update(billRef, {
         status: 'settling',
         'ops.accountingStartedAt': now,
         'ops.accountingStartedBy': accountingStartedBy,
+        'ops.accountingStartPreviousStatus': previousStatus,
+        [ACTIVE_ACCOUNTING_START_IDEMPOTENCY_KEY_FIELD]: idempotencyKey,
         updatedAt: now,
       });
 
-      // 8) /bills/{billId}/idempotency/{idempotencyKey} を作成
-      //    - requestHash を保持
-      //    - expiresAt = now + 48h（Firestore TTL で自動削除）
+      // 8) idempotency document（status: active）
       const expiresAt = admin.firestore.Timestamp.fromMillis(
         now.toMillis() + 48 * 60 * 60 * 1000,
       );
-      tx.set(idempotencyRef, {
-        requestHash,
-        createdAt: now,
-        expiresAt, // TTL 対象フィールド（48h 後に自動削除）
-      });
+      tx.set(
+        idempotencyRef,
+        buildActiveAccountingStartIdempotencyDoc({
+          requestHash,
+          previousStatus,
+          now,
+          expiresAt,
+        }),
+      );
 
       const accountingStartedAtIso = now.toDate().toISOString();
 
@@ -186,6 +228,7 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
           accountingStartedAt: accountingStartedAtIso,
           accountingStartedBy,
         },
+        previousStatus,
       };
     });
 
@@ -226,21 +269,24 @@ export async function startAccounting(request: StartAccountingRequest): Promise<
 
     return result;
   } catch (error) {
+    // 想定内 FCE は Callable 境界で 1 回だけ logOpsError する（二重計上禁止）。
+    // helper 固有の phase / idempKey は context へ載せて引き継ぐ。
     if (error instanceof FunctionCustomError) {
-      logOpsError({
-        message: 'startAccounting failed',
-        functionEntry: 'startAccounting',
-        operation: operationForStartAccountingKey(error.errorKey),
-        cause: error,
+      throw new FunctionCustomError({
+        errorKey: error.errorKey,
+        message: error.message,
         context: {
+          ...error.context,
           billId,
           idempKey: idempotencyKey,
+          phase: operationForStartAccountingKey(error.errorKey),
           result: 'fail',
         },
+        cause: (error as Error & { cause?: unknown }).cause,
       });
-      throw error;
     }
 
+    // 想定外 / HttpsError: helper が運用境界として記録し、Callable は HttpsError を再throwのみ
     logOpsError({
       message: 'startAccounting failed',
       functionEntry: 'startAccounting',
@@ -282,6 +328,8 @@ function operationForStartAccountingKey(key: string): string {
     case 'ACCOUNTING_INVALID_STATE':
       return 'validateAccountingState';
     case 'ACCOUNTING_IDEMPOTENCY_MISMATCH':
+    case ACCOUNTING_START_REQUEST_CANCELLED:
+    case ACCOUNTING_START_IDEMPOTENCY_STALE:
       return 'validateIdempotencyRequest';
     default:
       return 'runAccountingTransaction';

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:amuse_app_template/tournament/active/pages/tournament_home_page.dart';
+import 'package:amuse_app_template/Accounting/accountingPage.dart';
+import 'package:amuse_app_template/AttendanceManagement/staff_attendance_page_from_terminalHome.dart';
 import 'dart:async';
 
 /// Phase4 03: 閉店前確認画面
@@ -12,10 +15,16 @@ import 'dart:async';
 class ClosePreConfirmationPage extends StatefulWidget {
   /// 閉店実行完了後のコールバック（loading 表示・closeStoreTerminal 呼び出し・完了ダイアログ・pop を含む）
   final Future<void> Function(bool forceClose) onConfirmClose;
+  final Future<Map<String, dynamic>> Function()? integrityDataLoader;
+  final Widget Function(Map<String, dynamic> bill)? unsettledBillDestinationBuilder;
+  final WidgetBuilder? unclockedStaffDestinationBuilder;
 
   const ClosePreConfirmationPage({
     super.key,
     required this.onConfirmClose,
+    this.integrityDataLoader,
+    this.unsettledBillDestinationBuilder,
+    this.unclockedStaffDestinationBuilder,
   });
 
   @override
@@ -26,6 +35,8 @@ class ClosePreConfirmationPage extends StatefulWidget {
 class _ClosePreConfirmationPageState extends State<ClosePreConfirmationPage> {
   bool _loading = true;
   String? _error;
+  /// TimeoutException または deadline-exceeded / unavailable による取得失敗。
+  bool _errorIsTimeoutOrUnavailable = false;
   bool _loadingRetry = false;
 
   List<Map<String, dynamic>> _unsettledBills = [];
@@ -41,35 +52,54 @@ class _ClosePreConfirmationPageState extends State<ClosePreConfirmationPage> {
     _fetch();
   }
 
+  bool _isTimeoutOrUnavailableException(Object e) {
+    if (e is TimeoutException) return true;
+    if (e is FirebaseFunctionsException) {
+      final code = normalizeFirebaseFunctionsCode(e.code);
+      return code == 'deadline-exceeded' || code == 'unavailable';
+    }
+    return false;
+  }
+
   Future<void> _fetch() async {
     if (_loadingRetry) return;
     setState(() {
       _loading = true;
       _error = null;
+      _errorIsTimeoutOrUnavailable = false;
       if (!_loadingRetry) _loadingRetry = false;
     });
 
     try {
-      if (FirebaseAuth.instance.currentUser == null) {
-        await FirebaseAuth.instance.signInAnonymously();
+      final Map<String, dynamic> data;
+      if (widget.integrityDataLoader != null) {
+        data = await widget.integrityDataLoader!.call();
+      } else {
+        if (FirebaseAuth.instance.currentUser == null) {
+          await FirebaseAuth.instance.signInAnonymously();
+        }
+        final callable =
+            FunctionsClient.instance.httpsCallable('getCloseIntegrityData');
+        final result =
+            await callable.call<Map<String, dynamic>>({}).timeout(
+                  const Duration(seconds: 120),
+                  onTimeout: () => throw TimeoutException(
+                    '閉店時確認の実行がタイムアウトしました',
+                  ),
+                );
+        data = result.data;
       }
-
-      final callable =
-          FunctionsClient.instance.httpsCallable('getCloseIntegrityData');
-      final result =
-          await callable.call<Map<String, dynamic>>({}).timeout(
-                const Duration(seconds: 120),
-                onTimeout: () =>
-                    throw TimeoutException('閉店時確認の実行がタイムアウトしました'),
-              );
 
       if (!mounted) return;
 
-      final data = result.data;
-      if (data['success'] != true) {
+      if (!isCallableSuccessResponse(data)) {
         setState(() {
           _loading = false;
-          _error = '取得に失敗しました';
+          _error = mapCallableSoftFailMessage(
+            data,
+            operation: 'getCloseIntegrityData',
+          );
+          _errorIsTimeoutOrUnavailable = false;
         });
         return;
       }
@@ -95,24 +125,14 @@ class _ClosePreConfirmationPageState extends State<ClosePreConfirmationPage> {
       setState(() {
         _loading = false;
         _error = null;
-      });
-    } on TimeoutException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = e.message ?? 'タイムアウト';
-      });
-    } on FirebaseFunctionsException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = e.message ?? e.code;
+        _errorIsTimeoutOrUnavailable = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.toString();
+        _error = mapCallableError(e, operation: 'getCloseIntegrityData').message;
+        _errorIsTimeoutOrUnavailable = _isTimeoutOrUnavailableException(e);
       });
     } finally {
       if (mounted) setState(() => _loadingRetry = false);
@@ -438,6 +458,260 @@ class _ClosePreConfirmationPageState extends State<ClosePreConfirmationPage> {
     );
   }
 
+  String _formatDisplayAmount(dynamic amount) {
+    if (amount is num) return '¥${amount.toStringAsFixed(0)}';
+    return '—';
+  }
+
+  void _showUnsettledBillDetailDialog(Map<String, dynamic> bill) {
+    final pokerName = bill['pokerName'] ?? '—';
+    final amountStr = _formatDisplayAmount(bill['displayAmount']);
+    final createdAt = _formatIsoToDisplay(bill['createdAt'] as String?);
+
+    final screenSize = MediaQuery.of(context).size;
+    final baseWidth = screenSize.width * 0.56;
+    final dialogWidth = (baseWidth * 1.4).clamp(280.0, screenSize.width * 0.95);
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                pokerName,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              amountStr,
+              style: TextStyle(
+                fontSize: 10,
+                color: Theme.of(ctx).hintColor,
+              ),
+            ),
+          ],
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+        content: SizedBox(
+          width: dialogWidth,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDetailTextRow('請求金額', amountStr),
+                const SizedBox(height: 8),
+                _buildDetailTextRow('作成時刻', createdAt),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await _navigateToUnsettledBill(bill);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('会計画面へ'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showUnclockedStaffDetailDialog(Map<String, dynamic> staff) {
+    final staffName = staff['staffName'] ?? '—';
+    final clockIn = _formatIsoToDisplay(staff['clockIn'] as String?);
+
+    final screenSize = MediaQuery.of(context).size;
+    final baseWidth = screenSize.width * 0.56;
+    final dialogWidth = (baseWidth * 1.4).clamp(280.0, screenSize.width * 0.95);
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          staffName,
+          overflow: TextOverflow.ellipsis,
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+        content: SizedBox(
+          width: dialogWidth,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDetailTextRow('出勤時刻', clockIn),
+                const SizedBox(height: 8),
+                _buildDetailTextRow('退勤', '未退勤'),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await _navigateToStaffAttendance();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('勤怠管理へ'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailTextRow(String label, String value) {
+    return Row(
+      children: [
+        Expanded(child: Text(label, style: const TextStyle(fontSize: 13))),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUnsettledBillCard(Map<String, dynamic> e) {
+    final pokerName = e['pokerName'] ?? '—';
+    final amountStr = _formatDisplayAmount(e['displayAmount']);
+    final createdAt = _formatIsoToDisplay(e['createdAt'] as String?);
+
+    final cardBg = Color.lerp(Colors.blueGrey.shade50, Colors.white, 0.5)!;
+    return Material(
+      color: cardBg,
+      child: InkWell(
+        onTap: () => _showUnsettledBillDetailDialog(e),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: cardBg,
+            border: Border.all(color: Colors.grey.shade400),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                pokerName,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '$amountStr  ($createdAt~)',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUnclockedStaffCard(Map<String, dynamic> e) {
+    final staffName = e['staffName'] ?? '—';
+    final clockIn = _formatIsoToDisplay(e['clockIn'] as String?);
+
+    final cardBg = Color.lerp(Colors.blueGrey.shade50, Colors.white, 0.5)!;
+    return Material(
+      color: cardBg,
+      child: InkWell(
+        onTap: () => _showUnclockedStaffDetailDialog(e),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: cardBg,
+            border: Border.all(color: Colors.grey.shade400),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                staffName,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '$clockIn出勤',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _navigateToUnsettledBill(Map<String, dynamic> bill) async {
+    final billId = bill['billId'] as String? ?? '';
+    final userId = bill['userId'] as String? ?? '';
+    if (billId.isEmpty) return;
+    final destinationBuilder = widget.unsettledBillDestinationBuilder;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => destinationBuilder != null
+            ? destinationBuilder(bill)
+            : AccountingPage(
+                forUnsettledBillId: billId,
+                forUnsettledUserId: userId.isNotEmpty ? userId : null,
+              ),
+      ),
+    );
+    if (mounted) _fetch();
+  }
+
+  Future<void> _navigateToStaffAttendance() async {
+    final destinationBuilder = widget.unclockedStaffDestinationBuilder;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: destinationBuilder ?? (_) => const StaffAttendancePage(),
+      ),
+    );
+    if (mounted) _fetch();
+  }
+
   Widget _buildDetailRow(String label, bool done) {
     return Row(
       children: [
@@ -739,7 +1013,7 @@ class _ClosePreConfirmationPageState extends State<ClosePreConfirmationPage> {
                           onPressed: () => _fetch(),
                           child: const Text('再試行'),
                         ),
-                        if (_error?.contains('タイムアウト') == true) ...[
+                        if (_errorIsTimeoutOrUnavailable) ...[
                           const SizedBox(height: 8),
                           TextButton(
                             onPressed: () => _fetch(),
@@ -786,18 +1060,13 @@ class _ClosePreConfirmationPageState extends State<ClosePreConfirmationPage> {
                                                 ),
                                               ]
                                             : _unsettledBills.map((e) {
-                                                final amount = e['displayAmount'];
-                                                final amountStr = amount is num
-                                                    ? '¥${amount.toStringAsFixed(0)}'
-                                                    : '—';
                                                 return Padding(
                                                   padding: const EdgeInsets.only(
-                                                      bottom: 6),
-                                                  child: Text(
-                                                    '${e['pokerName'] ?? '—'}  $amountStr',
-                                                    style:
-                                                        const TextStyle(fontSize: 12),
+                                                    left: 8,
+                                                    right: 8,
+                                                    bottom: 8,
                                                   ),
+                                                  child: _buildUnsettledBillCard(e),
                                                 );
                                               }).toList(),
                                       ),
@@ -824,13 +1093,11 @@ class _ClosePreConfirmationPageState extends State<ClosePreConfirmationPage> {
                                             : _unclockedStaff.map((e) {
                                                 return Padding(
                                                   padding: const EdgeInsets.only(
-                                                      bottom: 6),
-                                                  child: Text(
-                                                    '${e['staffName'] ?? '—'}\n'
-                                                    '${_formatIsoToDisplay(e['clockIn'] as String?)}出勤',
-                                                    style:
-                                                        const TextStyle(fontSize: 12),
+                                                    left: 8,
+                                                    right: 8,
+                                                    bottom: 8,
                                                   ),
+                                                  child: _buildUnclockedStaffCard(e),
                                                 );
                                               }).toList(),
                                       ),

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
-
 import 'package:amuse_app_template/tournament/active/services/tournament_data_service.dart';
-
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 
 class AddTableDialog extends StatefulWidget {
   final String tournamentId;
@@ -24,9 +24,10 @@ class _AddTableDialogState extends State<AddTableDialog> {
   String? _selectedTableId;
   bool _isLoading = false;
   bool _isLoadingTables = true;
+  bool _tablesLoadFailed = false;
   List<Map<String, dynamic>> _availableTables = [];
   final TournamentDataService _dataService = TournamentDataService();
-  
+
   @override
   void initState() {
     super.initState();
@@ -54,9 +55,23 @@ class _AddTableDialogState extends State<AddTableDialog> {
                     children: [
                       const Text('使用可能なテーブルを選択してください'),
                       const SizedBox(height: 16),
-                      // テーブル選択ドロップダウン
                       if (_isLoadingTables)
                         const Center(child: CircularProgressIndicator())
+                      else if (_tablesLoadFailed)
+                        Column(
+                          children: [
+                            Text(
+                              kTournamentTablesLoadFailedMessage,
+                              style: TextStyle(color: Colors.red.shade700),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            ElevatedButton(
+                              onPressed: _isLoading ? null : _loadAvailableTables,
+                              child: const Text('再試行'),
+                            ),
+                          ],
+                        )
                       else ...[
                         Text('利用可能テーブル数: ${_availableTables.length}'),
                         const SizedBox(height: 8),
@@ -69,20 +84,21 @@ class _AddTableDialogState extends State<AddTableDialog> {
                           items: _availableTables
                               .map((table) => DropdownMenuItem<String>(
                                     value: table['tableId'] as String,
-                                    child: Text('${table['name']} (${table['maxSeats']}席)'),
+                                    child: Text(
+                                        '${table['name']} (${table['maxSeats']}席)'),
                                   ))
                               .toList(),
-                          onChanged: (value) {
-                            print('テーブル選択: $value');
-                            setState(() {
-                              _selectedTableId = value;
-                            });
-                          },
+                          onChanged: _isLoading
+                              ? null
+                              : (value) {
+                                  setState(() {
+                                    _selectedTableId = value;
+                                  });
+                                },
                         ),
                       ],
                       const SizedBox(height: 16),
-                      // 選択されたテーブルの詳細表示
-                      if (_selectedTableId != null) ...[
+                      if (_selectedTableId != null && !_tablesLoadFailed) ...[
                         _buildSelectedTableInfo(),
                         const SizedBox(height: 16),
                       ],
@@ -91,11 +107,14 @@ class _AddTableDialogState extends State<AddTableDialog> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                    onPressed:
+                        _isLoading ? null : () => Navigator.of(context).pop(),
                     child: const Text('キャンセル'),
                   ),
                   ElevatedButton(
-                    onPressed: _isLoading || _selectedTableId == null
+                    onPressed: _isLoading ||
+                            _tablesLoadFailed ||
+                            _selectedTableId == null
                         ? null
                         : _addTableToTournament,
                     child: const Text('追加'),
@@ -120,7 +139,6 @@ class _AddTableDialogState extends State<AddTableDialog> {
     );
   }
 
-  /// 選択されたテーブルの詳細情報を表示
   Widget _buildSelectedTableInfo() {
     final selectedTable = _availableTables.firstWhere(
       (table) => table['tableId'] == _selectedTableId,
@@ -152,7 +170,6 @@ class _AddTableDialogState extends State<AddTableDialog> {
     );
   }
 
-  /// ステータスの日本語表示
   String _getStatusText(String status) {
     switch (status) {
       case 'open':
@@ -166,9 +183,8 @@ class _AddTableDialogState extends State<AddTableDialog> {
     }
   }
 
-  /// 卓をトーナメントに追加
   Future<void> _addTableToTournament() async {
-    if (_selectedTableId == null) return;
+    if (_isLoading || _tablesLoadFailed || _selectedTableId == null) return;
 
     setState(() {
       _isLoading = true;
@@ -179,32 +195,40 @@ class _AddTableDialogState extends State<AddTableDialog> {
         (table) => table['tableId'] == _selectedTableId,
       );
 
-      // デバッグログ
-      print('=== 卓追加: パラメータ確認 ===');
-      print('tournamentId: ${widget.tournamentId}');
-      print('tableId: ${_selectedTableId}');
-      print('maxSeats: ${selectedTable['maxSeats']}');
-      print('selectedTable: $selectedTable');
-      
       final result = await widget.service.addTableToTournament(
         tournamentId: widget.tournamentId,
         tableId: _selectedTableId!,
         maxSeats: selectedTable['maxSeats'],
       );
 
-      if (result['success'] == true) {
-        if (mounted) {
-          Navigator.of(context).pop();
-          widget.onTableAdded();
-        }
+      if (!mounted) return;
+
+      if (isCallableSuccessResponse(result)) {
+        Navigator.of(context).pop();
+        widget.onTableAdded();
       } else {
-        throw Exception('卓追加に失敗しました');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentOpsSoftFail(
+                result,
+                operation: kAddTableToTournamentOperation,
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('エラーが発生しました: $e'),
+            content: Text(
+              mapTournamentOpsCallableError(
+                e,
+                operation: kAddTableToTournamentOperation,
+              ),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -217,34 +241,32 @@ class _AddTableDialogState extends State<AddTableDialog> {
       }
     }
   }
-  
-  /// 利用可能なテーブルを読み込み
+
   Future<void> _loadAvailableTables() async {
+    setState(() {
+      _isLoadingTables = true;
+      _tablesLoadFailed = false;
+      _selectedTableId = null;
+    });
+
     try {
-      print('=== 卓追加ダイアログ: テーブル読み込み開始 ===');
       final tables =
           await _dataService.getAvailableTables(widget.tournamentId);
-      print('取得したテーブル数: ${tables.length}');
-      print('テーブル詳細: $tables');
-      
+
+      if (!mounted) return;
       setState(() {
         _availableTables = tables;
         _isLoadingTables = false;
+        _tablesLoadFailed = false;
       });
-      print('状態更新完了: _availableTables.length = ${_availableTables.length}');
-    } catch (e) {
-      print('テーブル読み込みエラー: $e');
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
+        _availableTables = [];
         _isLoadingTables = false;
+        _tablesLoadFailed = true;
+        _selectedTableId = null;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('テーブル情報の読み込みに失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     }
   }
 }

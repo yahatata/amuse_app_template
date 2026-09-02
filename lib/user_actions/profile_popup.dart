@@ -1,6 +1,8 @@
 import 'package:amuse_app_template/user/balance_display.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 
 /// プロフィール参照ポップアップ
 Future<void> showProfileDialog({
@@ -13,7 +15,7 @@ Future<void> showProfileDialog({
   if (userId.isEmpty) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('ユーザー識別子が見つかりません')),
+        SnackBar(content: Text(kUserActionUserIdMissingMessage)),
       );
     }
     return;
@@ -93,17 +95,15 @@ class _ProfileDialog extends StatelessWidget {
                           const Icon(Icons.error, color: Colors.red, size: 48),
                           const SizedBox(height: 16),
                           Text(
-                            'エラーが発生しました',
+                            userActionStreamErrorMessage(
+                              kUserActionUserDocLoadFailedMessage,
+                              snapshot.error,
+                            ),
                             style: TextStyle(
                               fontSize: 16,
                               color: Colors.red[700],
                               fontWeight: FontWeight.bold,
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            snapshot.error.toString(),
-                            style: const TextStyle(fontSize: 14),
                             textAlign: TextAlign.center,
                           ),
                         ],

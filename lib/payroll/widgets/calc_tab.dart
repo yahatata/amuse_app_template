@@ -8,9 +8,11 @@ import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/services/payroll_config_service.dart';
 import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
+import '../errors/payroll_user_facing_errors.dart';
 import '../models/payroll_display_context.dart';
 import '../services/payroll_callable_service.dart';
 import '../utils/payroll_calc_window.dart';
+import '../utils/wage_missing_staff.dart';
 import 'candidate_section.dart';
 import 'preview_summary.dart';
 import 'progress_view.dart';
@@ -41,6 +43,8 @@ class _CalcTabState extends State<CalcTab> {
   List<CandidateEntry> _group2 = [];
   List<CandidateEntry> _group3 = [];
 
+  List<WageMissingStaffEntry> _wageMissingStaff = [];
+
   Set<String> _retiredStaffNames = {};
 
   String? _runId;
@@ -69,22 +73,44 @@ class _CalcTabState extends State<CalcTab> {
     try {
       final map = await _service.getPayrollCalcDisplayContext();
       if (!mounted) return;
+      if (!isPayrollCallableSuccess(
+        map,
+        shapeValidator: isPayrollCalcDisplayContextShape,
+      )) {
+        setState(() {
+          _contextLoadError = mapPayrollSoftFail(
+            map,
+            operation: kGetPayrollCalcDisplayContextOperation,
+          );
+          _contextLoading = false;
+        });
+        return;
+      }
       setState(() {
         _displayContext = PayrollDisplayContext.fromMap(map);
         _contextLoading = false;
+        _contextLoadError = null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _contextLoadError = e.toString();
+        _contextLoadError = kPayrollContextLoadFailedMessage;
         _contextLoading = false;
       });
     }
   }
 
+  bool get _contextReady =>
+      _displayContext != null && _contextLoadError == null;
+
   Future<void> _fetchCandidates() async {
     final ctx = _displayContext;
-    if (ctx == null) return;
+    if (ctx == null || !_contextReady) return;
+
+    final prevG1 = List<CandidateEntry>.from(_group1);
+    final prevG2 = List<CandidateEntry>.from(_group2);
+    final prevG3 = List<CandidateEntry>.from(_group3);
+    final prevState = _state;
 
     setState(() {
       _state = CalcTabState.loading;
@@ -92,7 +118,28 @@ class _CalcTabState extends State<CalcTab> {
     });
 
     try {
-      final result = await _service.getPayrollCandidates(ctx.paymentPeriodKey);
+      final result =
+          await _service.getPayrollCandidates(ctx.paymentPeriodKey);
+      if (!isPayrollCallableSuccess(
+        result,
+        shapeValidator: isPayrollCandidatesShape,
+      )) {
+        if (!mounted) return;
+        setState(() {
+          _group1 = prevG1;
+          _group2 = prevG2;
+          _group3 = prevG3;
+          _state = prevState == CalcTabState.candidatesLoaded
+              ? CalcTabState.candidatesLoaded
+              : CalcTabState.idle;
+          _errorMessage = mapPayrollSoftFail(
+            result,
+            operation: kGetPayrollCandidatesOperation,
+          );
+        });
+        return;
+      }
+
       final disp = result['displayContext'];
       if (disp is Map) {
         _displayContext = PayrollDisplayContext.fromMap(
@@ -109,6 +156,7 @@ class _CalcTabState extends State<CalcTab> {
       final g3 = (result['group3'] as List<dynamic>? ?? [])
           .map((e) => CandidateEntry.fromMap(Map<String, dynamic>.from(e as Map)))
           .toList();
+      final wageMissing = parseWageMissingStaff(result['wageMissingStaff']);
 
       for (final e in g1) {
         e.selected = true;
@@ -120,17 +168,28 @@ class _CalcTabState extends State<CalcTab> {
       final retiredNames = await StaffRetiredUi.fetchRetiredStaffNames();
 
       if (!mounted) return;
+      final selectableEmpty = g1.isEmpty && g2.isEmpty;
       setState(() {
         _group1 = g1;
         _group2 = g2;
         _group3 = g3;
+        _wageMissingStaff = wageMissing;
         _retiredStaffNames = retiredNames;
         _state = CalcTabState.candidatesLoaded;
+        if (selectableEmpty) {
+          _errorMessage = kPayrollCandidatesEmptyMessage;
+        }
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
-        _state = CalcTabState.idle;
-        _errorMessage = e.toString();
+        _group1 = prevG1;
+        _group2 = prevG2;
+        _group3 = prevG3;
+        _state = prevState == CalcTabState.candidatesLoaded
+            ? CalcTabState.candidatesLoaded
+            : CalcTabState.idle;
+        _errorMessage = kPayrollCandidatesLoadFailedMessage;
       });
     }
   }
@@ -232,11 +291,36 @@ class _CalcTabState extends State<CalcTab> {
 
   Future<void> _cancelRunFromDialog(String paymentPeriodKey, String runId) async {
     try {
-      await _service.cancelPayrollRun(paymentPeriodKey, runId);
+      final result = await _service.cancelPayrollRun(paymentPeriodKey, runId);
+      if (!isPayrollCallableSuccess(
+        result,
+        shapeValidator: isCancelPayrollRunShape,
+      )) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                mapPayrollSoftFail(
+                  result,
+                  operation: kCancelPayrollRunOperation,
+                ),
+              ),
+            ),
+          );
+        }
+        return;
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('中止に失敗: $e')),
+          SnackBar(
+            content: Text(
+              mapPayrollCallableError(
+                e,
+                operation: kCancelPayrollRunOperation,
+              ),
+            ),
+          ),
         );
       }
     }
@@ -246,7 +330,7 @@ class _CalcTabState extends State<CalcTab> {
     if (_payrollSubmitBusy) return;
 
     final ctx = _displayContext;
-    if (ctx == null) return;
+    if (ctx == null || !_contextReady) return;
 
     final selectedIds = [
       ..._group1.where((e) => e.selected).map((e) => e.attendanceId),
@@ -272,24 +356,41 @@ class _CalcTabState extends State<CalcTab> {
       if (!mounted) return;
       _closeConnectingDialog();
 
+      if (!isPayrollCallableSuccess(
+        result,
+        shapeValidator: isExecuteMonthlyPayrollShape,
+      )) {
+        setState(() {
+          _payrollSubmitBusy = false;
+          _errorMessage = mapPayrollSoftFail(
+            result,
+            operation: kExecuteMonthlyPayrollOperation,
+          );
+        });
+        return;
+      }
+
       final newRunId = result['runId'] as String?;
       setState(() {
         _runId = newRunId;
         _payrollSubmitBusy = false;
       });
-      if (newRunId != null) {
+      if (newRunId != null && newRunId.isNotEmpty) {
         _showRunProgressDialog(newRunId);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('runId を取得できませんでした')),
-        );
+        setState(() {
+          _errorMessage = kPayrollExecuteFailedMessage;
+        });
       }
     } catch (e) {
       if (mounted) {
         _closeConnectingDialog();
         setState(() {
           _payrollSubmitBusy = false;
-          _errorMessage = e.toString();
+          _errorMessage = mapPayrollCallableError(
+            e,
+            operation: kExecuteMonthlyPayrollOperation,
+          );
         });
       }
     }
@@ -306,9 +407,24 @@ class _CalcTabState extends State<CalcTab> {
     await SchedulerBinding.instance.endOfFrame;
 
     try {
-      await _service.retryFailedStaffTasks(pk, _runId!);
+      final result = await _service.retryFailedStaffTasks(pk, _runId!);
       if (!mounted) return;
       _closeConnectingDialog();
+
+      if (!isPayrollCallableSuccess(
+        result,
+        shapeValidator: isRetryFailedStaffTasksShape,
+      )) {
+        setState(() {
+          _payrollSubmitBusy = false;
+          _state = CalcTabState.error;
+          _errorMessage = mapPayrollSoftFail(
+            result,
+            operation: kRetryFailedStaffTasksOperation,
+          );
+        });
+        return;
+      }
 
       setState(() => _payrollSubmitBusy = false);
       _showRunProgressDialog(_runId!);
@@ -318,7 +434,10 @@ class _CalcTabState extends State<CalcTab> {
         setState(() {
           _payrollSubmitBusy = false;
           _state = CalcTabState.error;
-          _errorMessage = e.toString();
+          _errorMessage = mapPayrollCallableError(
+            e,
+            operation: kRetryFailedStaffTasksOperation,
+          );
         });
       }
     }
@@ -619,7 +738,9 @@ class _CalcTabState extends State<CalcTab> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: (_state == CalcTabState.loading || blockExtract)
+                      onPressed: (_state == CalcTabState.loading ||
+                              blockExtract ||
+                              !_contextReady)
                           ? null
                           : _fetchCandidates,
                       icon: _state == CalcTabState.loading
@@ -672,6 +793,7 @@ class _CalcTabState extends State<CalcTab> {
                         _group1 = [];
                         _group2 = [];
                         _group3 = [];
+                        _wageMissingStaff = [];
                         _errorMessage = null;
                       });
                     },
@@ -730,11 +852,45 @@ class _CalcTabState extends State<CalcTab> {
               expectedCountMin:
                   PayrollConfigService.instance.latest?.maxCandidatesCount != null ? null : null,
             ),
+            if (_wageMissingStaff.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade400),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      kPayrollHourlyWageMissingMessage,
+                      style: TextStyle(
+                        color: Colors.orange.shade900,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (formatWageMissingStaffNames(_wageMissingStaff).isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '対象: ${formatWageMissingStaffNames(_wageMissingStaff)}',
+                        style: TextStyle(color: Colors.orange.shade900),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             if (!isCalculationLocked)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: ElevatedButton.icon(
-                  onPressed: (blockExtract || _payrollSubmitBusy) ? null : _executePayroll,
+                  onPressed: (blockExtract ||
+                          _payrollSubmitBusy ||
+                          !_contextReady ||
+                          shouldBlockPayrollExecuteForMissingWage(_wageMissingStaff))
+                      ? null
+                      : _executePayroll,
                   icon: _payrollSubmitBusy
                       ? const SizedBox(
                           width: 20,
@@ -753,8 +909,11 @@ class _CalcTabState extends State<CalcTab> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: OutlinedButton.icon(
-                onPressed:
-                    (inCalculationWindow && !blockExtract) ? _fetchCandidates : null,
+                onPressed: (inCalculationWindow &&
+                        !blockExtract &&
+                        _contextReady)
+                    ? _fetchCandidates
+                    : null,
                 icon: const Icon(Icons.refresh),
                 label: const Text('再抽出'),
               ),

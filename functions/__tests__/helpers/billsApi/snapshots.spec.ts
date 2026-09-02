@@ -596,7 +596,7 @@ describe('snapshots', () => {
       expect(result.credit_card).toBe(500);
     });
 
-    it('無効methodは cash に寄せられる', () => {
+    it('無効methodは UNKNOWN_PAYMENT_METHOD を throw する', () => {
       const paymentsDocs: any[] = [];
       const metaPaymentMethodsByCategory = {
         items: 'invalid_method',
@@ -609,14 +609,13 @@ describe('snapshots', () => {
         tournaments: 0,
       };
 
-      const result = calculatePaymentTotals({
-        paymentsDocs,
-        metaPaymentMethodsByCategory,
-        categoryBreakdown,
-      });
-
-      // invalid_method は cash に寄せられる
-      expect(result.cash).toBe(1500); // 1000 + 500
+      expect(() =>
+        calculatePaymentTotals({
+          paymentsDocs,
+          metaPaymentMethodsByCategory,
+          categoryBreakdown,
+        }),
+      ).toThrow(/未知の支払い方法/);
     });
 
     it('paymentsもmetaも空なら {}', () => {
@@ -690,7 +689,7 @@ describe('snapshots', () => {
   });
 
   describe('calculatePaymentsSummary', () => {
-    it('paymentTotals と grandTotalRounded から paidTotalIncl/balanceDueIncl/byMethod が期待通り', () => {
+    it('paymentTotals と grandTotalRounded から paidTotalIncl/balanceDueIncl が期待通り', () => {
       const paymentTotals = {
         cash: 1000,
         credit_card: 2000,
@@ -705,11 +704,7 @@ describe('snapshots', () => {
 
       expect(result.paidTotalIncl).toBe(3500); // 1000 + 2000 + 500
       expect(result.balanceDueIncl).toBe(1500); // 5000 - 3500
-      expect(result.byMethod).toEqual({
-        cash: 1000,
-        credit_card: 2000,
-        electronic_money: 500,
-      });
+      // method breakdown は paymentTotals 側で検証（PaymentsSummary に byMethod は無い）
     });
   });
 

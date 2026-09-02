@@ -3,12 +3,14 @@ import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'shiftHomePage.dart';
 import 'shift_repository.dart';
+import 'errors/staff_shift_errors.dart';
 import '../Utils/time_converter.dart';
 import '../globalConstant.dart';
 import '../services/device_service.dart';
 import '../services/required_staff_by_time_slot_service.dart';
 import 'utils/gap_time_slots.dart';
 import 'utils/insufficient_time_slots.dart';
+import 'utils/merge_consecutive_gap_slots.dart';
 import 'utils/merge_consecutive_insufficient_slots.dart';
 
 /// 日付ダイアログ（カレンダーセルの拡大＆編集）
@@ -160,8 +162,8 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラー: ${e.toString()}'),
+          const SnackBar(
+            content: Text(kSufficientOverrideFailedMessage),
             backgroundColor: Colors.red,
           ),
         );
@@ -569,9 +571,11 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
     
     if (assignment.sourceRequestId != null) {
       final requestInfo = await _repository.getShiftRequestById(assignment.sourceRequestId!);
-      if (requestInfo != null) {
-        minMinute = requestInfo.originalStartMinute;
-        maxMinute = requestInfo.originalEndMinute;
+      if (requestInfo != null &&
+          requestInfo.startMinute != null &&
+          requestInfo.endMinute != null) {
+        minMinute = requestInfo.startMinute;
+        maxMinute = requestInfo.endMinute;
       }
     }
 
@@ -726,10 +730,12 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
         .map((a) => (startMinute: a.startMinute, endMinute: a.endMinute))
         .toList();
 
-    return findGapTimeSlots(
-      openMinute: businessHours.openMinute,
-      closeMinute: businessHours.closeMinute,
-      assignments: assignments,
+    return mergeConsecutiveGapSlots(
+      findGapTimeSlots(
+        openMinute: businessHours.openMinute,
+        closeMinute: businessHours.closeMinute,
+        assignments: assignments,
+      ),
     );
   }
 
@@ -805,10 +811,11 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
         return;
       }
     } catch (e) {
+      // 取得失敗は「空」と区別し、編集ダイアログを開かない
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('スタッフ一覧の取得に失敗しました: $e'),
+          const SnackBar(
+            content: Text(kStaffListLoadFailedMessage),
             backgroundColor: Colors.red,
           ),
         );
@@ -1019,7 +1026,12 @@ class _ShiftDateDialogState extends State<ShiftDateDialog> {
                           if (parentContext.mounted) {
                             ScaffoldMessenger.of(parentContext).showSnackBar(
                               SnackBar(
-                                content: Text('シフトの保存に失敗しました: $e'),
+                                content: Text(
+                                  mapStaffShiftCallableError(
+                                    e,
+                                    operation: 'updateDayAssignments',
+                                  ),
+                                ),
                                 backgroundColor: Colors.red,
                               ),
                             );

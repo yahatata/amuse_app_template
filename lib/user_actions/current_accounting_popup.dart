@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 
 /// 現在の会計参照ダイアログ
 Future<void> showCurrentAccountingDialog({
@@ -14,7 +16,7 @@ Future<void> showCurrentAccountingDialog({
   if (billId.isEmpty) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('伝票IDが見つかりません')),
+        SnackBar(content: Text(kUserActionBillIdMissingMessage)),
       );
     }
     return;
@@ -155,6 +157,7 @@ class _CurrentAccountingDialog extends StatelessWidget {
                   }
 
                   if (billSnapshot.hasError) {
+                    // USER-67: 伝票本体が取れない場合は全画面エラー（部分データなし）
                     return Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
@@ -163,17 +166,15 @@ class _CurrentAccountingDialog extends StatelessWidget {
                           const Icon(Icons.error, color: Colors.red, size: 48),
                           const SizedBox(height: 16),
                           Text(
-                            'エラーが発生しました',
+                            userActionStreamErrorMessage(
+                              kUserActionBillLoadFailedMessage,
+                              billSnapshot.error,
+                            ),
                             style: TextStyle(
                               fontSize: 16,
                               color: Colors.red[700],
                               fontWeight: FontWeight.bold,
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            billSnapshot.error.toString(),
-                            style: const TextStyle(fontSize: 14),
                             textAlign: TextAlign.center,
                           ),
                         ],
@@ -198,9 +199,40 @@ class _CurrentAccountingDialog extends StatelessWidget {
                       }
 
                       if (snapshot.hasError) {
-                        return Padding(
+                        // USER-69: サブコレクション失敗でも伝票ヘッダは維持し、更新失敗バナーを出す
+                        return SingleChildScrollView(
                           padding: const EdgeInsets.all(16),
-                          child: Text('エラー: ${snapshot.error}'),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                pokerName,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.orange.shade200,
+                                  ),
+                                ),
+                                child: Text(
+                                  userActionStreamErrorMessage(
+                                    kUserActionBillDetailsUpdateFailedMessage,
+                                    snapshot.error,
+                                  ),
+                                  style: TextStyle(color: Colors.orange[900]),
+                                ),
+                              ),
+                            ],
+                          ),
                         );
                       }
 
@@ -511,7 +543,7 @@ class _CurrentAccountingDialog extends StatelessWidget {
                             ),
                             const SizedBox(height: 8),
                             const Text(
-                              '※この表示は UI補助用途のみです。金額の正は amounts.* および verifyPaymentSplit にあります。',
+                              '※この表示は UI補助用途のみです。金額の正は amounts.* および startAccounting 内のサーバ再計算にあります。',
                               style: TextStyle(fontSize: 12, color: Colors.grey),
                             ),
                           ],

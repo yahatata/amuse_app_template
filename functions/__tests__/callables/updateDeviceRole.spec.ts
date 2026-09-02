@@ -25,8 +25,8 @@ describe('updateDeviceRole', () => {
     await testEnv.clearFirestore();
   });
 
-  async function createAdminDevice(uid: string) {
-    await db.collection('devices').doc(`admin_${uid}`).set({
+  async function createAdminDevice(uid: string, deviceId = `admin_${uid}`) {
+    await db.collection('devices').doc(deviceId).set({
       uid,
       role: 'admin',
       status: 'active',
@@ -76,5 +76,19 @@ describe('updateDeviceRole', () => {
     expect(updated.data()?.role).toBe('table');
     expect(updated.data()?.options).toEqual({});
     expect(updated.data()?.optionParams).toEqual({});
+  });
+
+  it('最後の active admin を demote すると failed-precondition', async () => {
+    const adminUid = 'admin_sole_001';
+    await createAdminDevice(adminUid, 'admin_sole_001');
+
+    await expect(
+      (updateDeviceRole as any).run({
+        auth: { uid: adminUid },
+        data: { deviceId: 'admin_sole_001', role: 'terminal' },
+      } as any)
+    ).rejects.toMatchObject({
+      code: 'failed-precondition',
+    });
   });
 });

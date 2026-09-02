@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
@@ -116,11 +117,17 @@ class _StaffRetirementPageState extends State<StaffRetirementPage> {
       });
 
       if (!mounted) return;
-      if (result.data is Map && result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         Navigator.pop(context, true);
         return;
       }
-      throw Exception('退職手続きに失敗しました');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapCallableSoftFailMessage(result.data, operation: 'retireStaff'),
+          ),
+        ),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       final details = e.details;
@@ -143,13 +150,17 @@ class _StaffRetirementPageState extends State<StaffRetirementPage> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('退職手続きに失敗しました: ${e.message ?? e}')),
+          SnackBar(
+            content: Text(mapCallableError(e, operation: 'retireStaff').message),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('退職手続きに失敗しました: $e')),
+          SnackBar(
+            content: Text(mapCallableError(e, operation: 'retireStaff').message),
+          ),
         );
       }
     } finally {

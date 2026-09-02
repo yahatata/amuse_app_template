@@ -1,12 +1,28 @@
 import 'package:amuse_app_template/tournament/active/pages/blind_timer_page.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 /// ブラインドタイマー用トーナメント選択ページ
 /// 本日〜7日後のトーナメントを日付ごとに表示する
-class BlindTimerTournamentSelectPage extends StatelessWidget {
+class BlindTimerTournamentSelectPage extends StatefulWidget {
   const BlindTimerTournamentSelectPage({super.key});
+
+  @override
+  State<BlindTimerTournamentSelectPage> createState() =>
+      _BlindTimerTournamentSelectPageState();
+}
+
+class _BlindTimerTournamentSelectPageState
+    extends State<BlindTimerTournamentSelectPage> {
+  int _streamReloadToken = 0;
+
+  void _retry() {
+    setState(() {
+      _streamReloadToken++;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,13 +45,59 @@ class BlindTimerTournamentSelectPage extends StatelessWidget {
         title: const Text('ブラインドタイマー - トーナメント選択'),
       ),
       body: StreamBuilder<QuerySnapshot>(
+        key: ValueKey('blind-select-$_streamReloadToken'),
         stream: stream,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Center(child: Text('エラー: ${snapshot.error}'));
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      tournamentOpsStreamErrorMessage(
+                        kTournamentListLoadFailedMessage,
+                        snapshot.error,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _retry,
+                      child: const Text('再試行'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
           }
           if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      tournamentOpsStreamErrorMessage(
+                        kTournamentListLoadFailedMessage,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _retry,
+                      child: const Text('再試行'),
+                    ),
+                  ],
+                ),
+              ),
+            );
           }
 
           final docs = snapshot.data!.docs.where((doc) {

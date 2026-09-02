@@ -105,6 +105,8 @@ describe('getTodayTournaments', () => {
 
       expect(result.success).toBe(true);
       expect(result.count).toBe(1);
+      expect(result.targetBusinessDate).toBe(CURRENT_BUSINESS_DATE);
+      expect(result.todayDateSource).toBe('currentBusinessDateKey');
       expect(result.data[0].name).toBe('本日トナメ');
       expect(result.data[0].status).toBe('scheduled');
       expect(result.data[0].blindLevelDurationText).toBe(
@@ -208,6 +210,8 @@ describe('getTodayTournaments', () => {
       expect(result.success).toBe(true);
       expect(result.count).toBe(1);
       expect(result.data[0].name).toBe('JST暦日本日トナメ');
+      expect(result.targetBusinessDate).toBe(jstCalendarDate);
+      expect(result.todayDateSource).toBe('jstCalendarDateKey');
     });
 
     it('該当トーナメントなし: success + data:[] + count:0', async () => {

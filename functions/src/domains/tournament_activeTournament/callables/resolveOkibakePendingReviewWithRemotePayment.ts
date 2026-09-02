@@ -1,6 +1,6 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import {
   getCallerDeviceByUid,
@@ -8,7 +8,11 @@ import {
   isActive,
   type DeviceDoc,
 } from '../../../shared/devices';
-import { logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import {
+  FunctionCustomError,
+  mapFunctionCustomErrorToHttpsCode,
+} from '../../../shared/logging/functionCustomError';
 import {
   assertOkibakePendingReviewResolvable,
   assertTournamentExistsForPendingReviewResolution,
@@ -39,6 +43,46 @@ const schema = z.object({
   deviceName: z.string().optional(),
 });
 
+/** 置きバケ来店なし入金の canonical claim（entry + addon）。 */
+export function computeOkibakeRemotePaymentClaimTotal(params: {
+  entryFeeIncl: number;
+  addonFeeIncl: number;
+  addonCount: number;
+}): number {
+  const entry =
+    Number.isFinite(params.entryFeeIncl) && params.entryFeeIncl > 0
+      ? Math.floor(params.entryFeeIncl)
+      : 0;
+  const addonFee =
+    Number.isFinite(params.addonFeeIncl) && params.addonFeeIncl > 0
+      ? Math.floor(params.addonFeeIncl)
+      : 0;
+  const addonCount =
+    Number.isFinite(params.addonCount) && params.addonCount > 0
+      ? Math.max(0, Math.floor(params.addonCount))
+      : 0;
+  return entry + addonFee * addonCount;
+}
+
+function assertOkibakeRemotePaymentAmountMatchesClaim(params: {
+  amountIncl: number;
+  claimTotalIncl: number;
+  tournamentId: string;
+  okibakeEntryId: string;
+}): void {
+  if (params.amountIncl === params.claimTotalIncl) return;
+  throw new FunctionCustomError({
+    errorKey: 'OKIBAKE_REMOTE_PAYMENT_AMOUNT_MISMATCH',
+    message: '請求額と入金額が一致していません',
+    context: {
+      tournamentId: params.tournamentId,
+      okibakeEntryId: params.okibakeEntryId,
+      amountIncl: params.amountIncl,
+      claimTotalIncl: params.claimTotalIncl,
+    },
+  });
+}
+
 function isSameOperationPayload(
   payload: Record<string, unknown>,
   args: {
@@ -63,6 +107,54 @@ function resolveDeviceName(device: DeviceDoc, reqName?: string): string | undefi
   return undefined;
 }
 
+/** C1-C 復元後の再 resolve で、有効な旧 remote bill が残っている場合の二重生成防止対象 status。 */
+const ACTIVE_OKIBAKE_REMOTE_PAYMENT_BILL_STATUSES = new Set([
+  'open',
+  'in_progress',
+  'settling',
+  'settled',
+  'post_settlement_pending',
+]);
+
+/**
+ * 同一 okibake entry に対し、voided 以外の有効な okibake_remote_payment bill が無いこと。
+ * voided は監査履歴として残るためガード対象外。
+ */
+async function assertNoActiveOkibakeRemotePaymentBill(params: {
+  db: Firestore;
+  tournamentId: string;
+  okibakeEntryId: string;
+}): Promise<void> {
+  const snap = await params.db
+    .collection('bills')
+    .where('sourceOkibakeEntryId', '==', params.okibakeEntryId)
+    .get();
+
+  const blockers = snap.docs.filter((doc) => {
+    const data = doc.data() ?? {};
+    if (data.billType !== 'okibake_remote_payment') return false;
+    const sourceTournamentId =
+      typeof data.sourceTournamentId === 'string' ? data.sourceTournamentId.trim() : '';
+    if (sourceTournamentId && sourceTournamentId !== params.tournamentId) return false;
+    const status = typeof data.status === 'string' ? data.status : '';
+    return ACTIVE_OKIBAKE_REMOTE_PAYMENT_BILL_STATUSES.has(status);
+  });
+
+  if (blockers.length > 0) {
+    throw new HttpsError(
+      'failed-precondition',
+      'この置きバケには有効な来店なし精算伝票が既に存在します。会計前に戻すか、既存伝票を確認してください。',
+      {
+        errorKey: 'OKIBAKE_REMOTE_PAYMENT_BILL_ALREADY_EXISTS',
+        tournamentId: params.tournamentId,
+        okibakeEntryId: params.okibakeEntryId,
+        existingBillId: blockers[0].id,
+        existingStatus: blockers[0].data()?.status ?? null,
+      }
+    );
+  }
+}
+
 export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', '認証が必要です');
   const callerUid = request.auth.uid;
@@ -85,6 +177,7 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
     deviceName,
   } = parsed.data;
 
+  try {
   const device = await getCallerDeviceByUid(callerUid);
   if (!device || !isActive(device.status)) {
     throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
@@ -137,6 +230,13 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
   const businessDate = await getCurrentBusinessDateKeyOrThrow();
   const now = FieldValue.serverTimestamp();
   let resolvedBillId = '';
+
+  // operationId 冪等とは別に、有効 remote bill の二重生成を防ぐ（C1-C voided は対象外）
+  await assertNoActiveOkibakeRemotePaymentBill({
+    db,
+    tournamentId,
+    okibakeEntryId,
+  });
 
   await db.runTransaction(async (tx) => {
     const opSnap = await tx.get(opRef);
@@ -200,6 +300,18 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
         ? Math.max(0, Math.floor(e.okibakeAddonCount))
         : 0;
 
+    const claimTotalIncl = computeOkibakeRemotePaymentClaimTotal({
+      entryFeeIncl,
+      addonFeeIncl,
+      addonCount,
+    });
+    assertOkibakeRemotePaymentAmountMatchesClaim({
+      amountIncl,
+      claimTotalIncl,
+      tournamentId,
+      okibakeEntryId,
+    });
+
     resolvedBillId = billRef.id;
     tx.set(
       billRef,
@@ -213,9 +325,11 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
         party: { userId: linkedUserId, pokerName: linkedUserPokerName },
         place: { table: null, seat: null },
         ops: buildInitialOps(),
+        // A-7: billsOnSettle は ByCategory 必須（非0円）。請求は tournaments 明細のみ。
+        // ByAmount は claim===received（exact-match）の入金額。
         draftAccountingInput: buildDraftAccountingInput({
           paymentMethodsByAmount: { [paymentMethod]: amountIncl },
-          paymentMethodsByCategory: null,
+          paymentMethodsByCategory: { tournaments: paymentMethod },
         }),
         settlementSnapshot: buildInitialSettlementSnapshot(),
         currentSummary: buildInitialCurrentSummary(),
@@ -226,6 +340,7 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
           schemaVersion: '1.3',
           contentHash: null,
           paymentMethodsByAmount: { [paymentMethod]: amountIncl },
+          paymentMethodsByCategory: { tournaments: paymentMethod },
         },
         remotePayment: {
           amountIncl,
@@ -291,6 +406,7 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
         billId: billRef.id,
         amountIncl,
         paymentMethod,
+        claimTotalIncl,
       },
       tournamentId,
       createdAt: now,
@@ -325,4 +441,51 @@ export const resolveOkibakePendingReviewWithRemotePayment = onCall(async (reques
   });
 
   return { success: true, billId: resolvedBillId, okibakeEntryId };
+  } catch (error: unknown) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    if (error instanceof FunctionCustomError) {
+      // 金額不一致は想定可能な業務拒否。logOpsError は付けない。
+      if (error.errorKey !== 'OKIBAKE_REMOTE_PAYMENT_AMOUNT_MISMATCH') {
+        logOpsError({
+          message: 'resolveOkibakePendingReviewWithRemotePayment failed',
+          functionEntry: 'resolveOkibakePendingReviewWithRemotePayment',
+          operation: 'resolveOkibakeRemotePaymentCatch',
+          errorKey: error.errorKey,
+          cause: error,
+          context: {
+            tournamentId,
+            okibakeEntryId,
+            operationId,
+            amountIncl,
+          },
+        });
+      }
+      throw new HttpsError(
+        mapFunctionCustomErrorToHttpsCode(error.errorKey),
+        error.message,
+        {
+          errorKey: error.errorKey,
+          ...(error.context ?? {}),
+        },
+      );
+    }
+    logOpsError({
+      message: 'resolveOkibakePendingReviewWithRemotePayment failed',
+      functionEntry: 'resolveOkibakePendingReviewWithRemotePayment',
+      operation: 'resolveOkibakeRemotePaymentGenericCatch',
+      cause: error,
+      context: {
+        tournamentId,
+        okibakeEntryId,
+        operationId,
+        amountIncl,
+      },
+    });
+    throw new HttpsError(
+      'internal',
+      error instanceof Error ? error.message : '来店なし入金に失敗しました',
+    );
+  }
 });

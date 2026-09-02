@@ -77,6 +77,15 @@ describe('placeOrder', () => {
     });
   }
 
+  /** orders/{YYYYMMDD} キーは壁時計ではなく bill.businessDate 基準（現行契約） */
+  async function orderDocIdFromBill(billId: string): Promise<string> {
+    const billDoc = await db.collection('bills').doc(billId).get();
+    expect(billDoc.exists).toBe(true);
+    const businessDate = billDoc.data()!.businessDate as string;
+    expect(businessDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    return businessDate.replace(/-/g, '');
+  }
+
   // テストID生成ヘルパー（同じテスト内でIDを固定するため）
   function makeTestIds(testName: string) {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -140,12 +149,8 @@ describe('placeOrder', () => {
       expect(result.data!.billId).toBe(billId);
       expect(result.data!.itemId).toBeDefined();
 
-      // orders/_TodaysOrders が作成されている（docId = itemId）
-      const now = new Date();
-      const yyyy = String(now.getFullYear());
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const orderDocId = `${yyyy}${mm}${dd}`;
+      // orders/_TodaysOrders が作成されている（docId = itemId、キーは bill.businessDate）
+      const orderDocId = await orderDocIdFromBill(billId);
       const itemId = result.data!.itemId;
 
       const todaysOrderDoc = await db.collection('orders').doc(orderDocId)
@@ -168,6 +173,7 @@ describe('placeOrder', () => {
       const ordersData = ordersDoc.data()!;
       expect(ordersData.onedayOrderQuantity).toBe(1);
       expect(ordersData.onedayTotalPrice).toBe(1000); // 500 * 2
+      expect(ordersData.date).toBe((await db.collection('bills').doc(billId).get()).data()!.businessDate);
     });
 
     it('chip カテゴリは orders/_TodaysOrders に記録されないこと', async () => {
@@ -205,11 +211,7 @@ describe('placeOrder', () => {
       expect(result.success).toBe(true);
 
       // orders/_TodaysOrders は作成されていない（chip は除外）
-      const now = new Date();
-      const yyyy = String(now.getFullYear());
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const orderDocId = `${yyyy}${mm}${dd}`;
+      const orderDocId = await orderDocIdFromBill(billId);
 
       const ordersRef = db.collection('orders').doc(orderDocId);
       const todaysOrdersSnap = await ordersRef.collection('_TodaysOrders').get();
@@ -248,11 +250,7 @@ describe('placeOrder', () => {
       const result1 = await (placeOrder as any).run(mockRequest);
       expect(result1.success).toBe(true);
 
-      const now = new Date();
-      const yyyy = String(now.getFullYear());
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const orderDocId = `${yyyy}${mm}${dd}`;
+      const orderDocId = await orderDocIdFromBill(billId);
 
       const ordersDoc1 = await db.collection('orders').doc(orderDocId).get();
       const ordersData1 = ordersDoc1.data()!;
@@ -304,11 +302,7 @@ describe('placeOrder', () => {
       const result1 = await (placeOrder as any).run(mockRequest1);
       expect(result1.success).toBe(true);
 
-      const now = new Date();
-      const yyyy = String(now.getFullYear());
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const orderDocId = `${yyyy}${mm}${dd}`;
+      const orderDocId = await orderDocIdFromBill(billId);
 
       const ordersDoc1 = await db.collection('orders').doc(orderDocId).get();
       const ordersData1 = ordersDoc1.data()!;
@@ -388,11 +382,7 @@ describe('placeOrder', () => {
       expect(result.data!.itemId).toBeDefined();
 
       // appendItem のレスポンス itemId をそのまま _TodaysOrders/{itemId} に使っていることを確認
-      const now = new Date();
-      const yyyy = String(now.getFullYear());
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const orderDocId = `${yyyy}${mm}${dd}`;
+      const orderDocId = await orderDocIdFromBill(billId);
       const itemId = result.data!.itemId;
 
       const todaysOrderDoc = await db.collection('orders').doc(orderDocId)

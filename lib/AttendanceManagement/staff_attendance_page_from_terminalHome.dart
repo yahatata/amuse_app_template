@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/AttendanceManagement/qrScanPage.dart';
 import 'package:amuse_app_template/AttendanceManagement/admin_attendance_list_page.dart';
 import 'package:amuse_app_template/Home/unclocked_attendance_list_page.dart';
 import 'package:amuse_app_template/AttendanceManagement/attendanceService.dart';
+import 'package:amuse_app_template/AttendanceManagement/attendance_user_facing_errors.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 
@@ -150,89 +151,124 @@ class _StaffAttendancePageState extends State<StaffAttendancePage>
   }
 
   void _showAdminEditPasswordDialog() {
-    final controller = TextEditingController();
-    showDialog<void>(
+    showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('管理者用編集'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                '編集操作を行うにはパスワードを入力してください。',
-                style: TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'パスワード',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
+      builder: (ctx) => const _AdminAttendanceEditPasswordDialog(),
+    ).then((password) {
+      if (!mounted) return;
+      if (password == null) return;
+      if (password.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('パスワードを入力してください'),
+            backgroundColor: Colors.red,
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => _onAdminEditPasswordSubmitted(ctx, controller.text),
-            child: const Text('確定'),
-          ),
-        ],
-      ),
-    ).then((_) => controller.dispose());
-  }
-
-  void _onAdminEditPasswordSubmitted(BuildContext dialogContext, String password) {
-    Navigator.of(dialogContext).pop();
-    if (password.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('パスワードを入力してください'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-    _verifyAndOpenAdminPage(password.trim());
+        );
+        return;
+      }
+      _verifyAndOpenAdminPage(password.trim());
+    });
   }
 
   Future<void> _verifyAndOpenAdminPage(String password) async {
     try {
       final callable = FunctionsClient.instance
           .httpsCallable('verifyUnclockedAttendanceEditPassword');
-      await callable.call({'password': password});
+      final result = await callable.call({'password': password});
       if (!mounted) return;
+      if (!isCallableSuccessResponse(result.data)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapAttendanceCallableSoftFail(
+                result.data,
+                operation: 'verifyUnclockedAttendanceEditPassword',
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => const AdminAttendanceListPage(),
         ),
       );
-    } on FirebaseFunctionsException catch (e) {
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.message ?? 'パスワードが一致しません'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('パスワードが一致しません'),
+          content: Text(
+            mapAttendanceCallableError(
+              e,
+              operation: 'verifyUnclockedAttendanceEditPassword',
+            ),
+          ),
           backgroundColor: Colors.red,
         ),
       );
     }
+  }
+}
+
+/// 管理者用編集のパスワード入力。controller は State 所有で route 除去後に dispose する。
+class _AdminAttendanceEditPasswordDialog extends StatefulWidget {
+  const _AdminAttendanceEditPasswordDialog();
+
+  @override
+  State<_AdminAttendanceEditPasswordDialog> createState() =>
+      _AdminAttendanceEditPasswordDialogState();
+}
+
+class _AdminAttendanceEditPasswordDialogState
+    extends State<_AdminAttendanceEditPasswordDialog> {
+  late final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('管理者用編集'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              '編集操作を行うにはパスワードを入力してください。',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _controller,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'パスワード',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (value) => Navigator.of(context).pop(value),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('キャンセル'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('確定'),
+        ),
+      ],
+    );
   }
 }
 
@@ -361,7 +397,10 @@ class _TodayAttendanceList extends StatelessWidget {
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Text('エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red));
+          return Text(
+            'エラー: $kAttendanceDataLoadFailedMessage',
+            style: const TextStyle(color: Colors.red),
+          );
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -652,7 +691,10 @@ class _TodayAttendanceList extends StatelessWidget {
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return Text('エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red));
+                return Text(
+            'エラー: $kAttendanceDataLoadFailedMessage',
+            style: const TextStyle(color: Colors.red),
+          );
               }
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
@@ -847,7 +889,7 @@ class _TodayAttendanceList extends StatelessWidget {
     BuildContext context,
     DocumentSnapshot<Map<String, dynamic>> doc, {
     required bool isStart,
-    required Future<void> Function(int? offset) onConfirm,
+    required Future<Map<String, dynamic>> Function(int? offset) onConfirm,
     required String successMessage,
     required String errorPrefix,
   }) {
@@ -983,7 +1025,14 @@ class _TodayAttendanceList extends StatelessWidget {
                         final offset = config.attendanceTimeAdjustmentEnabled
                             ? selectedOffset
                             : null;
-                        await onConfirm(offset);
+                        final response = await onConfirm(offset);
+                        if (!isCallableSuccessResponse(response)) {
+                          setLocalState(() {
+                            errorText = mapCallableSoftFailMessage(response);
+                            isSubmitting = false;
+                          });
+                          return;
+                        }
                         if (!ctx.mounted) return;
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -991,7 +1040,10 @@ class _TodayAttendanceList extends StatelessWidget {
                         );
                       } catch (e) {
                         setLocalState(() {
-                          errorText = e.toString().replaceFirst('Exception: ', '');
+                          errorText = mapCallableError(
+                            e,
+                            operation: isStart ? 'startBreak' : 'endBreak',
+                          ).message;
                           isSubmitting = false;
                         });
                       }
@@ -1144,6 +1196,13 @@ class _TodayAttendanceList extends StatelessWidget {
                                   : null,
                         );
                         if (!ctx.mounted) return;
+                        if (!result.success) {
+                          setLocalState(() {
+                            errorText = result.message;
+                            isSubmitting = false;
+                          });
+                          return;
+                        }
                         Navigator.pop(ctx);
                         if (result.warning != null) {
                           await showDialog<void>(
@@ -1171,7 +1230,10 @@ class _TodayAttendanceList extends StatelessWidget {
                         }
                       } catch (e) {
                         setLocalState(() {
-                          errorText = e.toString().replaceFirst('Exception: ', '');
+                          errorText = mapCallableError(
+                            e,
+                            operation: 'updateManualClockOutRecord',
+                          ).message;
                           isSubmitting = false;
                         });
                       }
@@ -1636,6 +1698,13 @@ class _ShiftListTile extends StatelessWidget {
                                   : null,
                         );
                         if (!ctx.mounted) return;
+                        if (!result.success) {
+                          setLocalState(() {
+                            errorText = result.message;
+                            isSubmitting = false;
+                          });
+                          return;
+                        }
                         Navigator.pop(ctx);
                         if (result.warning != null) {
                           await showDialog<void>(
@@ -1663,7 +1732,10 @@ class _ShiftListTile extends StatelessWidget {
                         }
                       } catch (e) {
                         setLocalState(() {
-                          errorText = e.toString().replaceFirst('Exception: ', '');
+                          errorText = mapCallableError(
+                            e,
+                            operation: 'createManualClockInRecord',
+                          ).message;
                           isSubmitting = false;
                         });
                       }

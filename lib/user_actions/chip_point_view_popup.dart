@@ -4,6 +4,8 @@ import 'package:amuse_app_template/user/user_balances.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'chip_point_logs_page.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 
 /// 所持チップ・所持ポイント参照ポップアップ（A-7: 有効残高のみ・config 表示名）
 Future<void> showChipPointViewDialog({
@@ -16,7 +18,7 @@ Future<void> showChipPointViewDialog({
   if (userId.isEmpty) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('ユーザー識別子が見つかりません')),
+        SnackBar(content: Text(kUserActionUserIdMissingMessage)),
       );
     }
     return;
@@ -90,8 +92,15 @@ class _ChipPointViewDialog extends StatelessWidget {
                     return Padding(
                       padding: const EdgeInsets.all(16),
                       child: Text(
-                        'エラーが発生しました\n${snapshot.error}',
+                        userActionStreamErrorMessage(
+                          kUserActionUserDocLoadFailedMessage,
+                          snapshot.error,
+                        ),
                         textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.red[700],
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     );
                   }

@@ -1,8 +1,7 @@
 /**
- * Phase6 Step3: 閉店・開店ターミナルと既存 openStore/closeStore の統合テスト。
+ * Phase6 Step3: 閉店・開店ターミナルの統合テスト。
  * - 入口で status 不備なら invalid-argument
  * - ロック中（processing 有効で runId なし）→ failed-precondition
- * - 既存 openStore / closeStore で state が更新されること
  * Firestore Emulator 使用。
  */
 
@@ -16,8 +15,6 @@ describe('Phase6 Step3: storeManagement 統合', () => {
   let testEnv: any;
   let db: admin.firestore.Firestore;
   let closeStoreTerminal: typeof import('../../src/domains/storeMeta/callables/closeStoreTerminal').closeStoreTerminal;
-  let openStore: typeof import('../../src/unused_function_lib/openStore').openStore;
-  let closeStore: typeof import('../../src/unused_function_lib/closeStore').closeStore;
 
   let emulatorAvailable = true;
 
@@ -30,8 +27,6 @@ describe('Phase6 Step3: storeManagement 統合', () => {
     admin.initializeApp({ projectId: PROJECT_ID });
     db = getFirestore();
     closeStoreTerminal = (await import('../../src/domains/storeMeta/callables/closeStoreTerminal')).closeStoreTerminal;
-    openStore = (await import('../../src/unused_function_lib/openStore')).openStore;
-    closeStore = (await import('../../src/unused_function_lib/closeStore')).closeStore;
   });
 
   afterAll(async () => {
@@ -112,46 +107,6 @@ describe('Phase6 Step3: storeManagement 統合', () => {
       await expect(
         closeStoreTerminal.run({ auth: { uid: 'admin-uid-1' }, data: {} } as any)
       ).rejects.toMatchObject({ code: 'failed-precondition' });
-    });
-  });
-
-  describe('既存 openStore / closeStore', () => {
-    it('closeStore で status=running, currentBusinessDateKey あり → closed に更新される', async () => {
-      if (!emulatorAvailable) return;
-      await db.collection('storeMeta').doc('currentBusinessDay').set({
-        status: 'running',
-        currentBusinessDateKey: '2026-02-09',
-        lastClosedBusinessDateKey: null,
-        updatedAt: Timestamp.now(),
-        source: 'test',
-        lastError: null,
-      });
-      const result = await closeStore.run({ auth: { uid: 'admin-uid-1' }, data: {} } as any);
-      expect(result.success).toBe(true);
-      expect(result.lastClosedBusinessDateKey).toBe('2026-02-09');
-      const snap = await db.collection('storeMeta').doc('currentBusinessDay').get();
-      expect(snap.data()?.status).toBe('closed');
-      expect(snap.data()?.currentBusinessDateKey).toBeNull();
-    });
-
-    it('openStore で status=closed → running に更新される', async () => {
-      if (!emulatorAvailable) return;
-      await db.collection('storeMeta').doc('currentBusinessDay').set({
-        status: 'closed',
-        currentBusinessDateKey: null,
-        lastClosedBusinessDateKey: '2026-02-09',
-        updatedAt: Timestamp.now(),
-        source: 'test',
-        lastError: null,
-      });
-      const result = await openStore.run({
-        auth: { uid: 'admin-uid-1' },
-        data: { businessDateKey: '2026-02-10' },
-      } as any);
-      expect(result.success).toBe(true);
-      const snap = await db.collection('storeMeta').doc('currentBusinessDay').get();
-      expect(snap.data()?.status).toBe('running');
-      expect(snap.data()?.currentBusinessDateKey).toBe('2026-02-10');
     });
   });
 });

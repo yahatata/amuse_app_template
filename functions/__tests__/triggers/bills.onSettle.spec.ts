@@ -193,6 +193,7 @@ describe('bills.onSettle', () => {
       const billId = 'bill_settle_001';
       await createBillWithSubcollections(billId, 'settling', {
         items: [{ totalPriceIncl: 1000 }],
+        metaPaymentMethodsByCategory: { items: 'cash' },
       });
 
       await triggerSettle(billId, 'settling', 'settled');
@@ -207,7 +208,7 @@ describe('bills.onSettle', () => {
       expect(billData.settlementSnapshot?.amounts?.grandTotalRounded).toBe(1000);
       expect(billData.currentSummary).toEqual({
         claimTotalIncl: 1000,
-        receivedTotalIncl: 0,
+        receivedTotalIncl: 1000,
         refundedTotalIncl: 0,
         netSalesIncl: 1000,
       });
@@ -255,6 +256,7 @@ describe('bills.onSettle', () => {
       const billId = 'bill_open_settled_001';
       await createBillWithSubcollections(billId, 'open', {
         items: [{ totalPriceIncl: 1000 }],
+        metaPaymentMethodsByCategory: { items: 'cash' },
       });
 
       await triggerSettle(billId, 'open', 'settled');
@@ -311,6 +313,7 @@ describe('bills.onSettle', () => {
       const billId = 'bill_settled_settled_001';
       await createBillWithSubcollections(billId, 'settling', {
         items: [{ totalPriceIncl: 1000 }],
+        metaPaymentMethodsByCategory: { items: 'cash' },
       });
 
       // 1回目: settling -> settled
@@ -394,6 +397,12 @@ describe('bills.onSettle', () => {
             templateName: 'トーナメント1',
           },
         ],
+        metaPaymentMethodsByCategory: {
+          items: 'cash',
+          extraCost: 'cash',
+          sideGameChips: 'cash',
+          tournaments: 'cash',
+        },
       });
 
       await triggerSettle(billId, 'settling', 'settled');
@@ -440,7 +449,7 @@ describe('bills.onSettle', () => {
       expect(billData.settlementSnapshot?.categoryBreakdown?.items).toBe(2000);
       expect(billData.currentSummary).toEqual({
         claimTotalIncl: 3200,
-        receivedTotalIncl: 0,
+        receivedTotalIncl: 3200,
         refundedTotalIncl: 0,
         netSalesIncl: 3200,
       });
@@ -448,8 +457,14 @@ describe('bills.onSettle', () => {
       expect(billData.postSettlementState?.requiredActionIncl).toBe(0);
       expect(billData.postSettlementState?.lastRecordType).toBe('none');
       expect(billData.reopenSummary?.latestSettledCycle).toBe(1);
+      // A-7: settle 時は既存 ByCategory を draftAccountingInput へ反映（推論しない）
       expect(billData.draftAccountingInput).toEqual({
-        paymentMethodsByCategory: null,
+        paymentMethodsByCategory: {
+          items: 'cash',
+          extraCost: 'cash',
+          sideGameChips: 'cash',
+          tournaments: 'cash',
+        },
         paymentMethodsByAmount: null,
       });
 
@@ -536,6 +551,12 @@ describe('bills.onSettle', () => {
             templateId: 'template1',
           },
         ],
+        metaPaymentMethodsByCategory: {
+          items: 'cash',
+          extraCost: 'cash',
+          sideGameChips: 'cash',
+          tournaments: 'cash',
+        },
       });
 
       await triggerSettle(billId, 'settling', 'settled');
@@ -565,6 +586,7 @@ describe('bills.onSettle', () => {
       const billId = 'bill_noop_001';
       await createBillWithSubcollections(billId, 'settling', {
         items: [{ totalPriceIncl: 1000 }],
+        metaPaymentMethodsByCategory: { items: 'cash' },
       });
 
       // 1回目: settling -> settled
@@ -663,13 +685,16 @@ describe('bills.onSettle', () => {
 
     });
 
-    it('meta に invalid method があれば cash へ寄ることも統合側で検証', async () => {
+    it('meta に未知の method がある場合はスナップショットを生成せず UNKNOWN_PAYMENT_METHOD を記録する', async () => {
+      const logOpsModule = await import('../../src/shared/logging/logOpsError');
+      const logOpsErrorSpy = jest.spyOn(logOpsModule, 'logOpsError').mockImplementation(() => undefined);
+
       const billId = 'bill_invalid_method_001';
       await createBillWithSubcollections(billId, 'settling', {
         items: [{ totalPriceIncl: 1000 }],
         extras: [{ amountIncl: 500 }],
         metaPaymentMethodsByCategory: {
-          items: 'invalid_method', // 無効method
+          items: 'invalid_method', // 未知method（A-7: cash へ寄せない）
           extraCost: 'cash',
         },
       });
@@ -679,9 +704,18 @@ describe('bills.onSettle', () => {
       const billDoc = await db.collection('bills').doc(billId).get();
       const billData = billDoc.data()!;
 
-      // invalid_method は cash に寄せられる
-      expect(billData.paymentTotals?.cash).toBe(1500); // 1000 + 500
-      expect(billData.paymentTotals?.invalid_method).toBeUndefined();
+      expect(billData.meta?.contentHash).toBeUndefined();
+      expect(billData.amounts).toBeUndefined();
+      expect(billData.paymentTotals).toBeUndefined();
+
+      expect(logOpsErrorSpy).toHaveBeenCalled();
+      const matchingCall = logOpsErrorSpy.mock.calls.find((call) => {
+        const cause = call[0]?.cause as { errorKey?: string } | undefined;
+        return cause?.errorKey === 'UNKNOWN_PAYMENT_METHOD';
+      });
+      expect(matchingCall).toBeDefined();
+
+      logOpsErrorSpy.mockRestore();
     });
 
     it('/payments と meta.paymentMethodsByCategory が同時存在する場合、/payments が優先される', async () => {
@@ -764,6 +798,7 @@ describe('bills.onSettle', () => {
       const billId = 'bill_enqueue_001';
       await createBillWithSubcollections(billId, 'settling', {
         items: [{ totalPriceIncl: 1000 }],
+        metaPaymentMethodsByCategory: { items: 'cash' },
       });
 
       await triggerSettle(billId, 'settling', 'settled');
@@ -795,6 +830,7 @@ describe('bills.onSettle', () => {
       const billId = 'bill_no_enqueue_001';
       await createBillWithSubcollections(billId, 'settling', {
         items: [{ totalPriceIncl: 1000 }],
+        metaPaymentMethodsByCategory: { items: 'cash' },
       });
 
       await triggerSettle(billId, 'settling', 'settled');
@@ -816,14 +852,21 @@ describe('bills.onSettle', () => {
     });
   });
 
-  describe('paymentMethodsByCategory 自動推論（C-2）', () => {
-    it('paymentMethodsByCategory 未設定 + 現金のみ → 全カテゴリに "cash" が推論される', async () => {
-      const billId = 'bill_infer_cash_001';
+  describe('paymentMethodsByCategory（A-7: settle時推論なし）', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('ByCategory欠落時はスナップショットを生成せず PAYMENT_CATEGORY_REQUIRED を記録する', async () => {
+      const logOpsModule = await import('../../src/shared/logging/logOpsError');
+      const logOpsErrorSpy = jest.spyOn(logOpsModule, 'logOpsError').mockImplementation(() => undefined);
+
+      const billId = 'bill_bycategory_missing_001';
       await createBillWithSubcollections(billId, 'settling', {
         items: [{ totalPriceIncl: 2000 }],
         extras: [{ amountIncl: 1000 }],
         payments: [{ method: 'cash', amountIncl: 3000 }],
-        // metaPaymentMethodsByCategory を設定しない（未設定）
+        // metaPaymentMethodsByCategory を設定しない（A-7: 推論しない）
       });
 
       await triggerSettle(billId, 'settling', 'settled');
@@ -831,23 +874,25 @@ describe('bills.onSettle', () => {
       const billDoc = await db.collection('bills').doc(billId).get();
       const billData = billDoc.data()!;
 
-      // 自動推論により meta.paymentMethodsByCategory が設定される
-      expect(billData.meta?.paymentMethodsByCategory).toBeDefined();
-      expect(billData.meta?.paymentMethodsByCategory?.items).toBe('cash');
-      expect(billData.meta?.paymentMethodsByCategory?.extraCost).toBe('cash');
+      expect(billData.meta?.contentHash).toBeUndefined();
+      expect(billData.amounts).toBeUndefined();
+      expect(billData.closedAt).toBeUndefined();
 
-      // draftAccountingInput にも同じ値が入る
-      expect(billData.draftAccountingInput?.paymentMethodsByCategory?.items).toBe('cash');
-      expect(billData.draftAccountingInput?.paymentMethodsByCategory?.extraCost).toBe('cash');
+      expect(logOpsErrorSpy).toHaveBeenCalled();
+      const matchingCall = logOpsErrorSpy.mock.calls.find((call) => {
+        const cause = call[0]?.cause as { errorKey?: string } | undefined;
+        return cause?.errorKey === 'PAYMENT_CATEGORY_REQUIRED';
+      });
+      expect(matchingCall).toBeDefined();
     });
 
-    it('paymentMethodsByCategory が既存設定済みの場合は上書きしない', async () => {
-      const billId = 'bill_infer_skip_001';
+    it('paymentMethodsByCategory が既存設定済みの場合はそれを用いて settle し上書きしない', async () => {
+      const billId = 'bill_bycategory_keep_001';
       await createBillWithSubcollections(billId, 'settling', {
         items: [{ totalPriceIncl: 2000 }],
         payments: [{ method: 'cash', amountIncl: 2000 }],
         metaPaymentMethodsByCategory: {
-          items: 'credit_card', // 既存設定
+          items: 'credit_card',
         },
       });
 
@@ -856,32 +901,13 @@ describe('bills.onSettle', () => {
       const billDoc = await db.collection('bills').doc(billId).get();
       const billData = billDoc.data()!;
 
-      // 既存値が保持され、上書きされない
+      expect(billData.meta?.contentHash).toBeDefined();
       expect(billData.meta?.paymentMethodsByCategory?.items).toBe('credit_card');
+      expect(billData.draftAccountingInput?.paymentMethodsByCategory?.items).toBe('credit_card');
     });
 
-    it('全額ポイント払い（non-special なし）→ 推論スキップ（空のまま）', async () => {
-      const billId = 'bill_infer_allpoint_001';
-      await createBillWithSubcollections(billId, 'settling', {
-        items: [{ totalPriceIncl: 2000 }],
-        payments: [{ method: 'pointA', amountIncl: 2000 }],
-        // metaPaymentMethodsByCategory なし
-      });
-
-      await triggerSettle(billId, 'settling', 'settled');
-
-      const billDoc = await db.collection('bills').doc(billId).get();
-      const billData = billDoc.data()!;
-
-      // non-special method なし → 推論スキップ
-      // meta.paymentMethodsByCategory は設定されないか空のまま
-      const pmByCategory = billData.meta?.paymentMethodsByCategory;
-      const isEmpty = !pmByCategory || Object.keys(pmByCategory).length === 0;
-      expect(isEmpty).toBe(true);
-    });
-
-    it('cash + credit_card の場合、大きい方（cash）が selectedBaseMethod になる', async () => {
-      const billId = 'bill_infer_multimethod_001';
+    it('ByCategoryを明示指定した複数カテゴリで settle できる', async () => {
+      const billId = 'bill_bycategory_explicit_001';
       await createBillWithSubcollections(billId, 'settling', {
         items: [{ totalPriceIncl: 3000 }],
         extras: [{ amountIncl: 2000 }],
@@ -889,6 +915,10 @@ describe('bills.onSettle', () => {
           { method: 'cash', amountIncl: 3000 },
           { method: 'credit_card', amountIncl: 2000 },
         ],
+        metaPaymentMethodsByCategory: {
+          items: 'cash',
+          extraCost: 'credit_card',
+        },
       });
 
       await triggerSettle(billId, 'settling', 'settled');
@@ -896,9 +926,12 @@ describe('bills.onSettle', () => {
       const billDoc = await db.collection('bills').doc(billId).get();
       const billData = billDoc.data()!;
 
-      // cash(3000) > credit_card(2000) なので selectedBaseMethod = 'cash'
+      expect(billData.meta?.contentHash).toBeDefined();
+      expect(billData.amounts?.grandTotalRounded).toBe(5000);
       expect(billData.meta?.paymentMethodsByCategory?.items).toBe('cash');
-      expect(billData.meta?.paymentMethodsByCategory?.extraCost).toBe('cash');
+      expect(billData.meta?.paymentMethodsByCategory?.extraCost).toBe('credit_card');
+      expect(billData.draftAccountingInput?.paymentMethodsByCategory?.items).toBe('cash');
+      expect(billData.draftAccountingInput?.paymentMethodsByCategory?.extraCost).toBe('credit_card');
     });
   });
 
@@ -968,6 +1001,11 @@ describe('bills.onSettle', () => {
         payments: [
           { method: 'sideGameChip', amountIncl: 1000 }, // /payments 経由で sideGameChip を支払い手段として使用
         ],
+        // A-7: /payments 優先でも ByCategory は必須
+        metaPaymentMethodsByCategory: {
+          items: 'sideGameChip',
+          sideGameChips: 'cash',
+        },
       });
 
       await triggerSettle(billId, 'settling', 'settled');

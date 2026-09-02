@@ -1,36 +1,36 @@
 /**
  * cancelAccounting callable
- * 
- * P1-07: pre-settlement 専用の「会計開始取り消し API」として再設計
- * 
- * - `/bills/{billId}` ベース
- * - 対象 status: `open`, `in_progress`, `settling` のみ許可
- * - `status` を `'open'` に戻す
- * - `ops.accountingStartedAt` / `ops.accountingStartedBy` をクリア
- * - `/bills/{billId}/events` には何も書き込まない（pre-settlement のキャンセルは事後イベントの対象外）
- * - 会計後のキャンセルは `updateAccounting`（新世界版）＋`postEventCancel` を通じて扱う
+ *
+ * P1-07 + D-2C:
+ * - pre-settlement 専用の会計開始取り消し
+ * - previousStatus へ復元
+ * - activeAccountingStartIdempotencyKey 対応 document を cancelled 化
+ * - 同一 key の再 start を拒否（削除しない）
  */
 
 import { getFirestore } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { logger } from 'firebase-functions';
 import { z } from 'zod';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
 import { FunctionCustomError, mapFunctionCustomErrorToHttpsCode } from '../../../shared/logging/functionCustomError';
+import {
+  ACTIVE_ACCOUNTING_START_IDEMPOTENCY_KEY_FIELD,
+  isIdempotencyCancelled,
+} from '../repos/accountingStartIdempotency';
+import { shouldDualWrite, legacyUpdateBillUpdate } from '../repos/dualWrite';
 
-// 会計キャンセルのスキーマ（pre-settlement 専用）
 const CancelAccountingSchema = z.object({
   billId: z.string().min(1, '請求書IDは必須です'),
-  reason: z.string().optional(), // 任意
+  reason: z.string().optional(),
 });
 
 /**
  * 会計開始を取り消すCloud Function（pre-settlement 専用）
- * 管理者権限を持つユーザーのみが実行可能
  */
 export const cancelAccounting = onCall(async (request) => {
-  // 認証チェック
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
   }
@@ -39,7 +39,6 @@ export const cancelAccounting = onCall(async (request) => {
   const db = getFirestore();
 
   try {
-    // デバイス権限の確認（role: admin または options.accounting: true）
     const device = await getCallerDeviceByUid(adminId);
     if (!device || !isActive(device.status)) {
       throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
@@ -50,15 +49,15 @@ export const cancelAccounting = onCall(async (request) => {
       throw new HttpsError('permission-denied', '会計管理の権限がありません');
     }
 
-    // 入力データの検証
     const validatedData = CancelAccountingSchema.parse(request.data);
     const { billId, reason } = validatedData;
 
     const billRef = db.collection('bills').doc(billId);
 
-    // トランザクションでキャンセル処理
+    let restoredStatus: 'open' | 'in_progress' = 'open';
+    let cancelledIdempotencyKey: string | null = null;
+
     await db.runTransaction(async (tx) => {
-      // 1) 請求書の存在確認
       const billSnap = await tx.get(billRef);
       if (!billSnap.exists) {
         throw new HttpsError('not-found', '指定された請求書が見つかりません');
@@ -67,7 +66,6 @@ export const cancelAccounting = onCall(async (request) => {
       const billData = billSnap.data()!;
       const currentStatus = billData.status || 'open';
 
-      // 2) pre-settlement 状態のみ許可（open, in_progress, settling）
       const allowedStatuses = ['open', 'in_progress', 'settling'];
       if (!allowedStatuses.includes(currentStatus)) {
         throw new FunctionCustomError({
@@ -78,37 +76,90 @@ export const cancelAccounting = onCall(async (request) => {
       }
 
       const now = admin.firestore.Timestamp.now();
+      const ops = billData.ops || {};
+      const storedPrevious = ops.accountingStartPreviousStatus;
+      restoredStatus =
+        storedPrevious === 'open' || storedPrevious === 'in_progress'
+          ? storedPrevious
+          : 'open';
 
-      // 3) /bills/{billId} を更新
-      // - status を 'open' に戻す
-      // - ops.accountingStartedAt / ops.accountingStartedBy をクリア
-      // - 必要に応じて ops.accountingCanceledAt / ops.accountingCanceledBy を追加
-      const updateData: Record<string, any> = {
-        status: 'open',
+      const activeKey =
+        typeof ops.activeAccountingStartIdempotencyKey === 'string' &&
+        ops.activeAccountingStartIdempotencyKey.length > 0
+          ? ops.activeAccountingStartIdempotencyKey
+          : null;
+
+      // active key があるときだけ対応 document を cancelled 化（無関係な key は触らない）
+      if (activeKey) {
+        cancelledIdempotencyKey = activeKey;
+        const idemRef = billRef.collection('idempotency').doc(activeKey);
+        const idemSnap = await tx.get(idemRef);
+        if (idemSnap.exists) {
+          const idemData = idemSnap.data()!;
+          if (!isIdempotencyCancelled(idemData)) {
+            tx.set(
+              idemRef,
+              {
+                ...idemData,
+                status: 'cancelled',
+                cancelledAt: now,
+                cancelledBy: adminId,
+              },
+              { merge: true },
+            );
+          }
+        }
+        // document が無い場合は no-op（状態復元は続行）
+      }
+
+      tx.update(billRef, {
+        status: restoredStatus,
         'ops.accountingStartedAt': null,
         'ops.accountingStartedBy': null,
+        'ops.accountingStartPreviousStatus': null,
+        [ACTIVE_ACCOUNTING_START_IDEMPOTENCY_KEY_FIELD]: null,
         'ops.accountingCanceledAt': now,
         'ops.accountingCanceledBy': adminId,
         updatedAt: now,
-      };
-
-      tx.update(billRef, updateData);
+      });
     });
+
+    if (await shouldDualWrite()) {
+      try {
+        await legacyUpdateBillUpdate(db, {
+          billId,
+          updates: { status: restoredStatus },
+        });
+      } catch (error: unknown) {
+        logger.warn('dualWrite cancelAccounting failed', {
+          op: 'cancelAccounting',
+          billId,
+          restoredStatus,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     logOpsSuccess({
       message: 'cancelAccounting 成功',
       functionEntry: 'cancelAccounting',
       operation: 'cancelAccountingCallable',
-      context: { billId, adminId, reason: reason || null },
+      context: {
+        billId,
+        adminId,
+        reason: reason || null,
+        restoredStatus,
+        cancelledIdempotencyKey,
+        cancelRequested: true,
+      },
     });
 
     return {
       success: true,
       message: '会計開始を取り消しました',
-      billId: billId,
+      billId,
     };
-
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error instanceof z.ZodError) {
       throw new HttpsError('invalid-argument', '入力データが無効です', error.errors);
     }
@@ -119,7 +170,11 @@ export const cancelAccounting = onCall(async (request) => {
         operation: 'cancelAccountingCatch',
         cause: error,
       });
-      throw new HttpsError(mapFunctionCustomErrorToHttpsCode(error.errorKey), error.message);
+      throw new HttpsError(
+        mapFunctionCustomErrorToHttpsCode(error.errorKey),
+        error.message,
+        { errorKey: error.errorKey, context: error.context },
+      );
     }
     if (error instanceof HttpsError) {
       throw error;
@@ -134,6 +189,10 @@ export const cancelAccounting = onCall(async (request) => {
         code: 'internal',
       },
     });
-    throw new HttpsError('internal', '会計開始取り消しに失敗しました', error.message);
+    throw new HttpsError(
+      'internal',
+      '会計開始取り消しに失敗しました',
+      error instanceof Error ? error.message : String(error),
+    );
   }
 });

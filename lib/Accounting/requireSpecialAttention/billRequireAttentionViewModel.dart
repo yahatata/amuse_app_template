@@ -106,7 +106,7 @@ class BillRequireAttentionViewModel {
     return BillRequireAttentionViewModel(
       billId: 'okibake:$tournamentId:$okibakeEntryId',
       cardType: BillCardType.okibakePendingReview,
-      displayLabel: '未会計',
+      displayLabel: computeDisplayLabel(BillCardType.okibakePendingReview),
       businessDate: sortDate,
       displayTitle: title,
       displayAmountIncl: amount,
@@ -159,17 +159,22 @@ BillCardType? classifyBill(Map<String, dynamic> bill) {
   return null;
 }
 
-/// 仕様書 §8.1 の画面ラベル。
+/// カード上の種別／未会計理由ラベル。
+///
+/// 閉店持ち越しと置きバケはどちらも「未会計」だが原因が異なるため、
+/// 現場スタッフが判別できる理由文言を表示する。
 String computeDisplayLabel(BillCardType cardType) {
   switch (cardType) {
     case BillCardType.carryoverUnsettled:
-      return '未会計';
+      // 入店済み通常 bill が閉店まで未精算
+      return '入店者の未会計';
     case BillCardType.postSettlementCollectionPending:
       return '追加徴収';
     case BillCardType.postSettlementRefundPending:
       return '要返金';
     case BillCardType.okibakePendingReview:
-      return '未会計';
+      // 未入店等で通常 bill 未紐付けのトーナメント参加が終了時に残った
+      return '未入店参加の未会計';
   }
 }
 
@@ -221,10 +226,13 @@ PrimaryActionType computePrimaryAction(BillCardType cardType) {
 }
 
 /// primary action のボタンラベル。
+///
+/// carryover（`resumeAccounting`）は activeStay 有無で文言が変わるため、
+/// 要対応画面では [carryoverPrimaryActionLabel] を使う。
 String primaryActionLabel(PrimaryActionType type) {
   switch (type) {
     case PrimaryActionType.resumeAccounting:
-      return '会計を再開する';
+      return 'この伝票を精算';
     case PrimaryActionType.collect:
       return '徴収する';
     case PrimaryActionType.refund:
@@ -232,4 +240,14 @@ String primaryActionLabel(PrimaryActionType type) {
     case PrimaryActionType.resolveOkibakePendingReview:
       return '対応する';
   }
+}
+
+/// C1-B carryover カードの primary ラベル（UI のみ。backend 判定には使わない）。
+String carryoverPrimaryActionLabel({required bool userHasActiveStay}) {
+  return userHasActiveStay ? '過去伝票を精算' : '来店なし入金';
+}
+
+/// C1-B から AccountingPage へ渡す AppBar タイトル。
+String carryoverAccountingPageTitle({required bool userHasActiveStay}) {
+  return userHasActiveStay ? '過去伝票の精算' : '来店なし入金';
 }

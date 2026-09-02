@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
+import 'package:amuse_app_template/Accounting/okibake_remote_payment_display_amount.dart';
 import 'customerAccountingDetailPage.dart';
 
 class AccountingHistoryPage extends StatefulWidget {
@@ -49,8 +51,8 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
         });
         _loadAccountingHistory();
       }
-    } catch (e) {
-      // エラー時は現在日時を使用
+    } catch (e, stackTrace) {
+      debugPrint('[_initializeSelectedDate] エラー: $e\n$stackTrace');
       if (mounted) {
         setState(() {
           _selectedDate = DateTime.now();
@@ -104,8 +106,14 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
           'billId': doc.id,
           'accountingCompletedAt': ops['accountingCompletedAt'],
           'accountingStartedAt': ops['accountingStartedAt'],
-          'totalPrice': amounts['grandTotalRounded'] ?? 0,
+          'totalPrice': resolveBillClaimDisplayAmountIncl({
+            'billType': data['billType'],
+            'amounts': amounts,
+            'settlementSnapshot': data['settlementSnapshot'],
+            'remotePayment': data['remotePayment'],
+          }),
           'status': status,
+          'closeSummary': data['closeSummary'],
           'paymentMethod': 'cash', // TODO: paymentTotals から主要な支払い方法を取得
           'paymentMethodsByAmount': paymentTotals,
           // 修正履歴、キャンセル記録、返金記録は events サブコレクションから取得する必要があるが、
@@ -215,7 +223,7 @@ class _AccountingHistoryPageState extends State<AccountingHistoryPage> {
       debugPrint('[_loadAccountingHistory] スタックトレース: $stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('データの取得に失敗しました: $e')),
+          const SnackBar(content: Text(kAccountingHistoryLoadFailedMessage)),
         );
       }
     } finally {

@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_error_operations.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
+import 'package:amuse_app_template/Accounting/errors/map_accounting_error.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/Accounting/bill_line_items_for_edit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -41,16 +45,13 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   List<Map<String, dynamic>> _availableFoodItems = [];
   List<Map<String, dynamic>> _availableChipItems = [];
 
-  // 会計前かどうか
-  late bool _isBeforeAccounting;
-
   /// 選択肢読込中（changeSpec: 読込 CPI）
   bool _isLoadingOptions = true;
 
-  /// 会計前の明細読込中（サブコレクション）
+  /// 明細読込中（サブコレクション）
   bool _isLoadingBillDetails = false;
 
-  /// 会計前の明細読込完了
+  /// 明細読込完了
   bool _billDetailsLoaded = false;
 
   String? _billDetailsLoadError;
@@ -59,24 +60,17 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   bool _isSubmitting = false;
 
   bool get _isLoadingEditor =>
-      _isLoadingOptions || (_isBeforeAccounting && _isLoadingBillDetails);
+      _isLoadingOptions || _isLoadingBillDetails;
 
   bool get _canSubmitEdit =>
-      !_isSubmitting &&
-      !_isLoadingEditor &&
-      (!_isBeforeAccounting || _billDetailsLoaded);
+      !_isSubmitting && !_isLoadingEditor && _billDetailsLoaded;
 
   @override
   void initState() {
     super.initState();
-    _isBeforeAccounting = widget.bill['accountingStartedAt'] == null;
-    if (_isBeforeAccounting) {
-      _isLoadingBillDetails = true;
-      _loadBillLineItems();
-    } else {
-      _initializeDataFromBillMap();
-      _billDetailsLoaded = true;
-    }
+    // 会計前明細修正専用（updateActiveBill）。会計完了後の編集導線は廃止済み。
+    _isLoadingBillDetails = true;
+    _loadBillLineItems();
     _loadAvailableOptions();
   }
 
@@ -182,10 +176,11 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
         _billDetailsLoaded = true;
         _billDetailsLoadError = null;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_loadBillLineItems] エラー: $e\n$stackTrace');
       if (!mounted) return;
       setState(() {
-        _billDetailsLoadError = '明細の取得に失敗しました: $e';
+        _billDetailsLoadError = kAccountingBillLineItemsLoadFailedMessage;
       });
     } finally {
       if (mounted) {
@@ -207,44 +202,6 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
     _sideGameChips = lineItems.sideGameChips
         .map((chip) => Map<String, dynamic>.from(chip))
         .toList();
-  }
-
-  void _initializeDataFromBillMap() {
-    // 入店料の初期化
-    final extraCosts = widget.bill['extraCost'] as List<dynamic>? ?? [];
-    _extraCosts = extraCosts.map((cost) => {
-      'name': cost['name'] ?? '',
-      'price': cost['price'] ?? 0,
-    }).toList();
-
-    // トーナメント参加費の初期化
-    final tournamentsData = widget.bill['tournaments'];
-    if (tournamentsData is Map<String, dynamic>) {
-      _tournaments = tournamentsData.map((key, value) => MapEntry(key, {
-        'entryFee': value['entryFee'] ?? 0,
-        'tournamentName': value['tournamentName'] ?? '',
-      }));
-    } else if (tournamentsData is List) {
-      // リストの場合は空のMapとして初期化
-      _tournaments = {};
-    } else {
-      _tournaments = {};
-    }
-
-    // フード・ドリンクの初期化
-    final items = widget.bill['items'] as List<dynamic>? ?? [];
-    _items = items.map((item) => {
-      'name': item['name'] ?? '',
-      'price': item['price'] ?? 0,
-      'quantity': item['quantity'] ?? 1,
-    }).toList();
-
-    // サイドゲームチップの初期化
-    final sideGameChips = widget.bill['sideGameChip'] as List<dynamic>? ?? [];
-    _sideGameChips = sideGameChips.map((chip) => {
-      'name': chip['name'] ?? '',
-      'price': chip['price'] ?? 0,
-    }).toList();
   }
 
   @override
@@ -415,21 +372,11 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
   Future<void> _updateAccounting() async {
     if (!_canSubmitEdit) return;
     if (!_formKey.currentState!.validate()) return;
-    
-    // 会計完了済みの場合は修正理由が必要
-    if (!_isBeforeAccounting && _reasonController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('修正理由を入力してください')),
-      );
-      return;
-    }
 
     setState(() => _isSubmitting = true);
     // ローディング用の rebuild が描画されるまで待つ（失敗が速いとオーバーレイが一度も出ない）
     await WidgetsBinding.instance.endOfFrame;
     try {
-      // 会計前の場合はupdateActiveBill、会計完了済みの場合はupdateAccountingを使用
-      final functionName = _isBeforeAccounting ? 'updateActiveBill' : 'updateAccounting';
       final callData = <String, dynamic>{
         'billId': widget.bill['id'],
         'extraCost': _extraCosts,
@@ -437,29 +384,38 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
         'items': _items,
         'sideGameChip': _sideGameChips,
       };
-      
-      // 会計完了済みの場合のみ修正理由を追加
-      if (!_isBeforeAccounting) {
-        callData['reason'] = _reasonController.text.trim();
-      }
 
-      final result = await _functions.httpsCallable(functionName).call(callData);
+      final result =
+          await _functions.httpsCallable('updateActiveBill').call(callData);
 
-      if (result.data['success'] == true) {
+      final data = result.data;
+      if (isCallableSuccessResponse(data)) {
+        final priceDiff = data is Map ? data['priceDifference'] : null;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('会計内容を修正しました\n差額: ${result.data['priceDifference']}円')),
+          SnackBar(
+            content: Text('会計内容を修正しました\n差額: ${priceDiff ?? '—'}円'),
+          ),
         );
         widget.onUpdated();
         Navigator.of(context).pop();
       } else {
+        final message = mapAccountingSoftFailError(
+          data,
+          operation: AccountingErrorOperations.updateActiveBill,
+        ).message;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('修正に失敗しました: ${result.data['message']}')),
+          SnackBar(content: Text(message)),
         );
       }
-    } catch (e) {
-      print('会計修正エラー: $e');
+    } catch (e, stackTrace) {
+      debugPrint('会計修正エラー: $e\n$stackTrace');
+      if (!mounted) return;
+      final mapped = mapAccountingCallableError(
+        e,
+        operation: AccountingErrorOperations.updateActiveBill,
+      );
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('修正に失敗しました: $e')),
+        SnackBar(content: Text(mapped.message)),
       );
     } finally {
       if (mounted) {
@@ -510,34 +466,16 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
                           ),
                           const SizedBox(height: 16),
 
-                          // 修正理由（会計完了済みの場合のみ必須）
-                          if (!_isBeforeAccounting) ...[
-                        TextFormField(
-                          controller: _reasonController,
-                          readOnly: _isSubmitting,
-                          decoration: const InputDecoration(
-                            labelText: '修正理由 *',
-                            border: OutlineInputBorder(),
+                          // 修正理由（任意・updateActiveBill には送らない）
+                          TextFormField(
+                            controller: _reasonController,
+                            readOnly: _isSubmitting,
+                            decoration: const InputDecoration(
+                              labelText: '修正理由（任意）',
+                              border: OutlineInputBorder(),
+                            ),
                           ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return '修正理由を入力してください';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                      ] else ...[
-                        TextFormField(
-                          controller: _reasonController,
-                          readOnly: _isSubmitting,
-                          decoration: const InputDecoration(
-                            labelText: '修正理由（任意）',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
+                          const SizedBox(height: 16),
 
                       // タブ（読込中は主領域 CPI）
                       SizedBox(

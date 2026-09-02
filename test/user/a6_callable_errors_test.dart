@@ -1,3 +1,4 @@
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/user/a6_callable_errors.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,13 +22,14 @@ void main() {
   });
 
   group('formatA6CallableError', () {
-    test('errorKey を日本語にマップ', () {
+    test('既知 errorKey を日本語にマップ（generic へ退行しない）', () {
       final err = FirebaseFunctionsException(
         code: 'failed-precondition',
         message: '移行済みユーザーは操作できません',
         details: {'errorKey': 'USER_MIGRATED'},
       );
       expect(formatA6CallableError(err), kA6ErrorKeyMessages['USER_MIGRATED']);
+      expect(formatA6CallableError(err), isNot(kFinalFallbackErrorMessage));
     });
 
     test('必須キーを定義済み', () {
@@ -58,6 +60,46 @@ void main() {
         formatA6CallableError(err),
         kA6ErrorKeyMessages['USER_HAS_ACTIVE_STAY'],
       );
+    });
+
+    test('permission-denied + 未知 errorKey は D-1 code 文言（UID/path 非表示）', () {
+      const secret = 'secret-user-id';
+      final err = FirebaseFunctionsException(
+        code: 'permission-denied',
+        message: 'uid=$secret path=/internal/doc',
+        details: {'errorKey': 'UNKNOWN_KEY'},
+      );
+      final msg = formatA6CallableError(err);
+      expect(msg, 'この操作の権限がありません。');
+      expect(msg, isNot(contains(secret)));
+      expect(msg, isNot(contains('/internal/doc')));
+      expect(msg, isNot(contains('uid=')));
+    });
+
+    test('unavailable は通信文言（raw 非表示）', () {
+      final err = FirebaseFunctionsException(
+        code: 'unavailable',
+        message: 'backend raw unavailable',
+      );
+      final msg = formatA6CallableError(err);
+      expect(msg, '通信できません。接続を確認して再度お試しください。');
+      expect(msg, isNot(contains('backend raw')));
+    });
+
+    test('unknown FFE は最終共通（message 非表示）', () {
+      final err = FirebaseFunctionsException(
+        code: 'unknown-xyz',
+        message: 'SHOULD_NOT_APPEAR',
+      );
+      final msg = formatA6CallableError(err);
+      expect(msg, kFinalFallbackErrorMessage);
+      expect(msg, isNot(contains('SHOULD_NOT_APPEAR')));
+    });
+
+    test('通常 Exception は最終共通（secret 非表示）', () {
+      final msg = formatA6CallableError(Exception('secret internal exception'));
+      expect(msg, kFinalFallbackErrorMessage);
+      expect(msg, isNot(contains('secret internal exception')));
     });
   });
 }

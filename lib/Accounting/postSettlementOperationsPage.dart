@@ -2,7 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
+import 'package:amuse_app_template/Accounting/okibake_remote_payment_display_amount.dart';
 import 'package:amuse_app_template/Accounting/postSettlementOperationDetailPage.dart';
+import 'package:amuse_app_template/Accounting/settlement_date.dart';
 
 class PostSettlementOperationsPage extends StatefulWidget {
   const PostSettlementOperationsPage({super.key});
@@ -51,10 +54,11 @@ class _PostSettlementOperationsPageState
         _selectedDate = DateTime.now();
       }
       await _loadBills();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_initialize] エラー: $e\n$stackTrace');
       if (!mounted) return;
       setState(() {
-        _error = '営業日の初期化に失敗しました: $e';
+        _error = kAccountingBusinessDayInitLoadFailedMessage;
       });
       await _loadBills();
     } finally {
@@ -66,10 +70,10 @@ class _PostSettlementOperationsPageState
     }
   }
 
-  String get _selectedBusinessDateKey =>
+  String get _selectedSettlementDateKey =>
       DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-  String get _selectedBusinessDateLabel =>
+  String get _selectedSettlementDateLabel =>
       DateFormat('yyyy/MM/dd').format(_selectedDate);
 
   Future<void> _loadBills() async {
@@ -80,19 +84,40 @@ class _PostSettlementOperationsPageState
     });
 
     try {
-      final querySnapshot = await _firestore
+      // 会計完了日（ops.accountingCompletedAt の JST calendar date）基準。
+      // bill.businessDate は売上帰属のまま変更しない。
+      final settlementDateKey = _selectedSettlementDateKey;
+      final range = jstDayRangeTimestamps(settlementDateKey);
+
+      final primarySnap = await _firestore
           .collection('bills')
-          .where('businessDate', isEqualTo: _selectedBusinessDateKey)
+          .where(
+            'ops.accountingCompletedAt',
+            isGreaterThanOrEqualTo: range.start,
+          )
+          .where('ops.accountingCompletedAt', isLessThan: range.end)
           .get();
 
-      final bills = querySnapshot.docs
-          .map((doc) => {'id': doc.id, ...doc.data()})
-          .where((bill) {
-            final status = bill['status'] as String? ?? '';
-            return status == 'settled' || status == 'post_settlement_pending';
-          })
-          .toList();
+      final legacySnap = await _firestore
+          .collection('bills')
+          .where('businessDate', isEqualTo: settlementDateKey)
+          .get();
 
+      final byId = <String, Map<String, dynamic>>{};
+      for (final doc in primarySnap.docs) {
+        final bill = {'id': doc.id, ...doc.data()};
+        if (!isPostSettlementListStatus(bill['status'] as String?)) continue;
+        byId[doc.id] = bill;
+      }
+      for (final doc in legacySnap.docs) {
+        if (byId.containsKey(doc.id)) continue;
+        final bill = {'id': doc.id, ...doc.data()};
+        if (!isPostSettlementListStatus(bill['status'] as String?)) continue;
+        if (!isLegacySettlementDateFallbackBill(bill)) continue;
+        byId[doc.id] = bill;
+      }
+
+      final bills = byId.values.toList();
       bills.sort((a, b) {
         final aTime = _extractSortDate(a);
         final bTime = _extractSortDate(b);
@@ -106,10 +131,11 @@ class _PostSettlementOperationsPageState
       setState(() {
         _bills = bills;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_loadBills] エラー: $e\n$stackTrace');
       if (!mounted) return;
       setState(() {
-        _error = 'bill 一覧の取得に失敗しました: $e';
+        _error = kAccountingPostSettlementBillsLoadFailedMessage;
       });
     } finally {
       if (mounted) {
@@ -154,17 +180,8 @@ class _PostSettlementOperationsPageState
     await _initialize();
   }
 
-  int _grandTotalInclOf(Map<String, dynamic> bill) {
-    final settlementSnapshot =
-        (bill['settlementSnapshot'] as Map<String, dynamic>?) ?? const {};
-    final snapshotAmounts =
-        (settlementSnapshot['amounts'] as Map<String, dynamic>?) ?? const {};
-    final rootAmounts = (bill['amounts'] as Map<String, dynamic>?) ?? const {};
-    return ((snapshotAmounts['grandTotalIncl'] ?? rootAmounts['grandTotalIncl'])
-                as num?)
-            ?.toInt() ??
-        0;
-  }
+  int _grandTotalInclOf(Map<String, dynamic> bill) =>
+      resolveBillClaimDisplayAmountIncl(bill);
 
   Map<String, dynamic> _postSettlementStateOf(Map<String, dynamic> bill) =>
       (bill['postSettlementState'] as Map<String, dynamic>?) ?? const {};
@@ -302,7 +319,7 @@ class _PostSettlementOperationsPageState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            '表示営業日',
+            '表示会計日',
             style: TextStyle(fontSize: 12, color: Colors.black54),
           ),
           const SizedBox(height: 6),
@@ -330,7 +347,7 @@ class _PostSettlementOperationsPageState
                     child: Column(
                       children: [
                         Text(
-                          _selectedBusinessDateLabel,
+                          _selectedSettlementDateLabel,
                           style: const TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
@@ -360,7 +377,7 @@ class _PostSettlementOperationsPageState
               OutlinedButton.icon(
                 onPressed: _loading ? null : _jumpToCurrentBusinessDay,
                 icon: const Icon(Icons.today),
-                label: const Text('当日営業日に戻る'),
+                label: const Text('当日の会計日に戻る'),
               ),
               Text(
                 'settled / post_settlement_pending の伝票を表示します',
@@ -409,7 +426,7 @@ class _PostSettlementOperationsPageState
         child: Padding(
           padding: EdgeInsets.all(24),
           child: Text(
-            'この営業日に操作対象の伝票はありません。',
+            'この会計日に操作対象の伝票はありません。',
             style: TextStyle(fontSize: 16, color: Colors.black54),
             textAlign: TextAlign.center,
           ),

@@ -3,13 +3,17 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/Accounting/accountingPage.dart';
+import 'package:amuse_app_template/Accounting/carryover_remote_cash_payment_dialog.dart';
 import 'package:amuse_app_template/Accounting/postSettlementCollectionDialog.dart';
 import 'package:amuse_app_template/Accounting/postSettlementRefundDialog.dart';
 import 'package:amuse_app_template/Accounting/requireSpecialAttention/billRequireAttentionViewModel.dart';
 import 'package:amuse_app_template/Accounting/requireSpecialAttention/userAttentionCounts.dart';
+import 'package:amuse_app_template/services/active_stays_service.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_bill_dialog.dart';
+import 'package:amuse_app_template/user/user_type_display.dart';
 import 'package:amuse_app_template/utils/sectioned_user_list_page.dart';
 
 /// 要対応の会計画面（仕様書 [04_仕様書/06_要対応の会計画面と一覧取得.md] の本実装）。
@@ -57,11 +61,16 @@ class _RequireSpecialAttentionPageState
   Map<String, dynamic>? _selectedUserCard;
   bool _resolvingRemotePayment = false;
 
+  /// C1-B ラベル分岐用。ActiveStaysService 共有 stream の docId(=userId) 集合。
+  Set<String> _activeStayUserIds = {};
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subActiveStays;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _subscribeStreams();
+    _subscribeActiveStays();
   }
 
   @override
@@ -70,8 +79,23 @@ class _RequireSpecialAttentionPageState
     _subCollection?.cancel();
     _subRefund?.cancel();
     _subOkibakePending?.cancel();
+    _subActiveStays?.cancel();
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _subscribeActiveStays() {
+    _subActiveStays = ActiveStaysService.instance.stream.listen(
+      (snap) {
+        final ids = snap.docs.map((d) => d.id).toSet();
+        if (!mounted) return;
+        setState(() => _activeStayUserIds = ids);
+      },
+    );
+  }
+
+  bool _userHasActiveStay(String userId) {
+    return isUserInActiveStaySet(userId, _activeStayUserIds);
   }
 
   void _subscribeStreams() {
@@ -596,7 +620,11 @@ class _RequireSpecialAttentionPageState
   ) {
     final amount = vm.displayAmountIncl;
     final amountText = '¥${amount.toString()}';
-    final actionLabel = primaryActionLabel(vm.primaryActionType);
+    final actionLabel = vm.cardType == BillCardType.carryoverUnsettled
+        ? carryoverPrimaryActionLabel(
+            userHasActiveStay: _userHasActiveStay(vm.userId),
+          )
+        : primaryActionLabel(vm.primaryActionType);
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -606,41 +634,53 @@ class _RequireSpecialAttentionPageState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _badgeColorForCardType(vm.cardType),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    vm.displayLabel,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _badgeColorForCardType(vm.cardType),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          vm.displayLabel,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          vm.displayTitle,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                Expanded(
+                Padding(
+                  padding: const EdgeInsets.only(right: 10),
                   child: Text(
-                    vm.displayTitle,
+                    amountText,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Text(
-                  amountText,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
@@ -670,12 +710,37 @@ class _RequireSpecialAttentionPageState
   ) async {
     switch (vm.primaryActionType) {
       case PrimaryActionType.resumeAccounting:
+        // 精算対象は常に carryover 元 bill。current active bill には差し替えない。
+        final hasActiveStay = _userHasActiveStay(vm.userId);
+        if (!hasActiveStay) {
+          // C1-B 来店なし入金: AccountingPage へ行かず、現金・全額一致の簡易 UI。
+          final ok = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => CarryoverRemoteCashPaymentDialog(
+              billId: vm.billId,
+              fallbackAmountIncl: vm.displayAmountIncl,
+              displayTitle: vm.displayTitle,
+            ),
+          );
+          if (!mounted || ok != true) return;
+          if (!context.mounted) return;
+          await _showRemotePaymentResultDialog(
+            context,
+            success: true,
+            message: '来店なし入金を登録しました',
+          );
+          return;
+        }
         await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => AccountingPage(
               forUnsettledBillId: vm.billId,
               forUnsettledUserId: vm.userId,
+              unsettledAppBarTitle: carryoverAccountingPageTitle(
+                userHasActiveStay: true,
+              ),
             ),
           ),
         );
@@ -754,7 +819,9 @@ class _RequireSpecialAttentionPageState
     if (!context.mounted) return;
     final amount = await showDialog<int>(
       context: context,
-      builder: (ctx) => _RemotePaymentDialog(initialAmount: vm.displayAmountIncl),
+      builder: (ctx) => _RemotePaymentDialog(
+        claimAmountIncl: vm.displayAmountIncl,
+      ),
     );
     if (amount == null || amount < 0) return;
     if (_resolvingRemotePayment) return;
@@ -775,7 +842,7 @@ class _RequireSpecialAttentionPageState
     if (!mounted) return;
     final message = res.success
         ? '来店なし入金を登録しました'
-        : '来店なし入金に失敗しました: ${res.errorMessage ?? ''}';
+        : (res.errorMessage ?? mapCallableSoftFailMessage({}));
     if (!context.mounted) return;
     await _showRemotePaymentResultDialog(
       context,
@@ -785,26 +852,33 @@ class _RequireSpecialAttentionPageState
   }
 }
 
-class _RemotePaymentDialog extends StatefulWidget {
-  const _RemotePaymentDialog({required this.initialAmount});
-  final int initialAmount;
-
-  @override
-  State<_RemotePaymentDialog> createState() => _RemotePaymentDialogState();
-}
-
-class _RemotePaymentDialogState extends State<_RemotePaymentDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initialAmount.toString());
+class _RemotePaymentDialog extends StatelessWidget {
+  const _RemotePaymentDialog({required this.claimAmountIncl});
+  final int claimAmountIncl;
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('来店なし入金'),
-      content: TextField(
-        controller: _controller,
-        keyboardType: TextInputType.number,
-        decoration: const InputDecoration(labelText: '金額'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '請求額: ¥$claimAmountIncl',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '支払方法: 現金',
+            style: TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '請求額全額を現金で精算します。',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ],
       ),
       actions: [
         TextButton(
@@ -812,11 +886,7 @@ class _RemotePaymentDialogState extends State<_RemotePaymentDialog> {
           child: const Text('キャンセル'),
         ),
         TextButton(
-          onPressed: () {
-            final v = int.tryParse(_controller.text.trim());
-            if (v == null || v < 0) return;
-            Navigator.of(context).pop(v);
-          },
+          onPressed: () => Navigator.of(context).pop(claimAmountIncl),
           child: const Text('実行'),
         ),
       ],

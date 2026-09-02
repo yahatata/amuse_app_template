@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/AttendanceManagement/attendance_user_facing_errors.dart';
 import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 
 import 'admin_attendance_editAndCreate_page.dart';
@@ -72,17 +73,30 @@ class _AdminAttendanceListPageState extends State<AdminAttendanceListPage> {
                   .where('date', isEqualTo: dateKey)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('エラー: ${snapshot.error}'));
+                if (attendanceListStreamHasError(snapshot)) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        attendanceListStreamErrorMessage(snapshot.error),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  );
                 }
-                if (!snapshot.hasData) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                final docs = snapshot.data!.docs.toList()
+                final docs = snapshot.data!.docs
+                    .where((d) => d.data()['isDeleted'] != true)
+                    .toList()
                   ..sort((a, b) {
                     final aIn = a.data()['clockIn'];
                     final bIn = b.data()['clockIn'];
-                    if (aIn is Timestamp && bIn is Timestamp) return aIn.compareTo(bIn);
+                    if (aIn is Timestamp && bIn is Timestamp) {
+                      return aIn.compareTo(bIn);
+                    }
                     return 0;
                   });
                 if (docs.isEmpty) {
@@ -99,14 +113,10 @@ class _AdminAttendanceListPageState extends State<AdminAttendanceListPage> {
                     final closedWithout = d['closedStoreWithoutClockOut'] == true;
                     final bool isUnclocked = clockOut == null && closedWithout;
                     final bool isWorking = clockOut == null && !closedWithout;
-                    final bool isDeleted = d['isDeleted'] == true;
                     final bool isOnBreak = d['isOnBreak'] == true;
                     final String status;
                     Color tileColor;
-                    if (isDeleted) {
-                      status = '削除済み';
-                      tileColor = Colors.grey[300]!;
-                    } else if (isOnBreak && isWorking) {
+                    if (isOnBreak && isWorking) {
                       status = '休憩中';
                       tileColor = Colors.orange[50]!;
                     } else if (isUnclocked) {
@@ -145,11 +155,10 @@ class _AdminAttendanceListPageState extends State<AdminAttendanceListPage> {
                       subtitle: Text(
                         '勤務状況: $status\n'
                         '出勤: ${_fmtTs(d['clockIn'])}  退勤: ${_fmtTs(d['clockOut'])}\n'
-                        '$workStr 休憩: $breakStr'
-                        '${isDeleted ? '\n（論理削除済み）' : ''}',
+                        '$workStr 休憩: $breakStr',
                       ),
                       trailing: TextButton.icon(
-                        onPressed: isDeleted ? null : () => _openEditPage(doc.id, d),
+                        onPressed: () => _openEditPage(doc.id, d),
                         icon: const Icon(Icons.edit),
                         label: const Text('編集'),
                       ),

@@ -5,7 +5,13 @@ import 'package:amuse_app_template/tournament/active/models/okibake_temporary_en
 import 'package:amuse_app_template/tournament/active/utils/available_tables_filter.dart';
 
 class TournamentDataService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  TournamentDataService({FirebaseFirestore? firestore})
+      : _firestoreOverride = firestore;
+
+  final FirebaseFirestore? _firestoreOverride;
+
+  FirebaseFirestore get _firestore =>
+      _firestoreOverride ?? FirebaseFirestore.instance;
 
   /// トーナメントのテーブル情報を取得
   Future<List<TournamentTable>> getTournamentTables(String tournamentId) async {
@@ -43,7 +49,8 @@ class TournamentDataService {
       return tables;
     } catch (e) {
       print('テーブル情報取得エラー: $e');
-      return [];
+      // 空配列へ変換しない（読込失敗を「卓なし」と誤認させない）
+      rethrow;
     }
   }
 
@@ -160,7 +167,8 @@ class TournamentDataService {
       return waitingPlayers;
     } catch (e) {
       print('待機者リスト取得エラー: $e');
-      return [];
+      // 空配列へ変換しない（読込失敗を「待機者なし」と誤認させない）
+      rethrow;
     }
   }
 
@@ -193,7 +201,7 @@ class TournamentDataService {
       return out;
     } catch (e) {
       print('オキバケ一時参加者リスト取得エラー: $e');
-      return [];
+      rethrow;
     }
   }
 
@@ -215,7 +223,7 @@ class TournamentDataService {
           .toList();
     } catch (e) {
       print('オキバケ一時参加者（リシート候補）取得エラー: $e');
-      return [];
+      rethrow;
     }
   }
 
@@ -248,7 +256,7 @@ class TournamentDataService {
       return users;
     } catch (e) {
       print('ユーザー情報取得エラー: $e');
-      return [];
+      rethrow;
     }
   }
 
@@ -291,17 +299,21 @@ class TournamentDataService {
       return tables;
     } catch (e) {
       print('利用可能テーブル取得エラー: $e');
-      return [];
+      rethrow;
     }
   }
 
   /// データをリフレッシュ（操作後の再読み込み）
+  ///
+  /// 下位の必須取得が失敗した場合は [success] == false を返す。
+  /// 空配列への変換は行わない（正常な 0 件と誤認させない）。
+  /// 戻り値に raw exception 文字列は載せない。
   Future<Map<String, dynamic>> refreshTournamentData(String tournamentId) async {
     try {
       final tables = await getTournamentTables(tournamentId);
       final waitingPlayers = await getMergedWaitingPlayers(tournamentId);
       final users = await getTournamentUsers(tournamentId);
-      
+
       return {
         'tables': tables,
         'waitingPlayers': waitingPlayers,
@@ -312,7 +324,6 @@ class TournamentDataService {
       print('データリフレッシュエラー: $e');
       return {
         'success': false,
-        'error': e.toString(),
       };
     }
   }

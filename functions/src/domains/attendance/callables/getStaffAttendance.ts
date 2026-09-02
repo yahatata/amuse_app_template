@@ -1,79 +1,90 @@
-import { onCall } from "firebase-functions/v2/https";
-import * as admin from "firebase-admin";
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
-
 /**
- * スタッフの勤怠記録を取得する関数
- * 
- * リクエスト:
- * - staffId: スタッフID
- * - year: 年
- * - month: 月（1-12）
- * 
- * レスポンス:
- * - attendances: 勤怠記録の配列
- * - success: 成功フラグ
+ * L7-A: スタッフ本人の月次勤怠取得
+ *
+ * request: { year, month } のみ（staffId/uid/userId 拒否）
+ * staffId = request.auth.uid
+ * date は businessDate (YYYY-MM-DD) として月境界を文字列比較
  */
+
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import * as admin from 'firebase-admin';
+import { assertActiveStaff } from '../../staff/helpers/staffStatus';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import {
+  rejectClientIdentityFields,
+  throwAttendanceHttpsError,
+  getAttendanceErrorKeyFromUnknown,
+} from '../helpers/attendanceHttpsError';
+import {
+  assertYearMonth,
+  getBusinessMonthDateRange,
+} from '../helpers/attendanceBusinessDate';
+
+function toIsoOrNull(value: unknown): string | null {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'toDate' in value &&
+    typeof (value as { toDate: () => Date }).toDate === 'function'
+  ) {
+    return (value as { toDate: () => Date }).toDate().toISOString();
+  }
+  return null;
+}
+
 export const getStaffAttendance = onCall(
-  { region: "asia-northeast1", maxInstances: 10 },
+  { region: 'asia-northeast1', maxInstances: 10 },
   async (request) => {
+    const logContext: Record<string, unknown> = {
+      callerUidPresent: !!request.auth?.uid,
+    };
+
     try {
-      // 認証チェック
       if (!request.auth) {
-        throw new Error("Authentication required.");
+        throwAttendanceHttpsError(
+          'unauthenticated',
+          'ATTENDANCE_UNAUTHENTICATED',
+          'Authentication required',
+        );
       }
 
-      const { staffId, year, month } = request.data as {
-        staffId: string;
-        year: number;
-        month: number;
-      };
+      const uid = request.auth.uid;
+      const raw = (request.data ?? {}) as Record<string, unknown>;
+      rejectClientIdentityFields(raw);
 
-      // 入力バリデーション
-      if (!staffId || !year || !month || month < 1 || month > 12) {
-        throw new Error("Invalid parameters. staffId, year, and month (1-12) are required.");
-      }
+      const { year, month } = assertYearMonth(raw.year, raw.month);
+      Object.assign(logContext, { year, month });
 
-      if (request.auth.uid === staffId) {
-        const { assertActiveStaff } = await import("../../staff/helpers/staffStatus");
-        await assertActiveStaff(staffId);
-      }
+      await assertActiveStaff(uid);
 
-      // 指定された月の開始と終了日を計算
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0);
-      
-      // 日付文字列形式（YYYY-MM-DD）
-      const startDateStr = startDate.toISOString().split('T')[0];
-      const endDateStr = endDate.toISOString().split('T')[0];
-
-      console.log(`勤怠記録取得開始: staffId=${staffId}, 期間=${startDateStr} 〜 ${endDateStr}`);
+      const { startDateStr, endDateStr } = getBusinessMonthDateRange(year, month);
+      Object.assign(logContext, { startDateStr, endDateStr });
 
       const db = admin.firestore();
-      
-      // 勤怠記録を取得
-      const attendanceSnapshot = await db.collection("attendances")
-        .where("staffId", "==", staffId)
-        .where("date", ">=", startDateStr)
-        .where("date", "<=", endDateStr)
-        .orderBy("date", "asc")
+      const attendanceSnapshot = await db
+        .collection('attendances')
+        .where('staffId', '==', uid)
+        .where('date', '>=', startDateStr)
+        .where('date', '<=', endDateStr)
+        .orderBy('date', 'asc')
         .get();
 
-      const attendances: any[] = [];
+      const attendances: Array<Record<string, unknown>> = [];
 
       attendanceSnapshot.forEach((doc) => {
         const data = doc.data();
         if (data.isDeleted === true) return;
         attendances.push({
-          id: doc.id,
-          ...data,
+          attendanceId: doc.id,
+          date: data.date,
+          clockIn: toIsoOrNull(data.clockIn),
+          clockOut: toIsoOrNull(data.clockOut),
           breakMinutes: data.breakMinutes ?? 0,
           actualWorkMinutes: data.actualWorkMinutes ?? data.totalMinutes ?? null,
           nightWorkMinutes: data.nightWorkMinutes ?? data.nightMinutes ?? 0,
-          clockIn: data.clockIn ? data.clockIn.toDate().toISOString() : null,
-          clockOut: data.clockOut ? data.clockOut.toDate().toISOString() : null,
-          createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
-          updatedAt: data.updatedAt ? data.updatedAt.toDate().toISOString() : null,
+          isOnBreak: data.isOnBreak === true,
+          isManual: data.isManual === true,
+          closedStoreWithoutClockOut: data.closedStoreWithoutClockOut === true,
         });
       });
 
@@ -81,7 +92,6 @@ export const getStaffAttendance = onCall(
         message: 'getStaffAttendance 成功',
         functionEntry: 'getStaffAttendance',
         context: {
-          staffId,
           year,
           month,
           attendanceCount: attendances.length,
@@ -92,31 +102,34 @@ export const getStaffAttendance = onCall(
 
       return {
         success: true,
-        attendances: attendances,
-        year: year,
-        month: month,
-        totalCount: attendances.length,
+        data: {
+          year,
+          month,
+          attendances,
+          count: attendances.length,
+        },
       };
-
     } catch (error) {
-      const d = request.data as { staffId?: string; year?: number; month?: number };
+      const key = getAttendanceErrorKeyFromUnknown(error);
+      if (key === 'STAFF_RETIRED' || key === 'STAFF_NOT_ACTIVE' || key === 'ATTENDANCE_UNAUTHENTICATED' || key === 'ATTENDANCE_INVALID_ARGUMENT') {
+        throw error;
+      }
+      if (error instanceof HttpsError && (error.code === 'permission-denied' || error.code === 'unauthenticated' || error.code === 'invalid-argument')) {
+        throw error;
+      }
+
       logOpsError({
-        message: '勤怠記録取得エラー:',
+        message: '勤怠記録取得エラー',
         functionEntry: 'getStaffAttendance',
         cause: error,
-        context: {
-          staffId: d.staffId,
-          year: d.year,
-          month: d.month,
-          callerUid: request.auth?.uid,
-        },
+        context: logContext,
       });
-      
-      if (error instanceof Error) {
-        throw new Error(`勤怠記録の取得に失敗しました: ${error.message}`);
-      } else {
-        throw new Error("勤怠記録の取得に失敗しました。");
-      }
+
+      throwAttendanceHttpsError(
+        'internal',
+        'ATTENDANCE_INTERNAL_ERROR',
+        'Failed to get staff attendance',
+      );
     }
-  }
+  },
 );

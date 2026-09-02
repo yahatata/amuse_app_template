@@ -20,21 +20,62 @@ import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError'
 const ALLOWED_STATUSES = ['open', 'in_progress', 'settling'] as const;
 const LAST_CLOSE_RUN_ID_STEP2 = 'step2-manual';
 
-/** closeSnapshot が「既に付与済みとして扱うべき妥当な形」か。壊れた値は上書きせず invalid_closeSnapshot_shape でスキップする。 */
-function isCloseSnapshotValidShape(snapshot: unknown): boolean {
-  if (snapshot == null || typeof snapshot !== 'object') return false;
-  const s = snapshot as Record<string, unknown>;
-  if (s.unresolved === true) return true;
-  if (typeof s.lastCloseRunId === 'string' && s.lastCloseRunId.length > 0) return true;
+export type CloseMarkEvidenceClass = 'absent' | 'initial' | 'marked' | 'invalid';
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNullishOrEmptyString(value: unknown): boolean {
+  return value == null || value === '';
+}
+
+/**
+ * 閉店持ち越し mark 済み証跡。
+ * - unresolved === true
+ * - または lastCloseRunId が非空 string
+ */
+export function isAlreadyMarkedCloseEvidence(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  if (value.unresolved === true) return true;
+  if (typeof value.lastCloseRunId === 'string' && value.lastCloseRunId.length > 0) {
+    return true;
+  }
   return false;
 }
 
-function isCloseSummaryValidShape(summary: unknown): boolean {
-  if (summary == null || typeof summary !== 'object') return false;
-  const s = summary as Record<string, unknown>;
-  if (s.unresolved === true) return true;
-  if (typeof s.lastCloseRunId === 'string' && s.lastCloseRunId.length > 0) return true;
-  return false;
+/**
+ * createBillWithActiveStay の buildInitialCloseSummary() 相当。
+ * 正常な未 mark 状態であり、UNSETTLED_MARK の対象。
+ * invalid と同一視してはならない。
+ */
+export function isInitialUnmarkedCloseEvidence(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  if (value.unresolved !== false) return false;
+  if (!isNullishOrEmptyString(value.lastCloseRunId)) return false;
+  if (value.lastCloseRunId != null && typeof value.lastCloseRunId !== 'string') {
+    return false;
+  }
+  // 初期 shape では mark 証跡フィールドは nullish のまま
+  if (value.markedAt != null) return false;
+  if (value.closedBusinessDate != null) return false;
+  if (value.displayAmountAtMark != null) return false;
+  return true;
+}
+
+/**
+ * closeSummary / closeSnapshot の mark 観点分類。
+ * - absent: field なし（legacy）→ mark 可
+ * - initial: production 初期未 mark → mark 可
+ * - marked: 持ち越し処理済み → skip (already_marked)
+ * - invalid: 壊れた shape → skip (invalid_*_shape)
+ */
+export function classifyCloseMarkEvidence(value: unknown): CloseMarkEvidenceClass {
+  if (value == null) return 'absent';
+  if (!isPlainObject(value)) return 'invalid';
+  if (isAlreadyMarkedCloseEvidence(value)) return 'marked';
+  if (isInitialUnmarkedCloseEvidence(value)) return 'initial';
+  return 'invalid';
 }
 
 /** amountsByBillId から指定 bill の金額を取得。無い/不正なら null */
@@ -112,16 +153,20 @@ export async function applyCloseSnapshotCore(
         if (!status || !ALLOWED_STATUSES.includes(status as (typeof ALLOWED_STATUSES)[number])) {
           return { action: 'skipped' as const, reason: 'status_mismatch' };
         }
-        if (existingCloseSummary != null && typeof existingCloseSummary === 'object') {
-          if (isCloseSummaryValidShape(existingCloseSummary)) {
-            return { action: 'skipped' as const, reason: 'already_marked' };
-          }
+        // closeSummary: INITIAL/absent は mark 対象。MARKED/INVALID のみ skip。
+        const summaryClass = classifyCloseMarkEvidence(existingCloseSummary);
+        if (summaryClass === 'marked') {
+          return { action: 'skipped' as const, reason: 'already_marked' };
+        }
+        if (summaryClass === 'invalid') {
           return { action: 'skipped' as const, reason: 'invalid_closeSummary_shape' };
         }
-        if (existingCloseSnapshot != null && typeof existingCloseSnapshot === 'object') {
-          if (isCloseSnapshotValidShape(existingCloseSnapshot)) {
-            return { action: 'skipped' as const, reason: 'already_marked' };
-          }
+        // closeSnapshot: legacy null / 未付与は mark 可。壊れた snapshot のみ保護。
+        const snapshotClass = classifyCloseMarkEvidence(existingCloseSnapshot);
+        if (snapshotClass === 'marked') {
+          return { action: 'skipped' as const, reason: 'already_marked' };
+        }
+        if (snapshotClass === 'invalid') {
           return { action: 'skipped' as const, reason: 'invalid_closeSnapshot_shape' };
         }
         if (!userIdTrimmed) {

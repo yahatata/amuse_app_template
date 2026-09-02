@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
+import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
+import 'package:amuse_app_template/user_actions/side_game_dialog_layout.dart';
 
 /// SideGame用chip引き出しポップアップ
 Future<void> showSideGameChipWithdrawDialog({
@@ -14,7 +19,7 @@ Future<void> showSideGameChipWithdrawDialog({
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(
         outerCtx,
-      ).showSnackBar(const SnackBar(content: Text('ユーザー識別子が見つかりません')));
+      ).showSnackBar(SnackBar(content: Text(kUserActionUserIdMissingMessage)));
     }
     return;
   }
@@ -88,8 +93,9 @@ class _SideGameChipWithdrawDialogState
                 Text('chip引き出し'),
               ],
             ),
-            content: SizedBox(
-              width: 300,
+            content: SideGameDialogScrollableContent(
+              maxWidth: 300,
+              maxHeight: sideGameAlertDialogContentMaxHeight(context),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -174,8 +180,8 @@ class _SideGameChipWithdrawDialogState
                     keyboardType: TextInputType.number,
                     enabled: !_isLoading,
                     decoration: const InputDecoration(
-                      labelText: '引き出し額',
-                      hintText: '引き出しするchip額を入力',
+                      labelText: '引き出すchip額',
+                      hintText: '引き出すchip額を入力',
                       suffixText: 'chip',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.money),
@@ -198,7 +204,7 @@ class _SideGameChipWithdrawDialogState
                   backgroundColor: Colors.red,
                   foregroundColor: Colors.white,
                 ),
-                child: const Text('引き出し確定'),
+                child: const Text('引き出す'),
               ),
             ],
           ),
@@ -234,7 +240,7 @@ class _SideGameChipWithdrawDialogState
       builder: (ctx) => AlertDialog(
         title: const Text('引き出し確認'),
         content: Text(
-          '${widget.pokerName}様の${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chipの引き出し処理を開始してよろしいですか？',
+          '${widget.pokerName}様の${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} chipを引き出しますか？',
         ),
         actions: [
           TextButton(
@@ -250,7 +256,7 @@ class _SideGameChipWithdrawDialogState
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            child: const Text('確定'),
+            child: const Text('引き出す'),
           ),
         ],
       ),
@@ -262,13 +268,38 @@ class _SideGameChipWithdrawDialogState
     setState(() => _isLoading = true);
 
     Object? error;
+    var succeeded = false;
+    int? newBalance;
     try {
       final functions = FunctionsClient.instance;
-      await functions.httpsCallable('withdrawChip').call({
+      final result = await functions.httpsCallable('withdrawChip').call({
         'userId': widget.userId,
         'amount': amount,
         'clientNonce': _clientNonce,
       });
+      // USER-53: success==true のときのみ残高更新・完了
+      if (isCallableSuccessResponse(result.data)) {
+        succeeded = true;
+        final data = result.data;
+        if (data is Map) {
+          final inner = data['data'];
+          if (inner is Map && inner['newBalance'] is num) {
+            newBalance = (inner['newBalance'] as num).toInt();
+          }
+        }
+      } else {
+        error = null;
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(mapCallableSoftFailMessage(result.data)),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
     } catch (e) {
       error = e;
     } finally {
@@ -278,16 +309,26 @@ class _SideGameChipWithdrawDialogState
     }
 
     if (!mounted) return;
-    if (error != null) {
+    if (!succeeded) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('引き出し処理に失敗しました: $error'),
+          content: Text(
+            error != null
+                ? buildAsyncActionErrorMessage(
+                    error,
+                    defaultMessage: kUserActionWithdrawFailedMessage,
+                  )
+                : kUserActionWithdrawFailedMessage,
+          ),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
 
+    if (newBalance != null) {
+      setState(() => _currentChip = newBalance!);
+    }
     Navigator.of(context).pop(amount);
   }
 }

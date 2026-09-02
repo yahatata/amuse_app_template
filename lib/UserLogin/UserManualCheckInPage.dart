@@ -1,4 +1,5 @@
 import 'package:amuse_app_template/UserRegisterView/createUserAccountPage.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
@@ -75,8 +76,8 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
         });
 
         final response = result.data;
-        if (response['success'] == true) {
-          final data = response['data'];
+        if (isCallableSuccessResponse(response)) {
+          final data = (response as Map)['data'];
           final uid = data['uid'];
           final pokerName = data['pokerName'];
           final billId = data['billId']?.toString();
@@ -89,7 +90,6 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
           await _saveUserUID(uid);
 
           if (!mounted) return;
-          setState(() => _isLoading = false);
           Navigator.pop(
             context,
             UserCheckInResult(
@@ -101,15 +101,18 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
             ),
           );
         } else {
-          final error = response['error'] ?? 'ログイン処理に失敗しました';
+          // AUTH-01: soft-fail — raw error 非表示
+          final error = mapCallableSoftFailMessage(response);
           if (!mounted) return;
-          setState(() => _isLoading = false);
           await _showManualCheckInErrorDialog(error);
         }
       } catch (e) {
         if (!mounted) return;
-        setState(() => _isLoading = false);
-        await _showManualCheckInErrorDialog('ログイン処理に失敗しました: $e');
+        await _showManualCheckInErrorDialog(
+          mapCallableError(e, operation: 'manualCheckIn').message,
+        );
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }
@@ -220,16 +223,3 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
   }
 }
 
-class PlaceholderPage extends StatelessWidget {
-  final String title;
-
-  const PlaceholderPage({super.key, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(child: Text('$title の遷移先（未実装）')),
-    );
-  }
-}

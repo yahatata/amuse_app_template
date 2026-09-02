@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:amuse_app_template/OrderView/OrderManagement/order_user_facing_errors.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -477,7 +478,7 @@ class OrderCard extends StatelessWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('エラーが発生しました: $e'),
+            content: Text(mapOrderMarkServedError(e)),
             backgroundColor: Colors.red,
           ),
         );

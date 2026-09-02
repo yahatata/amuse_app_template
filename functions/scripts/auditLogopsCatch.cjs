@@ -5,7 +5,7 @@
  *   node scripts/auditLogopsCatch.cjs
  *   node scripts/auditLogopsCatch.cjs --missing-only
  *   node scripts/auditLogopsCatch.cjs --json
- *   AUDIT_EXCLUDE=debug,demo_data,unused_function_lib node scripts/auditLogopsCatch.cjs
+ *   AUDIT_EXCLUDE=debug,demo_data node scripts/auditLogopsCatch.cjs
  *
  * 「操作単位」: 構文上は CatchClause 1 つ = 1 行。ポリシー上「必ず logOpsError が要る」かは別判断
  * （--suspect は throw new HttpsError + internal/failed-precondition を含む catch で logOpsError が無いものに絞る）。
@@ -21,7 +21,6 @@ const DEFAULT_EXCLUDE_DIR_NAMES = new Set([
   "node_modules",
   "debug",
   "demo_data",
-  "unused_function_lib",
 ]);
 
 function parseArgs(argv) {

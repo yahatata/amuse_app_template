@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/AttendanceManagement/attendanceService.dart';
+import 'package:amuse_app_template/AttendanceManagement/attendance_user_facing_errors.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 
 /// QRコードスキャンによる出勤・退勤打刻ページ
@@ -484,19 +486,25 @@ class _QRScanPageState extends State<QRScanPage> {
         );
       }
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      // ATT-01: 固定文言のみ。QR 内容・内部例外は出さず、スキャン再開＋カメラ解除。
+      final msg = mapAttendanceQrParseError(e);
+      if (!mounted) return;
       setState(() {
-        _extractionError = msg;
+        _scannedData = null;
+        _extractedStaffId = null;
+        _extractionError = null;
+        _staffFullName = '取得中...';
+        _isScanning = true;
+        _isProcessing = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(msg),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
+      cameraController.start();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
   }
 
@@ -507,14 +515,23 @@ class _QRScanPageState extends State<QRScanPage> {
           .doc(staffId)
           .get();
       if (!mounted) return;
+      if (!staffDoc.exists) {
+        setState(() {
+          _staffFullName = kAttendanceStaffNameUnknownMessage;
+        });
+        return;
+      }
       final fullName = staffDoc.data()?['fullName']?.toString();
       setState(() {
-        _staffFullName = (fullName != null && fullName.isNotEmpty) ? fullName : '不明';
+        _staffFullName = (fullName != null && fullName.isNotEmpty)
+            ? fullName
+            : kAttendanceStaffNameUnknownMessage;
       });
     } catch (_) {
       if (!mounted) return;
+      // ATT-04: Firestore 失敗は欠落（不明）と区別する。打刻フローは止めない。
       setState(() {
-        _staffFullName = '不明';
+        _staffFullName = kAttendanceStaffNameUnavailableMessage;
       });
     }
   }
@@ -539,6 +556,23 @@ class _QRScanPageState extends State<QRScanPage> {
       );
 
       if (!mounted) return;
+
+      if (!result.success) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('出勤処理エラー'),
+            content: Text(result.message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
 
       if (result.warning != null) {
         await showDialog<void>(
@@ -565,7 +599,7 @@ class _QRScanPageState extends State<QRScanPage> {
       }
       Navigator.pop(context);
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = mapCallableError(e, operation: 'clockIn').message;
       if (mounted) {
         await showDialog<void>(
           context: context,
@@ -610,6 +644,23 @@ class _QRScanPageState extends State<QRScanPage> {
 
       if (!mounted) return;
 
+      if (!result.success) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('退勤処理エラー'),
+            content: Text(result.message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
       if (result.warning != null) {
         await showDialog<void>(
           context: context,
@@ -635,7 +686,7 @@ class _QRScanPageState extends State<QRScanPage> {
       }
       Navigator.pop(context);
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = mapCallableError(e, operation: 'clockOut').message;
       if (mounted) {
         await showDialog<void>(
           context: context,

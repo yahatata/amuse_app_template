@@ -1,7 +1,6 @@
 // Bills domain: callables and triggers
 export { getBillPreviewTotals } from "./callables/getBillPreviewTotals";
 export { startAccounting, completeAccounting, completeAccountingV2 } from "./callables/accounting";
-export { verifyPaymentSplit } from "./callables/verifyPaymentSplit";
 export { verifyCustomPayment } from "./callables/verifyCustomPayment";
 export { updateActiveBill } from "./callables/updateActiveBill";
 export { migrateTodaysBillsAccountingFields } from "./callables/migrateTodaysBills";

@@ -11,8 +11,10 @@ import 'package:share_plus/share_plus.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/services/payroll_config_service.dart';
 
+import '../errors/payroll_user_facing_errors.dart';
 import '../services/payroll_callable_service.dart';
 import '../utils/payment_date_utils.dart';
+import '../utils/staff_results_summary.dart';
 import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
 import 'result_summary.dart';
 import 'staff_card.dart';
@@ -182,17 +184,44 @@ class _ResultTabState extends State<ResultTab> {
     StaffCardData staff,
     String status,
   ) async {
+    var userNotified = false;
     try {
-      await _payrollService.registerPaymentStatus(
+      final result = await _payrollService.registerPaymentStatus(
         paymentPeriodKey: _paymentPeriodKey,
         entries: [
           {'staffId': staff.staffId, 'status': status}
         ],
       );
+      if (!isPayrollCallableSuccess(
+        result,
+        shapeValidator: isRegisterPaymentStatusShape,
+      )) {
+        userNotified = true;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                mapPayrollSoftFail(
+                  result,
+                  operation: kRegisterPaymentStatusOperation,
+                ),
+              ),
+            ),
+          );
+        }
+        throw Exception('registerPaymentStatus');
+      }
     } catch (e) {
-      if (mounted) {
+      if (mounted && !userNotified) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('登録に失敗: $e')),
+          SnackBar(
+            content: Text(
+              mapPayrollCallableError(
+                e,
+                operation: kRegisterPaymentStatusOperation,
+              ),
+            ),
+          ),
         );
       }
       rethrow;
@@ -454,22 +483,20 @@ class _ResultTabState extends State<ResultTab> {
             final retiredStaffIds = retiredSnapshot.data ?? const {};
 
             final staffDocs = staffSnapshot.data?.docs ?? [];
-            final staffList = staffDocs
+            final allStaffResults = staffDocs
                 .map((doc) => StaffCardData.fromFirestore(
                       doc.id,
                       doc.data() as Map<String, dynamic>,
                       isRetired: retiredStaffIds.contains(doc.id),
                     ))
-                .where((s) => s.grossPay != 0)
-                .toList()
+                .toList();
+            final staffList = visibleStaffResultCards(allStaffResults)
               ..sort((a, b) => b.grossPay.compareTo(a.grossPay));
 
-        final totalActualWork =
-            staffList.fold<int>(0, (s, e) => s + e.totalActualWorkMinutes);
-        final totalOvertime = staffList.fold<int>(
-            0, (s, e) => s + e.totalLegalOvertimeMinutes);
-        final totalHoliday = staffList.fold<int>(
-            0, (s, e) => s + e.totalLegalHolidayWorkMinutes);
+            final timeSummary = summarizeStaffResultsTime(allStaffResults);
+            final totalActualWork = timeSummary.totalActualWorkMinutes;
+            final totalOvertime = timeSummary.totalLegalOvertimeMinutes;
+            final totalHoliday = timeSummary.totalLegalHolidayWorkMinutes;
 
         final failedCount =
             (runData['failedStaffCount'] as num?)?.toInt() ?? 0;
@@ -635,16 +662,24 @@ class _ResultTabState extends State<ResultTab> {
       final bom = '\uFEFF';
       await file.writeAsString('$bom${buf.toString()}');
 
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path)],
-          subject: '給与計算結果 $_paymentPeriodKey',
-        ),
-      );
+      try {
+        await SharePlus.instance.share(
+          ShareParams(
+            files: [XFile(file.path)],
+            subject: '給与計算結果 $_paymentPeriodKey',
+          ),
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text(kPayrollCsvShareFailedMessage)),
+          );
+        }
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('CSV出力に失敗: $e')),
+          const SnackBar(content: Text(kPayrollCsvGenerateFailedMessage)),
         );
       }
     }

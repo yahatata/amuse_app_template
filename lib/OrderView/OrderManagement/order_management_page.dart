@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:amuse_app_template/Home/app_home_navigation.dart';
+import 'package:amuse_app_template/OrderView/OrderManagement/order_user_facing_errors.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/utils/store_assessment_utils.dart';
 import 'package:amuse_app_template/utils/store_strong_warning_ui.dart';
@@ -21,7 +22,8 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   final Map<String, String> _localOrderStatus = {};
   StoreMetaData? _latestMeta;
   Object? _metaError;
-  Object? _ordersError;
+  /// ORDER-11: 失敗フラグのみ保持。raw error は UI に出さない。
+  bool _ordersHasError = false;
   bool _isMetaLoading = true;
   bool _isOrdersLoading = false;
 
@@ -70,7 +72,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
           _cancelOrderSubscriptions(clearData: true);
           if (!mounted) return;
           setState(() {
-            _ordersError = null;
+            _ordersHasError = false;
             _isOrdersLoading = false;
           });
         }
@@ -103,7 +105,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
 
     _cancelOrderSubscriptions(clearData: true);
     _subscribedBusinessDateKey = businessDateKey;
-    _ordersError = null;
+    _ordersHasError = false;
     _isOrdersLoading = true;
 
     final today = businessDateKey.replaceAll('-', '');
@@ -122,11 +124,13 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
           return data;
         }).toList();
         _ordersLoaded = true;
+        _ordersHasError = false;
         _updateOrdersLoadingState();
       },
       onError: (error) {
+        // ORDER-11: stale は保持。raw は状態に載せない。
         _ordersLoaded = true;
-        _ordersError = error;
+        _ordersHasError = true;
         _updateOrdersLoadingState();
       },
     );
@@ -326,7 +330,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
     if (_metaError != null) {
       return Center(
         child: Text(
-          '営業情報の取得に失敗しました: $_metaError',
+          kOrderStoreMetaLoadFailedMessage,
           style: const TextStyle(color: Colors.red),
         ),
       );
@@ -348,20 +352,35 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
       );
     }
 
-    if (_ordersError != null) {
-      return Center(
-        child: Text(
-          '注文データ取得エラー: $_ordersError',
-          style: const TextStyle(color: Colors.red),
-        ),
-      );
-    }
     if (_isOrdersLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
+    // ORDER-11: 失敗と空一覧を区別。raw 非表示。stale があればバナー＋一覧。
+    if (_ordersHasError && _todayOrders.isEmpty) {
+      return Center(
+        child: Text(
+          kOrdersListLoadFailedMessage,
+          style: const TextStyle(color: Colors.red),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
     final orders = _processOrders(_todayOrders);
-    if (orders.isEmpty) {
+    final Widget? errorBanner = _ordersHasError
+        ? Container(
+            width: double.infinity,
+            color: Colors.orange.shade50,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Text(
+              ordersListErrorMessage(hasStaleOrders: true),
+              style: TextStyle(color: Colors.orange.shade900),
+            ),
+          )
+        : null;
+
+    if (orders.isEmpty && !_ordersHasError) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -383,42 +402,69 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: orders.length,
-      itemBuilder: (context, index) {
-        final order = orders[index];
-        final orderIdStr = order['id']?.toString();
-        return OrderCard(
-          order: order,
-          onStatusChanged: (orderId, newStatus) {
-            _updateOrderStatus(orderId, newStatus);
-          },
-          onEdit: (orderId, billId, orderDocId) {
-            _showEditDialog(orderId, billId, orderDocId);
-          },
-          localStatus: _localOrderStatus[order['id']?.toString()],
-          isActiveTab: _selectedTabIndex == 0,
-          isMarkingServed:
-              orderIdStr != null && _servingOrderId == orderIdStr,
-          onMarkServeStart: () {
-            if (orderIdStr != null) {
-              setState(() => _servingOrderId = orderIdStr);
-            }
-          },
-          onMarkServeEnd: () {
-            if (mounted) {
-              setState(() => _servingOrderId = null);
-            }
-          },
-          onDismissedSwipeCompleted: (orderId) {
-            setState(() => _localOrderStatus[orderId] = 'served');
-          },
-          onSwipeServeFailed: (orderId) {
-            setState(() => _localOrderStatus.remove(orderId));
-          },
-        );
-      },
+    if (orders.isEmpty && _ordersHasError) {
+      return Column(
+        children: [
+          if (errorBanner != null) errorBanner,
+          const Expanded(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  kOrdersListUpdateFailedMessage,
+                  style: TextStyle(color: Colors.red),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        if (errorBanner != null) errorBanner,
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: orders.length,
+            itemBuilder: (context, index) {
+              final order = orders[index];
+              final orderIdStr = order['id']?.toString();
+              return OrderCard(
+                order: order,
+                onStatusChanged: (orderId, newStatus) {
+                  _updateOrderStatus(orderId, newStatus);
+                },
+                onEdit: (orderId, billId, orderDocId) {
+                  _showEditDialog(orderId, billId, orderDocId);
+                },
+                localStatus: _localOrderStatus[order['id']?.toString()],
+                isActiveTab: _selectedTabIndex == 0,
+                isMarkingServed:
+                    orderIdStr != null && _servingOrderId == orderIdStr,
+                onMarkServeStart: () {
+                  if (orderIdStr != null) {
+                    setState(() => _servingOrderId = orderIdStr);
+                  }
+                },
+                onMarkServeEnd: () {
+                  if (mounted) {
+                    setState(() => _servingOrderId = null);
+                  }
+                },
+                onDismissedSwipeCompleted: (orderId) {
+                  setState(() => _localOrderStatus[orderId] = 'served');
+                },
+                onSwipeServeFailed: (orderId) {
+                  setState(() => _localOrderStatus.remove(orderId));
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 

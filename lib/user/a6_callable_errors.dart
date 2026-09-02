@@ -1,5 +1,7 @@
 import 'package:cloud_functions/cloud_functions.dart';
 
+import 'package:amuse_app_template/core/errors/errors.dart';
+
 /// A-6 Callable の `details.errorKey` → UI 表示文言。
 const Map<String, String> kA6ErrorKeyMessages = {
   'UNAUTHENTICATED': '認証が必要です。再ログインしてからお試しください。',
@@ -35,20 +37,16 @@ String? extractA6ErrorKey(Object error) {
 }
 
 /// A-6 Callable 失敗時の SnackBar 文言。
+///
+/// 既知 [kA6ErrorKeyMessages] は維持し、未知時のみ D-1 [mapCallableError] へ委譲する。
+/// Functions の raw message / `$error` は表示しない。
 String formatA6CallableError(Object error) {
   final key = extractA6ErrorKey(error);
   if (key != null) {
-    return kA6ErrorKeyMessages[key] ??
-        (error is FirebaseFunctionsException
-            ? (error.message ?? key)
-            : key);
+    final known = kA6ErrorKeyMessages[key];
+    if (known != null) return known;
   }
-  if (error is FirebaseFunctionsException) {
-    final message = error.message?.trim();
-    if (message != null && message.isNotEmpty) return message;
-    return '処理に失敗しました（${error.code}）';
-  }
-  return '処理に失敗しました: $error';
+  return mapCallableError(error).message;
 }
 
 /// 0以上の整数のみ許可。空欄・小数・負数・非数値は null。

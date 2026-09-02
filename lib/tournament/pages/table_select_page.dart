@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
 import 'package:amuse_app_template/tournament/active/models/scheduled_tournament_seat_map.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 
 /// 卓選択ページ
 /// デバイスに卓番付与がある場合はその卓のみ表示
@@ -30,11 +31,18 @@ class _TableSelectPageState extends State<TableSelectPage> {
   bool _isLoadingDeviceFilters = true;
   String? _myTableId;
   Set<String> _excludedTableIds = {};
+  int _tablesStreamReloadToken = 0;
 
   @override
   void initState() {
     super.initState();
     _loadDeviceFilters();
+  }
+
+  void _retryTablesStream() {
+    setState(() {
+      _tablesStreamReloadToken++;
+    });
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _tablesSeatStream() {
@@ -115,23 +123,66 @@ class _TableSelectPageState extends State<TableSelectPage> {
       body: _isLoadingDeviceFilters
           ? const Center(child: CircularProgressIndicator())
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              key: ValueKey('table-select-$_tablesStreamReloadToken'),
               stream: _tablesSeatStream(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Center(
-                    child: Text(
-                      '卓一覧の取得に失敗しました: ${snapshot.error}',
-                      style: const TextStyle(color: Colors.red),
-                      textAlign: TextAlign.center,
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            tournamentOpsStreamErrorMessage(
+                              kTournamentTablesLoadFailedMessage,
+                              snapshot.error,
+                            ),
+                            style: const TextStyle(color: Colors.red),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _retryTablesStream,
+                            child: const Text('再試行'),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }
-                if (!snapshot.hasData) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            tournamentOpsStreamErrorMessage(
+                              kTournamentTablesLoadFailedMessage,
+                            ),
+                            style: const TextStyle(color: Colors.red),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _retryTablesStream,
+                            child: const Text('再試行'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
                 }
 
                 final tables = _buildTableList(snapshot.data!);
                 if (tables.isEmpty) {
+                  // 空一覧 ≠ 失敗。エラー時は上で return 済み。
                   return Center(
                     child: Text(
                       _myTableId != null

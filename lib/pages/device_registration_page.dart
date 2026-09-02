@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/device_service.dart';
+import '../services/device_callable_errors.dart';
 import '../Home/adminHomePage.dart';
 import '../Home/terminalHomePage.dart';
 import '../tableDevice/pages/table_device_home_page.dart';
@@ -69,8 +70,9 @@ class _DeviceRegistrationPageState extends State<DeviceRegistrationPage> {
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = 'エラー: $e';
+        _error = mapDeviceRegisterError(e);
       });
     } finally {
       if (mounted) {

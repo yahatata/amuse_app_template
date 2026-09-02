@@ -16,6 +16,8 @@ function makeMockEntry(overrides?: Partial<ReportingEntry>): ReportingEntry {
     categoryBreakdown: { items: { amountIncl: 3000 } },
     paymentBreakdown: { cash: 3000 },
     categoryPaymentMatrix: { items_cash: 3000 },
+    totalAmountIncl: 3000,
+    createdAt: Timestamp.fromDate(new Date('2025-06-15T20:00:00+09:00')),
     ...overrides,
   };
 }

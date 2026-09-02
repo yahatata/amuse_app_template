@@ -1,26 +1,27 @@
 /**
- * Phase4 01: 退勤打刻 Callable
+ * Phase4 01 / L7-A: 退勤打刻 Callable
  *
- * 注意:
- * - updateManualClockOutRecord.ts とデータ更新・チェックロジックを揃えること。
- * - 片方を変更した場合、もう片方にも同等変更が必要な可能性がある。
- *
- * 警告・エラー判定あり。1時間猶予内は通常退勤可。
- * 経過時間による例外は廃止。
+ * - open attendance 特定 → active break 終了 → clockOut / 集計を 1 transaction
+ * - Flutter 互換: no-unclocked-attendance / grace-period-expired は soft { success:false, code }
+ * - attendanceLogs は commit 後 best-effort
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { CallableRequest } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { FieldValue, type Timestamp } from 'firebase-admin/firestore';
 import { getCallerDeviceByUid, hasRequiredOption, isActive } from '../../../shared/devices';
 import { getBusinessDateForAttendance } from '../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow';
 import { getStoreConfig } from '../../../shared/config/configLoader';
-import { writeAttendanceLog } from '../helpers/attendanceLogs';
 import {
-  endActiveBreaksForClockOut,
-  recalculateAttendanceFromBreaks,
-} from '../helpers/recalculateAttendanceFromBreaks';
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+  DEFAULT_NIGHT_WORK_END_HOUR,
+  DEFAULT_NIGHT_WORK_START_HOUR,
+} from '../../../shared/config/defaults';
+import type { StoreConfig } from '../../../shared/config/types';
+import { writeAttendanceLog } from '../helpers/attendanceLogs';
+import { calculateNightWorkMinutes } from '../helpers/nightWorkMinutes';
+import { logOpsError, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { logger } from 'firebase-functions';
 
 const GRACE_HOURS = 1;
 
@@ -56,6 +57,61 @@ function resolveAdjustedClockOutTimestamp(
   return adjusted;
 }
 
+function computeTotalsFromBreakDocs(params: {
+  clockIn: Timestamp;
+  clockOut: Timestamp;
+  breakDocs: Array<FirebaseFirestore.DocumentData>;
+  endingBreakIds: Set<string>;
+  endTs: Timestamp;
+  config: StoreConfig;
+}): {
+  breakMinutes: number;
+  actualWorkMinutes: number;
+  nightWorkMinutes: number;
+  totalMinutes: number;
+} {
+  const { clockIn, clockOut, breakDocs, endingBreakIds, endTs, config } = params;
+  const nightWorkStartHour =
+    config.attendance?.nightWorkStartHour ?? DEFAULT_NIGHT_WORK_START_HOUR;
+  const nightWorkEndHour = config.attendance?.nightWorkEndHour ?? DEFAULT_NIGHT_WORK_END_HOUR;
+
+  let breakMinutes = 0;
+  let nightBreakMinutes = 0;
+
+  for (const row of breakDocs) {
+    const d = row.data as FirebaseFirestore.DocumentData;
+    const id = row.id as string;
+    if (d.isDeleted === true) continue;
+    const startedAt = d.startedAt as Timestamp;
+    let endedAt = d.endedAt as Timestamp | null;
+    if (endingBreakIds.has(id)) {
+      endedAt = endTs;
+    }
+    if (!endedAt) continue;
+    breakMinutes += Math.floor((endedAt.toMillis() - startedAt.toMillis()) / (1000 * 60));
+    nightBreakMinutes += calculateNightWorkMinutes(
+      startedAt,
+      endedAt,
+      nightWorkStartHour,
+      nightWorkEndHour,
+    );
+  }
+
+  const totalMinutes = Math.floor(
+    (clockOut.toMillis() - clockIn.toMillis()) / (1000 * 60),
+  );
+  const actualWorkMinutes = Math.max(0, totalMinutes - breakMinutes);
+  const grossNight = calculateNightWorkMinutes(
+    clockIn,
+    clockOut,
+    nightWorkStartHour,
+    nightWorkEndHour,
+  );
+  const nightWorkMinutes = Math.max(0, grossNight - nightBreakMinutes);
+
+  return { breakMinutes, actualWorkMinutes, nightWorkMinutes, totalMinutes };
+}
+
 export const clockOut = onCall(async (request: CallableRequest) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '認証が必要です');
@@ -86,7 +142,6 @@ export const clockOut = onCall(async (request: CallableRequest) => {
     const db = admin.firestore();
 
     let attendanceRef: admin.firestore.DocumentReference;
-    let attendanceData: admin.firestore.DocumentData;
 
     if (docId) {
       const doc = await db.collection('attendances').doc(docId).get();
@@ -94,7 +149,6 @@ export const clockOut = onCall(async (request: CallableRequest) => {
         return { success: false, code: 'no-unclocked-attendance', message: '勤務中のデータがありません' };
       }
       attendanceRef = doc.ref;
-      attendanceData = doc.data()!;
     } else if (staffId) {
       const businessDate = await getBusinessDateForAttendance();
       const snap = await db
@@ -104,42 +158,39 @@ export const clockOut = onCall(async (request: CallableRequest) => {
         .where('clockOut', '==', null)
         .get();
 
-      const targetDoc = snap.docs.find((d) => {
-        const d2 = d.data();
-        return d2.clockIn != null;
-      });
-
+      const targetDoc = snap.docs.find((d) => d.data().clockIn != null);
       if (!targetDoc) {
         return { success: false, code: 'no-unclocked-attendance', message: '勤務中のデータがありません' };
       }
       attendanceRef = targetDoc.ref;
-      attendanceData = targetDoc.data();
     } else {
       throw new HttpsError('invalid-argument', 'staffId or docId is required');
     }
 
+    // grace / staff 活性は tx 前に判定（業務メッセージ互換のため）
+    const preSnap = await attendanceRef.get();
+    if (!preSnap.exists) {
+      return { success: false, code: 'no-unclocked-attendance', message: '勤務中のデータがありません' };
+    }
+    const preData = preSnap.data()!;
+
     const { assertActiveStaff } = await import('../../staff/helpers/staffStatus');
-    await assertActiveStaff(String(attendanceData.staffId));
+    await assertActiveStaff(String(preData.staffId));
 
     Object.assign(logContext, {
       docId: attendanceRef.id,
-      staffId: attendanceData.staffId,
-      date: attendanceData.date,
+      staffId: preData.staffId,
+      date: preData.date,
     });
 
-    if (attendanceData.clockOut) {
-      return { success: false, code: 'no-unclocked-attendance', message: '勤務中のデータがありません' };
-    }
-    if (!attendanceData.clockIn) {
+    if (preData.clockOut || !preData.clockIn) {
       return { success: false, code: 'no-unclocked-attendance', message: '勤務中のデータがありません' };
     }
 
-    // 1時間猶予チェック: closedStoreWithoutClockOut かつ closedAt があり、1時間超過ならパスワードフローへ
-    const closedAt = attendanceData.closedAt as admin.firestore.Timestamp | undefined;
-    if (attendanceData.closedStoreWithoutClockOut === true && closedAt) {
+    const closedAt = preData.closedAt as admin.firestore.Timestamp | undefined;
+    if (preData.closedStoreWithoutClockOut === true && closedAt) {
       const closedAtMs = closedAt.toDate().getTime();
-      const nowMs = Date.now();
-      const elapsedHours = (nowMs - closedAtMs) / (1000 * 60 * 60);
+      const elapsedHours = (Date.now() - closedAtMs) / (1000 * 60 * 60);
       if (elapsedHours >= GRACE_HOURS) {
         return {
           success: false,
@@ -153,14 +204,10 @@ export const clockOut = onCall(async (request: CallableRequest) => {
     const adjustedClockOut = resolveAdjustedClockOutTimestamp(
       adjustmentOffsetMinutes,
       config,
-      attendanceData.clockIn as admin.firestore.Timestamp
+      preData.clockIn as admin.firestore.Timestamp,
     );
 
-    // 【4.1-D】休憩中退勤時: 休憩自動終了 → breaks 反映 → 親再集計
-    await endActiveBreaksForClockOut(attendanceRef, adjustedClockOut);
-
-    // 警告: 同じスタッフに他に closedStoreWithoutClockOut の attendance があるか
-    const staffIdVal = attendanceData.staffId as string;
+    const staffIdVal = preData.staffId as string;
     const otherClosedSnap = await db
       .collection('attendances')
       .where('staffId', '==', staffIdVal)
@@ -169,49 +216,85 @@ export const clockOut = onCall(async (request: CallableRequest) => {
     const hasWarning = otherClosedSnap.docs.some((d) => d.id !== attendanceRef.id);
     Object.assign(logContext, { hasWarning });
 
-    const nowTs = admin.firestore.FieldValue.serverTimestamp();
-    await attendanceRef.update({
-      clockOut: adjustedClockOut,
-      updatedAt: nowTs,
-    });
+    type TxOutcome =
+      | { kind: 'missing' }
+      | { kind: 'ok'; staffName: string };
 
-    const recalcResult = await recalculateAttendanceFromBreaks({
-      attendanceRef,
-      attendanceData: {
-        clockIn: attendanceData.clockIn as admin.firestore.Timestamp,
+    const outcome = await db.runTransaction(async (tx): Promise<TxOutcome> => {
+      const attSnap = await tx.get(attendanceRef);
+      if (!attSnap.exists) return { kind: 'missing' };
+      const attendanceData = attSnap.data()!;
+      if (attendanceData.clockOut || !attendanceData.clockIn) {
+        return { kind: 'missing' };
+      }
+
+      const breaksSnap = await tx.get(attendanceRef.collection('breaks'));
+      const endingBreakIds = new Set<string>();
+      for (const b of breaksSnap.docs) {
+        const bd = b.data();
+        if (bd.isDeleted === true) continue;
+        if (bd.endedAt == null) {
+          endingBreakIds.add(b.id);
+          tx.update(b.ref, {
+            endedAt: adjustedClockOut,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+      }
+
+      const totals = computeTotalsFromBreakDocs({
+        clockIn: attendanceData.clockIn as Timestamp,
         clockOut: adjustedClockOut,
-        staffId: attendanceData.staffId,
-        date: attendanceData.date,
-      },
-      config,
+        breakDocs: breaksSnap.docs.map((d) => ({ id: d.id, data: d.data() })),
+        endingBreakIds,
+        endTs: adjustedClockOut,
+        config,
+      });
+
+      tx.update(attendanceRef, {
+        clockOut: adjustedClockOut,
+        isOnBreak: false,
+        currentBreakStartedAt: null,
+        breakMinutes: totals.breakMinutes,
+        actualWorkMinutes: totals.actualWorkMinutes,
+        nightWorkMinutes: totals.nightWorkMinutes,
+        totalMinutes: totals.totalMinutes,
+        nightMinutes: totals.nightWorkMinutes,
+        lastActionType: 'clock_out',
+        lastActionAt: FieldValue.serverTimestamp(),
+        lastActionByDeviceId: device.id,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return {
+        kind: 'ok',
+        staffName: (attendanceData.staffsFullName as string) ?? '',
+      };
     });
 
-    const totalMinutes = Math.floor(
-      (adjustedClockOut.toDate().getTime() -
-        (attendanceData.clockIn as admin.firestore.Timestamp).toDate().getTime()) /
-        (1000 * 60)
-    );
-    await attendanceRef.update({
-      totalMinutes,
-      nightMinutes: recalcResult.nightWorkMinutes,
-      lastActionType: 'clock_out',
-      lastActionAt: nowTs,
-      lastActionByDeviceId: device.id,
-    });
+    if (outcome.kind === 'missing') {
+      return { success: false, code: 'no-unclocked-attendance', message: '勤務中のデータがありません' };
+    }
 
-    await writeAttendanceLog({
-      db,
-      attendanceId: attendanceRef.id,
-      actionType: 'clock_out',
-      performedByUid: null,
-      performedByDeviceId: device.id,
-    });
+    try {
+      await writeAttendanceLog({
+        db,
+        attendanceId: attendanceRef.id,
+        actionType: 'clock_out',
+        performedByUid: null,
+        performedByDeviceId: device.id,
+      });
+    } catch (logErr) {
+      logger.warn('clockOut: attendanceLogs write failed (non-fatal)', {
+        attendanceId: attendanceRef.id,
+        deviceId: device.id,
+      });
+    }
 
-    const staffName = (attendanceData.staffsFullName as string) ?? '';
     const result: Record<string, unknown> = {
       success: true,
       docId: attendanceRef.id,
-      message: `${staffName}さんの退勤記録を更新しました`,
+      message: `${outcome.staffName}さんの退勤記録を更新しました`,
     };
 
     if (hasWarning) {
@@ -222,8 +305,8 @@ export const clockOut = onCall(async (request: CallableRequest) => {
       message: 'clockOut 成功',
       functionEntry: 'clockOut',
       context: {
-        staffId: attendanceData.staffId,
-        date: attendanceData.date,
+        staffId: preData.staffId,
+        date: preData.date,
         docId: attendanceRef.id,
         deviceId: device.id,
         hasWarning,

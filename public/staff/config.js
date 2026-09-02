@@ -28,16 +28,17 @@ window.__CONFIG__ = {
   },
   
   // SSoT: storeMeta/config.linePlan（Firestore 初期化後に loadLinePlanFromFirestore() で上書き）
+  // 旧 isShiftRequestEnabled（要請confirm/decline ゲート）は CLN-F2 で削除済み
   linePlan: "communication",
-  
-  isShiftRequestEnabled: function() {
-    return this.linePlan !== 'communication';
-  },
+  /** true のとき linePlan は取得失敗により default へ落ちた状態 */
+  linePlanLoadFailed: false,
 
   /**
    * Firestore storeMeta/config から linePlan を読み取り、__CONFIG__ を上書きする。
    * Firebase 初期化後に呼び出すこと。
+   * 起動時の利用者向け警告は出さない（L1）。失敗状態は loadFailed / linePlanLoadFailed で保持。
    * @param {import('firebase/firestore').Firestore} db
+   * @returns {Promise<{ value: string, loadFailed: boolean }>}
    */
   loadLinePlanFromFirestore: async function(db) {
     try {
@@ -49,8 +50,12 @@ window.__CONFIG__ = {
           this.linePlan = data.linePlan;
         }
       }
+      this.linePlanLoadFailed = false;
+      return { value: this.linePlan, loadFailed: false };
     } catch (e) {
-      console.warn("[config.js] Failed to load linePlan from Firestore, using default:", e);
+      console.warn("[config.js] Failed to load linePlan from Firestore, using default");
+      this.linePlanLoadFailed = true;
+      return { value: this.linePlan, loadFailed: true };
     }
   }
 };

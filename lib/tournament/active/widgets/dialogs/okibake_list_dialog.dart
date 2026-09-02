@@ -1,5 +1,6 @@
 import 'package:amuse_app_template/tournament/active/models/okibake_temporary_entry.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_busted_action_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_bill_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_seat_action_dialog.dart';
@@ -58,6 +59,8 @@ class OkibakeListDialog extends StatefulWidget {
 }
 
 class _OkibakeListDialogState extends State<OkibakeListDialog> {
+  int _listStreamRetryToken = 0;
+
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -132,6 +135,7 @@ class _OkibakeListDialogState extends State<OkibakeListDialog> {
                       }
 
                       return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        key: ValueKey('okibake-list-$_listStreamRetryToken'),
                         stream: FirebaseFirestore.instance
                             .collection('scheduledTournaments')
                             .doc(widget.tournamentId)
@@ -141,9 +145,24 @@ class _OkibakeListDialogState extends State<OkibakeListDialog> {
                           if (snap.hasError) {
                             return Padding(
                               padding: const EdgeInsets.symmetric(vertical: 24),
-                              child: Text(
-                                '置きバケ一覧の取得に失敗しました: ${snap.error}',
-                                style: TextStyle(color: Colors.red.shade700),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    kTournamentOkibakeLoadFailedMessage,
+                                    style: TextStyle(
+                                      color: Colors.red.shade700,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  ElevatedButton(
+                                    onPressed: () => setState(
+                                      () => _listStreamRetryToken++,
+                                    ),
+                                    child: const Text('再試行'),
+                                  ),
+                                ],
                               ),
                             );
                           }

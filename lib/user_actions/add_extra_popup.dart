@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
+import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
 
 /// 追加料金を手動で追加するダイアログ
 Future<void> showAddExtraDialog({
@@ -15,7 +19,7 @@ Future<void> showAddExtraDialog({
   if (billId.isEmpty) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('伝票IDが見つかりません')),
+        SnackBar(content: Text(kUserActionBillIdMissingMessage)),
       );
     }
     return;
@@ -524,7 +528,7 @@ Future<void> _executeAddExtra({
     }
 
     final data = result.data as Map<String, dynamic>? ?? {};
-    final bool ok = data['success'] == true;
+    final bool ok = isCallableSuccessResponse(data);
 
     hideLoading();
 
@@ -549,10 +553,10 @@ Future<void> _executeAddExtra({
         ),
       );
     } else {
-      final err = data['error'] ?? '不明なエラー';
+      // USER-18 soft-fail: raw error 非表示
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('追加料金の登録に失敗しました: $err'),
+          content: Text(mapCallableSoftFailMessage(data)),
           backgroundColor: Colors.red,
         ),
       );
@@ -571,16 +575,15 @@ Future<void> _executeAddExtra({
   } catch (e) {
     hideLoading();
     if (context.mounted) {
-      final msg = e.toString();
-      String ui = '追加料金の登録に失敗しました';
-      if (msg.contains('network')) {
-        ui = 'ネットワークエラーが発生しました。接続を確認してください。';
-      } else if (msg.contains('permission')) {
-        ui = '権限が不足しています。管理者に連絡してください。';
-      }
+      // USER-20: D-1 / buildAsyncActionErrorMessage（contains 分岐は helper 内の既存のみ）
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(ui),
+          content: Text(
+            buildAsyncActionErrorMessage(
+              e,
+              defaultMessage: kUserActionAddExtraFailedMessage,
+            ),
+          ),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 5),
         ),

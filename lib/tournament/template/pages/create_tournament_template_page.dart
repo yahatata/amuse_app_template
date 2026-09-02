@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
 import 'package:amuse_app_template/tournament/ranking_reward_point_candidates.dart';
+import 'package:amuse_app_template/tournament/scheduling/errors/tournament_admin_user_facing_errors.dart';
 
 class CreateTournamentTemplatePage extends StatefulWidget {
   final Map<String, dynamic>? existingTemplate;
@@ -144,7 +146,7 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
       final result = await callable.call();
       final response = result.data;
 
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         // Cloud Functionsから返されるデータの型変換
         final List<dynamic> rawTemplates = response['blindTemplates'] ?? [];
         final List<Map<String, dynamic>> convertedTemplates = rawTemplates.map((template) {
@@ -174,13 +176,13 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
         }
       } else {
         setState(() {
-          _errorMessage = response['error'] ?? 'ブラインドテンプレートの取得に失敗しました';
+          _errorMessage = mapCallableSoftFailMessage(response);
           _isLoading = false;
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'ブラインドテンプレートの取得に失敗しました: $e';
+        _errorMessage = mapTournamentAdminCallableError(e);
         _isLoading = false;
       });
     }
@@ -307,7 +309,7 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
       
       debugPrint('Cloud Function レスポンス: $response');
 
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         debugPrint('保存成功');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -316,14 +318,15 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
           Navigator.pop(context, true);
         }
       } else {
-        debugPrint('保存失敗: ${response['error']}');
+        debugPrint('保存失敗 (soft-fail)');
+        final failMessage = mapCallableSoftFailMessage(response);
         setState(() {
-          _errorMessage = response['error'] ?? '保存に失敗しました';
+          _errorMessage = failMessage;
         });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(response['error'] ?? '保存に失敗しました'),
+              content: Text(failMessage),
               backgroundColor: Colors.red,
             ),
           );
@@ -331,13 +334,14 @@ class _CreateTournamentTemplatePageState extends State<CreateTournamentTemplateP
       }
     } catch (e) {
       debugPrint('例外発生: $e');
+      final failMessage = mapTournamentAdminCallableError(e);
       setState(() {
-        _errorMessage = '保存に失敗しました: $e';
+        _errorMessage = failMessage;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('保存に失敗しました: $e'),
+            content: Text(failMessage),
             backgroundColor: Colors.red,
           ),
         );

@@ -1,3 +1,7 @@
+import 'package:amuse_app_template/Accounting/errors/accounting_error_operations.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
+import 'package:amuse_app_template/Accounting/errors/map_accounting_error.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -201,6 +205,7 @@ class _PostSettlementIdempotencyReplayPageState
       _error = null;
       _result = null;
     });
+    Object? caughtError;
     try {
       final payload = _buildPayload();
       final billId = payload['billId'] as String;
@@ -210,6 +215,16 @@ class _PostSettlementIdempotencyReplayPageState
       );
       final first = await callable.call(payload);
       final second = await callable.call(payload);
+      if (!isCallableSuccessResponse(first.data) ||
+          !isCallableSuccessResponse(second.data)) {
+        if (!mounted) return;
+        final mapped = mapAccountingSoftFailError(
+          first.data,
+          operation: AccountingErrorOperations.createPostSettlementAdjustment,
+        );
+        setState(() => _error = mapped.message);
+        return;
+      }
       final after = await _readCycleSnapshot(billId);
       final expectedSequenceDelta = _type.isImmediate ? 2 : 1;
       if (!mounted) return;
@@ -226,21 +241,27 @@ class _PostSettlementIdempotencyReplayPageState
         const SnackBar(content: Text('同一 idempotencyKey で 2 回送信しました')),
       );
     } on FirebaseFunctionsException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = 'Callable 失敗: [${e.code}] ${e.message ?? '—'}';
-      });
+      caughtError = e;
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = '実行に失敗しました: $e';
-      });
+      caughtError = e;
     } finally {
       if (mounted) {
         setState(() {
           _submitting = false;
         });
       }
+    }
+
+    if (!mounted || caughtError == null) return;
+
+    if (caughtError is FirebaseFunctionsException) {
+      final mapped = mapAccountingCallableError(
+        caughtError,
+        operation: AccountingErrorOperations.createPostSettlementAdjustment,
+      );
+      setState(() => _error = mapped.message);
+    } else {
+      setState(() => _error = kAccountingPostSettlementReplayFailedMessage);
     }
   }
 

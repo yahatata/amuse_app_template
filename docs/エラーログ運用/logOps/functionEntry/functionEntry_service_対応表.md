@@ -5,7 +5,7 @@
 - 根拠仕様: `保守運用時のエラーログ/保守運用時のエラーログ.md` および `保守運用時のエラーログ/エラーログ拡張仕様書_差分実装版.md`（`service` の観点）
 - 根拠コード: `functions/src/index.ts` および各 `domains/*/index.ts`・`shared/*/index.ts`・`demo_data/index.ts` の **export 名**（= 原則 `functionEntry`）
 - 補足: 本表は **デプロイ対象の Cloud Functions エントリ**（`onCall` / `onRequest` / トリガ等に紐づく export）を対象とする。`shared/firebase` の `getEnv` はユーティリティの re-export であり CF 名ではないため **本表に含めない**。**ログ上の `functionEntry` だけが export 名と異なるもの**は §「export 外の functionEntry 対応表」を参照。
-- 件数: **171**（上記コードベースと一致）
+- 件数: **170**（上記コードベースと一致）
 - **`platform` は廃止**（横断インフラの粒度が業務 `service` と揃わないため）。**`device`**（店舗端末）、**`scheduler`**（スケジューラ／ジョブ基盤）、**`config`**（店舗設定ロード）に分割する。
 - **重要度判定の十分性（主対象）**: `generateDummyData` / `debugSideGame` は `エラーログ_重要度判定要件定義.md` **§4** に従い、十分性評価の**主対象外**（上記 2 呼び出し）。**主対象は 269 件**（旧 **278 件**（280 − 2）から `unused_function_lib` へ移管した **9 呼び出し分**を除く）。**`service` マッピングや `logOpsError` の有無とは独立**。対応表の備考列に記載。
 
@@ -40,13 +40,11 @@
 | `clockIn` | `attendance` | |
 | `clockOut` | `attendance` | |
 | `closeAssessmentTask` | `store` | |
-| `closeStore` | `store` | |
 | `closeStoreTerminal` | `store` | |
 | `cleanupActiveStaysOnClose` | `store` | |
 | `completeAccounting` | `accounting` | |
 | `completeAccountingV2` | `accounting` | |
 | `confirmPayrollRun` | `payroll` | |
-| `confirmShiftRequest` | `staff` | |
 | `continueBusinessTerminal` | `store` | |
 | `createAttendance` | `attendance` | |
 | `createAttendanceCorrectionRequest` | `attendance` | |
@@ -54,12 +52,10 @@
 | `createInitialStateDocCallable` | `store` | |
 | `createManualClockInRecord` | `attendance` | |
 | `createMenuItem` | `orders` | |
-| `createMultipleShifts` | `staff` | |
 | `createOkibakeTemporaryEntry` | `tournament` | |
 | `createRecruitments` | `shift` | |
 | `createScheduledTournament` | `tournament_schedule` | |
 | `createStaffAccount` | `staff` | |
-| `createStaffByApp` | `staff` | |
 | `createTemporaryTable` | `tournament` | |
 | `createTournamentRecurrence` | `tournament_schedule` | |
 | `createTournamentTemplate` | `tournament_schedule` | |
@@ -68,7 +64,6 @@
 | `setInitialUserBalances` | `user` | A-6 初期残高設定 |
 | `migrateStoreManagedUserToLine` | `user` | A-6 後日 LINE 化 |
 | `controlHookHttp` | `tournament_schedule` | `index.ts` → `shared/http/controlHook.ts`（トーナメント Cloud Tasks HTTP） |
-| `debugSideGame` | `side_game` | 開発・検証用。**`エラーログ_重要度判定要件定義.md` §4** に従い、本番運用向け重要度判定の十分性評価の**主対象外**（実装サマリ 業務本体 280 件のうち除外する 2 件の一方） |
 | `deletePayrollDemoData` | `payroll` | `demo_data`（給与デモ削除） |
 | `deleteTournamentRecurrence` | `tournament_schedule` | |
 | `depositChip` | `side_game` | |
@@ -128,7 +123,6 @@
 | `migrateTodaysBillsAccountingFields` | `accounting` | |
 | `monthlyPayrollTrigger` | `payroll` | |
 | `openAssessmentTask` | `store` | |
-| `openStore` | `store` | |
 | `openStoreTerminal` | `store` | |
 | `pauseTournament` | `tournament` | |
 | `payrollNotificationScheduler` | `payroll` | |
@@ -261,9 +255,9 @@
 - **payroll**: `cancelPayrollRun`, `confirmPayrollRun`, `deletePayrollDemoData`, `executeMonthlyPayroll`, `finalizePayrollRun`, `getPayrollCandidates`, `getPayrollData`, `monthlyPayrollTrigger`, `payrollNotificationScheduler`, `processPayrollNotifications`, `processStaffPayroll`, `registerPaymentStatus`, `retryFailedStaffTasks`, `seedAttendancesDemo`, `seedPayrollDemoData`
 - **scheduler**: `schedulerSupervisor`（同一 service の export 外分は §「export 外の functionEntry 対応表」）
 - **shift**: `calculateInsufficientDays`, `createRecruitments`, `finalizeDay`, `finalizeMonth`, `initShiftDaysForMonth`, `interimConfirmRequests`, `sendRecruitmentNotification`, `setSufficientOverride`, `updateDayAssignments`
-- **side_game**: `debugSideGame`（**重要度十分性の主対象外**・§4）、`depositChip`, `leaveSeat`, `registerForSideGame`, `withdrawChip`
-- **staff**: `confirmShiftRequest`, `createMultipleShifts`, `createStaffAccount`, `createStaffByApp`, `getShifts`, `reactivateStaffAccount`, `retireStaff`, `scheduledCleanup`, `updateShiftRequest`, `updateStaffBankInfo`, `updateStaffHourlyWage`
-- **store**: `applyCloseSnapshot`, `cleanupActiveStaysOnClose`, `closeAssessmentTask`, `closeStore`, `closeStoreTerminal`, `continueBusinessTerminal`, `createInitialStateDocCallable`, `finalizeUnsettledBillAfterAccounting`, `getCloseIntegrityData`, `getUnclockedStaffForClose`, `getUnclosedTournamentsForClose`, `getUnsettledBillsForClose`, `initializeStoreConfigCallable`, `openAssessmentTask`, `openStore`, `openStoreTerminal`, `resetAllSideGames`, `resetAllTables`, `temporaryUnlockAlreadyRunningDifferentDateTerminal`, `updateUnclockedAttendanceWithAuth`, `verifyUnclockedAttendanceEditPassword`, `weeklyPlanner`
+- **side_game**: `depositChip`, `leaveSeat`, `registerForSideGame`, `withdrawChip`
+- **staff**: `createStaffAccount`, `getShifts`, `reactivateStaffAccount`, `retireStaff`, `scheduledCleanup`, `submitShiftRequests`, `updateShiftRequest`, `updateStaffBankInfo`, `updateStaffHourlyWage`
+- **store**: `applyCloseSnapshot`, `cleanupActiveStaysOnClose`, `closeAssessmentTask`, `closeStoreTerminal`, `continueBusinessTerminal`, `createInitialStateDocCallable`, `finalizeUnsettledBillAfterAccounting`, `getCloseIntegrityData`, `getUnclockedStaffForClose`, `getUnclosedTournamentsForClose`, `getUnsettledBillsForClose`, `initializeStoreConfigCallable`, `openAssessmentTask`, `openStoreTerminal`, `resetAllSideGames`, `resetAllTables`, `temporaryUnlockAlreadyRunningDifferentDateTerminal`, `updateUnclockedAttendanceWithAuth`, `verifyUnclockedAttendanceEditPassword`, `weeklyPlanner`
 - **tournament**: `addTableToTournament`, `addon`, `applyOkibakeAddon`, `assignOkibakeTemporaryEntryToSeat`, `assignSeatToPlayer`, `bulkAddon`, `bustAndExit`, `bustAndReentry`, `bustOkibakeTemporaryEntry`, `createOkibakeTemporaryEntry`, `createTemporaryTable`, `endTournament`, `getAvailableTables`, `getPrizeData`, `getRankingData`, `getTodayTournaments`, `getUpcomingTournaments`, `linkOkibakeTemporaryEntryToBill`, `pauseTournament`, `registerForTournament`, `registerParticipants`, `removeTableFromTournament`, `resumeTournament`, `reseatAllPlayers`, `setPrizeData`, `setRankingData`, `updateOkibakeTemporaryEntryLinkedUser`, `validateEndTournament`
 - **tournament_schedule**: `archiveBlindTemplate`, `archiveTournamentTemplate`, `controlHookHttp`, `createBlindTemplate`, `createScheduledTournament`, `createTournamentRecurrence`, `createTournamentTemplate`, `deleteTournamentRecurrence`, `enqueueTournamentTasks`, `enqueueTournamentTasksByScheduler`, `generateRecurringTournaments`, `generateRecurringTournamentsByScheduler`, `getBlindTemplates`, `getScheduledTournamentsForEdit`, `getTournamentRecurrences`, `getTournamentTemplates`, `updateBlindTemplate`, `updateScheduledTournamentStartAt`, `updateScheduledTournamentStatus`, `updateTournamentRecurrence`, `updateTournamentTemplate`
 - **user**: `createUserAccount`, `createUserByApp`, `generateQRCode`, `getFirebaseCustomToken`, `getUserStatus`, `manualCheckIn`, `migrateStoreManagedUserToLine`, `processVisitByQR`, `setInitialUserBalances`, `verifyQRCode`

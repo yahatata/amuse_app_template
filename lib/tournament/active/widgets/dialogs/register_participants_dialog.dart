@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_user_picker_dialog.dart';
 
 class RegisterParticipantsDialog extends StatefulWidget {
@@ -17,35 +19,35 @@ class RegisterParticipantsDialog extends StatefulWidget {
   });
 
   @override
-  State<RegisterParticipantsDialog> createState() => _RegisterParticipantsDialogState();
+  State<RegisterParticipantsDialog> createState() =>
+      _RegisterParticipantsDialogState();
 }
 
-class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog> {
+class _RegisterParticipantsDialogState
+    extends State<RegisterParticipantsDialog> {
   final Set<String> _selectedUserIds = {};
   bool _isRegistering = false;
+  bool _listLoadFailed = false;
+  int _streamRetryToken = 0;
+  int _exclusionRetryToken = 0;
 
-  /// 座席に着席しているユーザーIDと待機リストのユーザーIDのセットを取得
   Future<Set<String>> _getExcludedUserIds() async {
     final tablesSeatSnapshot = await FirebaseFirestore.instance
         .collection('scheduledTournaments')
         .doc(widget.tournamentId)
         .collection('tablesSeat')
         .get();
-    
+
     final excludedUserIds = <String>{};
-    
+
     for (final doc in tablesSeatSnapshot.docs) {
       final data = doc.data();
-      
+
       if (doc.id == 'waiting') {
-        // 待機リストからユーザーIDを収集
         final waiting = data['waiting'] as Map<String, dynamic>? ?? {};
         excludedUserIds.addAll(waiting.keys);
       } else {
-        // 座席からユーザーIDを収集
         final seats = data['seats'] as Map<String, dynamic>? ?? {};
-        
-        // seatXXUserIdフィールドからユーザーIDを収集
         for (final entry in seats.entries) {
           if (entry.key.endsWith('UserId') && entry.value != null) {
             excludedUserIds.add(entry.value as String);
@@ -53,11 +55,10 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
         }
       }
     }
-    
+
     return excludedUserIds;
   }
 
-  /// 既存参加者除外 + 置きバケ linkedUserId 使用済み除外をまとめて返す
   Future<Set<String>> _getUnavailableUserIds() async {
     final results = await Future.wait<dynamic>([
       _getExcludedUserIds(),
@@ -67,6 +68,49 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
     blocked.addAll(results[0] as Set<String>);
     blocked.addAll(results[1] as Set<String>);
     return blocked;
+  }
+
+  void _setListLoadFailed(bool failed) {
+    if (!mounted || _listLoadFailed == failed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _listLoadFailed == failed) return;
+      setState(() {
+        _listLoadFailed = failed;
+        if (failed) {
+          _selectedUserIds.clear();
+        }
+      });
+    });
+  }
+
+  void _retryListLoad() {
+    setState(() {
+      _listLoadFailed = false;
+      _selectedUserIds.clear();
+      _streamRetryToken++;
+      _exclusionRetryToken++;
+    });
+  }
+
+  Widget _buildLoadFailed(String message) {
+    _setListLoadFailed(true);
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            message,
+            style: TextStyle(color: Colors.red.shade700),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: _isRegistering ? null : _retryListLoad,
+            child: const Text('再試行'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -95,146 +139,173 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
                       const SizedBox(height: 16),
                       Expanded(
                         child: StreamBuilder<QuerySnapshot>(
-                stream: ActiveStaysService.instance.stream,
-                builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Text(
-                        'ユーザー情報の読み込みに失敗しました： ${snapshot.error}',
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    );
-                  }
+                          key: ValueKey('register-stays-$_streamRetryToken'),
+                          stream: ActiveStaysService.instance.stream,
+                          builder: (context, snapshot) {
+                            if (snapshot.hasError) {
+                              return _buildLoadFailed(
+                                kTournamentActiveStaysLoadFailedMessage,
+                              );
+                            }
 
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+                            if (snapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
+                            }
 
-                  final activeStays = snapshot.data?.docs ?? [];
-                  final availableUsers = <Map<String, dynamic>>[];
+                            final activeStays = snapshot.data?.docs ?? [];
 
-                  // FutureBuilderを使用して非同期処理を行う
-                  return FutureBuilder<Set<String>>(
-                    future: _getUnavailableUserIds(),
-                    builder: (context, excludedSnapshot) {
-                      if (excludedSnapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      if (excludedSnapshot.hasError) {
-                        return Center(
-                          child: Text('エラー: ${excludedSnapshot.error}'),
-                        );
-                      }
-
-                      final excludedUserIds = excludedSnapshot.data ?? <String>{};
-                      
-                      for (final doc in activeStays) {
-                        try {
-                          final data = doc.data() as Map<String, dynamic>?;
-                          if (data == null) continue;
-
-                          final uid = doc.id; // activeStays のドキュメントID = uid
-                          final pokerName = data['pokerName'] as String? ?? 'Unknown';
-                          final billId = data['billId'] as String?;
-                          
-                          // uidが存在しない場合は除外
-                          if (uid.isEmpty) {
-                            debugPrint('uidが存在しません (docId: ${doc.id})');
-                            continue;
-                          }
-                          
-                          // 既に座席に着席しているか、または待機リストに入っているかチェック
-                          final isAlreadyInvolved = excludedUserIds.contains(uid);
-
-                          if (!isAlreadyInvolved) {
-                            availableUsers.add({
-                              'userId': uid,
-                              'billId': billId,
-                              'pokerName': pokerName,
-                              'status': 'open',
-                            });
-                          }
-                        } catch (e) {
-                          debugPrint('ユーザーデータ処理エラー (docId: ${doc.id}): $e');
-                          // エラーの場合は安全のため除外
-                        }
-                      }
-
-                      if (availableUsers.isEmpty) {
-                        return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.people_outline, color: Colors.grey, size: 48),
-                              const SizedBox(height: 16),
-                              Text(
-                                '入店中のユーザーがいません',
-                                style: TextStyle(color: Colors.grey),
+                            return FutureBuilder<Set<String>>(
+                              key: ValueKey(
+                                'register-excl-$_exclusionRetryToken',
                               ),
-                            ],
-                          ),
-                        );
-                      }
+                              future: _getUnavailableUserIds(),
+                              builder: (context, excludedSnapshot) {
+                                if (excludedSnapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                    child: CircularProgressIndicator(),
+                                  );
+                                }
 
-                      return ListView.builder(
-                        itemCount: availableUsers.length,
-                        itemBuilder: (context, index) {
-                          final user = availableUsers[index];
-                          final userId = user['userId'] as String;
-                          final pokerName = user['pokerName'] as String? ?? 'Unknown';
-                          final isSelected = _selectedUserIds.contains(userId);
-                          
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            child: CheckboxListTile(
-                              value: isSelected,
-                              onChanged: _isRegistering
-                                  ? null
-                                  : (bool? value) {
-                                      setState(() {
-                                        if (value == true) {
-                                          _selectedUserIds.add(userId);
-                                        } else {
-                                          _selectedUserIds.remove(userId);
-                                        }
+                                if (excludedSnapshot.hasError) {
+                                  return _buildLoadFailed(
+                                    kTournamentParticipantsLoadFailedMessage,
+                                  );
+                                }
+
+                                _setListLoadFailed(false);
+
+                                final excludedUserIds =
+                                    excludedSnapshot.data ?? <String>{};
+                                final availableUsers =
+                                    <Map<String, dynamic>>[];
+
+                                for (final doc in activeStays) {
+                                  try {
+                                    final data =
+                                        doc.data() as Map<String, dynamic>?;
+                                    if (data == null) continue;
+
+                                    final uid = doc.id;
+                                    final pokerName =
+                                        data['pokerName'] as String? ??
+                                            'Unknown';
+                                    final billId = data['billId'] as String?;
+
+                                    if (uid.isEmpty) continue;
+
+                                    final isAlreadyInvolved =
+                                        excludedUserIds.contains(uid);
+
+                                    if (!isAlreadyInvolved) {
+                                      availableUsers.add({
+                                        'userId': uid,
+                                        'billId': billId,
+                                        'pokerName': pokerName,
+                                        'status': 'open',
                                       });
-                                    },
-                              title: Text(
-                                pokerName,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: isSelected ? Colors.green[700] : null,
-                                ),
-                              ),
-                              subtitle: Text(
-                                'User ID: $userId',
-                                style: TextStyle(fontSize: 12),
-                              ),
-                              secondary: Icon(
-                                Icons.person,
-                                color: isSelected ? Colors.green[700] : Colors.grey,
-                              ),
-                              activeColor: Colors.green[700],
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
+                                    }
+                                  } catch (_) {
+                                    // 個別行のパース失敗は候補から除外（全体 fail にしない）
+                                  }
+                                }
+
+                                if (availableUsers.isEmpty) {
+                                  return const Center(
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.people_outline,
+                                          color: Colors.grey,
+                                          size: 48,
+                                        ),
+                                        SizedBox(height: 16),
+                                        Text(
+                                          '入店中のユーザーがいません',
+                                          style: TextStyle(color: Colors.grey),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }
+
+                                return ListView.builder(
+                                  itemCount: availableUsers.length,
+                                  itemBuilder: (context, index) {
+                                    final user = availableUsers[index];
+                                    final userId = user['userId'] as String;
+                                    final pokerName =
+                                        user['pokerName'] as String? ??
+                                            'Unknown';
+                                    final isSelected =
+                                        _selectedUserIds.contains(userId);
+
+                                    return Card(
+                                      margin:
+                                          const EdgeInsets.only(bottom: 8),
+                                      child: CheckboxListTile(
+                                        value: isSelected,
+                                        onChanged: _isRegistering
+                                            ? null
+                                            : (bool? value) {
+                                                setState(() {
+                                                  if (value == true) {
+                                                    _selectedUserIds
+                                                        .add(userId);
+                                                  } else {
+                                                    _selectedUserIds
+                                                        .remove(userId);
+                                                  }
+                                                });
+                                              },
+                                        title: Text(
+                                          pokerName,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: isSelected
+                                                ? Colors.green[700]
+                                                : null,
+                                          ),
+                                        ),
+                                        subtitle: Text(
+                                          'User ID: $userId',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                        secondary: Icon(
+                                          Icons.person,
+                                          color: isSelected
+                                              ? Colors.green[700]
+                                              : Colors.grey,
+                                        ),
+                                        activeColor: Colors.green[700],
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 actions: [
                   TextButton(
-                    onPressed: _isRegistering ? null : () => Navigator.of(context).pop(),
+                    onPressed: _isRegistering
+                        ? null
+                        : () => Navigator.of(context).pop(),
                     child: const Text('キャンセル'),
                   ),
                   ElevatedButton(
-                    onPressed: _isRegistering || _selectedUserIds.isEmpty
+                    onPressed: _isRegistering ||
+                            _listLoadFailed ||
+                            _selectedUserIds.isEmpty
                         ? null
                         : _registerParticipants,
                     style: ElevatedButton.styleFrom(
@@ -263,9 +334,8 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
     );
   }
 
-  /// 参加者登録を実行
   Future<void> _registerParticipants() async {
-    if (_selectedUserIds.isEmpty) return;
+    if (_isRegistering || _listLoadFailed || _selectedUserIds.isEmpty) return;
 
     setState(() {
       _isRegistering = true;
@@ -273,9 +343,6 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
 
     try {
       final selectedUserIds = _selectedUserIds.toList();
-      
-      debugPrint('参加登録開始: ${selectedUserIds.length}人');
-      debugPrint('選択されたユーザー: $selectedUserIds');
 
       final result = await widget.service.registerParticipants(
         tournamentId: widget.tournamentId,
@@ -283,72 +350,68 @@ class _RegisterParticipantsDialogState extends State<RegisterParticipantsDialog>
       );
 
       final resultMap = Map<String, dynamic>.from(result);
-      if (resultMap['success'] == true) {
-          final summaryRaw = resultMap['summary'];
-          Map<String, dynamic>? summary;
-          if (summaryRaw is Map) {
-            summary = Map<String, dynamic>.from(summaryRaw);
-          }
-          if (summary != null) {
-            final successCount = summary['success'] as int? ?? 0;
-            final failureCount = summary['failure'] as int? ?? 0;
+      // TOUR-41: soft-fail は D-1。raw data['error'] は出さない。
+      if (isCallableSuccessResponse(resultMap)) {
+        final summaryRaw = resultMap['summary'];
+        Map<String, dynamic>? summary;
+        if (summaryRaw is Map) {
+          summary = Map<String, dynamic>.from(summaryRaw);
+        }
+        if (summary != null) {
+          final successCount = summary['success'] as int? ?? 0;
+          final failureCount = summary['failure'] as int? ?? 0;
 
-            if (mounted) {
-              // 選択状態をリセット
-              setState(() {
-                _selectedUserIds.clear();
-              });
-              
-              Navigator.of(context).pop();
-              
-              // 結果を表示
-              String message;
-              if (failureCount == 0) {
-                message = '$successCount人の参加登録が完了しました';
-              } else {
-                message = '$successCount人成功、$failureCount人失敗しました';
-              }
-              
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(message),
-                  backgroundColor: failureCount == 0 ? Colors.green : Colors.orange,
-                ),
-              );
+          if (mounted) {
+            setState(() {
+              _selectedUserIds.clear();
+            });
 
-              // コールバック実行
-              widget.onRegistrationCompleted();
+            Navigator.of(context).pop();
+
+            String message;
+            if (failureCount == 0) {
+              message = '$successCount人の参加登録が完了しました';
+            } else {
+              message = '$successCount人成功、$failureCount人失敗しました';
             }
-          } else {
-            // summaryがない場合でも成功として扱う
-            if (mounted) {
-              // 選択状態をリセット
-              setState(() {
-                _selectedUserIds.clear();
-              });
-              
-              Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('参加登録が完了しました'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-              widget.onRegistrationCompleted();
-            }
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(message),
+                backgroundColor:
+                    failureCount == 0 ? Colors.green : Colors.orange,
+              ),
+            );
+
+            widget.onRegistrationCompleted();
           }
-      } else {
-        // エラーレスポンスの場合
-        final errorMessage = resultMap['error'] as String? ?? '参加登録に失敗しました';
-        throw Exception(errorMessage);
+        } else if (mounted) {
+          setState(() {
+            _selectedUserIds.clear();
+          });
+
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('参加登録が完了しました'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          widget.onRegistrationCompleted();
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(mapCallableSoftFailMessage(resultMap)),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
-      debugPrint('参加登録エラー: $e');
-      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('参加登録に失敗しました。：$e'),
+            content: Text(mapCallableError(e).message),
             backgroundColor: Colors.red,
           ),
         );

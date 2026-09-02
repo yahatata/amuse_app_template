@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/tournament/active/pages/tournament_home_page.dart';
 import 'package:amuse_app_template/utils/date_time_utils.dart';
+import 'package:amuse_app_template/tournament/scheduling/errors/tournament_admin_user_facing_errors.dart';
 
 /// カレンダーでスケジュール済みトーナメント確認画面
 class ScheduledTournamentInCalendarPage extends StatefulWidget {
@@ -18,6 +18,7 @@ class _ScheduledTournamentInCalendarPageState extends State<ScheduledTournamentI
   DateTime? _selectedDate;
   Map<String, List<Map<String, dynamic>>> _tournaments = {};
   bool _isLoading = true;
+  bool _loadFailed = false;
   // _tournamentTemplatesを削除（このページからはトーナメント作成不可）
 
   @override
@@ -32,6 +33,7 @@ class _ScheduledTournamentInCalendarPageState extends State<ScheduledTournamentI
   Future<void> _loadTournaments() async {
     setState(() {
       _isLoading = true;
+      _loadFailed = false;
     });
 
     try {
@@ -100,16 +102,17 @@ class _ScheduledTournamentInCalendarPageState extends State<ScheduledTournamentI
 
       setState(() {
         _tournaments = tournamentsByDate;
+        _loadFailed = false;
         _isLoading = false;
       });
 
       debugPrint('=== トーナメント読み込み完了 ===');
     } catch (e, stackTrace) {
       debugPrint('=== トーナメント読み込みエラー ===');
-      debugPrint('エラー: $e');
       debugPrint('スタックトレース: $stackTrace');
-      
+
       setState(() {
+        _loadFailed = true;
         _isLoading = false;
       });
     }
@@ -218,6 +221,29 @@ class _ScheduledTournamentInCalendarPageState extends State<ScheduledTournamentI
       // FloatingActionButtonを削除（このページからはトーナメント作成不可）
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
+          : _loadFailed
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                      const SizedBox(height: 16),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          kTournamentAdminCalendarLoadFailedMessage,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: _loadTournaments,
+                        child: const Text('再試行'),
+                      ),
+                    ],
+                  ),
+                )
           : SingleChildScrollView(
               physics: const ClampingScrollPhysics(),
               child: Column(

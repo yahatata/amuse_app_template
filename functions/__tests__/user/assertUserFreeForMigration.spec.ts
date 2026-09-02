@@ -18,7 +18,14 @@ function makeDb(state: {
     tablesSeat?: FakeDoc[];
   }>;
   sideGames?: FakeDoc[];
-  okibake?: FakeDoc[];
+  okibake?: Array<
+    FakeDoc & {
+      /** parent path: scheduledTournaments/{tournamentId}/okibakeTemporaryEntries/{id} */
+      tournamentId?: string | null;
+      /** parent collection id。省略時 scheduledTournaments。不正 path テスト用 */
+      tournamentParentCollectionId?: string;
+    }
+  >;
   /** storeMeta/currentBusinessDay。省略時は running + CURRENT_BUSINESS_DATE */
   currentBusinessDay?: Record<string, unknown> | null;
 }) {
@@ -30,6 +37,32 @@ function makeDb(state: {
     state.currentBusinessDay === undefined
       ? {status: 'running', currentBusinessDateKey: CURRENT_BUSINESS_DATE}
       : state.currentBusinessDay;
+
+  function tournamentDocRef(tournamentId: string) {
+    return {
+      id: tournamentId,
+      parent: {id: 'scheduledTournaments'},
+      get: async () => {
+        const t = tournaments.find((x) => x.id === tournamentId);
+        return {
+          exists: t != null,
+          data: () => t?.data,
+        };
+      },
+      collection: (sub: string) => {
+        if (sub !== 'tablesSeat') throw new Error(sub);
+        const t = tournaments.find((x) => x.id === tournamentId);
+        return {
+          get: async () => ({
+            docs: (t?.tablesSeat ?? []).map((s) => ({
+              id: s.id,
+              data: () => s.data,
+            })),
+          }),
+        };
+      },
+    };
+  }
 
   return {
     collection: (name: string) => {
@@ -91,6 +124,7 @@ function makeDb(state: {
       }
       if (name === 'scheduledTournaments') {
         return {
+          doc: (id: string) => tournamentDocRef(id),
           where: () => ({
             get: async () => ({
               docs: tournaments
@@ -101,19 +135,7 @@ function makeDb(state: {
                 .map((t) => ({
                   id: t.id,
                   data: () => t.data,
-                  ref: {
-                    collection: (sub: string) => {
-                      if (sub !== 'tablesSeat') throw new Error(sub);
-                      return {
-                        get: async () => ({
-                          docs: (t.tablesSeat ?? []).map((s) => ({
-                            id: s.id,
-                            data: () => s.data,
-                          })),
-                        }),
-                      };
-                    },
-                  },
+                  ref: tournamentDocRef(t.id),
                 })),
             }),
           }),
@@ -139,10 +161,32 @@ function makeDb(state: {
             get: async () => ({
               docs: okibake
                 .filter((o) => o.data.linkedUserId === uid)
-                .map((o) => ({
-                  id: o.id,
-                  data: () => o.data,
-                })),
+                .map((o) => {
+                  const tournamentId = o.tournamentId;
+                  const parentCollectionId =
+                    o.tournamentParentCollectionId ?? 'scheduledTournaments';
+                  let tournamentParent: ReturnType<typeof tournamentDocRef> | null =
+                    null;
+                  if (tournamentId != null && tournamentId !== '') {
+                    if (parentCollectionId === 'scheduledTournaments') {
+                      tournamentParent = tournamentDocRef(tournamentId);
+                    } else {
+                      tournamentParent = {
+                        ...tournamentDocRef(tournamentId),
+                        parent: {id: parentCollectionId},
+                      };
+                    }
+                  }
+                  return {
+                    id: o.id,
+                    data: () => o.data,
+                    ref: {
+                      parent: {
+                        parent: tournamentParent,
+                      },
+                    },
+                  };
+                }),
             }),
           }),
         }),
@@ -342,9 +386,16 @@ describe('assertUserFreeForMigration', () => {
         db: makeDb({
           activeStay: null,
           user: {},
+          tournaments: [
+            {
+              id: 'tour-ended',
+              data: {status: 'ended', businessDate: '2026-05-25'},
+            },
+          ],
           okibake: [
             {
               id: 'ok-1',
+              tournamentId: 'tour-ended',
               data: {
                 linkedUserId: uid,
                 billLinkStatus: 'pending_review',
@@ -365,9 +416,13 @@ describe('assertUserFreeForMigration', () => {
         db: makeDb({
           activeStay: null,
           user: {},
+          tournaments: [
+            {id: 'tour-running', data: {status: 'running', businessDate: CURRENT_BUSINESS_DATE}},
+          ],
           okibake: [
             {
               id: 'ok-1',
+              tournamentId: 'tour-running',
               data: {
                 linkedUserId: uid,
                 billLinkStatus: 'unlinked',
@@ -378,6 +433,260 @@ describe('assertUserFreeForMigration', () => {
         }),
       })
     ).resolves.toBeUndefined();
+  });
+
+  it('rejects unlinked okibake on running tournament', async () => {
+    await expect(
+      assertUserFreeForMigration(uid, {
+        db: makeDb({
+          activeStay: null,
+          user: {},
+          tournaments: [
+            {id: 'tour-run', data: {status: 'running', businessDate: CURRENT_BUSINESS_DATE}},
+          ],
+          okibake: [
+            {
+              id: 'ok-1',
+              tournamentId: 'tour-run',
+              data: {
+                linkedUserId: uid,
+                billLinkStatus: 'unlinked',
+                entryStatus: 'seated',
+              },
+            },
+          ],
+        }),
+      })
+    ).rejects.toMatchObject({
+      details: expect.objectContaining({errorKey: 'USER_HAS_PENDING_OKIBAKE_LINK'}),
+    });
+  });
+
+  it('allows historical unlinked okibake on ended tournament (USR-07 regression)', async () => {
+    await expect(
+      assertUserFreeForMigration(uid, {
+        db: makeDb({
+          activeStay: null,
+          user: {},
+          tournaments: [
+            {
+              id: '3Cdbl7regkoI9ODGy5t2',
+              data: {status: 'ended', businessDate: '2026-05-25'},
+            },
+          ],
+          okibake: [
+            {
+              id: 'lKgIVH8cxzQzBwt0Azvt',
+              tournamentId: '3Cdbl7regkoI9ODGy5t2',
+              data: {
+                linkedUserId: uid,
+                billLinkStatus: 'unlinked',
+                entryStatus: 'busted',
+                linkedBillId: null,
+              },
+            },
+          ],
+        }),
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it('allows unlinked okibake on force_ended tournament', async () => {
+    await expect(
+      assertUserFreeForMigration(uid, {
+        db: makeDb({
+          activeStay: null,
+          user: {},
+          tournaments: [{id: 'tour-fe', data: {status: 'force_ended'}}],
+          okibake: [
+            {
+              id: 'ok-1',
+              tournamentId: 'tour-fe',
+              data: {
+                linkedUserId: uid,
+                billLinkStatus: 'unlinked',
+                entryStatus: 'registered',
+              },
+            },
+          ],
+        }),
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it('allows unlinked okibake on cancelled tournament', async () => {
+    await expect(
+      assertUserFreeForMigration(uid, {
+        db: makeDb({
+          activeStay: null,
+          user: {},
+          tournaments: [{id: 'tour-c1', data: {status: 'cancelled'}}],
+          okibake: [
+            {
+              id: 'ok-1',
+              tournamentId: 'tour-c1',
+              data: {
+                linkedUserId: uid,
+                billLinkStatus: 'unlinked',
+                entryStatus: 'registered',
+              },
+            },
+          ],
+        }),
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it('allows unlinked okibake on canceled tournament', async () => {
+    await expect(
+      assertUserFreeForMigration(uid, {
+        db: makeDb({
+          activeStay: null,
+          user: {},
+          tournaments: [{id: 'tour-c2', data: {status: 'canceled'}}],
+          okibake: [
+            {
+              id: 'ok-1',
+              tournamentId: 'tour-c2',
+              data: {
+                linkedUserId: uid,
+                billLinkStatus: 'unlinked',
+                entryStatus: 'registered',
+              },
+            },
+          ],
+        }),
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it('rejects pending_review on historical ended tournament', async () => {
+    await expect(
+      assertUserFreeForMigration(uid, {
+        db: makeDb({
+          activeStay: null,
+          user: {},
+          tournaments: [
+            {
+              id: 'tour-old-ended',
+              data: {status: 'ended', businessDate: '2026-01-01'},
+            },
+          ],
+          okibake: [
+            {
+              id: 'ok-pr',
+              tournamentId: 'tour-old-ended',
+              data: {
+                linkedUserId: uid,
+                billLinkStatus: 'pending_review',
+                entryStatus: 'busted',
+              },
+            },
+          ],
+        }),
+      })
+    ).rejects.toMatchObject({
+      details: expect.objectContaining({errorKey: 'USER_HAS_PENDING_OKIBAKE_LINK'}),
+    });
+  });
+
+  it('rejects unlinked okibake when parent tournament is missing', async () => {
+    await expect(
+      assertUserFreeForMigration(uid, {
+        db: makeDb({
+          activeStay: null,
+          user: {},
+          tournaments: [],
+          okibake: [
+            {
+              id: 'ok-1',
+              tournamentId: 'tour-gone',
+              data: {
+                linkedUserId: uid,
+                billLinkStatus: 'unlinked',
+                entryStatus: 'registered',
+              },
+            },
+          ],
+        }),
+      })
+    ).rejects.toMatchObject({
+      details: expect.objectContaining({errorKey: 'USER_HAS_PENDING_OKIBAKE_LINK'}),
+    });
+  });
+
+  it('rejects unlinked okibake when parent tournament path is missing', async () => {
+    await expect(
+      assertUserFreeForMigration(uid, {
+        db: makeDb({
+          activeStay: null,
+          user: {},
+          okibake: [
+            {
+              id: 'ok-1',
+              tournamentId: null,
+              data: {
+                linkedUserId: uid,
+                billLinkStatus: 'unlinked',
+                entryStatus: 'registered',
+              },
+            },
+          ],
+        }),
+      })
+    ).rejects.toMatchObject({
+      details: expect.objectContaining({errorKey: 'USER_HAS_PENDING_OKIBAKE_LINK'}),
+    });
+  });
+
+  it('rejects unlinked okibake when parent status is missing', async () => {
+    await expect(
+      assertUserFreeForMigration(uid, {
+        db: makeDb({
+          activeStay: null,
+          user: {},
+          tournaments: [{id: 'tour-nostatus', data: {businessDate: '2026-05-25'}}],
+          okibake: [
+            {
+              id: 'ok-1',
+              tournamentId: 'tour-nostatus',
+              data: {
+                linkedUserId: uid,
+                billLinkStatus: 'unlinked',
+                entryStatus: 'registered',
+              },
+            },
+          ],
+        }),
+      })
+    ).rejects.toMatchObject({
+      details: expect.objectContaining({errorKey: 'USER_HAS_PENDING_OKIBAKE_LINK'}),
+    });
+  });
+
+  it('rejects unlinked okibake when parent status is unknown', async () => {
+    await expect(
+      assertUserFreeForMigration(uid, {
+        db: makeDb({
+          activeStay: null,
+          user: {},
+          tournaments: [{id: 'tour-weird', data: {status: 'weird_legacy'}}],
+          okibake: [
+            {
+              id: 'ok-1',
+              tournamentId: 'tour-weird',
+              data: {
+                linkedUserId: uid,
+                billLinkStatus: 'unlinked',
+                entryStatus: 'registered',
+              },
+            },
+          ],
+        }),
+      })
+    ).rejects.toMatchObject({
+      details: expect.objectContaining({errorKey: 'USER_HAS_PENDING_OKIBAKE_LINK'}),
+    });
   });
 
   it('tx recheck mode only evaluates stay and table/seat', async () => {

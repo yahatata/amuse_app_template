@@ -35,12 +35,16 @@ export interface QRCodeData {
 
 /**
  * QRコード生成レスポンスの型
+ * L5-A: success / expiresAtMs / type を追加（既存 top-level field は維持）
  */
 export interface GenerateQRResponse {
+  success?: boolean;
   qrCode: string; // Base64エンコードされたQRコード画像
   qrCodeUrl: string; // Storageに保存されたQRコードのURL
   data: QRCodeData;
   expiresAt: number;
+  expiresAtMs?: number;
+  type?: "user" | "staff";
 }
 
 /**
