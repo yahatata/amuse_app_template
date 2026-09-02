@@ -1,11 +1,14 @@
 import 'dart:async'; // For TimeoutException
 import 'dart:math';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
 import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 
 /// Addon確認ダイアログ
 Future<void> showAddonDialog({
@@ -24,7 +27,7 @@ Future<void> showAddonDialog({
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(
         outerCtx,
-      ).showSnackBar(const SnackBar(content: Text('ユーザー識別子が見つかりません')));
+      ).showSnackBar(SnackBar(content: Text(kUserActionUserIdMissingMessage)));
     }
     return;
   }
@@ -41,21 +44,24 @@ Future<void> showAddonDialog({
         .get();
 
     if (!tournamentDoc.exists) {
-      throw Exception('トーナメントが見つかりません');
+      // 不在 ≠ 読込失敗
+      isLoading = false;
+      errorMessage = 'トーナメントが見つかりません';
+    } else {
+      tournamentData = tournamentDoc.data()!;
+      isLoading = false;
     }
-
-    tournamentData = tournamentDoc.data()!;
+  } catch (_) {
+    // USER-28: raw / e.toString 非表示。失敗時は Addon 不可
     isLoading = false;
-  } catch (e) {
-    isLoading = false;
-    errorMessage = e.toString();
+    errorMessage = kUserActionTournamentLoadFailedMessage;
   }
 
   if (errorMessage != null) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(
         outerCtx,
-      ).showSnackBar(SnackBar(content: Text('エラー: $errorMessage')));
+      ).showSnackBar(SnackBar(content: Text(errorMessage)));
     }
     return;
   }
@@ -98,7 +104,7 @@ Future<void> showAddonDialog({
   if (templateIdStr.isEmpty) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('トーナメントの templateId が取得できません。')),
+        SnackBar(content: Text(kUserActionTournamentTemplateMissingMessage)),
       );
     }
     return;
@@ -296,7 +302,7 @@ Future<void> _executeAddon({
     }
 
     final data = result.data as Map<String, dynamic>? ?? {};
-    final bool ok = data['success'] == true;
+    final bool ok = isCallableSuccessResponse(data);
 
     feedback.hideLoading();
 
@@ -309,8 +315,11 @@ Future<void> _executeAddon({
         Navigator.of(context).pop();
       }
     } else {
-      final err = data['error'] ?? '不明なエラー';
-      await showActionErrorDialog(context, message: 'Addon登録に失敗しました: $err');
+      // USER-32 soft-fail: raw error 非表示
+      await showActionErrorDialog(
+        context,
+        message: mapCallableSoftFailMessage(data),
+      );
     }
   } catch (e) {
     feedback.hideLoading();

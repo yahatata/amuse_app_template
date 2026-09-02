@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_error_operations.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
+import 'package:amuse_app_template/Accounting/errors/map_accounting_error.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/Accounting/bill_line_items_for_edit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -172,10 +176,11 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
         _billDetailsLoaded = true;
         _billDetailsLoadError = null;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_loadBillLineItems] エラー: $e\n$stackTrace');
       if (!mounted) return;
       setState(() {
-        _billDetailsLoadError = '明細の取得に失敗しました: $e';
+        _billDetailsLoadError = kAccountingBillLineItemsLoadFailedMessage;
       });
     } finally {
       if (mounted) {
@@ -383,21 +388,34 @@ class _AccountingEditDialogState extends State<AccountingEditDialog> {
       final result =
           await _functions.httpsCallable('updateActiveBill').call(callData);
 
-      if (result.data['success'] == true) {
+      final data = result.data;
+      if (isCallableSuccessResponse(data)) {
+        final priceDiff = data is Map ? data['priceDifference'] : null;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('会計内容を修正しました\n差額: ${result.data['priceDifference']}円')),
+          SnackBar(
+            content: Text('会計内容を修正しました\n差額: ${priceDiff ?? '—'}円'),
+          ),
         );
         widget.onUpdated();
         Navigator.of(context).pop();
       } else {
+        final message = mapAccountingSoftFailError(
+          data,
+          operation: AccountingErrorOperations.updateActiveBill,
+        ).message;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('修正に失敗しました: ${result.data['message']}')),
+          SnackBar(content: Text(message)),
         );
       }
-    } catch (e) {
-      print('会計修正エラー: $e');
+    } catch (e, stackTrace) {
+      debugPrint('会計修正エラー: $e\n$stackTrace');
+      if (!mounted) return;
+      final mapped = mapAccountingCallableError(
+        e,
+        operation: AccountingErrorOperations.updateActiveBill,
+      );
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('修正に失敗しました: $e')),
+        SnackBar(content: Text(mapped.message)),
       );
     } finally {
       if (mounted) {

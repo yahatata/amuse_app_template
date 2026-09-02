@@ -1,3 +1,4 @@
+import 'package:amuse_app_template/core/errors/app_initialize_user_facing_errors.dart';
 import 'package:amuse_app_template/Home/adminHomePage.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/models/device.dart';
@@ -157,7 +158,7 @@ class _AppInitializerState extends State<AppInitializer> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = '初期化エラー: $e';
+          _error = mapAppInitializeError(e);
           _isLoading = false;
         });
       }
@@ -243,7 +244,7 @@ class _AppInitializerState extends State<AppInitializer> {
                       vertical: 16,
                     ),
                   ),
-                  child: const Text('再試行'),
+                  child: const Text(kAppInitializeRetryLabel),
                 ),
               ],
             ),

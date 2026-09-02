@@ -163,13 +163,11 @@ describe('native dialog static audit (live paths)', () => {
     return hits;
   }
 
-  it('user live 導線に native alert/confirm が残っていない（dead は許容）', () => {
+  it('user live 導線に native alert/confirm が残っていない', () => {
     const file = path.join(__dirname, '../../../public/user/index.html');
     const hits = collectLiveNativeDialogs(file);
     const live = hits.filter((h) => h.reason === 'live');
-    const dead = hits.filter((h) => h.reason !== 'live');
     expect(live).toEqual([]);
-    expect(dead.length).toBeGreaterThanOrEqual(1);
   });
 
   it('staff live 導線に native alert/confirm が残っていない', () => {

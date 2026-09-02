@@ -2,7 +2,6 @@
  * Phase6 Step3: close_process 関連の検証。
  * - Step2 applyCloseSnapshot: closeRunId=step2-manual、返却に writtenBillIds を含まない
  * - getUnsettledBillsForClose: 返却形式（success, data, returnedCount, truncated）
- * - closeStore / openStore が export されていること
  * Firestore Emulator 使用。
  */
 
@@ -153,17 +152,6 @@ describe('Phase6 Step3: close_process', () => {
       expect(result).toHaveProperty('returnedCount');
       expect(result).toHaveProperty('truncated');
       expect(Array.isArray(result.data)).toBe(true);
-    });
-  });
-
-  describe('closeStore / openStore が残存している', () => {
-    it('storeManagement から openStore / closeStore が import でき、.run が存在する', async () => {
-      if (!emulatorAvailable) return;
-      const storeMeta = await import('../../src/domains/storeMeta');
-      expect(storeMeta.openStore).toBeDefined();
-      expect(storeMeta.closeStore).toBeDefined();
-      expect(typeof storeMeta.openStore.run).toBe('function');
-      expect(typeof storeMeta.closeStore.run).toBe('function');
     });
   });
 });

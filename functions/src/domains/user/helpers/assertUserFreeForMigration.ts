@@ -168,11 +168,24 @@ async function assertNoSideGameSeat(db: Firestore, uid: string): Promise<void> {
   }
 }
 
+function throwPendingOkibakeLink(uid: string): never {
+  throw new HttpsError(
+    "failed-precondition",
+    "置きバケの進行中リンクがあるため移行できません",
+    {errorKey: "USER_HAS_PENDING_OKIBAKE_LINK", uid},
+  );
+}
+
 /**
  * 未解消の置きバケリンク:
  * collectionGroup(okibakeTemporaryEntries) で linkedUserId 一致、
  * billLinkStatus が unlinked | pending_review、entryStatus !== voided。
- * 過去営業日の pending_review も未完了義務として拒否する（日付に依存させない）。
+ *
+ * - pending_review: 親トーナメントの日付・status に関係なく拒否（過去日も未完了義務）
+ * - unlinked: 親 scheduledTournaments が未終了のときのみ拒否。
+ *   ended / force_ended / cancelled / canceled は legacy/stale として許可。
+ *   parent missing / status 欠損・非終了（未知含む）は安全側で拒否。
+ * businessDate は判定に使わない。
  */
 async function assertNoPendingOkibakeLink(db: Firestore, uid: string): Promise<void> {
   const snap = await db
@@ -182,13 +195,40 @@ async function assertNoPendingOkibakeLink(db: Firestore, uid: string): Promise<v
     .get();
 
   for (const doc of snap.docs) {
-    const entryStatus = doc.data()?.entryStatus;
-    if (entryStatus === "voided") continue;
-    throw new HttpsError(
-      "failed-precondition",
-      "置きバケの進行中リンクがあるため移行できません",
-      {errorKey: "USER_HAS_PENDING_OKIBAKE_LINK", uid},
-    );
+    const data = doc.data() ?? {};
+    if (data.entryStatus === "voided") continue;
+
+    const billLinkStatus =
+      typeof data.billLinkStatus === "string" ? data.billLinkStatus : "";
+
+    if (billLinkStatus === "pending_review") {
+      throwPendingOkibakeLink(uid);
+    }
+
+    if (billLinkStatus === "unlinked") {
+      const tournamentRef = doc.ref.parent?.parent;
+      if (!tournamentRef || tournamentRef.parent?.id !== "scheduledTournaments") {
+        throwPendingOkibakeLink(uid);
+      }
+
+      const tournamentSnap = await tournamentRef.get();
+      if (!tournamentSnap.exists) {
+        throwPendingOkibakeLink(uid);
+      }
+
+      const status = tournamentSnap.data()?.status;
+      if (typeof status !== "string" || !status.trim()) {
+        throwPendingOkibakeLink(uid);
+      }
+
+      // 終了済みのみ skip。未知 status は isClosedTournamentStatus=false → 拒否
+      if (isClosedTournamentStatus(status)) {
+        continue;
+      }
+      throwPendingOkibakeLink(uid);
+    }
+
+    throwPendingOkibakeLink(uid);
   }
 }
 

@@ -4,6 +4,7 @@
 /// 参照フィールド: 対象年の12ヶ月分のanalyticsMonthly/{YYYY-MM}
 /// 遅延ロード: あり（初回ロード時）
 
+import 'package:amuse_app_template/dashboard/errors/dashboard_user_facing_errors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repo/analytics_repository.dart';
@@ -146,8 +147,9 @@ class _YearlyOverviewPageState extends ConsumerState<YearlyOverviewPage>
           return _buildYearlyContent(context, yearlyData);
         },
         loading: () => _buildSkeletonContent(context),
-        error: (error, stack) => Center(
-          child: Text('エラーが発生しました: $error'),
+        error: (error, stack) => dashboardLoadErrorWidget(
+          message: mapDashboardLoadError(error),
+          onRetry: () => ref.invalidate(yearlyDataProvider(_selectedYear)),
         ),
       ),
     );

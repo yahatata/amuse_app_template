@@ -7,7 +7,7 @@
 import { getStoreConfig } from '../../../shared/config/configLoader';
 import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
 import { DEFAULT_PAYROLL_START_DAY, DEFAULT_PAYROLL_END_DAY } from '../../../shared/config/defaults';
-import { computeActualPaymentDate, getPaymentPeriodKey } from './payrollPeriodUtils';
+import { computeActualPaymentDate, getCalcTargetPaymentPeriodKey } from './payrollPeriodUtils';
 
 /** JST の本日を YYYY-MM-DD で返す */
 export function getJstYmdNow(): string {
@@ -35,7 +35,7 @@ export async function buildPayrollDisplayContext(): Promise<PayrollDisplayContex
   const endDay = storeConfig.payroll?.endDay ?? DEFAULT_PAYROLL_END_DAY;
 
   const asOfDateJst = getJstYmdNow();
-  const paymentPeriodKey = getPaymentPeriodKey(asOfDateJst, startDay, endDay);
+  const paymentPeriodKey = getCalcTargetPaymentPeriodKey(asOfDateJst, startDay, endDay);
   const [periodStart, periodEnd] = paymentPeriodKey.split('_');
 
   const payrollConfig = await getPayrollConfig();

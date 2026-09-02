@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
-import 'package:amuse_app_template/tournament/active/pages/tournament_home_page.dart';
 import 'package:amuse_app_template/utils/date_time_utils.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart' show kDevPlaceholderStoreId, kDevPlaceholderTenantId;
+import 'package:amuse_app_template/tournament/scheduling/errors/tournament_admin_user_facing_errors.dart';
 import 'package:amuse_app_template/utils/business_date_ambiguous_dialog.dart';
 
 /// カレンダーからトーナメント登録画面
@@ -21,7 +22,10 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
   DateTime? _selectedDate;
   Map<String, List<Map<String, dynamic>>> _tournaments = {};
   bool _isLoading = true;
+  bool _tournamentsLoadFailed = false;
   List<Map<String, dynamic>> _tournamentTemplates = [];
+  bool _templatesLoadFailed = false;
+  bool _templatesLoading = false;
 
   @override
   void initState() {
@@ -35,6 +39,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
   Future<void> _loadTournaments() async {
     setState(() {
       _isLoading = true;
+      _tournamentsLoadFailed = false;
     });
 
     try {
@@ -109,6 +114,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
       setState(() {
         _tournaments = tournamentsByDate;
         _isLoading = false;
+        _tournamentsLoadFailed = false;
       });
 
       debugPrint('=== トーナメント読み込み完了 ===');
@@ -119,6 +125,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
       
       setState(() {
         _isLoading = false;
+        _tournamentsLoadFailed = true;
       });
     }
   }
@@ -362,21 +369,49 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
         'tournamentId': tournamentId,
         'action': action,
       });
-      final message = result.data['message']?.toString() ?? '更新しました';
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      if (isCallableSuccessResponse(result.data)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('ステータスを更新しました')),
+          );
+        }
+        await _loadTournaments();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentAdminSoftFail(
+                result.data,
+                operation: kUpdateScheduledTournamentStatusOperation,
+              ),
+            ),
+          ),
+        );
       }
-      await _loadTournaments();
     } on FirebaseFunctionsException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: ${e.message}')),
+          SnackBar(
+            content: Text(
+              mapTournamentAdminCallableError(
+                e,
+                operation: kUpdateScheduledTournamentStatusOperation,
+              ),
+            ),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: $e')),
+          SnackBar(
+            content: Text(
+              mapTournamentAdminCallableError(
+                e,
+                operation: kUpdateScheduledTournamentStatusOperation,
+              ),
+            ),
+          ),
         );
       }
     } finally {
@@ -460,44 +495,87 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
         'tournamentId': tournament['id'],
         'startAt': utcDate.toIso8601String(),
       });
-      final message = result.data['message']?.toString() ?? '開始時刻を更新しました';
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      if (isCallableSuccessResponse(result.data)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('開始時刻を更新しました')),
+          );
+        }
+        await _loadTournaments();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentAdminSoftFail(
+                result.data,
+                operation: kUpdateScheduledTournamentStartAtOperation,
+              ),
+            ),
+          ),
+        );
       }
-      await _loadTournaments();
     } on FirebaseFunctionsException catch (e) {
       if (mounted) {
         final candidates = extractAmbiguousCandidates(e);
         if (candidates != null && candidates.isNotEmpty) {
-          final selectedKey = await showBusinessDateAmbiguousDialog(
+          await showBusinessDateAmbiguousDialog(
             context: context,
             candidates: candidates,
             onSelected: (selectedKey) async {
               final callable = FunctionsClient.instance
                   .httpsCallable('updateScheduledTournamentStartAt');
-              await callable.call({
+              final retry = await callable.call({
                 'tournamentId': tournament['id'],
                 'startAt': utcDate.toIso8601String(),
                 'selectedBusinessDateKey': selectedKey,
               });
+              if (!isCallableSuccessResponse(retry.data)) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        mapTournamentAdminSoftFail(
+                          retry.data,
+                          operation: kUpdateScheduledTournamentStartAtOperation,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                return;
+              }
               await _loadTournaments();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('開始時刻を更新しました')),
+                );
+              }
             },
           );
-          if (selectedKey != null && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('開始時刻を更新しました')),
-            );
-          }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('エラー: ${e.message}')),
+            SnackBar(
+              content: Text(
+                mapTournamentAdminCallableError(
+                  e,
+                  operation: kUpdateScheduledTournamentStartAtOperation,
+                ),
+              ),
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: $e')),
+          SnackBar(
+            content: Text(
+              mapTournamentAdminCallableError(
+                e,
+                operation: kUpdateScheduledTournamentStartAtOperation,
+              ),
+            ),
+          ),
         );
       }
     } finally {
@@ -511,6 +589,11 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
 
   /// トーナメントテンプレートを読み込み
   Future<void> _loadTournamentTemplates() async {
+    if (!mounted) return;
+    setState(() {
+      _templatesLoading = true;
+      _templatesLoadFailed = false;
+    });
     try {
       debugPrint('=== テンプレート読み込み開始 ===');
       final result = await FunctionsClient.instance
@@ -518,34 +601,81 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
           .call();
 
       debugPrint('Cloud Function レスポンス: ${result.data}');
-      
-      if (result.data['success'] == true) {
-        final templatesRaw = result.data['tournamentTemplates'] as List;
+
+      if (isCallableSuccessResponse(result.data)) {
+        final templatesRaw =
+            result.data['tournamentTemplates'] as List? ?? const [];
         debugPrint('取得したテンプレート数: ${templatesRaw.length}');
-        
-        // 型変換を明示的に行う
+
         final templates = templatesRaw.map((template) {
           return Map<String, dynamic>.from(template as Map);
         }).toList();
-        
+
+        if (!mounted) return;
         setState(() {
           _tournamentTemplates = templates;
+          _templatesLoadFailed = false;
+          _templatesLoading = false;
         });
-        
+
         debugPrint('テンプレート読み込み完了: ${_tournamentTemplates.length}件');
       } else {
-        debugPrint('Cloud Function エラー: ${result.data['error']}');
+        if (!mounted) return;
+        setState(() {
+          _tournamentTemplates = [];
+          _templatesLoadFailed = true;
+          _templatesLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(mapTournamentAdminSoftFail(result.data)),
+            action: SnackBarAction(
+              label: '再試行',
+              onPressed: _loadTournamentTemplates,
+            ),
+          ),
+        );
       }
     } catch (e) {
-      debugPrint('テンプレートの読み込みに失敗しました: $e');
+      debugPrint('テンプレートの読み込みに失敗しました');
+      if (!mounted) return;
+      setState(() {
+        _tournamentTemplates = [];
+        _templatesLoadFailed = true;
+        _templatesLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(kTournamentAdminTemplatesLoadFailedMessage),
+          action: SnackBarAction(
+            label: '再試行',
+            onPressed: _loadTournamentTemplates,
+          ),
+        ),
+      );
     }
   }
 
   /// トーナメント作成ダイアログを表示
   void _showCreateTournamentDialog() {
+    if (_templatesLoading) {
+      return;
+    }
+    if (_templatesLoadFailed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(kTournamentAdminTemplatesLoadFailedMessage),
+          action: SnackBarAction(
+            label: '再試行',
+            onPressed: _loadTournamentTemplates,
+          ),
+        ),
+      );
+      return;
+    }
     if (_tournamentTemplates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('利用可能なテンプレートがありません')),
+        const SnackBar(content: Text(kTournamentAdminTemplatesEmptyMessage)),
       );
       return;
     }
@@ -752,13 +882,10 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
           .httpsCallable('createScheduledTournament')
           .call(requestData);
 
-      if (result.data['success'] == true) {
-        final tournamentId = result.data['tournamentId'] as String;
-        final message = result.data['message'] as String;
-        
+      if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(message)),
+            const SnackBar(content: Text('トーナメントを作成しました')),
           );
 
           // トーナメントリストを更新
@@ -769,8 +896,17 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
             Navigator.pop(context);
           }
         }
-      } else {
-        throw Exception(result.data['error'] ?? 'トーナメントの作成に失敗しました');
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentAdminSoftFail(
+                result.data,
+                operation: kCreateScheduledTournamentOperation,
+              ),
+            ),
+          ),
+        );
       }
     } on FirebaseFunctionsException catch (e) {
       if (mounted) {
@@ -800,13 +936,27 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: ${e.message}')),
+          SnackBar(
+            content: Text(
+              mapTournamentAdminCallableError(
+                e,
+                operation: kCreateScheduledTournamentOperation,
+              ),
+            ),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: $e')),
+          SnackBar(
+            content: Text(
+              mapTournamentAdminCallableError(
+                e,
+                operation: kCreateScheduledTournamentOperation,
+              ),
+            ),
+          ),
         );
       }
     } finally {
@@ -878,6 +1028,30 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
           : null,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
+          : _tournamentsLoadFailed
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline,
+                          size: 64, color: Colors.red),
+                      const SizedBox(height: 16),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          kTournamentAdminCalendarLoadFailedMessage,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: _loadTournaments,
+                        child: const Text('再試行'),
+                      ),
+                    ],
+                  ),
+                )
           : SingleChildScrollView(
               physics: const ClampingScrollPhysics(),
               child: Column(

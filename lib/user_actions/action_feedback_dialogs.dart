@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+
+import 'package:amuse_app_template/core/errors/errors.dart';
 
 class ActionProgressDialogController {
   ActionProgressDialogController(this.context);
@@ -122,6 +125,11 @@ String buildAsyncActionErrorMessage(
     return '処理がタイムアウトしました。しばらく待ってから再試行してください。';
   }
 
+  if (error is FirebaseFunctionsException) {
+    return mapCallableError(error).message;
+  }
+
+  // 既存の安全分類（raw は表示しない）。新たな contains は追加しない。
   final raw = error.toString().toLowerCase();
   if (raw.contains('network')) {
     return 'ネットワークエラーが発生しました。接続を確認してください。';
@@ -129,5 +137,8 @@ String buildAsyncActionErrorMessage(
   if (raw.contains('permission')) {
     return '権限が不足しています。管理者に連絡してください。';
   }
-  return '$defaultMessage\n詳細: $error';
+  // 未知: 操作文脈の安全文言のみ（詳細: $error は出さない）
+  return defaultMessage.isNotEmpty
+      ? defaultMessage
+      : kFinalFallbackErrorMessage;
 }

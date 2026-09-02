@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
 import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 
@@ -16,7 +19,7 @@ Future<void> showBulkAddonDialog({
 
   // テーブルの座席情報を取得
   Map<String, dynamic>? tableData;
-  String? errorMessage;
+  String? loadErrorMessage;
 
   try {
     final tableDoc = await FirebaseFirestore.instance
@@ -27,19 +30,21 @@ Future<void> showBulkAddonDialog({
         .get();
 
     if (!tableDoc.exists) {
-      throw Exception('テーブルが見つかりません');
+      // 不在（読込成功だがデータなし）≠ Stream/例外失敗
+      loadErrorMessage = '卓情報が見つかりません';
+    } else {
+      tableData = tableDoc.data()!;
     }
-
-    tableData = tableDoc.data()!;
-  } catch (e) {
-    errorMessage = e.toString();
+  } catch (_) {
+    // USER-34: raw 非表示
+    loadErrorMessage = kUserActionTableLoadFailedMessage;
   }
 
-  if (errorMessage != null) {
+  if (loadErrorMessage != null || tableData == null) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
         SnackBar(
-          content: Text('エラー: $errorMessage'),
+          content: Text(loadErrorMessage ?? kUserActionTableLoadFailedMessage),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 5),
         ),
@@ -138,7 +143,7 @@ Future<void> showBulkAddonDialog({
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
         const SnackBar(
-          content: Text('トーナメントの templateId が取得できません'),
+          content: Text(kUserActionTournamentTemplateMissingMessage),
           backgroundColor: Colors.red,
         ),
       );
@@ -391,11 +396,15 @@ Future<void> showBulkAddonDialog({
                             tableId: tableId,
                             selectedTargets: selectedTargetsList,
                           ).catchError((error) {
-                            // エラーハンドリング（outerCtxを使用）
+                            // USER-39: outer catch。USER-42/43 の process 内 catch は維持
                             if (outerCtx.mounted) {
                               showActionErrorDialog(
                                 outerCtx,
-                                message: 'エラーが発生しました: $error',
+                                message: buildAsyncActionErrorMessage(
+                                  error,
+                                  defaultMessage:
+                                      kUserActionBulkAddonOuterFailedMessage,
+                                ),
                               );
                             }
                           });
@@ -522,7 +531,7 @@ Future<void> _processBulkAddon({
 
     feedback.hideLoading();
 
-    if (data['success'] == true) {
+    if (isCallableSuccessResponse(data)) {
       debugPrint('=== 成功パス ===');
       final processedNormalCount =
           (data['processedNormalCount'] as num?)?.toInt() ??
@@ -541,11 +550,12 @@ Future<void> _processBulkAddon({
       }
     } else {
       debugPrint('=== 失敗パス ===');
-      final errorMessage = 'まとめてAddon登録に失敗しました: ${data['error'] ?? '不明なエラー'}';
-      debugPrint('エラーメッセージ: $errorMessage');
-
+      // USER-42 soft-fail: raw error 非表示（USER-43 catch は維持）
       if (context.mounted) {
-        await showActionErrorDialog(context, message: errorMessage);
+        await showActionErrorDialog(
+          context,
+          message: mapCallableSoftFailMessage(data),
+        );
       }
     }
   } catch (e) {
@@ -553,19 +563,15 @@ Future<void> _processBulkAddon({
     debugPrint('例外: $e');
     debugPrint('例外タイプ: ${e.runtimeType}');
 
-    String errorMessage = 'まとめてAddon登録に失敗しました';
-
-    if (e is TimeoutException) {
-      errorMessage = '処理がタイムアウトしました。しばらく待ってから再試行してください。';
-    } else if (e.toString().contains('network')) {
-      errorMessage = 'ネットワークエラーが発生しました。接続を確認してください。';
-    } else if (e.toString().contains('permission')) {
-      errorMessage = '権限が不足しています。管理者に連絡してください。';
-    }
-
     if (context.mounted) {
       feedback.hideLoading();
-      await showActionErrorDialog(context, message: '$errorMessage\n詳細: $e');
+      await showActionErrorDialog(
+        context,
+        message: buildAsyncActionErrorMessage(
+          e,
+          defaultMessage: 'まとめてAddon登録に失敗しました',
+        ),
+      );
     }
   } finally {
     feedback.hideLoading();

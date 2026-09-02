@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 
 /// トーナメント履歴参照ポップアップ
 Future<void> showTournamentHistoryDialog({
@@ -14,7 +16,7 @@ Future<void> showTournamentHistoryDialog({
   if (userId.isEmpty) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('ユーザー識別子が見つかりません')),
+        SnackBar(content: Text(kUserActionUserIdMissingMessage)),
       );
     }
     return;
@@ -114,17 +116,15 @@ class _TournamentHistoryDialog extends StatelessWidget {
                               const Icon(Icons.error, color: Colors.red, size: 48),
                               const SizedBox(height: 16),
                               Text(
-                                'エラーが発生しました',
+                                userActionStreamErrorMessage(
+                                  kUserActionTournamentHistoryLoadFailedMessage,
+                                  billsSnapshot.error,
+                                ),
                                 style: TextStyle(
                                   fontSize: 16,
                                   color: Colors.red[700],
                                   fontWeight: FontWeight.bold,
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                billsSnapshot.error.toString(),
-                                style: const TextStyle(fontSize: 14),
                                 textAlign: TextAlign.center,
                               ),
                             ],
@@ -147,8 +147,15 @@ class _TournamentHistoryDialog extends StatelessWidget {
                           }
 
                           if (tournamentsSnapshot.hasError) {
+                            // USER-73: 失敗 ≠ 空履歴
                             return Center(
-                              child: Text('エラー: ${tournamentsSnapshot.error}'),
+                              child: Text(
+                                userActionStreamErrorMessage(
+                                  kUserActionTournamentHistoryLoadFailedMessage,
+                                  tournamentsSnapshot.error,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
                             );
                           }
 

@@ -114,6 +114,9 @@ export const getTodayTournaments = onCall(async (request) => {
       success: true,
       data: tournaments,
       count: tournaments.length,
+      /** 一覧フィルタに使った営業日（yyyy-MM-dd）。LIFF 見出しと揃える */
+      targetBusinessDate,
+      todayDateSource,
       liffSettings,
       message: `${tournaments.length}件の本日開催トーナメントを取得しました`,
     };

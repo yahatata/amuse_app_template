@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/AttendanceManagement/attendance_user_facing_errors.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
 
 /// インデックスエラー原因切り分け用テストモード
@@ -216,32 +217,41 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
     try {
       final callable = FunctionsClient.instance
           .httpsCallable('verifyUnclockedAttendanceEditPassword');
-      await callable.call({'password': password});
+      final result = await callable.call({'password': password});
 
       if (!mounted) return;
       Navigator.of(context).pop();
       await _waitForRouteTransition();
       if (!mounted) return;
+
+      if (!isCallableSuccessResponse(result.data)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapAttendanceCallableSoftFail(
+                result.data,
+                operation: 'verifyUnclockedAttendanceEditPassword',
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
       _showEditDialog(item, password);
-    } on FirebaseFunctionsException catch (e) {
+    } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop();
       await _waitForRouteTransition();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.message ?? 'パスワードが一致しません'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      await _waitForRouteTransition();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('パスワードが一致しません'),
+          content: Text(
+            mapAttendanceCallableError(
+              e,
+              operation: 'verifyUnclockedAttendanceEditPassword',
+            ),
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -477,17 +487,33 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
     try {
       final callable = FunctionsClient.instance
           .httpsCallable('updateUnclockedAttendanceWithAuth');
-      await callable.call<Map<String, dynamic>>({
+      final result = await callable.call<Map<String, dynamic>>({
         'docId': docId,
         'adminPassword': password,
         'clockOutAt': clockOutAt.toUtc().toIso8601String(),
-      }      ).timeout(
+      }).timeout(
         const Duration(seconds: 15),
         onTimeout: () => throw TimeoutException('タイムアウトしました'),
       );
 
       if (!mounted || !dialogContext.mounted) return;
       Navigator.of(context).pop(); // ローディングダイアログを閉じる
+
+      if (!isCallableSuccessResponse(result.data)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapAttendanceCallableSoftFail(
+                result.data,
+                operation: 'updateUnclockedAttendanceWithAuth',
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
       Navigator.of(dialogContext).pop(); // 退勤打刻ダイアログを閉じる
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -496,23 +522,17 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
         ),
       );
       // snapshot が自動更新するため _fetch 不要
-    } on FirebaseFunctionsException catch (e) {
-      if (!mounted || !dialogContext.mounted) return;
-      Navigator.of(context).pop(); // ローディングダイアログを閉じる
-      Navigator.of(dialogContext).pop(); // 退勤打刻ダイアログを閉じる
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.message ?? e.code),
-          backgroundColor: Colors.red,
-        ),
-      );
     } catch (e) {
       if (!mounted || !dialogContext.mounted) return;
       Navigator.of(context).pop(); // ローディングダイアログを閉じる
-      Navigator.of(dialogContext).pop(); // 退勤打刻ダイアログを閉じる
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('エラー: ${e.toString()}'),
+          content: Text(
+            mapAttendanceCallableError(
+              e,
+              operation: 'updateUnclockedAttendanceWithAuth',
+            ),
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -547,45 +567,15 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
         stream: _unclockedStream(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            final err = snapshot.error;
-            final fe = err is FirebaseException ? err : null;
             debugPrint('=== UnclockedAttendance StreamBuilder Error ===');
-            debugPrint('error: $err');
-            if (fe != null) {
-              debugPrint('code: ${fe.code}');
-              debugPrint('message: ${fe.message}');
-              debugPrint('plugin: ${fe.plugin}');
-            }
+            debugPrint('error: ${snapshot.error}');
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'エラー: ${snapshot.error}',
-                      style: const TextStyle(color: Colors.red),
-                      textAlign: TextAlign.center,
-                    ),
-                    if (fe != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'code: ${fe.code}',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                      ),
-                      if (fe.message != null)
-                        Text(
-                          'message: ${fe.message}',
-                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                          textAlign: TextAlign.center,
-                        ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'テストモード: $_queryTestMode',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ],
+                child: Text(
+                  kAttendanceDataLoadFailedMessage,
+                  style: const TextStyle(color: Colors.red),
+                  textAlign: TextAlign.center,
                 ),
               ),
             );

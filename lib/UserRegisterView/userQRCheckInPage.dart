@@ -1,4 +1,5 @@
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -61,8 +62,7 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
       });
       final data = result.data as Map<dynamic, dynamic>;
 
-      final success = data['success'] == true;
-      final message = data['message']?.toString() ?? '';
+      final success = isCallableSuccessResponse(data);
       final userMap = data['user'] as Map<dynamic, dynamic>?;
       final pokerName =
           userMap?['pokerName']?.toString() ??
@@ -77,24 +77,26 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
       await _scannerController.stop();
 
       if (!mounted) return;
+      // AUTH-05: soft-fail 時は raw message を親へ渡さない
       final displayMessage = success
           ? (pokerName != null
               ? '$pokerName様のログイン処理が完了しました'
               : 'ログイン処理が完了しました')
-          : (message.isNotEmpty ? message : 'ログイン処理に失敗しました');
+          : mapCallableSoftFailMessage(data);
 
       Navigator.pop(
         context,
         UserCheckInResult(
           success: success,
           message: displayMessage,
-          userId: userId,
-          billId: billId,
-          okibakeLoginPrompt: okibakeLoginPrompt,
+          userId: success ? userId : null,
+          billId: success ? billId : null,
+          okibakeLoginPrompt: success ? okibakeLoginPrompt : null,
         ),
       );
     } on FirebaseFunctionsException catch (e) {
-      final message = e.message ?? 'Cloud Functions 呼び出しに失敗しました';
+      final message =
+          mapCallableError(e, operation: 'processVisitByQR').message;
       await _scannerController.stop();
 
       if (!mounted) return;
@@ -102,7 +104,7 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
         context,
         UserCheckInResult(
           success: false,
-          message: 'ログイン処理に失敗しました: $message',
+          message: message,
         ),
       );
     } catch (e) {
@@ -113,7 +115,7 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
         context,
         UserCheckInResult(
           success: false,
-          message: 'ログイン処理に失敗しました: $e',
+          message: mapCallableError(e, operation: 'processVisitByQR').message,
         ),
       );
     } finally {

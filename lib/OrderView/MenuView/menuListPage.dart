@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/OrderView/MenuView/menu_user_facing_errors.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -65,14 +67,28 @@ class _MenuListPageState extends State<MenuListPage> {
     });
 
     final success = await MenuItemsManager.fetchMenuItems();
-    
+
     if (success) {
       _loadMenuItems();
-    } else {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = MenuItemsManager.lastError;
-      });
+      return;
+    }
+
+    // MENU-04: 失敗と 0 件を区別。stale があれば維持＋更新失敗表示。
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      if (menuItems.isEmpty) {
+        _errorMessage = safeMenuItemsManagerErrorMessage(
+          MenuItemsManager.lastError,
+        );
+      } else {
+        _errorMessage = null;
+      }
+    });
+    if (menuItems.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(kMenuItemsUpdateFailedMessage)),
+      );
     }
   }
 
@@ -102,7 +118,7 @@ class _MenuListPageState extends State<MenuListPage> {
                       height: 120, child: Center(child: CircularProgressIndicator()));
                 }
                 if (snapshot.hasError) {
-                  return Text('入店中のユーザー取得に失敗しました: ${snapshot.error}');
+                  return const Text(kMenuActiveStaysLoadFailedMessage);
                 }
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return const Text('入店中のユーザーがいません');
@@ -252,12 +268,13 @@ class _MenuListPageState extends State<MenuListPage> {
                   final result = await callable.call(payload);
                   if (!mounted) return; // 非同期後の安全確認
                   final res = result.data;
-                  if (res is Map && res['success'] == true) {
+                  if (isCallableSuccessResponse(res)) {
                     ScaffoldMessenger.of(pageContext).showSnackBar(
                       const SnackBar(content: Text('注文を送信しました')),
                     );
                   } else {
-                    final msg = (res is Map ? res['error'] : null) ?? '注文に失敗しました';
+                    // ORDER-01 soft-fail: raw error 非表示
+                    final msg = mapCallableSoftFailMessage(res);
                     ScaffoldMessenger.of(pageContext).showSnackBar(
                       SnackBar(content: Text(msg)),
                     );
@@ -265,7 +282,9 @@ class _MenuListPageState extends State<MenuListPage> {
                 } catch (e) {
                   if (!mounted) return;
                   ScaffoldMessenger.of(pageContext).showSnackBar(
-                    SnackBar(content: Text('注文に失敗しました: $e')),
+                    SnackBar(
+                      content: Text(mapCallableError(e).message),
+                    ),
                   );
                 } finally {
                   if (mounted) {

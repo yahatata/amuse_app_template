@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../Utils/menuItemsManager.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
+import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
+import 'package:amuse_app_template/user_actions/side_game_dialog_layout.dart';
 
 /// SideGame用Chip購入ポップアップ
 Future<void> showSideGameChipPurchaseDialog({
@@ -18,7 +22,7 @@ Future<void> showSideGameChipPurchaseDialog({
   if (billId.isEmpty) {
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(outerCtx).showSnackBar(
-        const SnackBar(content: Text('伝票IDが見つかりません')),
+        SnackBar(content: Text(kUserActionBillIdMissingMessage)),
       );
     }
     return;
@@ -64,6 +68,7 @@ class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog
 
   @override
   Widget build(BuildContext context) {
+    final bodyHeight = sideGameAlertDialogContentMaxHeight(context);
     return AlertDialog(
       title: Row(
         children: [
@@ -74,9 +79,8 @@ class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog
       ),
       content: SizedBox(
         width: 350,
-        height: 400,
+        height: bodyHeight,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
             // ユーザー情報表示
             Container(
@@ -229,7 +233,7 @@ class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog
       _isLoading = true;
     });
 
-    // 処理中ダイアログを表示
+    // 更新系: 処理中ダイアログ（成功・失敗とも finally で解除）
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -258,14 +262,18 @@ class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog
         'clientNonce': _clientNonce, // ✅ トップレベルに追加（State が生きている間は固定）
       });
 
-      // 処理中ダイアログを閉じる
-      Navigator.of(context).pop();
-
+      // 処理中ダイアログを閉じる（結果表示の前に解除）
       if (mounted) {
+        Navigator.of(context).pop();
+      }
+
+      if (!mounted) return;
+
+      // USER-26b: success==true（bool）のみ成功。false/null/欠損/非boolは失敗
+      if (isCallableSuccessResponse(result.data)) {
         // Chip購入ポップアップを閉じる
         Navigator.of(context).pop();
-        
-        // 成功メッセージを表示
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -275,15 +283,27 @@ class _SideGameChipPurchaseDialogState extends State<_SideGameChipPurchaseDialog
             duration: const Duration(seconds: 5),
           ),
         );
-      }
-    } catch (e) {
-      // 処理中ダイアログを閉じる
-      if (mounted) {
-        Navigator.of(context).pop();
-        
+      } else {
+        // USER-26: 失敗時は購入ダイアログを維持（閉じない）
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Chip購入処理に失敗しました: $e'),
+            content: Text(mapCallableSoftFailMessage(result.data)),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              buildAsyncActionErrorMessage(
+                e,
+                defaultMessage: kUserActionChipPurchaseFailedMessage,
+              ),
+            ),
             backgroundColor: Colors.red,
           ),
         );

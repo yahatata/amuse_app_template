@@ -6,6 +6,7 @@ import '../Utils/time_converter.dart';
 import '../services/business_styles_service.dart';
 import '../services/required_staff_by_time_slot_service.dart';
 import '../services/store_config_defaults.dart';
+import 'errors/staff_shift_errors.dart';
 import 'shift_repository.dart';
 import 'utils/business_hours_style_labels.dart';
 import 'utils/required_staff_slot_validation.dart';
@@ -204,10 +205,8 @@ class _ShiftStyleRequiredStaffSettingsPageState
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '設定の保存または不足判定の再計算に失敗しました。\n時間をおいて再度保存してください。\n($e)',
-          ),
+        const SnackBar(
+          content: Text(kRequiredStaffSaveFailedMessage),
           backgroundColor: Colors.red,
         ),
       );
@@ -244,10 +243,8 @@ class _ShiftStyleRequiredStaffSettingsPageState
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '設定の保存または不足判定の再計算に失敗しました。\n時間をおいて再度保存してください。\n($e)',
-          ),
+        const SnackBar(
+          content: Text(kRequiredStaffSaveFailedMessage),
           backgroundColor: Colors.red,
         ),
       );

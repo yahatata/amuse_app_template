@@ -394,8 +394,6 @@ operationLogs は定期トリガーで古いドキュメントを削除する。
 
 | 優先度 | 操作ID | 操作名 | 要約 | 呼び出し元（Callable） | 優先度の主理由 | writes（主要） |
 |--------|--------|--------|------|------------------------|---------------|----------------|
-| 2 | op-208 | 開店 | 店舗状態を営業中に変更。 | openStore | 影響範囲が限定的。closeStore で取り消し可能。 | - |
-| 2 | op-209 | 閉店（状態のみ） | 店舗状態を閉店に変更。 | closeStore | openStore で再開可能。 | - |
 | 2 | op-210 | 開店ターミナル処理 | 翌営業日の初期化等。 | openStoreTerminal | 運用ログとして有用。 | - |
 | 2 | op-211 | 閉店ターミナル処理 | 未会計付与→reset→cleanup→migrate→finalize をステップ実行。lastCompletedStep で進捗記録、runId で再開可能。 | closeStoreTerminal | 再開・ロールバック仕組みあり。外す条件①に近い。 | - |
 | 2 | op-212 | 営業継続ターミナル処理 | 日跨ぎ時の状態更新。 | continueBusinessTerminal | 運用・監査に有用。 | - |
@@ -421,12 +419,12 @@ operationLogs は定期トリガーで古いドキュメントを削除する。
 | 3   | 伝票・入退店 | op-004 | 伝票に注文追加 | 伝票に注文を追加。<br>bills/items, orders, todaysOrder を更新。 | placeOrder, placeOrderByUser | 1操作で複数コレクションに波及。注文履歴だけでは巻き戻し（キャンセル取り消し等）に直前の伝票状態が不足。 |
 | 3 | 伝票・入退店 | op-006 | 注文キャンセル | 伝票上の注文をキャンセル。 | cancelOrder | キャンセルは実質不可逆。誤キャンセル時の復元には、キャンセル前の注文内容が操作単位で必要。 |
 | 3 | 伝票・入退店 | op-007 | 手動チェックイン（入店） | ログインID+PIN で入店処理。<br>bills と activeStays を新規作成。 | manualCheckIn | 誤入店時の巻き戻しに、作成した bills/activeStays の識別と復元手順が必要。操作ログなし。 |
-| 3 | 会計・支払い | op-008 | 返金処理 | 返金を行う。<br>bills の支払い状態と users の残高を更新。 | processRefund | 金銭処理で不可逆。誤返金の取り消しには、返金前の支払状態・残高が操作単位で必要。 |
+| 3 | 会計・支払い | op-008 | 返金処理（会計後） | 会計済み伝票に対する返金を記録。 | recordPostSettlementRefund | 金銭処理で不可逆。誤返金の取り消しには、返金前の支払状態・残高が操作単位で必要。 |
 | 3 | 伝票・入退店（外す条件該当） | op-201 | 伝票内容更新 | extras, tournaments, items, sideGameChips を更新。 | updateActiveBill | 外す条件②。再度正しい値で更新すれば上書き可能。 |
 | 3   | 伝票・入退店（外す条件該当） | op-202 | QRチェックイン（入店） | 客のQRを読み取って入店処理。 | processVisitByQR | 外す条件③。誤操作リスクがほぼない。                                                              |
 | 3   | 会計・支払い | op-203 | 会計開始 | 伝票の会計フローに入る。 | startAccounting | 入れる条件の一部該当。cancelAccounting で取り消し可能。                                            |
 | 3   | 会計・支払い | op-204 | 会計開始取り消し | 未確定の会計状態をリセット。 | cancelAccounting | 入れる条件の一部該当。監査上有用。                                                               |
-| 3   | 会計・支払い | op-205 | 会計内容更新 | 支払方法・分割等を更新。 | updateAccounting | 確定前なら再更新で訂正可能。                                                                  |
+| 3   | 会計・支払い | op-205 | 会計内容更新 | 支払方法・分割等を更新（未確定伝票）。 | updateActiveBill | 確定前なら再更新で訂正可能。                                                                  |
 | 3   | 会計・支払い | op-206 | チップ入金 | users の残高に加算。 | depositTip | 外す条件②に近い。金銭なので監査上ログ有用。                                                          |
 | 3 | 会計・支払い | op-207 | チップ出金 | users の残高から減算。 | withdrawTip | 同上。 |
 | 3 | トーナメント運用 | op-217 | スケジュール済みトーナメント作成 | 日付・時間・卓数を設定。 | createScheduledTournament | 削除・編集で訂正可能。 |
@@ -455,7 +453,7 @@ operationLogs は定期トリガーで古いドキュメントを削除する。
 | 3   | メニュー・テンプレ | op-243 | ブラインドテンプレート作成 | トーナメント用のブラインド構成を登録。 | createBlindTemplate | 再更新・アーカイブで訂正可能。                                                                 |
 | 3   | メニュー・テンプレ | op-244 | ブラインドテンプレート更新 | ブラインド構成の編集。 | updateBlindTemplate | 外す条件②。                                                                          |
 | 3   | メニュー・テンプレ | op-245 | ブラインドテンプレートアーカイブ | 使用停止に移行。 | archiveBlindTemplate | 運用ログに有用。                                                                        |
-| 3   | 勤怠・シフト・スタッフ | op-246 | シフト希望一括申請 | スタッフが日付範囲・時間を指定して自分のシフト希望を shiftRequests に一括登録。 | createMultipleShifts | スタッフ操作。確定後のシフトは給与に影響。監査必須。                                                      |
+| 3   | 勤怠・シフト・スタッフ | op-246 | シフト希望一括申請 | スタッフが日付範囲・時間を指定して自分のシフト希望を shiftRequests に一括登録。 | submitShiftRequests | スタッフ操作（LINE `submitShifts` 経由）。確定後のシフトは給与に影響。監査必須。 |
 | 3   | 勤怠・シフト・スタッフ | op-247 | 日次アサイン更新 | 担当者・役割の変更。 | updateDayAssignments | 再更新で訂正可能。                                                                       |
 | 3   | 勤怠・シフト・スタッフ | op-248 | シフト要請確定 | スタッフのシフト希望を承認。 | confirmShiftRequest | 監査に有用。                                                                          |
 | 3   | 勤怠・シフト・スタッフ | op-249 | シフト要請更新 | 希望日・時間の変更。 | updateShiftRequest | 再更新で訂正可能。                                                                       |
@@ -490,9 +488,9 @@ operationLogs は定期トリガーで古いドキュメントを削除する。
 
 | メモ | 操作種別 | 呼び出し元（Callable） | 要約 |
 |-----|----------|------------------------|------|
-| | 参照系 | getAccountingHistory, getActionLogs, getBillPreviewTotals, getOpenBills, getUnsettledBillsForClose, getPayrollData, getPrizeData, getRankingData, getRefundHistory, getScheduledTournaments, getScheduledTournamentsForEdit, getShifts, getStaffAttendance, getAllStaffAttendance, getStaffListForAttendance, getAttendanceCorrectionRequests, getTodayTournaments, getTournamentRecurrences, getUpcomingTournaments, getBlindTemplates, getTournamentTemplates, getAvailableTables, getMenuItems, getUserOrderHistory, getUserStatus | データ取得のみ。書き込みなし。 |
-| | 検証系 | verifyPaymentSplit, verifyQRCode, validateEndTournament, checkExistingCorrectionRequest, determineAttendanceMode, calculateInsufficientDays | 照合・判定・算出のみ。書き込みなし。 |
-| | デバッグ系 | debugSideGame, calculateFirestoreSize, generateDummyData | 開発・検証・テスト用。本番ログ対象外。 |
+| | 参照系 | getActionLogs, getBillPreviewTotals, getOpenBills, getUnsettledBillsForClose, getPayrollData, getPrizeData, getRankingData, getScheduledTournaments, getScheduledTournamentsForEdit, getShifts, getStaffAttendance, getAllStaffAttendance, getStaffListForAttendance, getAttendanceCorrectionRequests, getTodayTournaments, getTournamentRecurrences, getUpcomingTournaments, getBlindTemplates, getTournamentTemplates, getAvailableTables, getMenuItems, getUserOrderHistory, getUserStatus | データ取得のみ。書き込みなし。 |
+| | 検証系 | verifyPaymentSplit, verifyQRCode, validateEndTournament, checkExistingCorrectionRequest, calculateInsufficientDays | 照合・判定・算出のみ。書き込みなし。 |
+| | デバッグ系 | calculateFirestoreSize, generateDummyData | 開発・検証・テスト用。本番ログ対象外。 |
 
 **集計: 34 Callable（参照・検証・デバッグとして L3）**
 
@@ -624,7 +622,7 @@ Callable 内で「本処理の完了後（**成功または失敗どちらも**�
 | | appendExtra | op-005 伝票に追加料金追加 |
 | | cancelOrder | op-006 注文キャンセル |
 | | manualCheckIn | op-007 手動チェックイン |
-| | processRefund | op-008 返金処理 |
+| | recordPostSettlementRefund | op-008 返金処理（会計後） |
 | | addon | op-101 アドオン購入 |
 | | bulkAddon | op-102 一括アドオン |
 | | bustAndExit | op-103 バスト＆退店 |

@@ -1,7 +1,12 @@
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 
 void main() {
+  tearDown(() {
+    ErrorMessageRegistry.instance.clear();
+  });
+
   group('ApplyOkibakeAddonResult.fromCallableData', () {
     test('replay を成功として解釈し addonRecordId を読む', () {
       final r = ApplyOkibakeAddonResult.fromCallableData({
@@ -31,13 +36,26 @@ void main() {
       expect(r.success, false);
       expect(r.errorMessage, isNotNull);
     });
+
+    test('soft-fail で raw message/error を errorMessage に載せない', () {
+      final r = ApplyOkibakeAddonResult.fromCallableData({
+        'success': false,
+        'message': 'uid=secret path=/internal',
+        'error': 'stack/internal/value',
+      });
+      expect(r.success, false);
+      expect(r.errorMessage, kFinalFallbackErrorMessage);
+      expect(r.errorMessage, isNot(contains('uid=secret')));
+      expect(r.errorMessage, isNot(contains('stack/')));
+    });
   });
 
   group('ApplyOkibakeAddonResult.fromException', () {
-    test('FirebaseFunctionsException ライクではない例外を文字列化', () {
+    test('未知例外は D-1 最終共通へ（raw toString 非表示）', () {
       final r = ApplyOkibakeAddonResult.fromException(StateError('x'));
       expect(r.success, false);
-      expect(r.errorMessage, contains('Bad state'));
+      expect(r.errorMessage, kFinalFallbackErrorMessage);
+      expect(r.errorMessage, isNot(contains('Bad state')));
       expect(r.errorMessage, isNot(contains('Exception:')));
     });
   });

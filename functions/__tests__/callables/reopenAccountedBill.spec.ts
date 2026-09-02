@@ -240,6 +240,7 @@ describe("reopenAccountedBill (Emulator)", () => {
       );
 
       expect(result.success).toBe(true);
+      expect(result.reopenDestination).toBe("unsettled_list");
       expect(result.oldCycleNo).toBe(1);
       expect(result.newCycleNo).toBe(2);
       expect(result.cancelledAdjustmentIds).toEqual([]);
@@ -255,6 +256,8 @@ describe("reopenAccountedBill (Emulator)", () => {
       expect(billData.postSettlementState).toEqual(
         buildInitialPostSettlementState(),
       );
+      expect(billData.closeSummary?.unresolved).not.toBe(true);
+      expect(billData.closeSnapshot?.unresolved).not.toBe(true);
       expect(billData.reopenSummary.hasReopenHistory).toBe(true);
       expect(billData.reopenSummary.reopenCount).toBe(1);
       expect(billData.reopenSummary.currentSettlementCycle).toBe(2);
@@ -347,6 +350,7 @@ describe("reopenAccountedBill (Emulator)", () => {
       );
 
       expect(result.success).toBe(true);
+      expect(result.reopenDestination).toBe("unsettled_list");
       expect(result.cancelledAdjustmentIds).toEqual([adjId]);
 
       // adjustment が cancelled_by_reopen
@@ -370,6 +374,119 @@ describe("reopenAccountedBill (Emulator)", () => {
       expect(billData.status).toBe("open");
       expect(billData.postSettlementState.requiredActionType).toBe("none");
       expect(billData.postSettlementState.requiredActionIncl).toBe(0);
+    });
+
+    it("持ち越し未会計由来の bill を reopen すると unresolved を復元する", async () => {
+      const billId = "bill-h2b";
+      const adminId = "admin-h2b";
+      const userId = "user-h2b-carryover";
+      await createAdminDevice(adminId);
+      await createSettledBill(billId);
+      await db.collection("bills").doc(billId).set(
+        {
+          party: { userId, pokerName: "carryover-taro" },
+          closeSummary: {
+            unresolved: false,
+            markedAt: admin.firestore.FieldValue.serverTimestamp(),
+            closedBusinessDate: "2026-05-08",
+            displayAmountAtMark: 4200,
+            lastCloseRunId: "close-run-1",
+          },
+          closeSnapshot: {
+            unresolved: false,
+          },
+        },
+        { merge: true },
+      );
+      await db.collection("users").doc(userId).set({
+        unsettledBillsCount: 0,
+      });
+
+      const result: any = await (reopenAccountedBill as any).run(
+        callableRequest(adminId, {
+          billId,
+          idempotencyKey: "h2b-reopen-1",
+        }),
+      );
+      expect(result.reopenDestination).toBe("special_attention");
+
+      const billData = (await db.collection("bills").doc(billId).get()).data()!;
+      expect(billData.status).toBe("open");
+      expect(billData.closeSummary?.unresolved).toBe(true);
+      expect(billData.closeSnapshot?.unresolved).toBe(true);
+
+      const userData = (await db.collection("users").doc(userId).get()).data()!;
+      expect(userData.unsettledBillsCount).toBe(1);
+
+      // C1-B: activeStay は復帰しない
+      const stay = await db.collection("activeStays").doc(userId).get();
+      expect(stay.exists).toBe(false);
+
+      // 同 idempotencyKey の再送は reused となり、副作用（count加算）が再実行されないこと
+      await (reopenAccountedBill as any).run(
+        callableRequest(adminId, {
+          billId,
+          idempotencyKey: "h2b-reopen-1",
+        }),
+      );
+      const userDataAfterReplay = (
+        await db.collection("users").doc(userId).get()
+      ).data()!;
+      expect(userDataAfterReplay.unsettledBillsCount).toBe(1);
+    });
+
+    it("C1-B: 営業日またぎでも reopen でき、current activeStay を壊さない", async () => {
+      const billId = "bill-c1b-crossday";
+      const adminId = "admin-c1b-crossday";
+      const userId = "user-c1b-cross";
+      const currentBillId = "bill-current-visit";
+      await createAdminDevice(adminId);
+      await createSettledBill(billId, { businessDate: "2026-05-08" });
+      await db.collection("bills").doc(billId).set(
+        {
+          party: { userId, pokerName: "carryover-user" },
+          closeSummary: {
+            unresolved: false,
+            markedAt: admin.firestore.FieldValue.serverTimestamp(),
+            closedBusinessDate: "2026-05-08",
+            displayAmountAtMark: 3000,
+            lastCloseRunId: "close-run-c1b",
+          },
+          closeSnapshot: { unresolved: false },
+        },
+        { merge: true },
+      );
+      await db.collection("users").doc(userId).set({ unsettledBillsCount: 0 });
+      // 現在来店中（別 bill）
+      await db.collection("activeStays").doc(userId).set({
+        uid: userId,
+        billId: currentBillId,
+        pokerName: "carryover-user",
+        isActive: true,
+        startedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // current businessDate は TEST_BUSINESS_DATE (2026-05-09)
+      const result: any = await (reopenAccountedBill as any).run(
+        callableRequest(adminId, {
+          billId,
+          idempotencyKey: "c1b-crossday-1",
+        }),
+      );
+      expect(result.success).toBe(true);
+      expect(result.reopenDestination).toBe("special_attention");
+
+      const billData = (await db.collection("bills").doc(billId).get()).data()!;
+      expect(billData.status).toBe("open");
+      expect(billData.businessDate).toBe("2026-05-08");
+      expect(billData.closeSummary?.unresolved).toBe(true);
+
+      const stay = (await db.collection("activeStays").doc(userId).get()).data()!;
+      expect(stay.billId).toBe(currentBillId);
+      expect(stay.isActive).toBe(true);
+
+      const userData = (await db.collection("users").doc(userId).get()).data()!;
+      expect(userData.unsettledBillsCount).toBe(1);
     });
 
     it("完了済 adjustment は touch されない（completed_by_cash_action のまま）", async () => {
@@ -627,6 +744,209 @@ describe("reopenAccountedBill (Emulator)", () => {
           callableRequest(adminId, {
             billId: "bill-does-not-exist",
             idempotencyKey: "nf1-reopen-1",
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "failed-precondition" });
+    });
+  });
+
+  describe("C1-C okibake_remote_payment void reopen", () => {
+    async function seedOkibakeRemoteSettledBill(params: {
+      billId: string;
+      tournamentId: string;
+      entryId: string;
+      userId: string;
+      pendingReviewAt?: boolean;
+    }) {
+      const { billId, tournamentId, entryId, userId } = params;
+      await db.collection("scheduledTournaments").doc(tournamentId).set({
+        templateId: "template-c1c",
+        businessDate: TEST_BUSINESS_DATE,
+        status: "ended",
+        snapshot: { name: "C1C TN", entryFee: 1000, addonFee: 0 },
+      });
+      await db
+        .collection("scheduledTournaments")
+        .doc(tournamentId)
+        .collection("okibakeTemporaryEntries")
+        .doc(entryId)
+        .set({
+          okibakeEntryId: entryId,
+          tournamentId,
+          entryStatus: "busted",
+          billLinkStatus: "linked",
+          linkedBillId: billId,
+          linkedAt: admin.firestore.FieldValue.serverTimestamp(),
+          linkedUserId: userId,
+          linkedUserPokerName: "c1c-user",
+          pendingReviewAt: params.pendingReviewAt === false
+            ? null
+            : admin.firestore.FieldValue.serverTimestamp(),
+          pendingReviewReason: "tournament_finished_unlinked",
+          okibakeAddonCount: 0,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+      await createSettledBill(billId);
+      await db.collection("bills").doc(billId).set(
+        {
+          billType: "okibake_remote_payment",
+          sourceOkibakeEntryId: entryId,
+          sourceTournamentId: tournamentId,
+          party: { userId, pokerName: "c1c-user" },
+          remotePayment: {
+            amountIncl: 1000,
+            method: "cash",
+            paidAt: null,
+            memo: null,
+          },
+          place: { table: null, seat: null },
+        },
+        { merge: true },
+      );
+    }
+
+    it("reopen で entry を pending_review へ戻し bill を voided にする（activeStay/新cycleなし）", async () => {
+      const billId = "bill-c1c-1";
+      const adminId = "admin-c1c-1";
+      const tournamentId = "t-c1c-1";
+      const entryId = "e-c1c-1";
+      const userId = "user-c1c-1";
+      await createAdminDevice(adminId);
+      await seedOkibakeRemoteSettledBill({
+        billId,
+        tournamentId,
+        entryId,
+        userId,
+      });
+
+      const result = await (reopenAccountedBill as any).run(
+        callableRequest(adminId, {
+          billId,
+          idempotencyKey: "c1c-reopen-1",
+        }),
+      );
+      expect(result.success).toBe(true);
+      expect(result.reopenDestination).toBe("special_attention");
+      expect(result.oldCycleNo).toBe(1);
+      expect(result.newCycleNo).toBe(1);
+
+      const billData = (await db.collection("bills").doc(billId).get()).data()!;
+      expect(billData.status).toBe("voided");
+      expect(billData.remotePayment?.amountIncl).toBe(1000);
+      expect(billData.sourceOkibakeEntryId).toBe(entryId);
+      expect(billData.reopenSummary?.hasReopenHistory).toBe(true);
+      expect(billData.reopenSummary?.reopenCount).toBe(1);
+      expect(billData.reopenSummary?.currentSettlementCycle).toBe(1);
+
+      const cycle2 = await db
+        .collection("bills")
+        .doc(billId)
+        .collection("settlementCycles")
+        .doc("2")
+        .get();
+      expect(cycle2.exists).toBe(false);
+
+      const cycle1 = (
+        await db
+          .collection("bills")
+          .doc(billId)
+          .collection("settlementCycles")
+          .doc("1")
+          .get()
+      ).data()!;
+      expect(cycle1.cycleState).toBe("reopened");
+      expect(cycle1.closedReason).toBe("reopen");
+
+      const entry = (
+        await db
+          .collection("scheduledTournaments")
+          .doc(tournamentId)
+          .collection("okibakeTemporaryEntries")
+          .doc(entryId)
+          .get()
+      ).data()!;
+      expect(entry.billLinkStatus).toBe("pending_review");
+      expect(entry.linkedBillId).toBeNull();
+      expect(entry.linkedAt).toBeNull();
+      expect(entry.pendingReviewReason).toBe("tournament_finished_unlinked");
+      expect(entry.pendingReviewAt).toBeTruthy();
+      expect(entry.linkedUserId).toBe(userId);
+      expect(entry.entryStatus).toBe("busted");
+
+      const stay = await db.collection("activeStays").doc(userId).get();
+      expect(stay.exists).toBe(false);
+
+      // RequireSpecialAttentionPage 相当: pending_review + entryStatus + linkedUserId
+      expect(
+        entry.billLinkStatus === "pending_review" &&
+          ["registered", "seated", "busted"].includes(entry.entryStatus) &&
+          typeof entry.linkedUserId === "string" &&
+          entry.linkedUserId.length > 0,
+      ).toBe(true);
+    });
+
+    it("同一 idempotencyKey 再送で entry/bill が再破壊されない", async () => {
+      const billId = "bill-c1c-idem";
+      const adminId = "admin-c1c-idem";
+      const tournamentId = "t-c1c-idem";
+      const entryId = "e-c1c-idem";
+      const userId = "user-c1c-idem";
+      await createAdminDevice(adminId);
+      await seedOkibakeRemoteSettledBill({
+        billId,
+        tournamentId,
+        entryId,
+        userId,
+      });
+
+      await (reopenAccountedBill as any).run(
+        callableRequest(adminId, {
+          billId,
+          idempotencyKey: "c1c-idem-1",
+        }),
+      );
+      const replay = await (reopenAccountedBill as any).run(
+        callableRequest(adminId, {
+          billId,
+          idempotencyKey: "c1c-idem-1",
+        }),
+      );
+      expect(replay.diagnostics?.reused).toBe(true);
+
+      const billData = (await db.collection("bills").doc(billId).get()).data()!;
+      expect(billData.status).toBe("voided");
+      expect(billData.reopenSummary?.reopenCount).toBe(1);
+
+      const entry = (
+        await db
+          .collection("scheduledTournaments")
+          .doc(tournamentId)
+          .collection("okibakeTemporaryEntries")
+          .doc(entryId)
+          .get()
+      ).data()!;
+      expect(entry.billLinkStatus).toBe("pending_review");
+      expect(entry.linkedBillId).toBeNull();
+    });
+
+    it("source 欠落の okibake_remote_payment は failed-precondition", async () => {
+      const billId = "bill-c1c-nosource";
+      const adminId = "admin-c1c-nosource";
+      await createAdminDevice(adminId);
+      await createSettledBill(billId);
+      await db.collection("bills").doc(billId).set(
+        {
+          billType: "okibake_remote_payment",
+        },
+        { merge: true },
+      );
+
+      await expect(
+        (reopenAccountedBill as any).run(
+          callableRequest(adminId, {
+            billId,
+            idempotencyKey: "c1c-nosource-1",
           }),
         ),
       ).rejects.toMatchObject({ code: "failed-precondition" });

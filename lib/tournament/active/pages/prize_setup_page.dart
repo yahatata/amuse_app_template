@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_prize_participant_count.dart';
 import 'package:amuse_app_template/tournament/prize_conversion_preview.dart';
 import 'package:amuse_app_template/tournament/ranking_reward_point_candidates.dart';
@@ -84,7 +86,7 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
         'tournamentId': widget.tournamentId,
       });
       
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         // デバッグログ: 取得されたデータの型を確認
         print('=== PrizeSetup データ型デバッグ ===');
         print('result.data type: ${result.data.runtimeType}');
@@ -127,12 +129,15 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
         print('=== End PrizeSetup データ型デバッグ ===');
       } else {
         setState(() {
-          _errorMessage = result.data['error'] ?? 'データの取得に失敗しました';
+          _errorMessage = mapCallableSoftFailMessage(result.data);
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'エラーが発生しました: $e';
+        _errorMessage = mapTournamentOpsCallableError(
+          e,
+          operation: 'getPrizeData',
+        );
       });
     } finally {
       setState(() {
@@ -391,22 +396,31 @@ class _PrizeSetupPageState extends State<PrizeSetupPage> {
         'prizeData': prizeData,
       });
       
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('プライズデータを保存しました')),
           );
           Navigator.of(context).pop();
         }
-      } else {
-        setState(() {
-          _errorMessage = result.data['error'] ?? 'データの保存に失敗しました';
-        });
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(mapCallableSoftFailMessage(result.data)),
+          ),
+        );
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = 'エラーが発生しました: $e';
-      });
+      // 保存失敗: 入力を残し、確定済み扱いにはしない（画面ごと差し替えない）
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentOpsCallableError(e, operation: 'setPrizeData'),
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {

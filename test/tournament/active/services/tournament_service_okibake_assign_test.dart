@@ -19,6 +19,17 @@ void main() {
       expect(r.success, false);
       expect(r.errorMessage, isNotNull);
     });
+
+    test('soft-fail で raw を載せない', () {
+      final r = AssignOkibakeTemporaryEntryToSeatResult.fromCallableData({
+        'success': false,
+        'message': 'uid=secret path=/internal',
+        'error': 'stack/internal/value',
+      });
+      expect(r.success, false);
+      expect(r.errorMessage, isNot(contains('uid=secret')));
+      expect(r.errorMessage, isNot(contains('stack/')));
+    });
   });
 
   group('MockTournamentService.assignOkibakeTemporaryEntryToSeat', () {

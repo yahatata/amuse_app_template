@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart' show TournamentService, TournamentServiceImpl, kDevPlaceholderStoreId, kDevPlaceholderTenantId;
+import 'package:amuse_app_template/tournament/scheduling/errors/create_single_tournament_error.dart';
+import 'package:amuse_app_template/tournament/scheduling/errors/tournament_admin_user_facing_errors.dart';
 
 /// 単発トーナメント作成画面
 class CreateSingleTournamentPage extends StatefulWidget {
@@ -22,6 +23,7 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
   List<Map<String, dynamic>> _tournamentTemplates = [];
   Map<String, dynamic>? _selectedTemplate;
   bool _isLoading = true;
+  bool _templatesLoadFailed = false;
   bool _isCreating = false;
 
   @override
@@ -47,6 +49,7 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
     
     setState(() {
       _isLoading = true;
+      _templatesLoadFailed = false;
     });
 
     try {
@@ -84,6 +87,7 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
 
       setState(() {
         _tournamentTemplates = templates;
+        _templatesLoadFailed = false;
         _isLoading = false;
       });
       
@@ -95,10 +99,18 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('テンプレートの読み込みに失敗しました: $e')),
+          SnackBar(
+            content: const Text(kTournamentAdminTemplatesLoadFailedMessage),
+            action: SnackBarAction(
+              label: '再試行',
+              onPressed: _loadTournamentTemplates,
+            ),
+          ),
         );
       }
       setState(() {
+        _tournamentTemplates = [];
+        _templatesLoadFailed = true;
         _isLoading = false;
       });
     }
@@ -124,20 +136,25 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
       return;
     }
 
+    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(startDate)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('開始日の形式が正しくありません (YYYY-MM-DD)')),
+      );
+      return;
+    }
+
+    if (!RegExp(r'^\d{2}:\d{2}$').hasMatch(startTime)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('開始時刻の形式が正しくありません (HH:MM)')),
+      );
+      return;
+    }
+
     setState(() {
       _isCreating = true;
     });
 
     try {
-      // 日付と時刻の形式をチェック
-      if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(startDate)) {
-        throw Exception('開始日の形式が正しくありません (YYYY-MM-DD)');
-      }
-      
-      if (!RegExp(r'^\d{2}:\d{2}$').hasMatch(startTime)) {
-        throw Exception('開始時刻の形式が正しくありません (HH:MM)');
-      }
-      
       // 日時を組み立て（日本時間として解釈）
       final startAtJST = DateTime.parse('${startDate}T${startTime}:00');
       final regEndAtJST = startAtJST.subtract(const Duration(minutes: 30)); // 開始時刻の30分前
@@ -163,57 +180,30 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
         context: context,
       );
 
-      if (result['success'] == true) {
-        final message = result['message'] as String;
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(message)),
-          );
+      if (!mounted) return;
 
-          // トーナメント作成メニュー画面に戻る
-          Navigator.pop(context);
-        }
-      } else {
-        throw Exception(result['error'] ?? 'トーナメントの作成に失敗しました');
+      if (result['success'] == true) {
+        final message = result['message'] as String?;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message ?? 'トーナメントを作成しました')),
+        );
+        // トーナメント作成メニュー画面に戻る
+        Navigator.pop(context);
+        return;
       }
+
+      // soft-fail: raw error/message は表示しない
+      final softFail = mapCreateSingleTournamentSoftFail(result);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(softFail.message)),
+      );
     } catch (e) {
-      if (mounted) {
-        final msg = e.toString();
-        final isPermissionDenied = msg.contains('permission-denied') || msg.contains('デバイスが見つからない');
-        final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '(未ログイン)';
-        if (isPermissionDenied) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('権限エラー'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('$msg'),
-                    const SizedBox(height: 16),
-                    const Text('現在のAuth UID（Firestore devices の uid と一致しているか確認してください）:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    SelectableText(currentUid, style: const TextStyle(fontSize: 11)),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('エラー: $e')),
-          );
-        }
-      }
+      if (!mounted) return;
+      // TOUR-72: UID / Functions raw / $e は表示しない
+      final mapped = mapCreateSingleTournamentCallableError(e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mapped.message)),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -237,15 +227,38 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
             ),
             body: _isLoading
             ? const Center(child: CircularProgressIndicator())
+            : _templatesLoadFailed
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                        const SizedBox(height: 16),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            kTournamentAdminTemplatesLoadFailedMessage,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 16),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        ElevatedButton(
+                          onPressed: _loadTournamentTemplates,
+                          child: const Text('再試行'),
+                        ),
+                      ],
+                    ),
+                  )
             : _tournamentTemplates.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.error_outline, size: 64, color: Colors.grey),
+                        const Icon(Icons.event_busy, size: 64, color: Colors.grey),
                         const SizedBox(height: 16),
                         const Text(
-                          '利用可能なテンプレートがありません',
+                          kTournamentAdminTemplatesEmptyMessage,
                           style: TextStyle(fontSize: 16),
                         ),
                         const SizedBox(height: 24),
@@ -381,7 +394,11 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
                       SizedBox(
                         height: 56,
                         child: ElevatedButton(
-                          onPressed: _isCreating ? null : _createTournament,
+                          onPressed: (_isCreating ||
+                                  _isLoading ||
+                                  _templatesLoadFailed)
+                              ? null
+                              : _createTournament,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blue,
                             foregroundColor: Colors.white,

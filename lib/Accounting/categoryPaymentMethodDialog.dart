@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
 import 'package:amuse_app_template/Accounting/payment_rounding.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
@@ -28,6 +29,8 @@ class _CategoryPaymentMethodDialogState
   Map<String, int> _balances = {for (final id in kAllBalanceIds) id: 0};
   bool _isLoadingBalance = true;
   bool _isLoadingCategories = true;
+  bool _categoriesLoadFailed = false;
+  bool _balanceLoadFailed = false;
   Map<String, int> _categoriesWithAmounts = {};
 
   // A-7: config 検証結果。categoryOrder は本ダイアログでは不要だが、
@@ -62,9 +65,15 @@ class _CategoryPaymentMethodDialogState
     if (billId == null || billId.isEmpty) {
       setState(() {
         _isLoadingCategories = false;
+        _categoriesLoadFailed = true;
       });
       return;
     }
+
+    setState(() {
+      _isLoadingCategories = true;
+      _categoriesLoadFailed = false;
+    });
 
     try {
       final billRef = FirebaseFirestore.instance.collection('bills').doc(billId);
@@ -131,10 +140,12 @@ class _CategoryPaymentMethodDialogState
           _selectedPaymentMethods[category] = 'cash';
         });
         _isLoadingCategories = false;
+        _categoriesLoadFailed = false;
       });
-    } catch (e) {
-      debugPrint('カテゴリ金額取得エラー: $e');
+    } catch (e, stackTrace) {
+      debugPrint('カテゴリ金額取得エラー: $e\n$stackTrace');
       setState(() {
+        _categoriesLoadFailed = true;
         _isLoadingCategories = false;
       });
     }
@@ -148,9 +159,15 @@ class _CategoryPaymentMethodDialogState
     if (userId == null || userId.isEmpty) {
       setState(() {
         _isLoadingBalance = false;
+        _balanceLoadFailed = false;
       });
       return;
     }
+
+    setState(() {
+      _isLoadingBalance = true;
+      _balanceLoadFailed = false;
+    });
 
     try {
       final userDoc = await FirebaseFirestore.instance
@@ -163,11 +180,13 @@ class _CategoryPaymentMethodDialogState
       setState(() {
         _balances = balances;
         _isLoadingBalance = false;
+        _balanceLoadFailed = false;
       });
-    } catch (e) {
-      debugPrint('残高取得エラー: $e');
+    } catch (e, stackTrace) {
+      debugPrint('残高取得エラー: $e\n$stackTrace');
       setState(() {
         _isLoadingBalance = false;
+        _balanceLoadFailed = true;
       });
     }
   }
@@ -300,6 +319,23 @@ class _CategoryPaymentMethodDialogState
       );
     }
 
+    if (_categoriesLoadFailed) {
+      return AlertDialog(
+        title: const Text('読込エラー'),
+        content: const Text(kAccountingCategoryAmountsLoadFailedMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('閉じる'),
+          ),
+          TextButton(
+            onPressed: () => _loadCategoriesWithAmounts(),
+            child: const Text('再試行'),
+          ),
+        ],
+      );
+    }
+
     final categoriesWithAmounts = _getCategoriesWithAmounts();
     if (categoriesWithAmounts.isEmpty) {
       return AlertDialog(
@@ -325,9 +361,9 @@ class _CategoryPaymentMethodDialogState
             Text('会計設定エラー'),
           ],
         ),
-        content: Text(
-          'ポイント関連の会計設定に不備があります。店舗設定を確認してください。\n\n'
-          '詳細: ${_configResult!.message}',
+        content: const Text(
+          '$kAccountingPointConfigInvalidMessage\n'
+          '（categoryOrder 等を含む設定を確認してください）',
         ),
         actions: [
           TextButton(
@@ -357,6 +393,13 @@ class _CategoryPaymentMethodDialogState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (_balanceLoadFailed) ...[
+                const Text(
+                  kAccountingBalancesLoadFailedMessage,
+                  style: TextStyle(color: Colors.red, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+              ],
               // 各カテゴリの支払い方法選択
               ...categoriesWithAmounts.entries.map((entry) {
                 final category = entry.key;
@@ -515,7 +558,9 @@ class _CategoryPaymentMethodDialogState
           child: const Text('キャンセル'),
         ),
         ElevatedButton(
-          onPressed: _areAllPaymentMethodsSelected()
+          onPressed: _areAllPaymentMethodsSelected() &&
+                  !_balanceLoadFailed &&
+                  !_categoriesLoadFailed
               ? () async {
                   // 残高不足チェックと自動分割処理
                   final result = await _processPaymentMethods();
@@ -729,6 +774,9 @@ class _CategoryPaymentMethodDialogState
     if (_isLoadingBalance) {
       return '残高: 読込中...';
     }
+    if (_balanceLoadFailed) {
+      return '残高: 取得できませんでした';
+    }
 
     final balance = _balances[paymentMethod] ?? 0;
     final setting = _balancePaymentSettings[paymentMethod];
@@ -746,7 +794,7 @@ class _CategoryPaymentMethodDialogState
 
   // 残高の色を取得（残高不足の場合は赤色）
   Color _getBalanceColor(String paymentMethod, String category) {
-    if (_isLoadingBalance) {
+    if (_isLoadingBalance || _balanceLoadFailed) {
       return Colors.grey;
     }
 

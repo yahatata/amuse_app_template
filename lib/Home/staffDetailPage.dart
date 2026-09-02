@@ -1,5 +1,6 @@
 import 'package:amuse_app_template/Home/staffRetirementPage.dart';
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -171,23 +172,35 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
       });
 
       if (mounted) {
-        if (result.data['success'] == true) {
+        final data = result.data;
+        if (isCallableSuccessResponse(data)) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(result.data['message'] ?? '銀行口座情報を更新しました')),
+            const SnackBar(content: Text('銀行口座情報を更新しました')),
           );
           setState(() {
             _isEditingBankInfo = false;
           });
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('更新に失敗しました')),
+            SnackBar(
+              content: Text(
+                mapCallableSoftFailMessage(
+                  data,
+                  operation: 'staff.updateBankInfo',
+                ),
+              ),
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('更新に失敗しました: $e')),
+          SnackBar(
+            content: Text(
+              mapCallableError(e, operation: 'staff.updateBankInfo').message,
+            ),
+          ),
         );
       }
     } finally {
@@ -234,9 +247,9 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
         'hourlyWage': hourlyWage,
       });
 
-      final response = result.data as Map<String, dynamic>;
-      
-      if (response['success'] == true) {
+      final response = result.data;
+
+      if (isCallableSuccessResponse(response)) {
         setState(() {
           _staffData['hourlyWage'] = hourlyWage;
           _isEditing = false;
@@ -244,13 +257,26 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response['message'] ?? '時給を更新しました'),
+          const SnackBar(
+            content: Text('時給を更新しました'),
             backgroundColor: Colors.green,
           ),
         );
       } else {
-        throw Exception(response['error'] ?? '更新に失敗しました');
+        setState(() {
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapCallableSoftFailMessage(
+                response,
+                operation: 'staff.updateHourlyWage',
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
       setState(() {
@@ -259,7 +285,9 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('更新に失敗しました: $e'),
+          content: Text(
+            mapCallableError(e, operation: 'staff.updateHourlyWage').message,
+          ),
           backgroundColor: Colors.red,
         ),
       );

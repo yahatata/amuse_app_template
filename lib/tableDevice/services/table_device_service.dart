@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
 
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/models/device.dart';
 import 'package:amuse_app_template/services/device_options.dart';
@@ -10,6 +11,13 @@ import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
 import 'package:amuse_app_template/tableDevice/models/table_device_home_state.dart';
+
+/// TableDevice Callable 失敗の利用者向け文言。
+///
+/// raw `message` / `toString()` は使わず D-1 [mapCallableError] に委譲する。
+String formatTableDeviceFunctionsError(Object error) {
+  return mapCallableError(error).message;
+}
 
 class TableDeviceTournamentCandidate {
   const TableDeviceTournamentCandidate({
@@ -173,11 +181,9 @@ class TableDeviceService {
         kDefaultTableDeviceForceClearPasscode;
   }
 
+  /// Callable 失敗の利用者向け文言（D-1）。raw message / toString は出さない。
   String formatFunctionsError(Object error) {
-    if (error is FirebaseFunctionsException) {
-      return error.message ?? error.code;
-    }
-    return error.toString();
+    return formatTableDeviceFunctionsError(error);
   }
 
   Stream<TableDeviceHomeState> watchHomeState(String? tableId) {
@@ -208,7 +214,7 @@ class TableDeviceService {
         tableId: tableId,
         tableName: tableId,
         registrationEnabled: registrationEnabled,
-        message: 'tables/$tableId が存在しません',
+        message: '卓情報を確認できませんでした。画面を更新して再度お試しください。',
       );
     }
 

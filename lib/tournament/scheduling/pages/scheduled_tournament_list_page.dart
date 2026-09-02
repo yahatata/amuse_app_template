@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -8,6 +9,7 @@ import 'package:amuse_app_template/tournament/active/pages/tournament_home_page.
 import 'package:amuse_app_template/tournament/active/tournament_service.dart' show TournamentService, TournamentServiceImpl, kDevPlaceholderStoreId, kDevPlaceholderTenantId;
 import 'package:amuse_app_template/utils/date_time_utils.dart';
 import 'scheduled_tournament_in_calendar_page.dart';
+import 'package:amuse_app_template/tournament/scheduling/errors/tournament_admin_user_facing_errors.dart';
 
 class ScheduledTournamentListPage extends StatefulWidget {
   const ScheduledTournamentListPage({super.key});
@@ -23,14 +25,16 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
   bool _isLoading = false;
   List<Map<String, dynamic>> _tournamentTemplates = [];
   Future<void>? _templatesLoadFuture;
+  bool _templatesLoadFailed = false;
   bool _isOpeningCreateDialog = false;
+  int _scheduleStreamRetryToken = 0;
   
   // トーナメント表示期間の選択
   String _selectedPeriod = 'today'; // デフォルトは今日
   final List<Map<String, dynamic>> _periodOptions = [
     {'key': 'yesterday', 'label': '昨日', 'icon': Icons.history},
-    {'key': 'today', 'label': '今日', 'icon': Icons.today},
-    {'key': 'thisWeek', 'label': '今後7日', 'icon': Icons.view_week},
+    {'key': 'today', 'label': '本日', 'icon': Icons.today},
+    {'key': 'thisWeek', 'label': '今後1週間', 'icon': Icons.view_week},
     {'key': 'all', 'label': '7日前以降', 'icon': Icons.all_inclusive},
   ];
   
@@ -83,7 +87,7 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
       final result = await callable.call({});
       final response = result.data;
 
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         final List<dynamic> rawTemplates = response['tournamentTemplates'] ?? [];
         final List<Map<String, dynamic>> convertedTemplates = rawTemplates.map((template) {
           final Map<String, dynamic> converted = {};
@@ -96,19 +100,67 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
         if (mounted) {
           setState(() {
             _tournamentTemplates = convertedTemplates;
+            _templatesLoadFailed = false;
           });
         }
       } else {
-        throw Exception(response['error'] ?? 'テンプレートの取得に失敗しました');
+        _templatesLoadFuture = null;
+        if (mounted) {
+          setState(() {
+            _tournamentTemplates = [];
+            _templatesLoadFailed = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                mapTournamentAdminSoftFail(response),
+              ),
+              action: SnackBarAction(
+                label: '再試行',
+                onPressed: _retryTemplatesLoad,
+              ),
+            ),
+          );
+        }
       }
     } catch (e) {
       _templatesLoadFuture = null;
       if (mounted) {
+        setState(() {
+          _tournamentTemplates = [];
+          _templatesLoadFailed = true;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('テンプレート取得エラー: $e')),
+          SnackBar(
+            content: Text(
+              mapTournamentAdminCallableError(e),
+            ),
+            action: SnackBarAction(
+              label: '再試行',
+              onPressed: _retryTemplatesLoad,
+            ),
+          ),
         );
       }
     }
+  }
+
+  Future<void> _retryTemplatesLoad() async {
+    _templatesLoadFuture = null;
+    if (mounted) {
+      setState(() {
+        _templatesLoadFailed = false;
+      });
+    }
+    await _ensureTournamentTemplatesLoaded();
+  }
+
+  void _retryScheduleStream() {
+    setState(() {
+      _streamCache.remove(_selectedPeriod);
+      _processingPeriods.remove(_selectedPeriod);
+      _scheduleStreamRetryToken++;
+    });
   }
 
   /// 作成ボタン押下: 未取得なら読込 CPI を出し、完了後に作成ダイアログを開く。
@@ -140,9 +192,23 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
       }
 
       if (!mounted) return;
+
+      if (_templatesLoadFailed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(kTournamentAdminTemplatesLoadFailedMessage),
+            action: SnackBarAction(
+              label: '再試行',
+              onPressed: _retryTemplatesLoad,
+            ),
+          ),
+        );
+        return;
+      }
+
       if (_tournamentTemplates.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('利用可能なテンプレートがありません')),
+          const SnackBar(content: Text(kTournamentAdminTemplatesEmptyMessage)),
         );
         return;
       }
@@ -248,9 +314,14 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
           // トーナメント一覧
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
+              key: ValueKey('schedule-$_selectedPeriod-$_scheduleStreamRetryToken'),
               stream: _getTournamentsStream(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
+                final cached = _tournamentsByPeriod[_selectedPeriod];
+                final hasStaleData = cached != null && cached.isNotEmpty;
+
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !hasStaleData) {
                   return const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -262,23 +333,58 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
                     ),
                   );
                 }
-                
+
                 if (snapshot.hasError) {
+                  final message = tournamentAdminScheduleStreamMessage(
+                    hasStaleData: hasStaleData,
+                    error: snapshot.error,
+                  );
+                  if (hasStaleData) {
+                    return Column(
+                      children: [
+                        Material(
+                          color: Colors.orange.shade100,
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              children: [
+                                Expanded(child: Text(message)),
+                                TextButton(
+                                  onPressed: _retryScheduleStream,
+                                  child: const Text('再試行'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Expanded(child: _buildTournamentListContent()),
+                      ],
+                    );
+                  }
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.error, color: Colors.red, size: 48),
+                        const Icon(Icons.error_outline, color: Colors.red, size: 48),
                         const SizedBox(height: 16),
-                        Text(
-                          'エラーが発生しました: ${snapshot.error}',
-                          style: const TextStyle(fontSize: 16, color: Colors.red),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            message,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _retryScheduleStream,
+                          child: const Text('再試行'),
                         ),
                       ],
                     ),
                   );
                 }
-                
+
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return const Center(
                     child: Column(
@@ -301,7 +407,7 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
                     ),
                   );
                 }
-                
+
                 // ストリームから最新データを取得して更新（非同期処理）
                 // 重複処理を防ぐため、処理中でない場合のみ実行
                 if (snapshot.hasData && !_processingPeriods.contains(_selectedPeriod)) {
@@ -318,86 +424,11 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
                     }
                   }).catchError((error) {
                     _processingPeriods.remove(_selectedPeriod);
-                    debugPrint('トーナメントデータ変換エラー: $error');
+                    debugPrint('トーナメントデータ変換エラー');
                   });
                 }
-                
-                // 現在のデータを表示（非同期処理が完了するまでの間は既存データを表示）
-                final tournaments = _getCurrentTournaments();
-                
-                if (tournaments.isEmpty) {
-                  return const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
-                        Text('トーナメントを読み込み中...'),
-                      ],
-                    ),
-                  );
-                }
-                
-                // thisWeekとallの場合は日付バーを表示、todayとyesterdayの場合は表示しない
-                final shouldShowDateHeaders = _selectedPeriod == 'thisWeek' || _selectedPeriod == 'all';
-                final hasMore = _hasMoreTournaments();
-                
-                // 「すべて表示」ボタンも含めたアイテム数
-                final itemCount = tournaments.length + (hasMore ? 1 : 0);
-                
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: itemCount,
-                  itemBuilder: (context, index) {
-                    // 「すべて表示」ボタンの位置かどうかを判定
-                    if (hasMore && index == tournaments.length) {
-                      // 「すべて表示」ボタンを表示
-                      return Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 12),
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _showAllTournaments[_selectedPeriod] = true;
-                              // ストリームキャッシュをクリアして再取得
-                              _streamCache.remove(_selectedPeriod);
-                              _processingPeriods.remove(_selectedPeriod);
-                            });
-                          },
-                          icon: const Icon(Icons.expand_more),
-                          label: const Text('すべて表示'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      );
-                    }
-                    
-                    // トーナメントカードを表示
-                    final tournament = tournaments[index];
-                    final currentBusinessDate = tournament['businessDate'] as String? ?? '';
-                    
-                    // 前のトーナメントのbusinessDateを取得
-                    final previousBusinessDate = index > 0 
-                        ? (tournaments[index - 1]['businessDate'] as String? ?? '')
-                        : '';
-                    
-                    // businessDateが変わった場合、日付バーを表示（thisWeekとallのみ）
-                    final shouldShowDateHeader = shouldShowDateHeaders && 
-                        currentBusinessDate != previousBusinessDate && 
-                        currentBusinessDate.isNotEmpty;
-                    
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (shouldShowDateHeader) _buildDateHeader(currentBusinessDate),
-                        _buildTournamentCard(context, tournament),
-                      ],
-                    );
-                  },
-                );
+
+                return _buildTournamentListContent();
               },
             ),
           ),
@@ -426,6 +457,74 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTournamentListContent() {
+    final tournaments = _getCurrentTournaments();
+
+    if (tournaments.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('トーナメントを読み込み中...'),
+          ],
+        ),
+      );
+    }
+
+    final shouldShowDateHeaders =
+        _selectedPeriod == 'thisWeek' || _selectedPeriod == 'all';
+    final hasMore = _hasMoreTournaments();
+    final itemCount = tournaments.length + (hasMore ? 1 : 0);
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: itemCount,
+      itemBuilder: (context, index) {
+        if (hasMore && index == tournaments.length) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 12),
+            child: ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _showAllTournaments[_selectedPeriod] = true;
+                  _streamCache.remove(_selectedPeriod);
+                  _processingPeriods.remove(_selectedPeriod);
+                });
+              },
+              icon: const Icon(Icons.expand_more),
+              label: const Text('すべて表示'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          );
+        }
+
+        final tournament = tournaments[index];
+        final currentBusinessDate = tournament['businessDate'] as String? ?? '';
+        final previousBusinessDate = index > 0
+            ? (tournaments[index - 1]['businessDate'] as String? ?? '')
+            : '';
+        final shouldShowDateHeader = shouldShowDateHeaders &&
+            currentBusinessDate != previousBusinessDate &&
+            currentBusinessDate.isNotEmpty;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (shouldShowDateHeader) _buildDateHeader(currentBusinessDate),
+            _buildTournamentCard(context, tournament),
+          ],
+        );
+      },
     );
   }
 
@@ -1101,41 +1200,52 @@ class _ScheduledTournamentListPageState extends State<ScheduledTournamentListPag
         tenantId: kDevPlaceholderTenantId,
       );
 
+      if (!mounted) return;
+
       if (result['success'] == true) {
-        final tournamentId = result['tournamentId'] as String;
-        final message = result['message'] as String;
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(message)),
-          );
+        final tournamentId = result['tournamentId'] as String?;
 
-          // スケジュール済みトーナメントリストを更新
-          // StreamBuilderが自動的に更新するため、手動更新は不要
-          // ストリームキャッシュをクリアして再読み込みを促す
-          _streamCache.remove(_selectedPeriod);
-          _processingPeriods.remove(_selectedPeriod);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('トーナメントを作成しました')),
+        );
 
-          // 作成されたトーナメントの画面に遷移
-          if (mounted) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => TournamentHomePage(
-                  tournamentId: tournamentId,
-                  tournamentName: '新規作成トーナメント',
-                ),
+        _streamCache.remove(_selectedPeriod);
+        _processingPeriods.remove(_selectedPeriod);
+
+        if (tournamentId != null && tournamentId.isNotEmpty && mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TournamentHomePage(
+                tournamentId: tournamentId,
+                tournamentName: '新規作成トーナメント',
               ),
-            );
-          }
+            ),
+          );
         }
-      } else {
-        throw Exception(result['error'] ?? 'トーナメントの作成に失敗しました');
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentAdminSoftFail(
+                result,
+                operation: kCreateScheduledTournamentOperation,
+              ),
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: $e')),
+          SnackBar(
+            content: Text(
+              mapTournamentAdminCallableError(
+                e,
+                operation: kCreateScheduledTournamentOperation,
+              ),
+            ),
+          ),
         );
       }
     } finally {

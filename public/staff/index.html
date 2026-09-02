@@ -11,6 +11,7 @@
     <!-- 店舗別設定ファイル -->
     <script src="./config.js"></script>
     <script src="../js/liff_errors.js"></script>
+    <script src="../js/staff_phone.js"></script>
     <script src="../js/app_dialogs.js"></script>
     <!-- 日本の祝日判定ライブラリ: japanese-holidays-js -->
     <!-- 読み込み失敗してもフォールバック判定で動作します -->
@@ -391,7 +392,7 @@
 
       <div class="form-group">
         <label for="phone">電話番号</label>
-        <input type="tel" id="phone" placeholder="090-1234-5678" required>
+        <input type="tel" id="phone" placeholder="09012345678" required>
       </div>
 
           <button type="submit" class="btn" id="staff-register-submit-btn">スタッフ登録</button>
@@ -566,7 +567,7 @@
         <div id="calendar-container" class="calendar-container flexible-container">
           <h2>翌月シフト申請</h2>
           <div class="month-info" id="current-month">2024年9月</div>
-          <p class="note">※日付を選択して「次へ」を押してください（複数の日付を一度に選択可能）<br>※✓マークを選択すると以前の申請を修正できます<br>※<span style="color: #ff9800;">オレンジ</span>の点は終日営業、<span style="color: #9c27b0;">紫</span>の点はイベント営業の日です</p>
+          <p class="note" id="shift-calendar-legend">※日付を選択して「次へ」を押してください（複数の日付を一度に選択可能）<br>※<span style="color: #4caf50; font-weight: bold;">緑の✓</span>：申請済み・修正可能<br>※<span style="color: #2196F3; font-weight: bold;">青の✓</span>：確定済み・修正不可<br>※<span style="color: #ff9800;">オレンジ</span>の点は終日営業、<span style="color: #9c27b0;">紫</span>の点はイベント営業の日です</p>
           
 
           <div id="calendar" class="calendar flexible-container">
@@ -592,57 +593,12 @@
           </div>
         </div>
         
-        <!-- シフト時間入力 -->
-        <div id="shift-input-container" class="shift-input-container flexible-container" style="display: none;">
-          <h4 id="selected-date-display" style="margin-bottom: 10px; font-size: 16px; font-weight: bold; color: #333;"></h4>
-          <h3>シフト時間入力</h3>
-                      <div class="shift-input-form flexible-container">
-                          <div class="time-inputs flexible-container">
-                <div class="form-group flexible-container">
-                  <label>開始時刻</label>
-                  <div class="custom-time-selector" style="display: flex; gap: 10px; align-items: center; justify-content: center;">
-                    <select id="shift-start-hour" required style="width: 50%; height: 40px; font-size: 16px; padding: 8px;">
-                      <option value="">時</option>
-                    </select>
-                    <select id="shift-start-minute" required style="display: none;">
-                      <option value="00" selected>00</option>
-        </select>
-                  </div>
-      </div>
-
-                <div class="form-group flexible-container">
-                  <label>終了時刻</label>
-                  <div class="custom-time-selector" style="display: flex; gap: 10px; align-items: center; justify-content: center;">
-                    <select id="shift-end-hour" required style="width: 50%; height: 40px; font-size: 16px; padding: 8px;">
-                      <option value="">時</option>
-                    </select>
-                    <select id="shift-end-minute" required style="display: none;">
-                      <option value="00" selected>00</option>
-        </select>
-                  </div>
-                </div>
-      </div>
-
-            <button id="add-shift-btn" class="btn">シフトを追加</button>
-          </div>
-        </div>
-        
-        <!-- 未提出シフト一覧 -->
-        <div id="pending-shifts-container" class="pending-shifts-container flexible-container" style="display: none;">
-          <h3>未提出シフト一覧</h3>
-                      <div id="pending-shifts-list" class="pending-shifts-list flexible-container">
-            <p>未提出のシフトはありません</p>
-          </div>
-          
-                      <div class="submit-actions flexible-container">
-            <button id="submit-all-shifts-btn" class="btn primary-btn" disabled>一括提出</button>
-            <button onclick="showStaffHomePage()" class="btn secondary-btn">ホームに戻る</button>
-          </div>
-        </div>
-
         <div id="submitted-shifts-list-container" class="flexible-container" style="display: none;">
           <h3>提出済みの申請</h3>
           <div id="submitted-shifts-list"></div>
+          <div style="margin-top: 20px; text-align: center;">
+            <button onclick="showStaffHomePage()" class="btn secondary-btn">ホームに戻る</button>
+          </div>
         </div>
 
         </div>
@@ -874,7 +830,11 @@
     const birthMonth = document.getElementById('reactivation-birthMonth')?.value || '';
     const birthDay = document.getElementById('reactivation-birthDay')?.value || '';
     const email = document.getElementById('reactivation-email')?.value.trim() || '';
-    const phoneNumber = document.getElementById('reactivation-phone')?.value.trim() || '';
+    const phoneNumber = window.StaffPhone
+      ? window.StaffPhone.normalizeStaffPhoneNumber(
+          document.getElementById('reactivation-phone')?.value || '',
+        )
+      : String(document.getElementById('reactivation-phone')?.value || '').trim();
 
     if (!agreementEl || !agreementEl.checked) {
       issues.push('店舗と復帰について合意済みであることを確認してください。');
@@ -899,6 +859,14 @@
     }
     if (!phoneNumber) {
       issues.push('電話番号を入力してください。');
+    } else if (
+      !window.StaffPhone ||
+      !window.StaffPhone.isValidStaffPhoneNumber(phoneNumber)
+    ) {
+      issues.push(
+        (window.StaffPhone && window.StaffPhone.INVALID_STAFF_PHONE_MESSAGE) ||
+          '電話番号は10〜11桁の数字で入力してください',
+      );
     }
 
     if (issues.length > 0) {
@@ -1059,6 +1027,31 @@
     }, 3000);
   }
 
+  // CLN-D4: 主要 mutation の結果は下部 message ではなく AppDialogs。
+  // loading 解除後に呼ぶ。文言は既存 resolver / catalog の message をそのまま使う。
+  function mutationFeedbackText(messageOrResolved) {
+    if (messageOrResolved && typeof messageOrResolved === 'object' && typeof messageOrResolved.message === 'string') {
+      return messageOrResolved.message;
+    }
+    if (typeof messageOrResolved === 'string' && messageOrResolved.trim()) {
+      return messageOrResolved;
+    }
+    const LE = window.LiffErrors;
+    if (LE) return LE.resolveUserFacingError({}).message;
+    return '処理に失敗しました。時間をおいてもう一度お試しください。';
+  }
+
+  async function showMutationFeedback(messageOrResolved) {
+    const text = mutationFeedbackText(messageOrResolved);
+    if (errorEl) errorEl.style.display = 'none';
+    if (successEl) successEl.style.display = 'none';
+    if (window.AppDialogs && typeof window.AppDialogs.showAppAlert === 'function') {
+      await window.AppDialogs.showAppAlert(text);
+      return;
+    }
+    showError(text);
+  }
+
   // === ローディング制御用の共通関数 ===
   
   // グローバルローディングオーバーレイ表示
@@ -1091,30 +1084,6 @@
     document.querySelectorAll('#qr-page .qr-actions .btn').forEach((b) => {
       b.disabled = !!busy;
     });
-  }
-  
-  // ボタン付き処理のローディング制御
-  async function executeWithButtonLoading(asyncFunction, button, loadingText = '処理中...') {
-    if (!button) {
-      throw new Error('Button element is required');
-    }
-    
-    const originalText = button.textContent;
-    const originalDisabled = button.disabled;
-    
-    try {
-      button.disabled = true;
-      button.textContent = loadingText;
-      
-      const result = await asyncFunction();
-      return result;
-      
-    } catch (error) {
-      throw error;
-    } finally {
-      button.disabled = originalDisabled;
-      button.textContent = originalText;
-    }
   }
   
   // グローバルローディング付き処理の実行
@@ -1181,18 +1150,9 @@
     if (hash === '#qr') {
       showStaffQRCode();
     } else if (hash.startsWith('#shift')) {
-      // URLパラメータを解析
-      const hashPart = hash.substring(6); // '#shift'を除去
-      const queryString = hashPart.startsWith('?') ? hashPart.substring(1) : hashPart;
-      const urlParams = new URLSearchParams(queryString);
-      const requestId = urlParams.get('requestId');
-      const date = urlParams.get('date');
-      const start = urlParams.get('start');
-      const end = urlParams.get('end');
-      
-      // window.openShiftManagementが定義されているか確認
+      // 通常シフト画面へ（旧要請ack深リンク受信は CLN-F2 で削除）
       if (typeof window.openShiftManagement === 'function') {
-        window.openShiftManagement(requestId, date, start, end);
+        window.openShiftManagement();
       }
     } else if (hash === '#attendance') {
       openAttendanceManagement();
@@ -1332,13 +1292,13 @@
     e.preventDefault();
     const LE = window.LiffErrors;
     if (!LE) {
-      showError('処理に失敗しました。時間をおいてもう一度お試しください。');
+      await showMutationFeedback('処理に失敗しました。時間をおいてもう一度お試しください。');
       return;
     }
 
     const guard = LE.getStaffMutationGuard(pendingStaffRegistration, staffRegistrationBusy);
     if (guard.blockReason === 'pending_lock') {
-      showError(LE.MESSAGES.STAFF_REG_RESULT_UNKNOWN);
+      await showMutationFeedback(LE.MESSAGES.STAFF_REG_RESULT_UNKNOWN);
       return;
     }
     if (guard.blockReason === 'busy') {
@@ -1354,7 +1314,18 @@
     const birthMonth = document.getElementById('birthMonth').value;
     const birthDay = document.getElementById('birthDay').value;
     const email = document.getElementById('email').value;
-    const phoneNumber = document.getElementById('phone').value;
+    const phoneNumber = window.StaffPhone
+      ? window.StaffPhone.normalizeStaffPhoneNumber(
+          document.getElementById('phone').value,
+        )
+      : String(document.getElementById('phone').value || '').trim();
+    if (!window.StaffPhone || !window.StaffPhone.isValidStaffPhoneNumber(phoneNumber)) {
+      showError(
+        (window.StaffPhone && window.StaffPhone.INVALID_STAFF_PHONE_MESSAGE) ||
+          '電話番号は10〜11桁の数字で入力してください',
+      );
+      return;
+    }
 
     if (!validateFullNameKana(fullNameKana)) {
       showError('かなはひらがなまたはカタカナで入力してください。');
@@ -1365,7 +1336,7 @@
       return;
     }
     if (!window.LiffFirebase || !window.LiffFirebase.user) {
-      showError(LE.resolveUserFacingError({
+      await showMutationFeedback(LE.resolveUserFacingError({
         operation: 'create_staff_account',
         errorKey: 'STAFF_UNAUTHENTICATED',
       }));
@@ -1418,14 +1389,14 @@
         pendingStaffRegistration,
         'result_unknown',
       );
-      showError(LE.MESSAGES.STAFF_REG_RESULT_UNKNOWN);
+      await showMutationFeedback(LE.MESSAGES.STAFF_REG_RESULT_UNKNOWN);
       return;
     }
 
     if (classified.outcome === 'success') {
       pendingStaffRegistration = null;
       window._staffStatus = 'active';
-      showSuccess(classified.resolved.message);
+      await showMutationFeedback(classified.resolved.message);
       const loadingElReg = document.getElementById('loading');
       if (loadingElReg) loadingElReg.style.display = 'block';
       setTimeout(() => {
@@ -1438,7 +1409,7 @@
 
     if (classified.outcome === 'confirmed_failure') {
       pendingStaffRegistration = null;
-      showError(classified.resolved);
+      await showMutationFeedback(classified.resolved);
       if (classified.errorKey === 'STAFF_REACTIVATION_REQUIRED') {
         setTimeout(() => {
           initReactivationBirthdayOptions();
@@ -1453,7 +1424,7 @@
       pendingStaffRegistration,
       'result_unknown',
     );
-    showError(LE.MESSAGES.STAFF_REG_RESULT_UNKNOWN);
+    await showMutationFeedback(LE.MESSAGES.STAFF_REG_RESULT_UNKNOWN);
 
     const fresh = await fetchFreshStaffStatus();
     if (fresh.status === 'active') {
@@ -1471,7 +1442,7 @@
     if (fresh.status === 'retired') {
       pendingStaffRegistration = null;
       window._staffStatus = 'retired';
-      showError(LE.MESSAGES.STAFF_REACTIVATION_REQUIRED);
+      await showMutationFeedback(LE.MESSAGES.STAFF_REACTIVATION_REQUIRED);
       setTimeout(() => {
         if (fresh.data) populateReactivationForm(fresh.data);
         initReactivationBirthdayOptions();
@@ -1487,7 +1458,7 @@
       e.preventDefault();
       const LE = window.LiffErrors;
       if (!LE) {
-        showError('処理に失敗しました。時間をおいてもう一度お試しください。');
+        await showMutationFeedback('処理に失敗しました。時間をおいてもう一度お試しください。');
         return;
       }
 
@@ -1497,7 +1468,7 @@
 
       const guard = LE.getStaffMutationGuard(pendingStaffReactivation, staffReactivationBusy);
       if (guard.blockReason === 'pending_lock') {
-        showError(LE.MESSAGES.STAFF_REACTIVATION_RESULT_UNKNOWN);
+        await showMutationFeedback(LE.MESSAGES.STAFF_REACTIVATION_RESULT_UNKNOWN);
         return;
       }
       if (guard.blockReason === 'busy') {
@@ -1517,10 +1488,14 @@
       const birthMonth = document.getElementById('reactivation-birthMonth').value;
       const birthDay = document.getElementById('reactivation-birthDay').value;
       const email = document.getElementById('reactivation-email').value;
-      const phoneNumber = document.getElementById('reactivation-phone').value;
+      const phoneNumber = window.StaffPhone
+        ? window.StaffPhone.normalizeStaffPhoneNumber(
+            document.getElementById('reactivation-phone').value,
+          )
+        : String(document.getElementById('reactivation-phone').value || '').trim();
 
       if (!window.LiffFirebase || !window.LiffFirebase.user) {
-        showError(LE.resolveUserFacingError({
+        await showMutationFeedback(LE.resolveUserFacingError({
           operation: 'reactivate_staff_account',
           errorKey: 'STAFF_UNAUTHENTICATED',
         }));
@@ -1571,14 +1546,14 @@
           pendingStaffReactivation,
           'result_unknown',
         );
-        showError(LE.MESSAGES.STAFF_REACTIVATION_RESULT_UNKNOWN);
+        await showMutationFeedback(LE.MESSAGES.STAFF_REACTIVATION_RESULT_UNKNOWN);
         return;
       }
 
       if (classified.outcome === 'success') {
         pendingStaffReactivation = null;
         window._staffStatus = 'active';
-        showSuccess(classified.resolved.message);
+        await showMutationFeedback(classified.resolved.message);
         const loadingElRe = document.getElementById('loading');
         if (loadingElRe) loadingElRe.style.display = 'block';
         setTimeout(() => {
@@ -1591,7 +1566,7 @@
 
       if (classified.outcome === 'confirmed_failure') {
         pendingStaffReactivation = null;
-        showError(classified.resolved);
+        await showMutationFeedback(classified.resolved);
         if (classified.errorKey === 'STAFF_NOT_RETIRED') {
           const freshNotRetired = await fetchFreshStaffStatus();
           if (freshNotRetired.status === 'active') {
@@ -1610,7 +1585,7 @@
         pendingStaffReactivation,
         'result_unknown',
       );
-      showError(LE.MESSAGES.STAFF_REACTIVATION_RESULT_UNKNOWN);
+      await showMutationFeedback(LE.MESSAGES.STAFF_REACTIVATION_RESULT_UNKNOWN);
 
       const fresh = await fetchFreshStaffStatus();
       if (fresh.status === 'active') {
@@ -2029,13 +2004,6 @@
       });
 
 
-      // ダッシュボード機能（グローバルに公開）
-      window.openShiftManagement = () => {
-        showPage(shiftPageEl);
-      };
-
-
-
       // カレンダーとシフト管理の機能
       let currentMonth = new Date();
       let selectedDates = []; // 複数の日付文字列を保存（YYYY-MM-DD形式の配列）
@@ -2210,13 +2178,16 @@
           }
         }
         
-        // 申請中（shiftRequestsのpending）の日付は、カレンダー描画後に非同期で反映する
+        // pending / confirmed マークは、カレンダー描画後に非同期で反映する
         // ※ここでawaitするとカレンダー表示自体が遅延/停止するため
         const pendingUid = window.LiffFirebase?.user?.uid || window.Firebase?.auth?.currentUser?.uid;
         const pendingCacheKey = `${pendingUid || 'anon'}:${yearMonth}`;
         window.__PENDING_SHIFT_DATES_CACHE__ = window.__PENDING_SHIFT_DATES_CACHE__ || {};
+        window.__CONFIRMED_SHIFT_DATES_CACHE__ = window.__CONFIRMED_SHIFT_DATES_CACHE__ || {};
         const cachedPendingDates = window.__PENDING_SHIFT_DATES_CACHE__[pendingCacheKey] || [];
+        const cachedConfirmedDates = window.__CONFIRMED_SHIFT_DATES_CACHE__[pendingCacheKey] || [];
         const pendingShiftDates = new Set(cachedPendingDates);
+        const confirmedShiftDates = new Set(cachedConfirmedDates);
         const renderToken = `${pendingCacheKey}:${Date.now()}`;
         window.__SHIFT_APP_CALENDAR_TOKEN__ = renderToken;
         
@@ -2321,11 +2292,15 @@
           } else if (styleId === 'event') {
             calendarHTML += '<span class="style-dot" style="display: block; width: 6px; height: 6px; border-radius: 50%; background-color: #9c27b0; margin: 0 auto 2px;"></span>';
           }
-          // 申請中のシフトがある日付にチェックマークを表示（キャッシュ分のみ。最新は描画後に反映）
-          if (pendingShiftDates.has(dateStr) && !isClosed) {
-            const checkColor = isSelected ? '#ffffff' : '#4caf50';
-            const shadow = isSelected ? 'text-shadow: 0 0 2px rgba(0,0,0,0.4);' : '';
-            calendarHTML += `<span class="pending-checkmark" style="position: absolute; top: 1px; right: 2px; font-size: 0.75rem; color: ${checkColor}; ${shadow}">✓</span>`;
+          // 申請/確定マーク（キャッシュ分のみ。最新は描画後に反映）。confirmed > pending
+          if (!isClosed) {
+            if (confirmedShiftDates.has(dateStr)) {
+              calendarHTML += `<span class="confirmed-checkmark" style="position: absolute; top: 1px; right: 2px; font-size: 0.75rem; color: #2196F3;">✓</span>`;
+            } else if (pendingShiftDates.has(dateStr)) {
+              const checkColor = isSelected ? '#ffffff' : '#4caf50';
+              const shadow = isSelected ? 'text-shadow: 0 0 2px rgba(0,0,0,0.4);' : '';
+              calendarHTML += `<span class="pending-checkmark" style="position: absolute; top: 1px; right: 2px; font-size: 0.75rem; color: ${checkColor}; ${shadow}">✓</span>`;
+            }
           }
           calendarHTML += `<span style="font-weight: bold; color: ${textColor};">${day}</span>`;
           calendarHTML += '</div>';
@@ -2333,63 +2308,90 @@
         
         calendarHTML += '</div>';
         calendar.innerHTML = calendarHTML;
+        syncCalendarDaySelectionStyles();
 
-        // カレンダー描画後に申請中日付を取得し、チェックマークを反映（非ブロッキング）
+        // カレンダー描画後に pending / confirmed 日付を取得し、チェックマークを反映（非ブロッキング）
         if (pendingUid) {
-          // まずFirestore直読みを試し（速い）、失敗したらgetShiftsにフォールバック（遅い可能性あり）
-          fetchPendingShiftDatesForMonth(pendingUid, yearMonth)
-            .then((dates) => {
+          fetchShiftCalendarMarkDatesForMonth(pendingUid, yearMonth)
+            .then((marks) => {
               if (window.__SHIFT_APP_CALENDAR_TOKEN__ !== renderToken) return;
-              window.__PENDING_SHIFT_DATES_CACHE__[pendingCacheKey] = dates;
-              // localStorageにも保存（次回は即表示）
+              const pendingDates = marks.pending || [];
+              const confirmedDates = marks.confirmed || [];
+              window.__PENDING_SHIFT_DATES_CACHE__[pendingCacheKey] = pendingDates;
+              window.__CONFIRMED_SHIFT_DATES_CACHE__[pendingCacheKey] = confirmedDates;
               try {
-                localStorage.setItem(`pendingShiftDates:${pendingCacheKey}`, JSON.stringify(dates));
+                localStorage.setItem(`pendingShiftDates:${pendingCacheKey}`, JSON.stringify(pendingDates));
+                localStorage.setItem(`confirmedShiftDates:${pendingCacheKey}`, JSON.stringify(confirmedDates));
               } catch (_) {}
-              applyPendingShiftMarks(new Set(dates));
+              applyShiftCalendarMarks(new Set(pendingDates), new Set(confirmedDates));
             })
             .catch((error) => {
-              console.warn('申請中シフトの取得に失敗しました:', error);
+              console.warn('シフト申請状態の取得に失敗しました:', error);
               showError(window.LiffErrors.MESSAGES.SHIFT_PENDING_STATUS_LOAD_FAILED);
             });
         }
       }
 
-      async function fetchPendingShiftDatesForMonth(userId, yearMonth) {
+      /**
+       * カレンダー用: pending / interim_confirmed / final_confirmed の日付を取得。
+       * Firestore 直読み優先。失敗時は getShifts にフォールバック（Functions 変更なし）。
+       * 同一日に pending と confirmed が両方ある場合は confirmed を優先（表示側でも再適用）。
+       */
+      async function fetchShiftCalendarMarkDatesForMonth(userId, yearMonth) {
         const prefix = `${yearMonth}-`;
 
-        // 1) Firestoreから shiftRequests を直接取得（コールドスタート無しで速い）
-        // キャッシュは使わず、常に最新のデータを取得する（status: "pending"のみ）
         try {
           const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          const q = query(
+          const pendingQ = query(
             collection(window.Firebase.db, "shiftRequests"),
             where("staffId", "==", userId),
             where("status", "==", "pending")
           );
-          const snap = await getDocs(q);
-          const dates = [];
-          snap.forEach((docSnap) => {
+          const confirmedQ = query(
+            collection(window.Firebase.db, "shiftRequests"),
+            where("staffId", "==", userId),
+            where("status", "in", ["interim_confirmed", "final_confirmed"])
+          );
+          const [pendingSnap, confirmedSnap] = await Promise.all([getDocs(pendingQ), getDocs(confirmedQ)]);
+
+          const pendingDates = [];
+          pendingSnap.forEach((docSnap) => {
             const data = docSnap.data();
             const dateKey = data?.dateKey;
-            // statusが"pending"であることを再確認（念のため）
             if (data?.status === "pending" && typeof dateKey === "string" && dateKey.startsWith(prefix)) {
-              dates.push(dateKey);
+              pendingDates.push(dateKey);
             }
           });
-          const uniqueDates = Array.from(new Set(dates));
-          
-          // 取得したデータをキャッシュに保存
+
+          const confirmedDates = [];
+          confirmedSnap.forEach((docSnap) => {
+            const data = docSnap.data();
+            const dateKey = data?.dateKey;
+            const status = data?.status;
+            if (
+              (status === "interim_confirmed" || status === "final_confirmed") &&
+              typeof dateKey === "string" &&
+              dateKey.startsWith(prefix)
+            ) {
+              confirmedDates.push(dateKey);
+            }
+          });
+
+          const uniqueConfirmed = Array.from(new Set(confirmedDates));
+          const confirmedSet = new Set(uniqueConfirmed);
+          // confirmed > pending（競合時は confirmed のみ残す）
+          const uniquePending = Array.from(new Set(pendingDates)).filter((d) => !confirmedSet.has(d));
+
           try {
-            localStorage.setItem(`pendingShiftDates:${userId}:${yearMonth}`, JSON.stringify(uniqueDates));
+            localStorage.setItem(`pendingShiftDates:${userId}:${yearMonth}`, JSON.stringify(uniquePending));
+            localStorage.setItem(`confirmedShiftDates:${userId}:${yearMonth}`, JSON.stringify(uniqueConfirmed));
           } catch (_) {}
-          
-          return uniqueDates;
+
+          return { pending: uniquePending, confirmed: uniqueConfirmed };
         } catch (e) {
-          // 権限/インデックスなどで失敗したらフォールバックへ
-          console.warn("shiftRequests direct query failed (fallback to getShifts):", e);
+          console.warn("shiftRequests mark query failed (fallback to getShifts):", e);
         }
 
-        // 2) フォールバック: getShifts（遅い可能性あり）
         const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
         const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
         const getShifts = httpsCallable(functions, "getShifts");
@@ -2399,51 +2401,146 @@
           error.errorKey = 'SHIFT_PENDING_STATUS_LOAD_FAILED';
           throw error;
         }
-        const allShifts = result.data.data.shifts;
+        const allShifts = result.data.data.shifts || [];
         const pendingDates = allShifts
-          .filter((shift) => shift && (shift.requestStatus === 'pending' || (shift.confirmed === null && shift.source === 'pending_request')) && shift.dateKey.startsWith(prefix))
+          .filter((shift) => shift && (shift.requestStatus === 'pending' || (shift.confirmed === null && shift.source === 'pending_request')) && shift.dateKey && shift.dateKey.startsWith(prefix))
+          .map((shift) => shift.dateKey);
+        // assignment 由来 = interim/final 反映済み（getShifts は pending request 以外を confirmed:true で返す）
+        const confirmedDates = allShifts
+          .filter((shift) => shift && shift.confirmed === true && shift.dateKey && shift.dateKey.startsWith(prefix))
           .map((shift) => shift.dateKey);
 
-        const uniqueDates = Array.from(new Set(pendingDates));
-        
-        // 取得したデータをキャッシュに保存
+        const uniqueConfirmed = Array.from(new Set(confirmedDates));
+        const confirmedSet = new Set(uniqueConfirmed);
+        const uniquePending = Array.from(new Set(pendingDates)).filter((d) => !confirmedSet.has(d));
+
         try {
-          localStorage.setItem(`pendingShiftDates:${userId}:${yearMonth}`, JSON.stringify(uniqueDates));
+          localStorage.setItem(`pendingShiftDates:${userId}:${yearMonth}`, JSON.stringify(uniquePending));
+          localStorage.setItem(`confirmedShiftDates:${userId}:${yearMonth}`, JSON.stringify(uniqueConfirmed));
         } catch (_) {}
-        
-        return uniqueDates;
+
+        return { pending: uniquePending, confirmed: uniqueConfirmed };
       }
 
-      function applyPendingShiftMarks(pendingSet) {
+      /** @deprecated use fetchShiftCalendarMarkDatesForMonth — kept as thin alias for pending-only callers */
+      async function fetchPendingShiftDatesForMonth(userId, yearMonth) {
+        const marks = await fetchShiftCalendarMarkDatesForMonth(userId, yearMonth);
+        return marks.pending || [];
+      }
+
+      function isConfirmedShiftDate(dateStr) {
+        if (!dateStr || typeof dateStr !== 'string') return false;
+        const yearMonth = dateStr.substring(0, 7);
+        const uid = window.LiffFirebase?.user?.uid || window.Firebase?.auth?.currentUser?.uid || 'anon';
+        const cacheKey = `${uid}:${yearMonth}`;
+        const cached = (window.__CONFIRMED_SHIFT_DATES_CACHE__ && window.__CONFIRMED_SHIFT_DATES_CACHE__[cacheKey]) || [];
+        return cached.includes(dateStr);
+      }
+
+      function syncCalendarDaySelectionStyles() {
         const calendar = document.getElementById('calendar');
         if (!calendar) return;
 
         const dayEls = calendar.querySelectorAll('.calendar-day:not(.empty)');
         dayEls.forEach((dayEl) => {
           const dateStr = dayEl.getAttribute('data-date');
+          if (!dateStr) return;
+
           const isClosed = dayEl.getAttribute('data-is-closed') === '1';
-          const existing = dayEl.querySelector('.pending-checkmark');
-          if (existing) existing.remove();
+          const isSelectable = dayEl.getAttribute('data-is-selectable') === '1';
+          const bhUnavailable = dayEl.getAttribute('data-bh-unavailable') === '1';
+          const isSelected = selectedDates.includes(dateStr);
 
-          if (!dateStr || isClosed || !pendingSet.has(dateStr)) return;
-
-          const isSelected = dayEl.classList.contains('selected');
-          const checkColor = isSelected ? '#ffffff' : '#4caf50';
-          const shadow = isSelected ? 'text-shadow: 0 0 2px rgba(0,0,0,0.4);' : '';
-
-          const mark = document.createElement('span');
-          mark.className = 'pending-checkmark';
-          mark.textContent = '✓';
-          mark.style.position = 'absolute';
-          mark.style.top = '1px';
-          mark.style.right = '2px';
-          mark.style.fontSize = '0.75rem';
-          mark.style.color = checkColor;
-          if (shadow) {
-            mark.style.textShadow = '0 0 2px rgba(0,0,0,0.4)';
+          if (isClosed || bhUnavailable || !isSelectable) {
+            dayEl.classList.remove('selected');
+            return;
           }
-          dayEl.appendChild(mark);
+
+          if (isSelected) {
+            dayEl.classList.add('selected');
+            dayEl.style.backgroundColor = '#4caf50';
+            dayEl.style.border = '';
+            dayEl.setAttribute('onmouseover', "this.style.backgroundColor='#4caf50'");
+            dayEl.setAttribute('onmouseout', "this.style.backgroundColor='#4caf50'");
+          } else {
+            dayEl.classList.remove('selected');
+            dayEl.style.backgroundColor = 'white';
+            dayEl.style.border = '';
+            dayEl.setAttribute('onmouseover', "this.style.backgroundColor='white'");
+            dayEl.setAttribute('onmouseout', "this.style.backgroundColor='white'");
+          }
+
+          const pendingMark = dayEl.querySelector('.pending-checkmark');
+          if (pendingMark) {
+            pendingMark.style.color = isSelected ? '#ffffff' : '#4caf50';
+            if (isSelected) {
+              pendingMark.style.textShadow = '0 0 2px rgba(0,0,0,0.4)';
+            } else {
+              pendingMark.style.textShadow = '';
+            }
+          }
+
+          const confirmedMark = dayEl.querySelector('.confirmed-checkmark');
+          if (confirmedMark) {
+            // 確定日は選択対象外。常に青で表示し selection 緑背景と混同しない
+            confirmedMark.style.color = '#2196F3';
+            confirmedMark.style.textShadow = '';
+          }
         });
+      }
+
+      function applyShiftCalendarMarks(pendingSet, confirmedSet) {
+        const calendar = document.getElementById('calendar');
+        if (!calendar) return;
+
+        const pending = pendingSet instanceof Set ? pendingSet : new Set(pendingSet || []);
+        const confirmed = confirmedSet instanceof Set ? confirmedSet : new Set(confirmedSet || []);
+
+        const dayEls = calendar.querySelectorAll('.calendar-day:not(.empty)');
+        dayEls.forEach((dayEl) => {
+          const dateStr = dayEl.getAttribute('data-date');
+          const isClosed = dayEl.getAttribute('data-is-closed') === '1';
+          dayEl.querySelectorAll('.pending-checkmark, .confirmed-checkmark').forEach((el) => el.remove());
+
+          if (!dateStr || isClosed) return;
+
+          // confirmed > pending
+          if (confirmed.has(dateStr)) {
+            const mark = document.createElement('span');
+            mark.className = 'confirmed-checkmark';
+            mark.textContent = '✓';
+            mark.style.position = 'absolute';
+            mark.style.top = '1px';
+            mark.style.right = '2px';
+            mark.style.fontSize = '0.75rem';
+            mark.style.color = '#2196F3';
+            dayEl.appendChild(mark);
+            return;
+          }
+
+          if (pending.has(dateStr)) {
+            const mark = document.createElement('span');
+            mark.className = 'pending-checkmark';
+            mark.textContent = '✓';
+            mark.style.position = 'absolute';
+            mark.style.top = '1px';
+            mark.style.right = '2px';
+            mark.style.fontSize = '0.75rem';
+            dayEl.appendChild(mark);
+          }
+        });
+        syncCalendarDaySelectionStyles();
+      }
+
+      /** pending のみ反映する薄い互換ラッパー（selection sync テスト互換） */
+      function applyPendingShiftMarks(pendingSet) {
+        const yearMonth = currentMonth
+          ? `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`
+          : '';
+        const uid = window.LiffFirebase?.user?.uid || window.Firebase?.auth?.currentUser?.uid || 'anon';
+        const cacheKey = `${uid}:${yearMonth}`;
+        const confirmedCached = (window.__CONFIRMED_SHIFT_DATES_CACHE__ && window.__CONFIRMED_SHIFT_DATES_CACHE__[cacheKey]) || [];
+        applyShiftCalendarMarks(pendingSet, new Set(confirmedCached));
       }
 
       // カレンダーのイベントリスナーを設定
@@ -2484,123 +2581,6 @@
         calendar.addEventListener('click', calendarClickHandler);
       }
 
-      // 日付を日本語形式に変換（YYYY-MM-DD -> YYYY年M月D日）
-      function formatDateToJapanese(dateStr) {
-        if (!dateStr) return '';
-        
-        // YYYY-MM-DD形式の場合
-        if (dateStr.includes('-')) {
-          const [year, month, day] = dateStr.split('-').map(Number);
-          return `${year}年${month}月${day}日`;
-        }
-        
-        // 数字のみの場合（日付のみ）
-        const year = currentMonth.getFullYear();
-        const month = currentMonth.getMonth() + 1;
-        const day = parseInt(dateStr);
-        return `${year}年${month}月${day}日`;
-      }
-
-      // 営業時間に基づいて時刻選択のオプションを生成
-      async function updateTimeOptionsForBusinessHours(dateStr) {
-        try {
-          // dateStrからyearMonthを取得（例: "2026-02-15" -> "2026-02"）
-          const dateParts = dateStr.split('-');
-          if (dateParts.length !== 3) {
-            // 数字のみの場合（日付のみ）
-            const year = currentMonth.getFullYear();
-            const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
-            const day = String(dateStr).padStart(2, '0');
-            dateStr = `${year}-${month}-${day}`;
-          }
-          
-          const yearMonth = dateStr.substring(0, 7); // "YYYY-MM"
-          
-          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-          const daySnap = await getDoc(doc(window.Firebase.db, 'shifts', yearMonth, 'days', dateStr));
-          const dayData = daySnap.exists() ? daySnap.data()?.businessHours : null;
-          if (!dayData || typeof dayData.isClosed !== 'boolean' ||
-              (!dayData.isClosed && (!Number.isInteger(dayData.openMinute) || !Number.isInteger(dayData.closeMinute)))) {
-            window.__SHIFT_BH_STATE__ = 'malformed';
-            throw new Error('SHIFT_BUSINESS_HOURS_UNAVAILABLE');
-          }
-          const openMinute = dayData.openMinute;
-          const closeMinute = dayData.closeMinute;
-          const isClosed = dayData.isClosed;
-          
-          // 営業時間に基づいて時刻選択のオプションを更新
-          generateTimeOptionsForBusinessHours(openMinute, closeMinute, isClosed);
-          
-        } catch (error) {
-          console.error('営業時間の取得に失敗しました:', error);
-          window.__SHIFT_BH_STATE__ = 'failure';
-          generateTimeOptionsForBusinessHours(0, 0, true);
-          showError(window.LiffErrors.MESSAGES.SHIFT_BUSINESS_HOURS_UNAVAILABLE);
-        }
-      }
-      
-      // 営業時間に基づいて時刻選択のオプションを生成
-      function generateTimeOptionsForBusinessHours(openMinute, closeMinute, isClosed) {
-        // 分を時間と分に変換（例: 540分 -> 9時0分）
-        const openHour = Math.floor(openMinute / 60);
-        const openMin = openMinute % 60;
-        const closeHour = Math.floor(closeMinute / 60);
-        const closeMin = closeMinute % 60;
-        
-        // 開始時刻のセレクトボックス
-        const startHourSelect = document.getElementById('shift-start-hour');
-        if (startHourSelect) {
-          // 既存のオプションをクリア
-          startHourSelect.innerHTML = '<option value="">時</option>';
-          
-          if (!isClosed) {
-            // 営業時間内の時間のみオプションを追加
-            for (let hour = openHour; hour <= closeHour; hour++) {
-              const option = document.createElement('option');
-              option.value = hour.toString().padStart(2, '0');
-              option.textContent = hour.toString().padStart(2, '0');
-              // デフォルト値として開始時刻を設定
-              if (hour === openHour) {
-                option.selected = true;
-              }
-              startHourSelect.appendChild(option);
-            }
-          }
-        }
-        
-        // 終了時刻のセレクトボックス
-        const endHourSelect = document.getElementById('shift-end-hour');
-        if (endHourSelect) {
-          // 既存のオプションをクリア
-          endHourSelect.innerHTML = '<option value="">時</option>';
-          
-          if (!isClosed) {
-            // 営業時間内の時間のみオプションを追加
-            for (let hour = openHour; hour <= closeHour; hour++) {
-              const option = document.createElement('option');
-              option.value = hour.toString().padStart(2, '0');
-              option.textContent = hour.toString().padStart(2, '0');
-              // デフォルト値として終了時刻を設定
-              if (hour === closeHour) {
-                option.selected = true;
-              }
-              endHourSelect.appendChild(option);
-            }
-          }
-        }
-        
-        // 分のセレクトボックスを明示的に設定（常に00分）
-        const startMinuteSelect = document.getElementById('shift-start-minute');
-        if (startMinuteSelect) {
-          startMinuteSelect.value = '00';
-        }
-        
-        const endMinuteSelect = document.getElementById('shift-end-minute');
-        if (endMinuteSelect) {
-          endMinuteSelect.value = '00';
-        }
-      }
-
       // 日付選択（複数選択対応）
       async function selectDate(date, targetElement) {
         if (pendingShiftSubmission?.state === 'result_unknown') {
@@ -2620,6 +2600,12 @@
           const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
           const day = String(date).padStart(2, '0');
           dateStr = `${year}-${month}-${day}`;
+        }
+
+        // interim/final 確定済み日は選択・修正不可（青✓）。緑選択UIと混同しない
+        if (isConfirmedShiftDate(dateStr)) {
+          await window.AppDialogs.showAppAlert(window.LiffErrors.MESSAGES.SHIFT_REQUEST_ALREADY_CONFIRMED);
+          return;
         }
         
         // 店休日判定
@@ -2671,57 +2657,12 @@
         // 既に選択されている場合は選択解除、そうでなければ選択追加
         const index = selectedDates.indexOf(dateStr);
         if (index > -1) {
-          // 選択解除
           selectedDates.splice(index, 1);
-          if (targetElement) {
-            targetElement.classList.remove('selected');
-            // インラインスタイルで背景色を白に明示的に設定（CSSの:hoverを上書き）
-            targetElement.style.backgroundColor = 'white';
-            targetElement.style.border = '';
-            // onmouseover/onmouseoutを設定（タップ時にグレーを表示しないように背景色を白に設定）
-            targetElement.setAttribute('onmouseover', "this.style.backgroundColor='white'");
-            targetElement.setAttribute('onmouseout', "this.style.backgroundColor='white'");
-          }
         } else {
-          // 選択追加
           selectedDates.push(dateStr);
-          if (targetElement) {
-            targetElement.classList.add('selected');
-            // インラインスタイルを直接更新（背景色を緑に設定）
-            targetElement.style.backgroundColor = '#4caf50';
-            targetElement.style.border = '';
-            // onmouseover/onmouseoutを選択済み用に更新
-            targetElement.setAttribute('onmouseover', "this.style.backgroundColor='#4caf50'");
-            targetElement.setAttribute('onmouseout', "this.style.backgroundColor='#4caf50'");
-          }
         }
-        
-        // 他の日付の選択状態を更新（選択解除された日付のスタイルをクリア）
-        const allDayElements = document.querySelectorAll('.calendar-day:not(.empty)');
-        allDayElements.forEach(dayEl => {
-          const dayDate = dayEl.getAttribute('data-date');
-          if (dayDate && dayDate !== dateStr) {
-            const isSelected = selectedDates.includes(dayDate);
-            if (isSelected) {
-              dayEl.classList.add('selected');
-              dayEl.style.backgroundColor = '#4caf50';
-              dayEl.style.border = '';
-              // onmouseover/onmouseoutを選択済み用に更新
-              dayEl.setAttribute('onmouseover', "this.style.backgroundColor='#4caf50'");
-              dayEl.setAttribute('onmouseout', "this.style.backgroundColor='#4caf50'");
-            } else {
-              dayEl.classList.remove('selected');
-              // インラインスタイルで背景色を白に明示的に設定（CSSの:hoverを上書き）
-              dayEl.style.backgroundColor = 'white';
-              dayEl.style.border = '';
-              // onmouseover/onmouseoutを設定（タップ時にグレーを表示しないように背景色を白に設定）
-              dayEl.setAttribute('onmouseover', "this.style.backgroundColor='white'");
-              dayEl.setAttribute('onmouseout', "this.style.backgroundColor='white'");
-            }
-          }
-        });
-        
-        // 「次へ」ボタンの表示/非表示を更新
+
+        syncCalendarDaySelectionStyles();
         updateNextButton();
       }
       
@@ -3215,7 +3156,9 @@
         const submitBtn = document.getElementById('submit-shifts-btn');
         const guard = LE.getShiftSubmitGuard(pendingShiftSubmission, shiftSubmitBusy);
         if (!guard.allowNewNonce) {
-          if (guard.blockReason === 'pending_lock') showError(LE.MESSAGES.SHIFT_SUBMIT_RESULT_UNKNOWN);
+          if (guard.blockReason === 'pending_lock') {
+            await showMutationFeedback(LE.MESSAGES.SHIFT_SUBMIT_RESULT_UNKNOWN);
+          }
           return;
         }
         const rawShifts = window.confirmShifts || [];
@@ -3236,7 +3179,7 @@
           endMinute: toMinute(shift.end),
         })));
         if (!normalized) {
-          showError(LE.MESSAGES.SHIFT_INVALID_ARGUMENT);
+          await showMutationFeedback(LE.MESSAGES.SHIFT_INVALID_ARGUMENT);
           return;
         }
 
@@ -3249,6 +3192,7 @@
         }
         let result = null;
         let callableError = null;
+        let classified = null;
         try {
           await executeWithGlobalLoading(async () => {
             try {
@@ -3260,7 +3204,7 @@
             }
           }, '提出中…');
 
-          const classified = LE.classifySubmitShiftRequestsOutcome({
+          classified = LE.classifySubmitShiftRequestsOutcome({
             data: result?.data,
             error: callableError,
             expectedNonce: clientNonce,
@@ -3272,27 +3216,16 @@
             shiftEditData = {};
             window.confirmShifts = [];
             window.__GET_SHIFTS_PREFETCH__ = null;
-            showSuccess(LE.MESSAGES.SHIFT_SUBMIT_SUCCESS);
-            showPage(shiftPageEl);
-            await showShiftApplication();
-            return;
-          }
-          if (classified.outcome === 'confirmed_failure') {
+          } else if (classified.outcome === 'confirmed_failure') {
             pendingShiftSubmission = null;
-            showError(classified.resolved);
-            if (['SHIFT_REQUEST_ALREADY_CONFIRMED', 'SHIFT_MONTH_FINALIZED', 'SHIFT_SCHEDULING_PERIOD_RESTRICTED', 'SHIFT_DATE_NOT_INSUFFICIENT'].includes(classified.errorKey)) {
-              await showShiftApplication();
+          } else {
+            pendingShiftSubmission = LE.transitionShiftSubmitPending(pendingShiftSubmission, 'result_unknown');
+            try {
+              const fresh = await fetchGetShiftsResponse();
+              if (LE.matchShiftSubmitPayloadInGetShifts(fresh, normalized).matched) pendingShiftSubmission = null;
+            } catch (_) {
+              // 保留状態を維持し、再送を防ぐ。
             }
-            return;
-          }
-
-          pendingShiftSubmission = LE.transitionShiftSubmitPending(pendingShiftSubmission, 'result_unknown');
-          showError(LE.MESSAGES.SHIFT_SUBMIT_RESULT_UNKNOWN);
-          try {
-            const fresh = await fetchGetShiftsResponse();
-            if (LE.matchShiftSubmitPayloadInGetShifts(fresh, normalized).matched) pendingShiftSubmission = null;
-          } catch (_) {
-            // 保留状態を維持し、再送を防ぐ。
           }
         } finally {
           shiftSubmitBusy = false;
@@ -3302,6 +3235,25 @@
             submitBtn.textContent = LE.MESSAGES.SHIFT_BTN_SUBMIT;
           }
         }
+
+        if (!classified) {
+          await showMutationFeedback(LE.MESSAGES.SHIFT_SUBMIT_RESULT_UNKNOWN);
+          return;
+        }
+        if (classified.outcome === 'success') {
+          await showMutationFeedback(LE.MESSAGES.SHIFT_SUBMIT_SUCCESS);
+          showPage(shiftPageEl);
+          await showShiftApplication();
+          return;
+        }
+        if (classified.outcome === 'confirmed_failure') {
+          await showMutationFeedback(classified.resolved);
+          if (['SHIFT_REQUEST_ALREADY_CONFIRMED', 'SHIFT_MONTH_FINALIZED', 'SHIFT_SCHEDULING_PERIOD_RESTRICTED', 'SHIFT_DATE_NOT_INSUFFICIENT'].includes(classified.errorKey)) {
+            await showShiftApplication();
+          }
+          return;
+        }
+        await showMutationFeedback(LE.MESSAGES.SHIFT_SUBMIT_RESULT_UNKNOWN);
       }
       
       // カレンダーページに戻る
@@ -3318,199 +3270,6 @@
           showPage(shiftEditPageEl);
         }
       }
-
-      // シフトを追加
-      async function addShiftToList() {
-        if (!selectedDate) {
-          showError('日付を選択してください');
-          await window.AppDialogs.showAppAlert('❌ エラー！\n\n日付を選択してください。');
-          return;
-        }
-
-        // セレクトボックスから値を取得
-        const startHour = document.getElementById('shift-start-hour').value;
-        const startMinute = '00'; // 分は常に00分
-        const endHour = document.getElementById('shift-end-hour').value;
-        const endMinute = '00'; // 分は常に00分
-        
-        if (!startHour || !endHour) {
-          showError('開始時刻と終了時刻を入力してください');
-          await window.AppDialogs.showAppAlert('❌ エラー！\n\n開始時刻と終了時刻を入力してください。');
-          return;
-        }
-        
-        // HH:MM形式に変換
-        const start = `${startHour}:${startMinute}`;
-        const end = `${endHour}:${endMinute}`;
-        
-        if (start >= end) {
-          showError('開始時刻は終了時刻より前である必要があります');
-          await window.AppDialogs.showAppAlert('❌ エラー！\n\n開始時刻は終了時刻より前である必要があります。');
-          return;
-        }
-
-        // selectedDateが既にYYYY-MM-DD形式の場合はそのまま使用
-        let dateStr;
-        if (selectedDate.includes('-')) {
-          // 既にYYYY-MM-DD形式
-          dateStr = selectedDate;
-        } else {
-          // 数字のみの場合はYYYY-MM-DD形式に変換
-          const year = currentMonth.getFullYear();
-          const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
-          const day = String(selectedDate).padStart(2, '0');
-          dateStr = `${year}-${month}-${day}`;
-        }
-
-        const shiftData = {
-          date: dateStr,
-          start: start,
-          end: end,
-          displayText: `${dateStr} ${start} - ${end}`
-        };
-
-        // 重複チェック
-        const isDuplicate = pendingShifts.some(shift => shift.date === dateStr);
-        if (isDuplicate) {
-          showError('同じ日付のシフトは既に追加されています');
-          await window.AppDialogs.showAppAlert('❌ エラー！\n\n同じ日付のシフトは既に追加されています。');
-          return;
-        }
-
-        pendingShifts.push(shiftData);
-        updatePendingShiftsList();
-        updateSubmitButton();
-        
-        // フォームをリセット
-        document.getElementById('shift-start-hour').value = '';
-        document.getElementById('shift-start-minute').value = '';
-        document.getElementById('shift-end-hour').value = '';
-        document.getElementById('shift-end-minute').value = '';
-        
-        // 成功通知
-        showSuccess('シフトが追加されました');
-        
-        // ポップアップ通知
-        await window.AppDialogs.showAppAlert(`📅 シフト追加完了！\n\n日付: ${shiftData.date}\n時間: ${shiftData.start} - ${shiftData.end}\n\n未提出シフト一覧に追加されました。`);
-      }
-
-      // 未提出シフト一覧を更新
-      function updatePendingShiftsList() {
-        const list = document.getElementById('pending-shifts-list');
-        if (!list) return;
-
-        if (pendingShifts.length === 0) {
-          list.innerHTML = '<p>未提出のシフトはありません</p>';
-          return;
-        }
-
-        list.innerHTML = pendingShifts.map((shift, index) => `
-          <div class="pending-shift-item">
-            <span class="shift-info">${shift.displayText}</span>
-            <button class="btn remove-btn" onclick="removeShift(${index})">削除</button>
-          </div>
-        `).join('');
-      }
-
-      // シフトを削除（グローバル関数として公開）
-      window.removeShift = async function(index) {
-        try {
-          // インデックスの妥当性チェック
-          if (index < 0 || index >= pendingShifts.length) {
-            await window.AppDialogs.showAppAlert('❌ エラー！\n\n削除するシフトが見つかりません。\nインデックス: ' + index);
-            return;
-          }
-          
-          // 削除前の確認
-          const shiftToRemove = pendingShifts[index];
-          const confirmMessage = `以下のシフトを削除しますか？\n\n日付: ${shiftToRemove.date}\n時間: ${shiftToRemove.start} - ${shiftToRemove.end}`;
-          
-          if (!await window.AppDialogs.showAppConfirm(confirmMessage)) {
-            return; // キャンセルされた場合
-          }
-          
-
-          // 配列から削除
-          pendingShifts.splice(index, 1);
-          
-          // UI更新
-          updatePendingShiftsList();
-          updateSubmitButton();
-          
-          // 成功通知
-          showSuccess('シフトが削除されました');
-          await window.AppDialogs.showAppAlert('✅ シフト削除完了！\n\nシフトが正常に削除されました。');
-          
-        } catch (error) {
-          const errorMessage = error.message || '不明なエラーが発生しました';
-          showError('シフトの削除に失敗しました: ' + errorMessage);
-          await window.AppDialogs.showAppAlert('❌ シフト削除失敗！\n\nエラー: ' + errorMessage + '\n\n再度お試しください。');
-        }
-      }
-
-      // 提出ボタンの状態を更新
-      function updateSubmitButton() {
-        const submitBtn = document.getElementById('submit-all-shifts-btn');
-        if (submitBtn) {
-          submitBtn.disabled = pendingShifts.length === 0;
-        }
-      }
-
-      // 全シフトを一括提出
-      async function submitAllShifts() {
-        if (pendingShifts.length === 0) {
-          showError('提出するシフトがありません');
-          await window.AppDialogs.showAppAlert('❌ エラー！\n\n提出するシフトがありません。\n\nシフトを追加してから提出してください。');
-          return;
-        }
-
-        try {
-          await executeWithGlobalLoading(async () => {
-          const { auth } = window.Firebase;
-          const currentUser = auth.currentUser;
-          
-          if (!currentUser) {
-            throw new Error('Firebase認証が完了していません');
-          }
-
-          // Cloud Functionを使用して複数シフトを一括申請
-          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
-          const createMultipleShifts = httpsCallable(functions, 'createMultipleShifts');
-          
-          const result = await createMultipleShifts({ shifts: pendingShifts });
-          
-          if (result.data.success) {
-            // 成功通知を表示
-            showSuccess(`${pendingShifts.length}件のシフト申請が完了しました`);
-            
-            // ポップアップ通知を追加
-            await window.AppDialogs.showAppAlert(`✅ シフト申請完了！\n\n${pendingShifts.length}件のシフトが正常に保存されました。\n\n日付: ${pendingShifts.map(s => s.date).join(', ')}`);
-            
-            // 未提出シフトをクリア
-            pendingShifts = [];
-            updatePendingShiftsList();
-            updateSubmitButton();
-            
-
-          } else {
-            const errorMessage = result.data.error || '不明なエラーが発生しました';
-            showError('シフト申請に失敗しました: ' + errorMessage);
-            
-            // 失敗時のポップアップ通知
-            await window.AppDialogs.showAppAlert(`❌ シフト申請失敗！\n\nエラー: ${errorMessage}\n\nシフトは保存されていません。\n再度お試しください。`);
-          }
-          }, 'シフト申請中...');
-          
-        } catch (error) {
-          const errorMessage = error.message || '不明なエラーが発生しました';
-          showError('シフト申請に失敗しました: ' + errorMessage);
-          
-          // 失敗時のポップアップ通知
-          await window.AppDialogs.showAppAlert(`❌ シフト申請失敗！\n\nエラー: ${errorMessage}\n\nシフトは保存されていません。\n再度お試しください。`);
-        }
-      }
-
 
       // ===== 確定シフト用: getShifts 事前fetch（タブ切替の待ち時間削減）=====
       function getCurrentUid() {
@@ -3577,109 +3336,13 @@
       }
 
       // シフト管理ページを開いた時の初期化
-      window.openShiftManagement = (requestId, date, start, end) => {
+      window.openShiftManagement = () => {
         showPage(shiftPageEl);
         showShiftApplication();
-        initializeCalendar();
+        // initializeCalendar は showShiftApplication 内で1回のみ呼ぶ（二重 render 競合回避）
 
         // 確定シフト用にgetShiftsを事前fetch（タブ切替の待ち時間削減）
         startPrefetchGetShifts("openShiftManagement");
-        
-        // URLパラメータがある場合は自動入力
-        if (date) {
-          // 要請を確認済み状態に更新（非同期、エラー時も処理は続行）
-          // プランチェック: ライトプラン以上の場合のみ要請確認処理を実行
-          if (requestId && window.__CONFIG__ && window.__CONFIG__.isShiftRequestEnabled()) {
-            (async () => {
-              try {
-                showGlobalLoading('要請を確認しています...');
-                const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
-                const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
-                const confirmShiftRequest = httpsCallable(functions, 'confirmShiftRequest');
-                await confirmShiftRequest({ requestId: requestId });
-              } catch (error) {
-                console.error("要請確認エラー（処理は続行）:", error);
-              } finally {
-                hideGlobalLoading();
-              }
-            })();
-          }
-          
-          // 日付を選択
-          setTimeout(() => {
-            const dateObj = new Date(date + 'T00:00:00');
-            const year = dateObj.getFullYear();
-            const month = dateObj.getMonth();
-            const day = dateObj.getDate();
-            
-            // カレンダーを該当月に移動
-            currentMonth = new Date(year, month, 1);
-            renderCalendar().catch(error => {
-              console.error('カレンダー描画エラー:', error);
-            });
-            
-            // 日付を選択（カレンダーが再描画されるまで待つ）
-            setTimeout(() => {
-              const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-              
-              // カレンダーが再描画されるまで追加で待つ
-              setTimeout(() => {
-                const dayElement = document.querySelector(`[data-date="${dateString}"]`);
-                if (dayElement) {
-                  selectDate(dateString, dayElement);
-                  
-                  // 時間が指定されている場合は自動入力
-                  if (start && end) {
-                    setTimeout(() => {
-                      const startHour = parseInt(start.split(':')[0]);
-                      const startMinute = parseInt(start.split(':')[1]);
-                      const endHour = parseInt(end.split(':')[0]);
-                      const endMinute = parseInt(end.split(':')[1]);
-                      
-                      const startHourSelect = document.getElementById('shift-start-hour');
-                      const startMinuteSelect = document.getElementById('shift-start-minute');
-                      const endHourSelect = document.getElementById('shift-end-hour');
-                      const endMinuteSelect = document.getElementById('shift-end-minute');
-                      
-                      if (startHourSelect && startMinuteSelect && endHourSelect && endMinuteSelect) {
-                        startHourSelect.value = String(startHour).padStart(2, '0');
-                        startMinuteSelect.value = String(startMinute).padStart(2, '0');
-                        endHourSelect.value = String(endHour).padStart(2, '0');
-                        endMinuteSelect.value = String(endMinute).padStart(2, '0');
-                      }
-                    }, 500);
-                  }
-                } else {
-                  console.error('日付要素が見つかりません:', dateString);
-                  // フォールバック: 直接selectDateを呼び出す
-                  selectDate(dateString, null);
-                  
-                  // 時間が指定されている場合は自動入力
-                  if (start && end) {
-                    setTimeout(() => {
-                      const startHour = parseInt(start.split(':')[0]);
-                      const startMinute = parseInt(start.split(':')[1]);
-                      const endHour = parseInt(end.split(':')[0]);
-                      const endMinute = parseInt(end.split(':')[1]);
-                      
-                      const startHourSelect = document.getElementById('shift-start-hour');
-                      const startMinuteSelect = document.getElementById('shift-start-minute');
-                      const endHourSelect = document.getElementById('shift-end-hour');
-                      const endMinuteSelect = document.getElementById('shift-end-minute');
-                      
-                      if (startHourSelect && startMinuteSelect && endHourSelect && endMinuteSelect) {
-                        startHourSelect.value = String(startHour).padStart(2, '0');
-                        startMinuteSelect.value = String(startMinute).padStart(2, '0');
-                        endHourSelect.value = String(endHour).padStart(2, '0');
-                        endMinuteSelect.value = String(endMinute).padStart(2, '0');
-                      }
-                    }, 500);
-                  }
-                }
-              }, 500);
-            }, 300);
-          }, 100);
-        }
       };
 
       // 不足日・不足時間の日付リストを取得（キャッシュ付き）
@@ -3818,7 +3481,7 @@
         return false;
       }
       
-      // 提出済み申請リストを表示
+      // 提出済み申請リストを表示（対象は「申請対象月＝翌月」の pending のみ）
       async function loadSubmittedShiftsList() {
         const listContainer = document.getElementById('submitted-shifts-list');
         if (!listContainer) return;
@@ -3831,13 +3494,24 @@
             listContainer.innerHTML = `<p>${window.LiffErrors.MESSAGES.SHIFT_SUBMITTED_LOAD_FAILED}</p>`;
             return;
           }
+
+          // カレンダーと同じ対象月（翌月）に限定。過去月の申請中は出さない。
+          const targetMonth = getNextMonth();
+          const targetYearMonth = `${targetMonth.getFullYear()}-${String(targetMonth.getMonth() + 1).padStart(2, '0')}`;
+          const targetPrefix = `${targetYearMonth}-`;
+          const headingEl = document.querySelector('#submitted-shifts-list-container h3');
+          if (headingEl) {
+            headingEl.textContent = `提出済みの申請（${targetMonth.getFullYear()}年${targetMonth.getMonth() + 1}月）`;
+          }
           
           // getShiftsで申請中（pending）のシフトを取得
           const allShifts = await fetchAllShiftsViaGetShifts(currentUid);
           
-          // 申請中（pending）のシフトのみフィルタリング
+          // 申請中（pending）かつ対象月のシフトのみ
           const pendingShifts = allShifts.filter(shift => {
-            return shift.requestStatus === 'pending' || shift.source === 'pending_request';
+            const isPending = shift.requestStatus === 'pending' || shift.source === 'pending_request';
+            const inTargetMonth = typeof shift.dateKey === 'string' && shift.dateKey.startsWith(targetPrefix);
+            return isPending && inTargetMonth;
           });
           
           if (pendingShifts.length === 0) {
@@ -3909,16 +3583,6 @@
 
         document.getElementById('shift-application-section').style.display = 'block';
         document.getElementById('confirmed-shifts-section').style.display = 'none';
-        
-        // シフト時間入力と未提出シフト一覧を非表示
-        const shiftInputContainer = document.getElementById('shift-input-container');
-        const pendingShiftsContainer = document.getElementById('pending-shifts-container');
-        if (shiftInputContainer) {
-          shiftInputContainer.style.display = 'none';
-        }
-        if (pendingShiftsContainer) {
-          pendingShiftsContainer.style.display = 'none';
-        }
         
         // 次月が最終確定済みかどうかを判定
         let isNextMonthFinalizedFlag;
@@ -4634,57 +4298,13 @@
 
 
 
-      // 時刻選択のオプションを生成する関数
-      function generateTimeOptions() {
-        // 時間のオプション（0-23時）
-        const hourSelects = ['shift-start-hour', 'shift-end-hour'];
-        hourSelects.forEach(id => {
-          const select = document.getElementById(id);
-          if (select) {
-            for (let hour = 0; hour < 24; hour++) {
-              const option = document.createElement('option');
-              option.value = hour.toString().padStart(2, '0');
-              option.textContent = hour.toString().padStart(2, '0');
-              select.appendChild(option);
-            }
-          }
-        });
-        
-        // 分のオプション（0分と30分のみ）
-        const minuteSelects = ['shift-start-minute', 'shift-end-minute'];
-        minuteSelects.forEach(id => {
-          const select = document.getElementById(id);
-          if (select) {
-            const minutes = ['00', '30'];
-            minutes.forEach(minute => {
-              const option = document.createElement('option');
-              option.value = minute;
-              option.textContent = minute;
-              select.appendChild(option);
-            });
-          }
-        });
-      }
-
       // グローバル関数として公開
       window.showShiftApplication = showShiftApplication;
       window.showConfirmedShifts = showConfirmedShifts;
       window.openConfirmedShiftsPage = openConfirmedShiftsPage;
 
-      // シフト追加ボタンのイベントリスナー
+      // 正式シフト提出フローのイベントリスナー
       document.addEventListener('DOMContentLoaded', () => {
-        const addShiftBtn = document.getElementById('add-shift-btn');
-        const submitAllBtn = document.getElementById('submit-all-shifts-btn');
-        
-        if (addShiftBtn) {
-          addShiftBtn.addEventListener('click', addShiftToList);
-        }
-        
-        if (submitAllBtn) {
-          submitAllBtn.addEventListener('click', submitAllShifts);
-        }
-        
-        // 新しいフローのボタンイベントリスナー
         const goToEditPageBtn = document.getElementById('go-to-edit-page-btn');
         if (goToEditPageBtn) {
           goToEditPageBtn.addEventListener('click', showEditPage);
@@ -4721,13 +4341,6 @@
         if (confirmedShiftsBtn) {
           confirmedShiftsBtn.addEventListener('click', showConfirmedShifts);
         }
-        
-        // 時刻選択のオプションを生成
-        generateTimeOptions();
-        
-
-        
-
       });
 
       // 勤怠管理ページを表示
@@ -5268,19 +4881,19 @@
           ? LE.getAttendanceCorrectionGuard(window.pendingAttendanceCorrection, window.attendanceCorrectionSubmitBusy === true)
           : { allowNewNonce: true, blockReason: null };
         if (guard.blockReason === 'pending_lock') {
-          showError(LE ? LE.MESSAGES.ATT_CORRECTION_RESULT_UNKNOWN : '勤怠修正申請の結果を確認できません。再度操作せず、申請状況を確認してください。');
+          await showMutationFeedback(LE ? LE.MESSAGES.ATT_CORRECTION_RESULT_UNKNOWN : '勤怠修正申請の結果を確認できません。再度操作せず、申請状況を確認してください。');
           return;
         }
         if (!guard.allowNewNonce) return;
 
         const preflight = await runFreshCorrectionStatusCheck(selectedDate, { withLoading: true, silent: true });
         if (!preflight) {
-          showError(LE ? LE.MESSAGES.ATT_CORRECTION_STATUS_LOAD_FAILED : '勤怠修正の申請状況を確認できませんでした。再試行してください。');
+          await showMutationFeedback(LE ? LE.MESSAGES.ATT_CORRECTION_STATUS_LOAD_FAILED : '勤怠修正の申請状況を確認できませんでした。再試行してください。');
           return;
         }
         if (preflight.exists === true) {
           hideCorrectionForm();
-          showError(LE ? LE.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この日の勤怠修正はすでに申請されています。');
+          await showMutationFeedback(LE ? LE.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この日の勤怠修正はすでに申請されています。');
           return;
         }
 
@@ -5344,12 +4957,12 @@
             requestId: classified.data && classified.data.data ? classified.data.data.requestId : 'pending',
           });
           hideCorrectionForm();
-          showSuccess(LE ? LE.MESSAGES.ATT_CORRECTION_SUCCESS : '勤怠修正を申請しました。');
+          await showMutationFeedback(LE ? LE.MESSAGES.ATT_CORRECTION_SUCCESS : '勤怠修正を申請しました。');
           return;
         }
 
         if (classified.outcome === 'confirmed_failure') {
-          showError(classified.resolved);
+          await showMutationFeedback(classified.resolved);
           if (classified.errorKey === 'ATTENDANCE_CORRECTION_ALREADY_EXISTS') {
             const fresh = await runFreshCorrectionStatusCheck(selectedDate, { withLoading: false, silent: true });
             if (fresh && fresh.exists) hideCorrectionForm();
@@ -5357,7 +4970,7 @@
           return;
         }
 
-        showError(LE ? LE.MESSAGES.ATT_CORRECTION_RESULT_UNKNOWN : classified.resolved.message);
+        await showMutationFeedback(LE ? LE.MESSAGES.ATT_CORRECTION_RESULT_UNKNOWN : classified.resolved.message);
         const freshAfterUnknown = await runFreshCorrectionStatusCheck(selectedDate, { withLoading: true, silent: true });
         if (LE && freshAfterUnknown) {
           const resolved = LE.resolveAttendanceCorrectionPendingFromFreshCheck(

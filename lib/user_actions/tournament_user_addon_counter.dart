@@ -1,10 +1,7 @@
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-
-/// Addon 回数表示の読込失敗（USER-14）。回数 0 とは別。
-const String kTournamentUserAddonCountLoadFailedMessage =
-    'Addon回数を取得できませんでした。再読み込みしてください。';
 
 /// Tournament 卓 UserAction 用の Addon 回数表示スナップショット。
 class AddonCounterSnapshot {
@@ -207,6 +204,7 @@ class TournamentUserAddonCounterState
 
         if (snap.connectionState == ConnectionState.waiting) {
           _notifyBusy(true);
+          // waiting は failure 扱いにしない（親 setState ループ防止の意図分離）
           return Row(
             children: [
               const SizedBox(
@@ -228,7 +226,7 @@ class TournamentUserAddonCounterState
             children: [
               Expanded(
                 child: Text(
-                  kTournamentUserAddonCountLoadFailedMessage,
+                  kUserActionAddonCountLoadFailedMessage,
                   style: style?.copyWith(color: Colors.red[700]),
                 ),
               ),

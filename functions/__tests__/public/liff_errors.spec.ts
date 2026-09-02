@@ -666,6 +666,14 @@ describe('liff_errors (Phase L3)', () => {
         classifyPlaceOrderOutcome({ error: { code: 'deadline-exceeded' } }).outcome
       ).toBe('result_unknown');
     });
+    it('unknown / cancelled / canceled / bare internal は結果不明（ORD-03）', () => {
+      for (const code of ['unknown', 'cancelled', 'canceled', 'internal']) {
+        const r = classifyPlaceOrderOutcome({ error: { code } });
+        expect(r.outcome).toBe('result_unknown');
+        expect(r.resolved.message).toBe(MESSAGES.ORDER_RESULT_UNKNOWN);
+        expect(r.resolved.message).not.toContain('失敗しました');
+      }
+    });
     it('malformed success は結果不明', () => {
       expect(
         classifyPlaceOrderOutcome({
@@ -853,6 +861,7 @@ describe('liff_errors (Phase L4)', () => {
       success: true,
       data: items,
       count: items.length,
+      targetBusinessDate: '2026-06-03',
       liffSettings: { liffRegistrationEnabled: true, liffCalendarEnabled: true },
       message: 'ok',
       ...overrides,
@@ -939,6 +948,12 @@ describe('liff_errors (Phase L4)', () => {
       expect(isGetTodayTournamentsShape({ ...sampleToday(), data: null })).toBe(false);
       expect(isGetTodayTournamentsShape({ ...sampleToday(), data: {} })).toBe(false);
       expect(isGetTodayTournamentsShape({ ...sampleToday(), count: 2 })).toBe(false);
+      expect(isGetTodayTournamentsShape({ ...sampleToday(), targetBusinessDate: undefined })).toBe(
+        false,
+      );
+      expect(isGetTodayTournamentsShape({ ...sampleToday(), targetBusinessDate: '2026/06/03' })).toBe(
+        false,
+      );
       expect(
         isGetTodayTournamentsShape(sampleToday([sampleItem({ status: '' })])),
       ).toBe(false);

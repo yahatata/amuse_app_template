@@ -3,6 +3,10 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'package:amuse_app_template/Accounting/errors/accounting_error_operations.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
+import 'package:amuse_app_template/Accounting/errors/map_accounting_error.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/user/balance_display.dart';
 import 'package:amuse_app_template/user/point_ids.dart';
 import 'package:amuse_app_template/user/side_game_chip_display.dart';
@@ -175,10 +179,11 @@ class _PostSettlementRefundDialogState
         _effectiveAdjustments = list;
         _loading = false;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[_loadData refund] エラー: $e\n$stackTrace');
       if (!mounted) return;
       setState(() {
-        _error = '対象 adjustment の取得に失敗しました: $e';
+        _error = kAccountingPostSettlementAdjustmentContextLoadFailedMessage;
         _loading = false;
       });
     }
@@ -220,6 +225,7 @@ class _PostSettlementRefundDialogState
       _error = null;
     });
 
+    var succeeded = false;
     try {
       final target = _effectiveAdjustments.first;
       final allocAmount = amount > target.remaining ? target.remaining : amount;
@@ -238,32 +244,40 @@ class _PostSettlementRefundDialogState
       });
 
       if (!mounted) return;
-      setState(() => _submitting = false);
-      final messenger = ScaffoldMessenger.of(context);
-      Navigator.of(context).pop();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            '返金を記録しました（cashActionId: ${result.data['cashActionId'] ?? '—'}）',
-          ),
-        ),
+
+      final data = result.data;
+      if (!isCallableSuccessResponse(data)) {
+        final mapped = mapAccountingSoftFailError(
+          data,
+          operation: AccountingErrorOperations.recordPostSettlementRefund,
+        );
+        setState(() => _error = mapped.message);
+        return;
+      }
+
+      succeeded = true;
+    } catch (e, stackTrace) {
+      debugPrint('[recordPostSettlementRefund] エラー: $e\n$stackTrace');
+      if (!mounted) return;
+      final mapped = mapAccountingCallableError(
+        e,
+        operation: AccountingErrorOperations.recordPostSettlementRefund,
       );
-      return;
-    } on FirebaseFunctionsException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = '返金に失敗しました: [${e.code}] ${e.message ?? '—'}';
-        _submitting = false;
-      });
-      return;
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = '返金に失敗しました: $e';
-        _submitting = false;
-      });
-      return;
+      setState(() => _error = mapped.message);
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
     }
+
+    if (!succeeded || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pop();
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(kAccountingPostSettlementRefundRecordedMessage),
+      ),
+    );
   }
 
   String _methodLabel(String method) {
@@ -337,6 +351,33 @@ class _PostSettlementRefundDialogState
           ? const SizedBox(
               height: 80,
               child: Center(child: CircularProgressIndicator()),
+            )
+          : _error != null && _effectiveAdjustments.isEmpty
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.red, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _submitting
+                        ? null
+                        : () {
+                            setState(() {
+                              _loading = true;
+                              _error = null;
+                            });
+                            _loadData();
+                          },
+                    child: const Text('再試行'),
+                  ),
+                ),
+              ],
             )
           : SingleChildScrollView(
               child: Column(
@@ -461,7 +502,7 @@ class _PostSettlementRefundDialogState
           child: const Text('返金する'),
         ),
       ],
-    ),
+              ),
             ),
             if (_submitting)
               Positioned.fill(

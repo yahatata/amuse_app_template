@@ -78,6 +78,23 @@ class _TableDedicatedHomePageState extends State<TableDedicatedHomePage> {
           registrationEnabled: false,
         ),
         builder: (context, snapshot) {
+          // TD-07: hasError を空データ扱いにせず、raw error も出さない。
+          if (tableDeviceHomeStreamHasError(snapshot)) {
+            return Scaffold(
+              appBar: AppBar(
+                automaticallyImplyLeading: false,
+                title: const Text('卓専用端末'),
+                centerTitle: true,
+              ),
+              body: TableDeviceHomeStreamErrorView(
+                onRetry: () {
+                  if (!mounted) return;
+                  setState(() {});
+                },
+              ),
+            );
+          }
+
           final state = snapshot.data!;
           return Stack(
             children: [
@@ -587,6 +604,73 @@ class _TableDedicatedHomePageState extends State<TableDedicatedHomePage> {
   String _formatStartAt(Timestamp timestamp) {
     final value = timestamp.toDate();
     return DateFormat('M/d HH:mm').format(value);
+  }
+}
+
+/// Home [StreamBuilder] の hasError 判定（initialData があっても error を idle 扱いにしない）。
+bool tableDeviceHomeStreamHasError(AsyncSnapshot<Object?> snapshot) {
+  return snapshot.hasError;
+}
+
+/// Home stream 失敗時の固定文言。`snapshot.error` は絶対に出さない。
+String tableDeviceHomeStreamErrorMessage([Object? error]) {
+  return TableDeviceHomeStreamErrorView.message;
+}
+
+class TableDeviceHomeStreamErrorView extends StatelessWidget {
+  const TableDeviceHomeStreamErrorView({
+    super.key,
+    this.onRetry,
+  });
+
+  final VoidCallback? onRetry;
+
+  static const message =
+      'データを取得できませんでした。画面を更新して再度お試しください。';
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.error_outline,
+              size: 72,
+              color: Colors.orange,
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              '卓情報を表示できません',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              message,
+              style: TextStyle(
+                fontSize: 16,
+                height: 1.6,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (onRetry != null) ...[
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('再読み込み'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 

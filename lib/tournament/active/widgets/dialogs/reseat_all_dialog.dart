@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/models/reseat_participant.dart';
 import 'package:amuse_app_template/tournament/active/models/table_and_users.dart';
@@ -6,7 +7,7 @@ import 'package:amuse_app_template/tournament/active/services/tournament_data_se
 import 'package:amuse_app_template/tournament/active/services/seat_decision_logic.dart';
 import 'package:amuse_app_template/tournament/active/utils/reseat_participant_builder.dart';
 import 'package:amuse_app_template/tournament/active/utils/reseat_table_selection_helpers.dart';
-
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 
 class ReseatAllDialog extends StatefulWidget {
   final String tournamentId;
@@ -29,6 +30,7 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
   final Set<String> _reseatTableIds = {};
   bool _isLoading = false;
   bool _isLoadingData = true;
+  bool _dataLoadFailed = false;
   List<ReseatParticipant> _candidates = [];
   List<TournamentTable> _tournamentTables = [];
   final TournamentDataService _dataService = TournamentDataService();
@@ -45,7 +47,9 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
       );
 
   bool get _canExecuteReseat =>
-      _reseatTargetKeys.isNotEmpty && _tableSelectionValidation.canExecute;
+      !_dataLoadFailed &&
+      _reseatTargetKeys.isNotEmpty &&
+      _tableSelectionValidation.canExecute;
 
   List<TournamentTable> get _selectedTables =>
       ReseatTableSelectionHelpers.filterTablesForReseat(
@@ -81,19 +85,41 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
                     children: [
                       const Text('着席者は自動でリシート対象です。待機者は追加選択してください。'),
                       const SizedBox(height: 8),
-                      _buildTableSelectionSection(),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Expanded(child: _buildWaitingList()),
-                            const SizedBox(width: 16),
-                            Expanded(child: _buildReseatTargetList()),
-                          ],
+                      if (_dataLoadFailed && !_isLoadingData)
+                        Expanded(
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  kTournamentCandidatesLoadFailedMessage,
+                                  style: TextStyle(color: Colors.red.shade700),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 12),
+                                ElevatedButton(
+                                  onPressed: _isLoading ? null : _loadData,
+                                  child: const Text('再試行'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else ...[
+                        _buildTableSelectionSection(),
+                        const SizedBox(height: 12),
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Expanded(child: _buildWaitingList()),
+                              const SizedBox(width: 16),
+                              Expanded(child: _buildReseatTargetList()),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildCapacityInfo(),
+                        const SizedBox(height: 16),
+                        _buildCapacityInfo(),
+                      ],
                     ],
                   ),
                 ),
@@ -469,6 +495,8 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
 
   /// リシートを実行
   Future<void> _executeReseat() async {
+    if (_isLoading || _dataLoadFailed) return;
+
     setState(() {
       _isLoading = true;
     });
@@ -547,26 +575,40 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
         }
       }
 
-      final service = TournamentServiceImpl();
-      final result = await service.reseatAllPlayers(
+      final result = await widget.service.reseatAllPlayers(
         tournamentId: widget.tournamentId,
         playerAssignments: playerAssignments,
         reseatTableIds: _reseatTableIds.toList(),
       );
 
-      if (result['success'] == true) {
-        if (mounted) {
-          Navigator.of(context).pop();
-          widget.onReseatCompleted();
-        }
+      if (!mounted) return;
+
+      if (isCallableSuccessResponse(result)) {
+        Navigator.of(context).pop();
+        widget.onReseatCompleted();
       } else {
-        throw Exception('リシートに失敗しました');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentOpsSoftFail(
+                result,
+                operation: kReseatAllPlayersOperation,
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('エラーが発生しました: $e'),
+            content: Text(
+              mapTournamentOpsCallableError(
+                e,
+                operation: kReseatAllPlayersOperation,
+              ),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -582,6 +624,11 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
 
   /// データを読み込み
   Future<void> _loadData() async {
+    setState(() {
+      _isLoadingData = true;
+      _dataLoadFailed = false;
+    });
+
     try {
       final waitingPlayers =
           await _dataService.getWaitingPlayers(widget.tournamentId);
@@ -596,10 +643,12 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
         tables: tournamentTables,
       );
 
+      if (!mounted) return;
       setState(() {
         _candidates = candidates;
         _tournamentTables = tournamentTables;
         _isLoadingData = false;
+        _dataLoadFailed = false;
 
         _reseatTargetKeys
           ..clear()
@@ -611,18 +660,16 @@ class _ReseatAllDialogState extends State<ReseatAllDialog> {
             ReseatTableSelectionHelpers.enabledTableIds(tournamentTables),
           );
       });
-    } catch (e) {
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
+        _candidates = [];
+        _tournamentTables = [];
+        _reseatTargetKeys.clear();
+        _reseatTableIds.clear();
         _isLoadingData = false;
+        _dataLoadFailed = true;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('データの読み込みに失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     }
   }
 }

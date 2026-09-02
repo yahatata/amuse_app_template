@@ -3,18 +3,25 @@
  *
  * 仕様書 05_reopenと再会計.md と上流 11_事後イベントの機能と業務パターン.md §6〜§10 に基づく。
  *
- * 概要:
+ * 概要（通常 / C1-A・C1-B）:
  * - 会計済み（settled / post_settlement_pending）かつ当日営業日の bill を `open` に戻す
  * - 旧 cycle を `cycleState='reopened'` で閉じる
  * - 旧 cycle 配下の effective adjustments を `cancelled_by_reopen` に遷移
  * - 親 doc を `open` 状態に reset（currentSummary / postSettlementState）
  * - `reopenSummary` を更新（currentSettlementCycle += 1、latestSettledCycle 据え置き）
  * - 新 cycle を `cycleState='open'`、`openedReason='reopen'`、baselineSnapshot なしで生成
+ * - C1-B: 持ち越し由来なら `closeSummary.unresolved` 等を復元
+ *
+ * C1-C（`billType === okibake_remote_payment`）:
+ * - 通常 reopen（open / 新 cycle / activeStay）は行わない
+ * - analytics rollback は通常経路と同じ formal path を再利用
+ * - bill 最終 status は `voided`（監査用に doc・remotePayment・明細を保持）
+ * - 元 okibake entry を `pending_review` へ復元（linkedBillId/linkedAt は null）
  *
  * 旧 reopen 経路（postEventReopen / billsEventsOnCreate）には触らない。
  */
 
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import * as crypto from "crypto";
 
@@ -46,6 +53,10 @@ import { buildReopenRollbackEntry } from "../../reporting/services/entryBuilder"
 import { writeReportingEntry } from "../../reporting/services/entryWriter";
 import { applyEntryToReportingMonthly } from "../../reporting/services/monthlyUpdater";
 import type { ReportingEntry } from "../../reporting/types";
+import {
+  isCarryoverUnsettledBillFromCloseSummary,
+  shouldRestoreCarryoverUnresolvedFromCloseSummary,
+} from "../services/carryoverUnsettled";
 
 const IDEMPOTENCY_KEY_PREFIX = "reopenAccountedBill";
 const IDEMPOTENCY_TTL_HOURS = 48;
@@ -64,6 +75,9 @@ export interface ReopenAccountedBillRequest {
   reopenedBy: string | null;
 }
 
+/** UI 向け: reopen 後の復元先（業務分岐の正は backend） */
+export type ReopenDestination = "unsettled_list" | "special_attention";
+
 export interface ReopenAccountedBillResponse {
   success: boolean;
   billId: string;
@@ -71,6 +85,8 @@ export interface ReopenAccountedBillResponse {
   newCycleNo: number;
   reopenedAt: Timestamp;
   cancelledAdjustmentIds: string[];
+  /** C1-A: unsettled_list / C1-B・C1-C: special_attention */
+  reopenDestination: ReopenDestination;
   diagnostics?: {
     reused?: boolean;
   };
@@ -82,6 +98,72 @@ interface IdempotencyStoredResult {
   reopenedAtSeconds: number;
   reopenedAtNanos: number;
   cancelledAdjustmentIds: string[];
+  reopenDestination: ReopenDestination;
+}
+
+function isOkibakeRemotePaymentBill(billData: FirebaseFirestore.DocumentData): boolean {
+  return billData.billType === "okibake_remote_payment";
+}
+
+/**
+ * C1-C: bill 上の source フィールドから元 entry を一意に特定する。
+ * collection 全探索や曖昧紐付けはしない。
+ */
+function resolveOkibakeEntryPathFromBill(billData: FirebaseFirestore.DocumentData): {
+  tournamentId: string;
+  okibakeEntryId: string;
+} {
+  const tournamentId =
+    typeof billData.sourceTournamentId === "string"
+      ? billData.sourceTournamentId.trim()
+      : "";
+  const okibakeEntryId =
+    typeof billData.sourceOkibakeEntryId === "string"
+      ? billData.sourceOkibakeEntryId.trim()
+      : "";
+  if (!tournamentId || !okibakeEntryId) {
+    throw new FunctionCustomError({
+      errorKey: "ACCOUNTING_INVALID_STATE",
+      message:
+        "okibake_remote_payment bill に sourceTournamentId / sourceOkibakeEntryId が無いため reopen できません",
+      context: {
+        sourceTournamentId: tournamentId || null,
+        sourceOkibakeEntryId: okibakeEntryId || null,
+      },
+    });
+  }
+  return { tournamentId, okibakeEntryId };
+}
+
+function buildOkibakeRemotePaymentVoidParentPatch(params: {
+  existingReopenSummary: {
+    hasReopenHistory: boolean;
+    reopenCount: number;
+    currentSettlementCycle: number;
+    latestSettledCycle: number;
+    lastReopenedAt: unknown;
+    lastReopenedBy: unknown;
+    lastResettledAt: unknown;
+  };
+  oldCycleNo: number;
+  reopenedAt: Timestamp;
+  reopenedBy: string | null;
+}): FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> {
+  const e = params.existingReopenSummary;
+  return {
+    status: "voided",
+    // 会計サマリ・remotePayment・settlementSnapshot・tournaments 明細は監査のため保持する。
+    reopenSummary: {
+      hasReopenHistory: true,
+      reopenCount: (e.reopenCount ?? 0) + 1,
+      // 新 open cycle を作らないため currentSettlementCycle は据え置き。
+      currentSettlementCycle: params.oldCycleNo,
+      latestSettledCycle: e.latestSettledCycle ?? 0,
+      lastReopenedAt: params.reopenedAt,
+      lastReopenedBy: params.reopenedBy,
+      lastResettledAt: e.lastResettledAt ?? null,
+    },
+  };
 }
 
 function stableHashForRequest(input: unknown): string {
@@ -125,6 +207,7 @@ function buildResponseFromStored(
     newCycleNo: stored.newCycleNo,
     reopenedAt: new Timestamp(stored.reopenedAtSeconds, stored.reopenedAtNanos),
     cancelledAdjustmentIds: stored.cancelledAdjustmentIds,
+    reopenDestination: stored.reopenDestination ?? "unsettled_list",
     diagnostics: reused ? { reused: true } : undefined,
   };
 }
@@ -174,6 +257,7 @@ export async function reopenAccountedBill(
   });
 
   let reused = false;
+  let reopenMode: "normal" | "okibake_remote_payment_void" = "normal";
 
   // 当日営業日 key を transaction 開始前に取得（storeMeta は別 collection で master 管理）
   let currentBusinessDateKey: string;
@@ -245,6 +329,10 @@ export async function reopenAccountedBill(
           });
         }
         const billData = billSnap.data()!;
+        const isC1COkibakeRemotePayment = isOkibakeRemotePaymentBill(billData);
+        const isC1BCarryover =
+          !isC1COkibakeRemotePayment &&
+          isCarryoverUnsettledBillFromCloseSummary(billData.closeSummary);
 
         // 3) status precondition
         const currentStatus: string = billData.status ?? "open";
@@ -258,18 +346,20 @@ export async function reopenAccountedBill(
           });
         }
 
-        // 4) 当日営業日 precondition (上流 §7)
+        // 4) 当日営業日 precondition（C1-A のみ。C1-B は営業日またぎ reopen 可）
         const billBusinessDate: string | undefined = billData.businessDate;
-        if (!billBusinessDate || billBusinessDate !== currentBusinessDateKey) {
-          throw new FunctionCustomError({
-            errorKey: "BILLS_REOPEN_NOT_TODAY",
-            message: `Cannot reopen. bill.businessDate (${billBusinessDate ?? "null"}) does not match current business date (${currentBusinessDateKey}). Only same-business-day reopen is allowed.`,
-            context: {
-              billId,
-              billBusinessDate: billBusinessDate ?? null,
-              currentBusinessDateKey,
-            },
-          });
+        if (!isC1BCarryover) {
+          if (!billBusinessDate || billBusinessDate !== currentBusinessDateKey) {
+            throw new FunctionCustomError({
+              errorKey: "BILLS_REOPEN_NOT_TODAY",
+              message: `Cannot reopen. bill.businessDate (${billBusinessDate ?? "null"}) does not match current business date (${currentBusinessDateKey}). Only same-business-day reopen is allowed.`,
+              context: {
+                billId,
+                billBusinessDate: billBusinessDate ?? null,
+                currentBusinessDateKey,
+              },
+            });
+          }
         }
 
         // 5) latestSettledCycle precondition
@@ -293,18 +383,71 @@ export async function reopenAccountedBill(
         }
 
         const oldCycleNo: number = reopenSummary.currentSettlementCycle ?? 1;
-        const newCycleNo = oldCycleNo + 1;
+        // C1-C は新 open cycle を作らない。通常 reopen のみ +1。
+        const newCycleNo = isC1COkibakeRemotePayment
+          ? oldCycleNo
+          : oldCycleNo + 1;
         const billParty = (billData.party ?? {}) as {
           userId?: string | null;
           pokerName?: string | null;
         };
         const billUserId = billParty.userId ?? null;
         const billPokerName = billParty.pokerName ?? null;
-        const activeStayRef = billUserId
-          ? db.collection("activeStays").doc(billUserId)
+
+        // C1-C: 元 entry を source フィールドから一意特定（曖昧紐付け禁止）
+        let okibakeEntryRef: FirebaseFirestore.DocumentReference | null = null;
+        if (isC1COkibakeRemotePayment) {
+          const { tournamentId, okibakeEntryId } =
+            resolveOkibakeEntryPathFromBill(billData);
+          okibakeEntryRef = db
+            .collection("scheduledTournaments")
+            .doc(tournamentId)
+            .collection("okibakeTemporaryEntries")
+            .doc(okibakeEntryId);
+        }
+
+        const activeStayRef =
+          !isC1COkibakeRemotePayment && !isC1BCarryover && billUserId
+            ? db.collection("activeStays").doc(billUserId)
+            : null;
+        const activeStaySnap = activeStayRef
+          ? await tx.get(activeStayRef)
           : null;
-        const activeStaySnap = activeStayRef ? await tx.get(activeStayRef) : null;
         const existingStartedAt = activeStaySnap?.data()?.startedAt;
+        const okibakeEntrySnap = okibakeEntryRef
+          ? await tx.get(okibakeEntryRef)
+          : null;
+
+        if (isC1COkibakeRemotePayment) {
+          if (!okibakeEntryRef || !okibakeEntrySnap || !okibakeEntrySnap.exists) {
+            throw new FunctionCustomError({
+              errorKey: "ACCOUNTING_INVALID_STATE",
+              message:
+                "okibake_remote_payment の元 entry が見つからないため reopen できません",
+              context: {
+                billId,
+                sourceTournamentId: billData.sourceTournamentId ?? null,
+                sourceOkibakeEntryId: billData.sourceOkibakeEntryId ?? null,
+              },
+            });
+          }
+          const entryData = okibakeEntrySnap.data() ?? {};
+          const linkedBillId =
+            typeof entryData.linkedBillId === "string"
+              ? entryData.linkedBillId.trim()
+              : "";
+          if (linkedBillId && linkedBillId !== billId) {
+            throw new FunctionCustomError({
+              errorKey: "ACCOUNTING_INVALID_STATE",
+              message:
+                "entry.linkedBillId が本 bill と一致しないため reopen できません",
+              context: {
+                billId,
+                linkedBillId,
+              },
+            });
+          }
+        }
 
         // 6) old cycle read
         const oldCycleRef = billRef
@@ -338,18 +481,11 @@ export async function reopenAccountedBill(
         );
 
         // Step07 changeSpec §5.3.5: rollback 用に old cycle 配下の adjustments の lines / cashActions の methodBreakdown を read。
-        // - effective adjustments 以外（cancelled_by_reopen / completed_by_cash_action / superseded）も含めて、
-        //   analytics に反映済みの全 adjustments を rollback 対象とする（settle 直後の場合は通常 effective のみだが、
-        //   その後の cashAction 紐付けで `completed_by_cash_action` 状態に遷移しているケースも analytics 反映済み）。
-        // - cashActions は `cashActionType==='collection'` のみが paymentTotals に反映されているため
-        //   refund はロールバック対象外。
         const allAdjustmentsSnap = await tx.get(adjustmentsColl);
         const adjustmentsLinesForRollback: AdjustmentLine[][] =
           allAdjustmentsSnap.docs
             .filter((d) => {
               const data = d.data();
-              // cancelled_by_reopen は元から analytics 反映なしなので除外
-              // それ以外は反映済みとして rollback 対象
               return data.adjustmentState !== "cancelled_by_reopen";
             })
             .map((d) => {
@@ -374,7 +510,7 @@ export async function reopenAccountedBill(
                 : [];
             });
 
-        // 8) old cycle patch
+        // 8) old cycle patch（通常 / C1-C 共通: settled を reopen 履歴として閉じる）
         const now = Timestamp.now();
         tx.update(oldCycleRef, buildReopenedCycleDocPatch({ closedAt: now }));
 
@@ -387,47 +523,93 @@ export async function reopenAccountedBill(
           tx.update(adjDoc.ref, adjustmentPatch);
         }
 
-        // 10) parent doc patch
-        const parentPatch = buildParentDocPatchForReopen({
-          existingReopenSummary: reopenSummary,
-          oldCycleNo,
-          reopenedAt: now,
-          reopenedBy: reopenedBy ?? null,
-        });
-        tx.update(billRef, {
-          ...parentPatch,
-          updatedAt: now,
-        });
+        const shouldRestoreCarryoverUnresolved =
+          !isC1COkibakeRemotePayment &&
+          shouldRestoreCarryoverUnresolvedFromCloseSummary(billData.closeSummary);
+        const reopenDestination: ReopenDestination =
+          isC1COkibakeRemotePayment || shouldRestoreCarryoverUnresolved
+            ? "special_attention"
+            : "unsettled_list";
 
-        // 11) activeStays/{uid} を復帰
-        if (billUserId && activeStayRef) {
-          tx.set(
-            activeStayRef,
+        if (isC1COkibakeRemotePayment && okibakeEntryRef) {
+          // ---- C1-C 専用: voided + entry を pending_review へ。open/新cycle/activeStay なし ----
+          reopenMode = "okibake_remote_payment_void";
+          const voidParentPatch = buildOkibakeRemotePaymentVoidParentPatch({
+            existingReopenSummary: reopenSummary,
+            oldCycleNo,
+            reopenedAt: now,
+            reopenedBy: reopenedBy ?? null,
+          });
+          tx.update(billRef, {
+            ...voidParentPatch,
+            updatedAt: now,
+          });
+
+          tx.update(okibakeEntryRef, {
+            billLinkStatus: "pending_review",
+            linkedBillId: null,
+            linkedAt: null,
+            updatedAt: now,
+          });
+        } else {
+          // ---- 通常 reopen（C1-A）/ C1-B carryover ----
+          const parentPatch = buildParentDocPatchForReopen({
+            existingReopenSummary: reopenSummary,
+            oldCycleNo,
+            reopenedAt: now,
+            reopenedBy: reopenedBy ?? null,
+          });
+          const parentUpdatePatch: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> =
             {
-              uid: billUserId,
-              billId,
-              pokerName: billPokerName,
-              isActive: true,
-              startedAt: existingStartedAt ?? now,
-            },
-            { merge: true },
+              ...parentPatch,
+              updatedAt: now,
+            };
+          if (shouldRestoreCarryoverUnresolved) {
+            parentUpdatePatch["closeSummary.unresolved"] = true;
+            parentUpdatePatch["closeSnapshot.unresolved"] = true;
+          }
+          tx.update(billRef, parentUpdatePatch);
+
+          // C1-A: activeStay 復帰。C1-B: 過去来店は復元せず、現在の activeStay も触らない。
+          if (!shouldRestoreCarryoverUnresolved && billUserId && activeStayRef) {
+            tx.set(
+              activeStayRef,
+              {
+                uid: billUserId,
+                billId,
+                pokerName: billPokerName,
+                isActive: true,
+                startedAt: existingStartedAt ?? now,
+              },
+              { merge: true },
+            );
+          }
+
+          // C1-B: unsettledBillsCount +1（activeStay 有無と独立）
+          if (shouldRestoreCarryoverUnresolved && billUserId) {
+            tx.set(
+              db.collection("users").doc(billUserId),
+              {
+                unsettledBillsCount: FieldValue.increment(1),
+              },
+              { merge: true },
+            );
+          }
+
+          const newCycleRef = billRef
+            .collection("settlementCycles")
+            .doc(String(newCycleNo));
+          tx.set(
+            newCycleRef,
+            buildInitialCycleDoc({
+              cycleNo: newCycleNo,
+              openedAt: now,
+              openedBy: reopenedBy ?? null,
+              openedReason: "reopen",
+              openedFromCycleNo: oldCycleNo,
+            }),
           );
         }
-
-        // 12) new cycle create (baselineSnapshot は作らない)
-        const newCycleRef = billRef
-          .collection("settlementCycles")
-          .doc(String(newCycleNo));
-        tx.set(
-          newCycleRef,
-          buildInitialCycleDoc({
-            cycleNo: newCycleNo,
-            openedAt: now,
-            openedBy: reopenedBy ?? null,
-            openedReason: "reopen",
-            openedFromCycleNo: oldCycleNo,
-          }),
-        );
 
         // 13) idempotency set
         const storedResult: IdempotencyStoredResult = {
@@ -436,6 +618,7 @@ export async function reopenAccountedBill(
           reopenedAtSeconds: now.seconds,
           reopenedAtNanos: now.nanoseconds,
           cancelledAdjustmentIds,
+          reopenDestination,
         };
         const expiresAt = new Timestamp(
           now.seconds + IDEMPOTENCY_TTL_HOURS * 3600,
@@ -449,7 +632,7 @@ export async function reopenAccountedBill(
           expiresAt,
         });
 
-        // Step07 changeSpec §5.3.5: analytics rollback 用 capture
+        // Step07 changeSpec §5.3.5: analytics rollback 用 capture（通常 / C1-C 共通）
         const billBusinessDateForCapture: string =
           (billData.businessDate as string | undefined) ?? "";
         const billUserIdForCapture: string | null = billUserId;
@@ -462,8 +645,6 @@ export async function reopenAccountedBill(
           oldCycleNo,
           billUserId: billUserIdForCapture,
           input: {
-            // billData (transaction 内で読んだもの) は settle 時の snapshot を含む
-            // （categoryBreakdown / tournamentsSnapshot / paymentTotals / amounts.grandTotalRounded）
             billDataAtSettle: billData,
             adjustmentsLines: adjustmentsLinesForRollback,
             collectionCashActionsMethodBreakdown:
@@ -564,6 +745,7 @@ export async function reopenAccountedBill(
         billId,
         idempotencyKey: idempotencyDocId,
         reused,
+        reopenMode,
         oldCycleNo: stored.oldCycleNo,
         newCycleNo: stored.newCycleNo,
         cancelledAdjustmentCount: stored.cancelledAdjustmentIds.length,

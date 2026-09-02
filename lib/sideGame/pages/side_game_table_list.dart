@@ -4,6 +4,7 @@ import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/sideGame/pages/side_game_table_home.dart';
 import 'package:amuse_app_template/sideGame/services/side_game_table_mutation_service.dart';
+import 'package:amuse_app_template/sideGame/side_game_user_facing_errors.dart';
 import 'package:amuse_app_template/Home/app_home_navigation.dart';
 import 'package:amuse_app_template/services/device_service.dart';
 import 'package:amuse_app_template/services/device_options.dart';
@@ -30,7 +31,9 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
   String? _myTableId;
   Set<String> _excludedTableIds = {};
   bool _isLoadingPermissions = true;
+  bool _permissionsLoadFailed = false;
   bool _isStartingSideGame = false;
+  int _tablesStreamReloadToken = 0;
 
   @override
   void initState() {
@@ -38,7 +41,18 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
     _loadPermissions();
   }
 
+  void _retryTablesStream() {
+    setState(() {
+      _tablesStreamReloadToken++;
+    });
+  }
+
   Future<void> _loadPermissions() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingPermissions = true;
+      _permissionsLoadFailed = false;
+    });
     try {
       // 1. 現在のデバイス情報を取得
       final device = await _deviceService.getCurrentDevice();
@@ -59,13 +73,15 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
       if (mounted) {
         setState(() {
           _excludedTableIds = excluded;
+          _permissionsLoadFailed = false;
           _isLoadingPermissions = false;
         });
       }
     } catch (e) {
-      print('権限読み込みエラー: $e');
+      print('権限読み込みエラー');
       if (mounted) {
         setState(() {
+          _permissionsLoadFailed = true;
           _isLoadingPermissions = false;
         });
       }
@@ -90,17 +106,79 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
         },
         child: _isLoadingPermissions
           ? const Center(child: CircularProgressIndicator())
+          : _permissionsLoadFailed
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          kSideGameTableListLoadFailedMessage,
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _loadPermissions,
+                          child: const Text('再試行'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
           : StreamBuilder<QuerySnapshot>(
+              key: ValueKey('side-game-tables-$_tablesStreamReloadToken'),
               stream: _firestore.collection('tables').snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.hasError) {
+                final hasData = snapshot.hasData;
+
+                if (snapshot.hasError && !hasData) {
                   return Center(
-                    child: Text('エラーが発生しました: ${snapshot.error}'),
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            sideGameTableListStreamErrorMessage(snapshot.error),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _retryTablesStream,
+                            child: const Text('再試行'),
+                          ),
+                        ],
+                      ),
+                    ),
                   );
                 }
 
-                if (snapshot.connectionState == ConnectionState.waiting) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !hasData) {
                   return const Center(child: CircularProgressIndicator());
+                }
+
+                if (!hasData) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            sideGameTableListStreamErrorMessage(),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _retryTablesStream,
+                            child: const Text('再試行'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
                 }
 
                 final tables = snapshot.data!.docs
@@ -129,15 +207,51 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
                   );
                 }
 
-                return _buildTableGrid(tables);
+                return Column(
+                  children: [
+                    if (snapshot.hasError)
+                      Material(
+                        color: Colors.red.shade50,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.warning_amber_rounded,
+                                  color: Colors.red),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  kSideGameTableRealtimeFailedMessage,
+                                  style: TextStyle(color: Colors.red.shade800),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _retryTablesStream,
+                                child: const Text('再試行'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    Expanded(child: _buildTableGrid(tables)),
+                  ],
+                );
               },
             ),
       ),
     ),
         if (_isStartingSideGame)
-          const ModalBarrier(dismissible: false, color: Colors.black54),
-        if (_isStartingSideGame)
-          const Center(child: CircularProgressIndicator()),
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: ColoredBox(
+                color: Colors.black.withValues(alpha: 0.35),
+                child: const Center(child: CircularProgressIndicator()),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -330,7 +444,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('トーナメントで着席中のため、この卓でサイドゲームを開始できません'),
+          content: Text(kSideGameTournamentSeatedBlockMessage),
           backgroundColor: Colors.red,
         ),
       );
@@ -354,26 +468,21 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
       );
       final confirmed = await _showWarningDialog(presentation);
       if (!confirmed) return;
-      final selectedGame = await _showGameSelectionDialog();
-      if (selectedGame != null) {
-        final started = await _updateTableStatus(
-          tableId,
-          selectedGame,
-          allowOverride: true,
-        );
-        if (started && mounted) {
-          _navigateToTableHome(tableId, selectedGame);
-        }
+      final selectedGame = await _showGameSelectionAndStartDialog(
+        tableId: tableId,
+        allowOverride: true,
+      );
+      if (selectedGame != null && mounted) {
+        _navigateToTableHome(tableId, selectedGame);
       }
       return;
     }
 
-    final selectedGame = await _showGameSelectionDialog();
-    if (selectedGame != null) {
-      final started = await _updateTableStatus(tableId, selectedGame);
-      if (started && mounted) {
-        _navigateToTableHome(tableId, selectedGame);
-      }
+    final selectedGame = await _showGameSelectionAndStartDialog(
+      tableId: tableId,
+    );
+    if (selectedGame != null && mounted) {
+      _navigateToTableHome(tableId, selectedGame);
     }
   }
 
@@ -415,45 +524,105 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
     ) ?? false;
   }
 
-  Future<String?> _showGameSelectionDialog() async {
-    return await showDialog<String>(
+  /// ゲーム選択ダイアログ。開始成功時のみ閉じる（SG-10）。
+  Future<String?> _showGameSelectionAndStartDialog({
+    required String tableId,
+    bool allowOverride = false,
+  }) async {
+    return showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('ゲームを選択してください'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: _sideGameTypes.length,
-            itemBuilder: (context, index) {
-              final game = _sideGameTypes[index];
-              return ListTile(
-                leading: const Icon(Icons.casino),
-                title: Text(game),
-                onTap: () => Navigator.of(context).pop(game),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('キャンセル'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        var isStarting = false;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> startGame(String game) async {
+              if (isStarting || _isStartingSideGame) return;
+              setDialogState(() {
+                isStarting = true;
+              });
+              setState(() {
+                _isStartingSideGame = true;
+              });
+              try {
+                final started = await _registerTableToSideGame(
+                  tableId,
+                  game,
+                  allowOverride: allowOverride,
+                );
+                if (started && dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop(game);
+                }
+              } finally {
+                if (mounted) {
+                  setState(() {
+                    _isStartingSideGame = false;
+                  });
+                }
+                if (dialogContext.mounted) {
+                  setDialogState(() {
+                    isStarting = false;
+                  });
+                }
+              }
+            }
+
+            return PopScope(
+              canPop: !isStarting,
+              child: Stack(
+                children: [
+                  AlertDialog(
+                    title: const Text('ゲームを選択してください'),
+                    content: SizedBox(
+                      width: double.maxFinite,
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _sideGameTypes.length,
+                        itemBuilder: (context, index) {
+                          final game = _sideGameTypes[index];
+                          return ListTile(
+                            leading: const Icon(Icons.casino),
+                            title: Text(game),
+                            onTap: isStarting ? null : () => startGame(game),
+                          );
+                        },
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: isStarting
+                            ? null
+                            : () => Navigator.of(dialogContext).pop(),
+                        child: const Text('キャンセル'),
+                      ),
+                    ],
+                  ),
+                  if (isStarting)
+                    Positioned.fill(
+                      child: AbsorbPointer(
+                        child: ColoredBox(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          child: const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
-  Future<bool> _updateTableStatus(
+  /// 開始 Callable。成功時のみ true（SG-10）。
+  Future<bool> _registerTableToSideGame(
     String tableId,
     String gameName, {
     bool allowOverride = false,
   }) async {
-    setState(() {
-      _isStartingSideGame = true;
-    });
-
     try {
       await _mutationService.registerTableToSideGame(
         tableId: tableId,
@@ -474,18 +643,17 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('エラーが発生しました: $e'),
+            content: Text(
+              mapSideGameCallableError(
+                e,
+                operation: 'registerTableToSideGame',
+              ),
+            ),
             backgroundColor: Colors.red,
           ),
         );
       }
       return false;
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isStartingSideGame = false;
-        });
-      }
     }
   }
 

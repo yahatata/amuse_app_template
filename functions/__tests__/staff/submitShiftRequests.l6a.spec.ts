@@ -811,17 +811,30 @@ describe('getShifts (L6-A)', () => {
   });
 });
 
-describe('confirmShiftRequest legacy surface (L6-A)', () => {
-  it('keeps confirmed status string in source', () => {
+describe('CLN-F2 confirmShiftRequest removed (L6-A)', () => {
+  it('production source and staff LIFF caller are gone', () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const src = require('fs').readFileSync(
-      require('path').join(
-        __dirname,
-        '../../src/domains/staff/callables/confirmShiftRequest.ts',
-      ),
+    const fs = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require('path');
+    const callablePath = path.join(
+      __dirname,
+      '../../src/domains/staff/callables/confirmShiftRequest.ts',
+    );
+    expect(fs.existsSync(callablePath)).toBe(false);
+
+    const staffIndex = fs.readFileSync(
+      path.join(__dirname, '../../src/domains/staff/index.ts'),
       'utf8',
     );
-    expect(src).toMatch(/status:\s*["']confirmed["']/);
-    expect(src).not.toMatch(/submitShiftRequests/);
+    expect(staffIndex).not.toMatch(/confirmShiftRequest/);
+
+    const staffHtml = fs.readFileSync(
+      path.join(__dirname, '../../../public/staff/index.html'),
+      'utf8',
+    );
+    expect(staffHtml).not.toMatch(/confirmShiftRequest/);
+    expect(staffHtml).not.toMatch(/#shift\?requestId/);
+    expect(staffHtml).not.toMatch(/urlParams\.get\(['"]requestId['"]\)/);
   });
 });

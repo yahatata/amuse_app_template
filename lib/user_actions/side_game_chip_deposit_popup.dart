@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
+import 'package:amuse_app_template/user_actions/side_game_dialog_layout.dart';
 
 /// SideGame用chip預入ポップアップ
 Future<void> showSideGameChipDepositDialog({
@@ -9,6 +13,7 @@ Future<void> showSideGameChipDepositDialog({
   required String pokerName,
   String? tableId,
   int? seatNumber,
+  bool closeUserActionMenuOnLeaveSuccess = false,
 }) async {
   final outerCtx = context;
 
@@ -16,7 +21,7 @@ Future<void> showSideGameChipDepositDialog({
     if (outerCtx.mounted) {
       ScaffoldMessenger.of(
         outerCtx,
-      ).showSnackBar(const SnackBar(content: Text('ユーザー識別子が見つかりません')));
+      ).showSnackBar(SnackBar(content: Text(kUserActionUserIdMissingMessage)));
     }
     return;
   }
@@ -49,6 +54,15 @@ Future<void> showSideGameChipDepositDialog({
       ],
     ),
   );
+
+  if (shouldCloseUserActionMenuAfterLeave(
+        operationSucceeded: true,
+        leftSeat: result.leftSeat,
+      ) &&
+      closeUserActionMenuOnLeaveSuccess &&
+      outerCtx.mounted) {
+    Navigator.of(outerCtx).pop();
+  }
 }
 
 class _DepositResult {
@@ -109,8 +123,9 @@ class _SideGameChipDepositDialogState extends State<_SideGameChipDepositDialog> 
                 Text('chip預入'),
               ],
             ),
-            content: SizedBox(
-              width: 300,
+            content: SideGameDialogScrollableContent(
+              maxWidth: 300,
+              maxHeight: sideGameAlertDialogContentMaxHeight(context),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -206,6 +221,7 @@ class _SideGameChipDepositDialogState extends State<_SideGameChipDepositDialog> 
                 ],
               ),
             ),
+            actionsOverflowButtonSpacing: 8,
             actions: [
               TextButton(
                 onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
@@ -292,27 +308,76 @@ class _SideGameChipDepositDialogState extends State<_SideGameChipDepositDialog> 
     if (_isLoading) return;
     setState(() => _isLoading = true);
 
-    Object? error;
+    var depositSucceeded = false;
+    var leaveSucceeded = false;
+    Object? stepError;
+    int? newBalance;
+
     try {
       final functions = FunctionsClient.instance;
-      await functions.httpsCallable('depositChip').call({
+      // USER-51: deposit → leave の順。deposit 成功後に leave 失敗しうる。
+      final depositResult = await functions.httpsCallable('depositChip').call({
         'userId': widget.userId,
         'amount': amount,
         'clientNonce': _clientNonce,
       });
 
+      if (!isCallableSuccessResponse(depositResult.data)) {
+        stepError = null;
+        // soft-fail: 預入未完了
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(mapCallableSoftFailMessage(depositResult.data)),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      depositSucceeded = true;
+      final depositData = depositResult.data;
+      if (depositData is Map) {
+        final data = depositData['data'];
+        if (data is Map && data['newBalance'] is num) {
+          newBalance = (data['newBalance'] as num).toInt();
+        }
+      }
+      if (newBalance != null && mounted) {
+        setState(() => _currentChip = newBalance!);
+      }
+
       if (shouldLeaveSeat) {
         if (widget.tableId == null || widget.seatNumber == null) {
-          throw Exception('退席処理に必要な情報が不足しています（tableId, seatNumber）');
+          leaveSucceeded = false;
+          stepError = Exception(kUserActionLeaveSeatMissingInfoMessage);
+        } else {
+          try {
+            final leaveResult =
+                await functions.httpsCallable('leaveSeat').call({
+              'tableId': widget.tableId,
+              'seatNumber': widget.seatNumber,
+              'userId': widget.userId,
+            });
+            if (isCallableSuccessResponse(leaveResult.data)) {
+              leaveSucceeded = true;
+            } else {
+              leaveSucceeded = false;
+              // leave soft-fail: 預入は済んでいる
+            }
+          } catch (e) {
+            leaveSucceeded = false;
+            stepError = e;
+          }
         }
-        await functions.httpsCallable('leaveSeat').call({
-          'tableId': widget.tableId,
-          'seatNumber': widget.seatNumber,
-          'userId': widget.userId,
-        });
+      } else {
+        leaveSucceeded = true;
       }
     } catch (e) {
-      error = e;
+      stepError = e;
+      depositSucceeded = false;
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -320,18 +385,46 @@ class _SideGameChipDepositDialogState extends State<_SideGameChipDepositDialog> 
     }
 
     if (!mounted) return;
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('預入処理に失敗しました: $error'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
 
-    Navigator.of(context).pop(
-      _DepositResult(amount: amount, leftSeat: shouldLeaveSeat),
+    final outcome = resolveDepositLeaveOutcome(
+      depositSucceeded: depositSucceeded,
+      leaveRequested: shouldLeaveSeat,
+      leaveSucceeded: leaveSucceeded,
     );
+
+    switch (outcome) {
+      case DepositLeaveOutcome.bothSucceeded:
+        Navigator.of(context).pop(
+          _DepositResult(amount: amount, leftSeat: shouldLeaveSeat),
+        );
+        return;
+      case DepositLeaveOutcome.depositSucceededLeaveFailed:
+        // 部分成功: 自動ロールバックしない。ダイアログ維持（clientNonce で再預入を防ぐ）
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              messageForDepositLeaveOutcome(outcome) ??
+                  kUserActionDepositSucceededLeaveFailedMessage,
+            ),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+        return;
+      case DepositLeaveOutcome.depositFailed:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              messageForDepositLeaveOutcome(
+                    outcome,
+                    depositOrLeaveError: stepError,
+                  ) ??
+                  kUserActionDepositFailedMessage,
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+    }
   }
 }

@@ -150,6 +150,27 @@ describe("device management callables", () => {
       expect(await countActiveAdmins(db)).toBe(1);
     });
 
+    it("blocked admin がいても最後の active admin の block は拒否", async () => {
+      if (!emulatorAvailable) return;
+      await seedDevice(db, { deviceId: "admin-1", uid: "uid-admin" });
+      await seedDevice(db, {
+        deviceId: "admin-blocked",
+        uid: "uid-blocked",
+        status: "blocked",
+      });
+
+      await expect(
+        (updateDeviceStatus as { run: (req: unknown) => Promise<unknown> }).run({
+          auth: { uid: "uid-admin" },
+          data: { deviceId: "admin-1", status: "blocked" },
+        })
+      ).rejects.toMatchObject({
+        code: "failed-precondition",
+        message: expect.stringContaining("最後の管理者端末はブロックできません"),
+      });
+      expect(await countActiveAdmins(db)).toBe(1);
+    });
+
     it("自己ブロックは拒否（adminが2台ある場合）", async () => {
       if (!emulatorAvailable) return;
       await seedDevice(db, { deviceId: "admin-1", uid: "uid-admin" });
@@ -355,6 +376,27 @@ describe("device management callables", () => {
         code: "failed-precondition",
         message: expect.stringContaining("最後の管理者端末のロールは変更できません"),
       });
+    });
+
+    it("blocked admin がいても最後の active admin の role 変更は拒否", async () => {
+      if (!emulatorAvailable) return;
+      await seedDevice(db, { deviceId: "admin-1", uid: "uid-admin" });
+      await seedDevice(db, {
+        deviceId: "admin-blocked",
+        uid: "uid-blocked",
+        status: "blocked",
+      });
+
+      await expect(
+        (updateDeviceRole as { run: (req: unknown) => Promise<unknown> }).run({
+          auth: { uid: "uid-admin" },
+          data: { deviceId: "admin-1", role: "terminal" },
+        })
+      ).rejects.toMatchObject({
+        code: "failed-precondition",
+        message: expect.stringContaining("最後の管理者端末のロールは変更できません"),
+      });
+      expect(await countActiveAdmins(db)).toBe(1);
     });
 
     it("active adminが2台なら他方をterminalへ変更でき options が空になる", async () => {

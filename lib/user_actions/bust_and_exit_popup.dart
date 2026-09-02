@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'dart:math';
 
@@ -146,7 +147,7 @@ Future<void> _executeBustAndExit({
 
     feedback.hideLoading();
 
-    if (data['success'] == true) {
+    if (isCallableSuccessResponse(data)) {
       if (context.mounted) {
         await showActionSuccessDialog(
           context,
@@ -157,10 +158,11 @@ Future<void> _executeBustAndExit({
         }
       }
     } else {
+      // USER-44 soft-fail: raw error 非表示
       if (context.mounted) {
         await showActionErrorDialog(
           context,
-          message: 'Bust&退席に失敗しました: ${data['error'] ?? '不明なエラー'}',
+          message: mapCallableSoftFailMessage(data),
         );
       }
     }

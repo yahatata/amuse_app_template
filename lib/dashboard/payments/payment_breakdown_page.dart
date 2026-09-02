@@ -4,6 +4,7 @@
 /// 参照フィールド: analyticsMonthly/{YYYY-MM}（当月）、年間データ（年間比較）
 /// 遅延ロード: あり（年間データは初回ロード時）
 
+import 'package:amuse_app_template/dashboard/errors/dashboard_user_facing_errors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -153,8 +154,12 @@ class _PaymentBreakdownPageState extends ConsumerState<PaymentBreakdownPage>
         return _buildCurrentMonthContent(context, monthlyData);
       },
       loading: () => _buildSkeletonContent(context),
-      error: (error, stack) => Center(
-        child: Text('エラーが発生しました: $error'),
+      error: (error, stack) => dashboardLoadErrorWidget(
+        message: mapDashboardLoadError(error),
+        onRetry: () {
+          final month = ref.read(selectedMonthProvider);
+          ref.invalidate(monthlyDataProvider(month));
+        },
       ),
     );
   }
@@ -170,8 +175,9 @@ class _PaymentBreakdownPageState extends ConsumerState<PaymentBreakdownPage>
         return _buildYearlyComparisonContent(context, yearlyData);
       },
       loading: () => _buildSkeletonContent(context),
-      error: (error, stack) => Center(
-        child: Text('エラーが発生しました: $error'),
+      error: (error, stack) => dashboardLoadErrorWidget(
+        message: mapDashboardLoadError(error),
+        onRetry: () => ref.invalidate(yearlyDataProvider(_selectedYear)),
       ),
     );
   }
@@ -632,7 +638,7 @@ class _PaymentBreakdownPageState extends ConsumerState<PaymentBreakdownPage>
               );
             },
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, stack) => const Text('エラーが発生しました'),
+            error: (error, stack) => Text(kDashboardLoadFailedMessage),
           );
         },
       ),

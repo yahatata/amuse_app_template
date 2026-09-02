@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/device_service.dart';
+import '../services/device_callable_errors.dart';
 import '../models/device.dart';
 import '../services/device_options.dart';
+import 'device_management_action_visibility.dart';
 /// 卓情報の簡易モデル
 class _TableItem {
   final String id;
@@ -12,9 +14,8 @@ class _TableItem {
 
 /// デバイス管理画面（管理者用）
 ///
-/// 【テスト用機能の有効化】
-/// 画面上で role を変更するテスト用UIを有効にするには、本ファイル内で
-/// 「テスト期間限定: role変更」で始まるブロックコメントの 先頭の /* と 末尾の */ を削除してください。
+/// role 変更 UI は他端末向けに表示する（自分自身は非表示）。
+/// 最後の active admin 保護は Functions 側が正本。
 class DeviceManagementPage extends StatefulWidget {
   const DeviceManagementPage({super.key});
 
@@ -68,13 +69,15 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       if (_currentDeviceId == null) {
         await _loadCurrentDeviceId();
       }
+      if (!mounted) return;
       setState(() {
         _devices = devices;
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = kDeviceListLoadFailedMessage;
         _isLoading = false;
       });
     }
@@ -91,7 +94,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       await _loadDevices();
       successMessage = 'デバイス「${device.name}」のステータスを更新しました';
     } catch (e) {
-      errorMessage = 'エラー: $e';
+      errorMessage = mapDeviceCallableError(e, operation: 'updateDeviceStatus');
     } finally {
       if (mounted) {
         setState(() => _isMutatingDevice = false);
@@ -129,7 +132,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       await _loadDevices();
       successMessage = 'roleを$newRoleに変更しました';
     } catch (e) {
-      errorMessage = 'エラー: $e';
+      errorMessage = mapDeviceCallableError(e, operation: 'updateDeviceRole');
     } finally {
       if (mounted) {
         setState(() => _isMutatingDevice = false);
@@ -182,7 +185,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
         await _loadDevices();
         successMessage = 'デバイス「${device.name}」を削除しました';
       } catch (e) {
-        errorMessage = 'エラー: $e';
+        errorMessage = mapDeviceCallableError(e, operation: 'archiveDevice');
       } finally {
         if (mounted) {
           setState(() => _isMutatingDevice = false);
@@ -254,8 +257,8 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       })
           .toList();
     } catch (e) {
-      print('卓一覧取得エラー: $e');
-      return [];
+      print('卓一覧取得エラー');
+      rethrow;
     }
   }
 
@@ -275,15 +278,24 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
           })
           .toList();
     } catch (e) {
-      debugPrint('卓一覧取得エラー(table): $e');
-      return [];
+      debugPrint('卓一覧取得エラー(table)');
+      rethrow;
     }
   }
 
   Future<void> _editTableDeviceBinding(Device device) async {
     String? selectedTableId =
         device.getTableIdForOption(DeviceOptionKeys.tableDeviceTable);
-    final tables = await _getEnabledTables();
+    late final List<_TableItem> tables;
+    try {
+      tables = await _getEnabledTables();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(kDeviceListLoadFailedMessage)),
+      );
+      return;
+    }
 
     final result = await showDialog<bool>(
       context: context,
@@ -373,7 +385,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('エラー: $e'),
+            content: Text(
+              mapDeviceCallableError(e, operation: 'updateDeviceOptions'),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -501,6 +515,15 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                                     child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
                                   );
                                 }
+                                if (snapshot.hasError) {
+                                  return const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8),
+                                    child: Text(
+                                      kDeviceListLoadFailedMessage,
+                                      style: TextStyle(color: Colors.red, fontSize: 12),
+                                    ),
+                                  );
+                                }
                                 final tables = snapshot.data ?? [];
                                 return DropdownButtonFormField<String?>(
                                   value: selectedTableIds[key],
@@ -592,7 +615,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('エラー: $e'),
+              content: Text(
+                mapDeviceCallableError(e, operation: 'updateDeviceOptions'),
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -874,27 +899,27 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                     ),
                   ],
                 ),
-                // /* テスト期間限定: role変更（有効化するにはこのブロックの先頭 /* と末尾 */ を削除）
-                Row(
-                  children: [
-                    const Text('role変更: ', style: TextStyle(fontSize: 12)),
-                    DropdownButton<String>(
-                      value: device.role,
-                      items: const [
-                        DropdownMenuItem(value: 'admin', child: Text('admin')),
-                        DropdownMenuItem(value: 'terminal', child: Text('terminal')),
-                        DropdownMenuItem(value: 'table', child: Text('table')),
-                      ],
-                      onChanged: _isPageLocked
-                          ? null
-                          : (String? newRole) {
-                              if (newRole == null) return;
-                              _updateDeviceRole(device, newRole);
-                            },
-                    ),
-                  ],
-                ),
-                // */
+                // role変更（自分自身は変更不可。最後のadmin判定はFunctions側）
+                if (!isCurrentDevice)
+                  Row(
+                    children: [
+                      const Text('role変更: ', style: TextStyle(fontSize: 12)),
+                      DropdownButton<String>(
+                        value: device.role,
+                        items: const [
+                          DropdownMenuItem(value: 'admin', child: Text('admin')),
+                          DropdownMenuItem(value: 'terminal', child: Text('terminal')),
+                          DropdownMenuItem(value: 'table', child: Text('table')),
+                        ],
+                        onChanged: _isPageLocked
+                            ? null
+                            : (String? newRole) {
+                                if (newRole == null) return;
+                                _updateDeviceRole(device, newRole);
+                              },
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: 4),
 
                 // プラットフォーム
@@ -950,17 +975,18 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                         tooltip: '削除',
                       ),
                     const Spacer(),
-                    OutlinedButton.icon(
-                      onPressed: () => device.role == 'table'
-                          ? _editTableDeviceBinding(device)
-                          : _editOptions(device),
-                      icon: Icon(
-                        device.role == 'table' ? Icons.link : Icons.tune,
+                    if (shouldShowTableBindingEditButton(device.role))
+                      OutlinedButton.icon(
+                        onPressed: () => _editTableDeviceBinding(device),
+                        icon: const Icon(Icons.link),
+                        label: const Text('卓紐付け編集'),
+                      )
+                    else if (shouldShowOptionsEditButton(device.role))
+                      OutlinedButton.icon(
+                        onPressed: () => _editOptions(device),
+                        icon: const Icon(Icons.tune),
+                        label: const Text('オプション編集'),
                       ),
-                      label: Text(
-                        device.role == 'table' ? '卓紐付け編集' : 'オプション編集',
-                      ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 8),

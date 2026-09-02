@@ -28,13 +28,10 @@ window.__CONFIG__ = {
   },
   
   // SSoT: storeMeta/config.linePlan（Firestore 初期化後に loadLinePlanFromFirestore() で上書き）
+  // 旧 isShiftRequestEnabled（要請confirm/decline ゲート）は CLN-F2 で削除済み
   linePlan: "communication",
   /** true のとき linePlan は取得失敗により default へ落ちた状態 */
   linePlanLoadFailed: false,
-  
-  isShiftRequestEnabled: function() {
-    return this.linePlan !== 'communication';
-  },
 
   /**
    * Firestore storeMeta/config から linePlan を読み取り、__CONFIG__ を上書きする。

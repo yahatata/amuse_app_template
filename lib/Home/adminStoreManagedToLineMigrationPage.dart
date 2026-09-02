@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:amuse_app_template/Home/home_list_load_errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/user/a6_callable_errors.dart';
 import 'package:amuse_app_template/user/balance_display.dart';
@@ -115,7 +116,7 @@ class _AdminStoreManagedToLineMigrationPageState
       if (!mounted) return;
       setState(() {
         _usersLoading = false;
-        _usersError = e.toString();
+        _usersError = kHomeUsersListLoadFailedMessage;
       });
     }
   }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
+import 'package:amuse_app_template/tournament/scheduling/errors/tournament_admin_user_facing_errors.dart';
 import '../../services/device_service.dart';
 import '../../services/store_config_service.dart';
 import 'bust_undo_fallback_seat_dialog.dart';
@@ -43,6 +45,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
   TabController? _tabController;
   List<Map<String, dynamic>> _actionLogs = [];
   bool _isLoading = false;
+  bool _actionLogsLoadFailed = false;
   bool _isRollingBack = false;
   String? _currentDeviceId;
   String? _currentDeviceName;
@@ -113,6 +116,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
 
     setState(() {
       _isLoading = true;
+      _actionLogsLoadFailed = false;
     });
 
     try {
@@ -135,8 +139,8 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
           .httpsCallable('getActionLogs')
           .call(params);
 
-      if (result.data['success'] == true) {
-        final rawLogs = result.data['actionLogs'] as List<dynamic>;
+      if (isCallableSuccessResponse(result.data)) {
+        final rawLogs = result.data['actionLogs'] as List<dynamic>? ?? [];
         final logs = rawLogs.map((log) {
           if (log is Map) {
             final converted = Map<String, dynamic>.from(log.map((key, value) =>
@@ -163,26 +167,49 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
         
         setState(() {
           _actionLogs = logs;
+          _actionLogsLoadFailed = false;
         });
-      } else {
-        throw Exception('アクションログの取得に失敗しました');
-      }
-    } catch (e, stackTrace) {
-      print('アクションログ取得エラー: $e');
-      print('スタックトレース: $stackTrace');
-      if (mounted) {
+      } else if (mounted) {
+        setState(() {
+          _actionLogs = [];
+          _actionLogsLoadFailed = true;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('アクションログの取得に失敗しました: $e'),
+            content: Text(
+              mapTournamentAdminSoftFail(
+                result.data,
+                operation: kLoadTournamentActionLogsOperation,
+              ),
+            ),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
             action: SnackBarAction(
-              label: '詳細',
-              textColor: Colors.white,
-              onPressed: () {
-                print('詳細エラー: $e');
-                print('スタックトレース: $stackTrace');
-              },
+              label: '再試行',
+              onPressed: _loadActionLogs,
+            ),
+          ),
+        );
+      }
+    } catch (e, stackTrace) {
+      print('アクションログ取得エラー');
+      print('スタックトレース: $stackTrace');
+      if (mounted) {
+        setState(() {
+          _actionLogs = [];
+          _actionLogsLoadFailed = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentAdminCallableError(
+                e,
+                operation: kLoadTournamentActionLogsOperation,
+              ),
+            ),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: '再試行',
+              onPressed: _loadActionLogs,
             ),
           ),
         );
@@ -460,7 +487,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
           .httpsCallable('rollbackAction')
           .call(params);
 
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -471,8 +498,13 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
         }
         // ログを再読み込み
         _loadActionLogs();
-      } else {
-        throw Exception('ロールバックに失敗しました');
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(mapCallableSoftFailMessage(result.data)),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
       print('ロールバックエラー: $e');
@@ -488,7 +520,12 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('操作の取り消しに失敗しました: $e'),
+            content: Text(
+              mapTournamentAdminCallableError(
+                e,
+                operation: kRollbackTournamentActionOperation,
+              ),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -552,6 +589,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
   }
 
   bool _canRollback(Map<String, dynamic> log) {
+    if (_actionLogsLoadFailed) return false;
     if (log['isRollBack'] == true) return false;
     if (!_canRollbackHistory) return false;
     final action = log['action']?.toString() ?? '';
@@ -740,7 +778,7 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
       body: Column(
             children: [
               // 初回データ取得ボタン
-              if (_actionLogs.isEmpty && !_isLoading)
+              if (_actionLogs.isEmpty && !_isLoading && !_actionLogsLoadFailed)
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
@@ -753,6 +791,26 @@ class _TournamentActionsHistoryPageState extends State<TournamentActionsHistoryP
               Expanded(
                 child: _isLoading
                     ? const Center(child: CircularProgressIndicator())
+                    : _actionLogsLoadFailed
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 24),
+                                  child: Text(
+                                    kTournamentAdminActionLogsLoadFailedMessage,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: _loadActionLogs,
+                                  child: const Text('再試行'),
+                                ),
+                              ],
+                            ),
+                          )
                     : _actionLogs.isEmpty
                         ? const Center(
                             child: Text('操作履歴がありません'),

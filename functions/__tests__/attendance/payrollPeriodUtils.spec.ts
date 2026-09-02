@@ -6,6 +6,8 @@
 
 import {
   computeActualPaymentDate,
+  getCalcTargetPaymentPeriodKey,
+  getCalcTargetPeriodRange,
   getPaymentPeriodKey,
   getPayrollPeriodRange,
   getWeekStartDate,
@@ -64,6 +66,115 @@ describe('payrollPeriodUtils', () => {
       // day=26 なので startDay=26 に合致 → 今月の期間
       const result = getPayrollPeriodRange('2026-04-26', 26, 25);
       expect(result).toEqual({ periodStart: '2026-04-26', periodEnd: '2026-05-25' });
+    });
+  });
+
+  describe('getCalcTargetPeriodRange / getCalcTargetPaymentPeriodKey', () => {
+    describe('calendar month (startDay=1, endDay=0)', () => {
+      it('2026-09-01 → 2026-08-01〜2026-08-31', () => {
+        expect(getCalcTargetPeriodRange('2026-09-01', 1, 0)).toEqual({
+          periodStart: '2026-08-01',
+          periodEnd: '2026-08-31',
+        });
+        expect(getCalcTargetPaymentPeriodKey('2026-09-01', 1, 0)).toBe(
+          '2026-08-01_2026-08-31'
+        );
+      });
+
+      it('2026-03-01 → 2026-02-01〜2026-02-28', () => {
+        expect(getCalcTargetPeriodRange('2026-03-01', 1, 0)).toEqual({
+          periodStart: '2026-02-01',
+          periodEnd: '2026-02-28',
+        });
+      });
+
+      it('2028-03-01（閏年）→ 2028-02-01〜2028-02-29', () => {
+        expect(getCalcTargetPeriodRange('2028-03-01', 1, 0)).toEqual({
+          periodStart: '2028-02-01',
+          periodEnd: '2028-02-29',
+        });
+      });
+
+      it('2026-04-30 → 2026-03-01〜2026-03-31', () => {
+        expect(getCalcTargetPeriodRange('2026-04-30', 1, 0)).toEqual({
+          periodStart: '2026-03-01',
+          periodEnd: '2026-03-31',
+        });
+      });
+    });
+
+    describe('26〜25 (startDay=26, endDay=25)', () => {
+      it('2026-09-26 → 2026-08-26〜2026-09-25', () => {
+        expect(getCalcTargetPeriodRange('2026-09-26', 26, 25)).toEqual({
+          periodStart: '2026-08-26',
+          periodEnd: '2026-09-25',
+        });
+        expect(getCalcTargetPaymentPeriodKey('2026-09-26', 26, 25)).toBe(
+          '2026-08-26_2026-09-25'
+        );
+      });
+
+      it('2026-09-01 → 2026-07-26〜2026-08-25', () => {
+        expect(getCalcTargetPeriodRange('2026-09-01', 26, 25)).toEqual({
+          periodStart: '2026-07-26',
+          periodEnd: '2026-08-25',
+        });
+      });
+    });
+
+    describe('boundaries', () => {
+      it('periodEnd 当日 (26〜25): まだ終了していない active 期間ではなく、その直前に終了した期間', () => {
+        // 2026-09-25 は active Aug26-Sep25 の最終日。calc target は Jul26-Aug25。
+        expect(getCalcTargetPeriodRange('2026-09-25', 26, 25)).toEqual({
+          periodStart: '2026-07-26',
+          periodEnd: '2026-08-25',
+        });
+      });
+
+      it('periodEnd 翌日 (26〜25): 直前に終了した period を返す', () => {
+        expect(getCalcTargetPeriodRange('2026-09-26', 26, 25)).toEqual({
+          periodStart: '2026-08-26',
+          periodEnd: '2026-09-25',
+        });
+      });
+
+      it('periodEnd 当日 (calendar month): 直前に終了した period', () => {
+        // 2026-08-31 は active Aug1-31 の最終日。calc target は Jul1-31。
+        expect(getCalcTargetPeriodRange('2026-08-31', 1, 0)).toEqual({
+          periodStart: '2026-07-01',
+          periodEnd: '2026-07-31',
+        });
+      });
+
+      it('periodEnd 翌日 (calendar month): 直前に終了した period', () => {
+        expect(getCalcTargetPeriodRange('2026-09-01', 1, 0)).toEqual({
+          periodStart: '2026-08-01',
+          periodEnd: '2026-08-31',
+        });
+      });
+    });
+
+    it('processPayrollNotifications の recentPeriod 導出と一致する', () => {
+      const cases: Array<{ asOf: string; startDay: number; endDay: number }> = [
+        { asOf: '2026-09-01', startDay: 1, endDay: 0 },
+        { asOf: '2026-09-26', startDay: 26, endDay: 25 },
+        { asOf: '2026-09-25', startDay: 26, endDay: 25 },
+        { asOf: '2028-03-01', startDay: 1, endDay: 0 },
+      ];
+
+      for (const { asOf, startDay, endDay } of cases) {
+        const activePeriod = getPayrollPeriodRange(asOf, startDay, endDay);
+        const dayBeforeActiveStart = (() => {
+          const d = new Date(`${activePeriod.periodStart}T00:00:00`);
+          d.setDate(d.getDate() - 1);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        })();
+        const recentFromNotification = getPayrollPeriodRange(dayBeforeActiveStart, startDay, endDay);
+        expect(getCalcTargetPeriodRange(asOf, startDay, endDay)).toEqual(recentFromNotification);
+      }
     });
   });
 

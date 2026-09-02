@@ -75,7 +75,26 @@ void main() {
       );
 
       expect(state.kind, TableDeviceHomeKind.inconsistent);
-      expect(state.message, contains('tournamentDetail'));
+      expect(state.message, contains('不整合'));
+      expect(state.message, isNot(contains('tournamentDetail')));
+      expect(state.message, isNot(contains('sideGame')));
+    });
+
+    test('sideGame 未 active の不整合メッセージに内部フィールド名を出さない', () {
+      final state = TableDeviceHomeStateResolver.resolve(
+        tableId: 'TableA',
+        tableName: '卓A',
+        tableStatus: 'ブラックジャック',
+        tournamentDetail: null,
+        sideGameTypes: const ['ブラックジャック'],
+        registrationEnabled: true,
+        currentBusinessDateKey: '2026-06-18',
+        sideGameActive: false,
+      );
+
+      expect(state.kind, TableDeviceHomeKind.inconsistent);
+      expect(state.message, contains('不整合'));
+      expect(state.message, isNot(contains('sideGame.active')));
     });
   });
 }

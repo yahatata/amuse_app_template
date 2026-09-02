@@ -1,10 +1,12 @@
 import 'dart:math' as Math;
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/sideGame/services/side_game_table_mutation_service.dart';
+import 'package:amuse_app_template/sideGame/side_game_user_facing_errors.dart';
 import 'package:amuse_app_template/user_actions/user_action_home.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
 import 'package:amuse_app_template/services/store_meta_service.dart';
@@ -17,7 +19,6 @@ class SideGameTableHomePage extends StatefulWidget {
   final Widget? drawer;
   final bool disableBackNavigation;
   final bool automaticallyImplyLeading;
-  final bool showDebugActions;
   final bool allowGameNameChange;
   final bool showEndGameButton;
   final VoidCallback? onGameEnded;
@@ -29,7 +30,6 @@ class SideGameTableHomePage extends StatefulWidget {
     this.drawer,
     this.disableBackNavigation = false,
     this.automaticallyImplyLeading = true,
-    this.showDebugActions = true,
     this.allowGameNameChange = true,
     this.showEndGameButton = true,
     this.onGameEnded,
@@ -46,11 +46,18 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
   String _currentGameName = '';
   bool _isEndingGame = false;
   bool _isUpdatingGameName = false;
+  int _tableStreamReloadToken = 0;
 
   @override
   void initState() {
     super.initState();
     _currentGameName = widget.gameName;
+  }
+
+  void _retryTableStream() {
+    setState(() {
+      _tableStreamReloadToken++;
+    });
   }
 
   /// AppBar用: storeMeta の営業状態を表示（Phase6 Step1、グレーAppBar用に白表示）
@@ -188,11 +195,13 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
               ),
             ),
             onSelected: (String gameName) {
-              if (_isUpdatingGameName) return;
+              if (_isUpdatingGameName || _isEndingGame) return;
+              if (gameName == _currentGameName) return;
+              final previousName = _currentGameName;
               setState(() {
                 _currentGameName = gameName;
               });
-              _updateGameName(gameName);
+              _updateGameName(gameName, previousName: previousName);
             },
             itemBuilder: (BuildContext context) {
               return (StoreConfigService.instance.latestData?.sideGameTypes ?? kDefaultSideGameTypes).map((String gameName) {
@@ -206,49 +215,46 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
         ],
       ),
       body: StreamBuilder<DocumentSnapshot>(
+        key: ValueKey('side-game-table-$_tableStreamReloadToken'),
         stream: _firestore.collection('sideGame').doc(widget.tableId).snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.hasError) {
+          final hasUsableData =
+              snapshot.hasData && snapshot.data != null && snapshot.data!.exists;
+
+          if (snapshot.hasError && !hasUsableData) {
             return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error, size: 64, color: Colors.red),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'エラーが発生しました',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('エラー: ${snapshot.error}'),
-                  const SizedBox(height: 8),
-                  Text('テーブルID: ${widget.tableId}'),
-                  if (widget.showDebugActions) ...[
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                    const SizedBox(height: 16),
+                    Text(
+                      sideGameTableStreamErrorMessage(snapshot.error),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     ElevatedButton(
-                      onPressed: () {
-                        _createSideGameDocument();
-                      },
-                      child: const Text('ドキュメントを作成'),
-                    ),
-                    const SizedBox(height: 8),
-                    ElevatedButton(
-                      onPressed: () {
-                        _debugSideGame();
-                      },
-                      child: const Text('デバッグ実行'),
+                      onPressed: _retryTableStream,
+                      child: const Text('再試行'),
                     ),
                   ],
-                ],
+                ),
               ),
             );
           }
 
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !hasUsableData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snapshot.hasData || !snapshot.data!.exists) {
+          if (!hasUsableData) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -259,17 +265,6 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
                     'テーブルデータが見つかりません',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 8),
-                  Text('テーブルID: ${widget.tableId}'),
-                  if (widget.showDebugActions) ...[
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () {
-                        _createSideGameDocument();
-                      },
-                      child: const Text('ドキュメントを作成'),
-                    ),
-                  ],
                 ],
               ),
             );
@@ -281,6 +276,33 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
 
           return Column(
             children: [
+              if (snapshot.hasError)
+                Material(
+                  color: Colors.red.shade50,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded,
+                            color: Colors.red),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            kSideGameTableRealtimeFailedMessage,
+                            style: TextStyle(color: Colors.red.shade800),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _retryTableStream,
+                          child: const Text('再試行'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               // テーブル表示
               Expanded(
                 child: _buildTableDisplay(maxSeats, seats),
@@ -292,7 +314,9 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
                   child: Align(
                     alignment: Alignment.bottomRight,
                     child: ElevatedButton.icon(
-                      onPressed: _showEndGameDialog,
+                      onPressed: (_isEndingGame || _isUpdatingGameName)
+                          ? null
+                          : _showEndGameDialog,
                       icon: const Icon(Icons.stop),
                       label: const Text('終了処理'),
                       style: ElevatedButton.styleFrom(
@@ -323,8 +347,15 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
     return Stack(
       children: [
         child,
-        if (isLocked) const ModalBarrier(dismissible: false, color: Colors.black54),
-        if (isLocked) const Center(child: CircularProgressIndicator()),
+        if (isLocked)
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: ColoredBox(
+                color: Colors.black.withValues(alpha: 0.35),
+                child: const Center(child: CircularProgressIndicator()),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -561,7 +592,7 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('伝票IDが見つかりません'),
+            content: Text(kSideGameBillMissingMessage),
             backgroundColor: Colors.red,
           ),
         );
@@ -596,6 +627,7 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
   }
 
   void _showEndGameDialog() {
+    if (_isEndingGame || _isUpdatingGameName) return;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -623,6 +655,7 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
   }
 
   Future<void> _endGame() async {
+    if (_isEndingGame) return;
     setState(() {
       _isEndingGame = true;
     });
@@ -647,7 +680,9 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('終了処理に失敗しました: $e'),
+            content: Text(
+              mapSideGameCallableError(e, operation: 'endSideGameSession'),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -661,7 +696,11 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
     }
   }
 
-  Future<void> _updateGameName(String gameName) async {
+  Future<void> _updateGameName(
+    String gameName, {
+    required String previousName,
+  }) async {
+    if (_isUpdatingGameName) return;
     setState(() {
       _isUpdatingGameName = true;
     });
@@ -673,9 +712,17 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
       );
     } catch (e) {
       if (mounted) {
+        setState(() {
+          _currentGameName = previousName;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('ゲーム名の更新に失敗しました: $e'),
+            content: Text(
+              mapSideGameCallableError(
+                e,
+                operation: 'changeSideGameTableGameName',
+              ),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -689,40 +736,6 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
     }
   }
 
-  /// sideGameドキュメントを手動作成するメソッド
-  Future<void> _createSideGameDocument() async {
-    await _debugSideGame();
-  }
-
-  /// デバッグ用Cloud Functionを呼び出すメソッド
-  Future<void> _debugSideGame() async {
-    try {
-      final functions = FunctionsClient.instance;
-      final callable = functions.httpsCallable('debugSideGame');
-      
-      final result = await callable.call({
-        'tableId': widget.tableId,
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('デバッグ完了: ${result.data['message']}'),
-            backgroundColor: Colors.blue,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('デバッグ実行に失敗しました: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
 }
 
 class _ParticipantRegistrationDialog extends StatefulWidget {
@@ -773,112 +786,58 @@ class _ParticipantRegistrationDialogState extends State<_ParticipantRegistration
                         child: StreamBuilder<QuerySnapshot>(
                           stream: ActiveStaysService.instance.stream,
                           builder: (context, snapshot) {
-                            if (snapshot.hasError) {
+                            final hasData = snapshot.hasData;
+
+                            if (snapshot.hasError && !hasData) {
                               return Center(
-                                child: Text(
-                                  '参加者リストの読み込みに失敗しました: ${snapshot.error}',
-                                  style: const TextStyle(color: Colors.red),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Text(
+                                    sideGameParticipantsStreamErrorMessage(
+                                      snapshot.error,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(color: Colors.red),
+                                  ),
                                 ),
                               );
                             }
 
                             if (snapshot.connectionState ==
-                                ConnectionState.waiting) {
+                                    ConnectionState.waiting &&
+                                !hasData) {
                               return const Center(
                                 child: CircularProgressIndicator(),
                               );
                             }
 
-                            final activeStays = snapshot.data?.docs ?? [];
-                            final availableParticipants =
-                                <Map<String, dynamic>>[];
-
-                            for (final doc in activeStays) {
-                              final data =
-                                  doc.data() as Map<String, dynamic>?;
-                              if (data == null) continue;
-
-                              final uid = doc.id;
-                              final pokerName = data['pokerName'] as String?;
-
-                              if (pokerName != null && uid.isNotEmpty) {
-                                availableParticipants.add({
-                                  'userId': uid,
-                                  'pokerName': pokerName,
-                                });
-                              }
-                            }
-
-                            if (availableParticipants.isEmpty) {
-                              return Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.people_outline,
-                                      color: Colors.grey,
-                                      size: 48,
+                            if (snapshot.hasError && hasData) {
+                              return Column(
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Text(
+                                      sideGameParticipantsStreamErrorMessage(
+                                        snapshot.error,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 13,
+                                      ),
                                     ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      '利用可能な参加者がいません',
-                                      style: TextStyle(color: Colors.grey[600]),
+                                  ),
+                                  Expanded(
+                                    child: _buildParticipantsList(
+                                      snapshot.data!.docs,
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               );
                             }
 
-                            return ListView.builder(
-                              itemCount: availableParticipants.length,
-                              itemBuilder: (context, index) {
-                                final participant =
-                                    availableParticipants[index];
-                                final userId =
-                                    participant['userId'] as String;
-                                final pokerName =
-                                    participant['pokerName'] as String;
-                                final isSelected = _selectedUserId == userId;
-
-                                return Card(
-                                  margin: const EdgeInsets.only(bottom: 8),
-                                  child: CheckboxListTile(
-                                    value: isSelected,
-                                    onChanged: _isRegistering
-                                        ? null
-                                        : (bool? value) {
-                                            setState(() {
-                                              if (value == true) {
-                                                _selectedUserId = userId;
-                                              } else if (_selectedUserId ==
-                                                  userId) {
-                                                _selectedUserId = null;
-                                              }
-                                            });
-                                          },
-                                    title: Text(
-                                      pokerName,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: isSelected
-                                            ? Colors.green[700]
-                                            : null,
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      'User ID: $userId',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                    secondary: Icon(
-                                      Icons.person,
-                                      color: isSelected
-                                          ? Colors.green[700]
-                                          : Colors.grey,
-                                    ),
-                                    activeColor: Colors.green[700],
-                                  ),
-                                );
-                              },
+                            return _buildParticipantsList(
+                              snapshot.data?.docs ?? [],
                             );
                           },
                         ),
@@ -923,8 +882,87 @@ class _ParticipantRegistrationDialogState extends State<_ParticipantRegistration
     );
   }
 
+  Widget _buildParticipantsList(List<QueryDocumentSnapshot> activeStays) {
+    final availableParticipants = <Map<String, dynamic>>[];
+
+    for (final doc in activeStays) {
+      final data = doc.data() as Map<String, dynamic>?;
+      if (data == null) continue;
+
+      final uid = doc.id;
+      final pokerName = data['pokerName'] as String?;
+
+      if (pokerName != null && uid.isNotEmpty) {
+        availableParticipants.add({
+          'userId': uid,
+          'pokerName': pokerName,
+        });
+      }
+    }
+
+    if (availableParticipants.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.people_outline,
+              color: Colors.grey,
+              size: 48,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '利用可能な参加者がいません',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: availableParticipants.length,
+      itemBuilder: (context, index) {
+        final participant = availableParticipants[index];
+        final userId = participant['userId'] as String;
+        final pokerName = participant['pokerName'] as String;
+        final isSelected = _selectedUserId == userId;
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: CheckboxListTile(
+            value: isSelected,
+            onChanged: _isRegistering
+                ? null
+                : (bool? value) {
+                    setState(() {
+                      if (value == true) {
+                        _selectedUserId = userId;
+                      } else if (_selectedUserId == userId) {
+                        _selectedUserId = null;
+                      }
+                    });
+                  },
+            title: Text(
+              pokerName,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.green[700] : null,
+              ),
+            ),
+            secondary: Icon(
+              Icons.person,
+              color: isSelected ? Colors.green[700] : Colors.grey,
+            ),
+            activeColor: Colors.green[700],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _registerParticipant() async {
-    if (_selectedUserId == null) return;
+    if (_selectedUserId == null || _isRegistering) return;
 
     setState(() {
       _isRegistering = true;
@@ -942,11 +980,36 @@ class _ParticipantRegistrationDialogState extends State<_ParticipantRegistration
 
       if (!mounted) return;
 
+      if (!isCallableSuccessResponse(result.data)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapSideGameSoftFailMessage(
+                result.data,
+                operation: 'registerForSideGame',
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final raw = result.data;
+      String pokerName = '参加者';
+      if (raw is Map) {
+        final data = raw['data'];
+        if (data is Map && data['pokerName'] is String) {
+          final name = data['pokerName'] as String;
+          if (name.isNotEmpty) pokerName = name;
+        }
+      }
+
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${result.data['data']['pokerName']}さんを座席${widget.seatNumber}に登録しました',
+            '$pokerNameさんを座席${widget.seatNumber}に登録しました',
           ),
           backgroundColor: Colors.green,
         ),
@@ -956,7 +1019,9 @@ class _ParticipantRegistrationDialogState extends State<_ParticipantRegistration
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('登録に失敗しました: $e'),
+            content: Text(
+              mapSideGameCallableError(e, operation: 'registerForSideGame'),
+            ),
             backgroundColor: Colors.red,
           ),
         );

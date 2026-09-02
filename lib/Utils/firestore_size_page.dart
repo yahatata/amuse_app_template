@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
@@ -40,7 +41,7 @@ class _FirestoreSizePageState extends State<FirestoreSizePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('計算エラー: $e'),
+            content: Text(mapCallableError(e).message),
             backgroundColor: Colors.red,
           ),
         );

@@ -1,9 +1,42 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { FunctionCustomError } from "../../../shared/logging/functionCustomError";
 import { getStoreConfig } from "../../../shared/config/configLoader";
-import { getJstTodayRangeUtc } from "../../../shared/tournament/liffTournamentDateUtils";
+import {
+  getJstCalendarDateKey,
+  getJstTodayRangeUtc,
+} from "../../../shared/tournament/liffTournamentDateUtils";
 import { mapScheduledTournamentsForLiff } from "../../../shared/tournament/mapScheduledTournamentForLiff";
+import { getCurrentBusinessDateKeyOrThrow } from "../../storeMeta/repos/getCurrentBusinessDateKeyOrThrow";
+
+function isStoreBusinessDateUnavailable(error: unknown): boolean {
+  if (
+    error instanceof FunctionCustomError &&
+    error.errorKey === 'STORE_BUSINESS_DATE_UNAVAILABLE'
+  ) {
+    return true;
+  }
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'errorKey' in error &&
+    (error as { errorKey: unknown }).errorKey === 'STORE_BUSINESS_DATE_UNAVAILABLE'
+  );
+}
+
+async function resolveTargetBusinessDateForUpcoming(
+  db: admin.firestore.Firestore
+): Promise<string> {
+  try {
+    return await getCurrentBusinessDateKeyOrThrow(db);
+  } catch (error) {
+    if (isStoreBusinessDateUnavailable(error)) {
+      return getJstCalendarDateKey();
+    }
+    throw error;
+  }
+}
 
 /**
  * LIFF用：当日以降のトーナメント一覧を取得するCloud Function
@@ -39,7 +72,17 @@ export const getUpcomingTournaments = onCall(async (request) => {
 
     const snapshot = await query.get();
 
-    const templateIds = snapshot.docs
+    let docsForMapping = snapshot.docs;
+    if (!includeAll) {
+      const targetBusinessDate = await resolveTargetBusinessDateForUpcoming(db);
+      docsForMapping = snapshot.docs.filter((doc) => {
+        const businessDate = doc.data().businessDate;
+        return typeof businessDate !== 'string' || businessDate !== targetBusinessDate;
+      });
+      Object.assign(logContext, { targetBusinessDate, excludedTodayBusinessDate: true });
+    }
+
+    const templateIds = docsForMapping
       .map((doc) => doc.data().templateId as string | undefined)
       .filter((id): id is string => Boolean(id))
       .filter((id, index, arr) => arr.indexOf(id) === index);
@@ -56,7 +99,7 @@ export const getUpcomingTournaments = onCall(async (request) => {
     }
 
     const tournaments = await mapScheduledTournamentsForLiff({
-      docs: snapshot.docs,
+      docs: docsForMapping,
       db,
       templateById,
       includeRegistrationStatus: false,

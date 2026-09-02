@@ -22,6 +22,7 @@ import { loadBillCategoryAmounts, assertPaymentTotalMatchesCategoryTotal } from 
 import { resolveA7AccountingPayment } from '../services/resolveA7AccountingPayment';
 import { commitA7AccountingPayment } from '../services/commitA7AccountingPayment';
 import type { PaymentMethodValue } from '../services/paymentMethodsInference';
+import { isCarryoverUnsettledBillFromCloseSummary } from '../services/carryoverUnsettled';
 
 const PaymentMethodEnum = z.enum([
   'cash',
@@ -643,66 +644,83 @@ export const completeAccountingV2 = onCall(async (request) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // activeStays の isActive を false に更新
+    // activeStays / visitLogs の事後更新
+    // C1-B（閉店持ち越し）: 過去来店は閉店済み。現在再来店中の visit/activeStay を壊さない。
     const userId = billData.party?.userId;
+    const isCarryoverSettle = isCarryoverUnsettledBillFromCloseSummary(
+      billData.closeSummary,
+    );
     if (userId) {
       try {
         const activeStayRef = db.collection('activeStays').doc(userId);
         const activeStayDoc = await activeStayRef.get();
-        
-        if (activeStayDoc.exists) {
-          // billId が一致することを確認（念のため）
-          const activeStayData = activeStayDoc.data()!;
-          if (activeStayData.billId === billId) {
-            await activeStayRef.update({
-              isActive: false,
-            });
+
+        if (isCarryoverSettle) {
+          // この carryover bill を指す stale activeStay だけ閉じる。
+          // 現在来店中 bill の activeStay / 未完了 visitLog は触らない。
+          if (activeStayDoc.exists) {
+            const activeStayData = activeStayDoc.data()!;
+            if (activeStayData.billId === billId) {
+              await activeStayRef.update({
+                isActive: false,
+              });
+            }
+          }
+        } else {
+          if (activeStayDoc.exists) {
+            // billId が一致することを確認（念のため）
+            const activeStayData = activeStayDoc.data()!;
+            if (activeStayData.billId === billId) {
+              await activeStayRef.update({
+                isActive: false,
+              });
+            } else {
+              logOpsError({
+                message:
+                  'completeAccountingV2: activeStays の billId が伝票と一致しません（isActive は変更していません）',
+                functionEntry: 'completeAccountingV2',
+                operation: 'completeAccountingV2ActiveStayBillIdMismatch',
+                cause: new Error('active_stays_bill_id_mismatch'),
+                context: {
+                  billId,
+                  userId,
+                  actualBillIdOnActiveStay: activeStayData.billId ?? null,
+                },
+              });
+            }
           } else {
             logOpsError({
               message:
-                'completeAccountingV2: activeStays の billId が伝票と一致しません（isActive は変更していません）',
+                'completeAccountingV2: activeStays ドキュメントが存在しません（会計は settled 済み）',
               functionEntry: 'completeAccountingV2',
-              operation: 'completeAccountingV2ActiveStayBillIdMismatch',
-              cause: new Error('active_stays_bill_id_mismatch'),
-              context: {
-                billId,
-                userId,
-                actualBillIdOnActiveStay: activeStayData.billId ?? null,
-              },
+              operation: 'completeAccountingV2ActiveStayNotFound',
+              cause: new Error('active_stays_not_found_for_party_user'),
+              context: { billId, userId },
             });
           }
-        } else {
-          logOpsError({
-            message:
-              'completeAccountingV2: activeStays ドキュメントが存在しません（会計は settled 済み）',
-            functionEntry: 'completeAccountingV2',
-            operation: 'completeAccountingV2ActiveStayNotFound',
-            cause: new Error('active_stays_not_found_for_party_user'),
-            context: { billId, userId },
-          });
-        }
 
-        // visitLogsの最新の未完了ログを更新（legacy completeAccountingと同様の処理）
-        const userRef = db.collection('users').doc(userId);
-        const visitLogsSnapshot = await userRef.collection('visitLogs')
-          .where('checkOutAt', '==', null)
-          .orderBy('checkInAt', 'desc')
-          .limit(1)
-          .get();
+          // visitLogsの最新の未完了ログを更新（legacy completeAccountingと同様の処理）
+          const userRef = db.collection('users').doc(userId);
+          const visitLogsSnapshot = await userRef.collection('visitLogs')
+            .where('checkOutAt', '==', null)
+            .orderBy('checkInAt', 'desc')
+            .limit(1)
+            .get();
 
-        if (!visitLogsSnapshot.empty) {
-          const visitLogDoc = visitLogsSnapshot.docs[0];
-          const checkInAt = visitLogDoc.data().checkInAt;
-          const checkOutAt = admin.firestore.Timestamp.now();
-          const stayMinutes = checkInAt 
-            ? Math.floor((checkOutAt.toMillis() - checkInAt.toMillis()) / 60000)
-            : null;
+          if (!visitLogsSnapshot.empty) {
+            const visitLogDoc = visitLogsSnapshot.docs[0];
+            const checkInAt = visitLogDoc.data().checkInAt;
+            const checkOutAt = admin.firestore.Timestamp.now();
+            const stayMinutes = checkInAt
+              ? Math.floor((checkOutAt.toMillis() - checkInAt.toMillis()) / 60000)
+              : null;
 
-          await visitLogDoc.ref.update({
-            checkOutAt: admin.firestore.FieldValue.serverTimestamp(),
-            stayMinutes: stayMinutes,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
+            await visitLogDoc.ref.update({
+              checkOutAt: admin.firestore.FieldValue.serverTimestamp(),
+              stayMinutes: stayMinutes,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
         }
       } catch (activeStayError: unknown) {
         const err = activeStayError as { message?: string; code?: string };
@@ -717,6 +735,7 @@ export const completeAccountingV2 = onCall(async (request) => {
             billId,
             userId,
             adminId,
+            isCarryoverSettle,
             firestoreCode: typeof err.code === 'string' ? err.code : undefined,
             errorMessage: typeof err.message === 'string' ? err.message : undefined,
           },

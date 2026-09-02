@@ -512,12 +512,12 @@
         </div>
       </div>
 
-      <!-- トーナメント画面（本日 / 今後 / カレンダー タブ統合） -->
+      <!-- トーナメント画面（本日 / 近日 / カレンダー タブ統合） -->
       <div id="tournament-page" class="page tournament-page" style="display: none;">
         <h1>トーナメント</h1>
         <div id="tournament-tab-bar" class="tournament-tab-bar">
           <button type="button" class="tournament-tab-btn active" data-tab="today" onclick="switchTournamentTab('today')">本日</button>
-          <button type="button" class="tournament-tab-btn" data-tab="upcoming" onclick="switchTournamentTab('upcoming')">今後</button>
+          <button type="button" class="tournament-tab-btn" data-tab="upcoming" onclick="switchTournamentTab('upcoming')">近日</button>
           <button type="button" class="tournament-tab-btn" id="tournament-calendar-tab" data-tab="calendar" onclick="switchTournamentTab('calendar')" style="display: none;">カレンダー</button>
         </div>
 
@@ -687,30 +687,6 @@
         }
         ov.classList.toggle('is-visible', !!busy);
         orderPageEl.classList.toggle('order-flow-busy', !!busy);
-      }
-      
-      // ボタン付き処理のローディング制御
-      async function executeWithButtonLoading(asyncFunction, button, loadingText = '処理中...') {
-        if (!button) {
-          throw new Error('Button element is required');
-        }
-        
-        const originalText = button.textContent;
-        const originalDisabled = button.disabled;
-        
-        try {
-          button.disabled = true;
-          button.textContent = loadingText;
-          
-          const result = await asyncFunction();
-          return result;
-          
-        } catch (error) {
-          throw error;
-        } finally {
-          button.disabled = originalDisabled;
-          button.textContent = originalText;
-        }
       }
       
       // グローバルローディング付き処理の実行
@@ -1950,16 +1926,6 @@
         }
       };
 
-      // dead-code 候補（HTML から未配線）— 削除せず維持（native confirm 残置）
-      window.orderItem = (itemId, itemName, price, category) => {
-        const quantityElement = document.getElementById(`quantity-${itemId}`);
-        const quantity = parseInt(quantityElement && quantityElement.textContent, 10) || 1;
-        const totalPrice = price * quantity;
-        if (confirm(`${itemName} × ${quantity}個 = ¥${totalPrice}\n\nこの注文を確定しますか？`)) {
-          processOrder(itemId, itemName, price, quantity, totalPrice, category);
-        }
-      };
-
       window.orderAllItems = async () => {
         const LE = window.LiffErrors;
         if (isOrderSubmitting) return;
@@ -2270,17 +2236,14 @@
         return formatHistoryStatusLabel({ status: status });
       }
 
-      // dead-code 候補（HTML から未配線）
-      async function processOrder(itemId, itemName, price, quantity, totalPrice, category) {
-        // 到達不能経路。正式経路は orderAllItems。削除は L3-B 後判断。
-        return;
-      }
       // トーナメント関連関数（Phase L4-B）
       window.liffTournamentSettings = {
         liffRegistrationEnabled: true,
         liffCalendarEnabled: true,
       };
       window.cachedTodayTournaments = null;
+      /** @type {string|null} getTodayTournaments の targetBusinessDate（yyyy-MM-dd） */
+      window.cachedTodayBusinessDate = null;
       window.cachedUpcomingTournaments = null;
       let activeTournamentTab = 'today';
       let todayTournamentLoadGeneration = 0;
@@ -2294,11 +2257,34 @@
       function invalidateTournamentCaches(options) {
         options = options || {};
         window.cachedTodayTournaments = null;
+        window.cachedTodayBusinessDate = null;
         if (options.upcoming !== false) {
           window.cachedUpcomingTournaments = null;
         }
         if (options.calendar) {
           allTournamentsData = null;
+        }
+      }
+
+      /** 営業日キー（yyyy-MM-dd）を「YYYY年M月D日のトーナメント」へ。無効時は null */
+      function formatTodayTournamentHeading(businessDateKey) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(businessDateKey || '').trim());
+        if (!m) return null;
+        const year = Number(m[1]);
+        const month = Number(m[2]);
+        const day = Number(m[3]);
+        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+          return null;
+        }
+        return `${year}年${month}月${day}日のトーナメント`;
+      }
+
+      function updateTodayTournamentHeading(businessDateKey) {
+        const todayDateEl = document.getElementById('today-date');
+        if (!todayDateEl) return;
+        const heading = formatTodayTournamentHeading(businessDateKey);
+        if (heading) {
+          todayDateEl.textContent = heading;
         }
       }
 
@@ -2562,14 +2548,11 @@
       async function loadTodayTournaments(opts) {
         opts = opts || {};
         const LE = window.LiffErrors;
-        const todayDateEl = document.getElementById('today-date');
         const todayTournamentList = document.getElementById('today-tournament-list');
-        const today = new Date();
-        const todayString = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
-        if (todayDateEl) todayDateEl.textContent = `${todayString}のトーナメント`;
         if (!todayTournamentList) return;
 
         if (!opts.force && window.cachedTodayTournaments) {
+          updateTodayTournamentHeading(window.cachedTodayBusinessDate);
           renderTodayTournamentList(window.cachedTodayTournaments);
           return;
         }
@@ -2591,6 +2574,7 @@
 
           if (!LE || !LE.isGetTodayTournamentsShape(result.data)) {
             window.cachedTodayTournaments = null;
+            window.cachedTodayBusinessDate = null;
             renderTournamentListError(
               todayTournamentList,
               () => loadTodayTournaments({ force: true }),
@@ -2602,11 +2586,14 @@
           applyLiffTournamentSettings(result.data.liffSettings);
           const tournaments = result.data.data;
           window.cachedTodayTournaments = tournaments;
+          window.cachedTodayBusinessDate = result.data.targetBusinessDate;
+          updateTodayTournamentHeading(result.data.targetBusinessDate);
           maybeClearPendingTournamentFromFreshList(tournaments);
           renderTodayTournamentList(tournaments);
         } catch (error) {
           if (generation !== todayTournamentLoadGeneration) return;
           window.cachedTodayTournaments = null;
+          window.cachedTodayBusinessDate = null;
           renderTournamentListError(
             todayTournamentList,
             () => loadTodayTournaments({ force: true }),
@@ -2915,11 +2902,6 @@
             renderTodayTournamentList(window.cachedTodayTournaments);
           }
         }
-      };
-
-      window.joinTournament = (tournamentName) => {
-        /* DEAD: keep native alert intentionally */
-        alert(`${tournamentName}に参加しました`);
       };
 
       document.addEventListener('visibilitychange', function () {

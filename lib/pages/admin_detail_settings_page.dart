@@ -4,8 +4,11 @@
 
 import 'dart:async';
 import 'package:amuse_app_template/Home/adminInitialBalancePage.dart';
+import 'package:amuse_app_template/Home/createTemporaryTablePage.dart';
 import 'package:amuse_app_template/Home/adminStoreManagedToLineMigrationPage.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/services/device_callable_errors.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -28,6 +31,7 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
   bool? _tableDeviceActionHistoryViewEnabled;
   bool? _tableDeviceActionHistoryRollbackEnabled;
   bool _loadingTableDeviceSettings = true;
+  bool _tableDeviceSettingsLoadError = false;
 
   // 整合性チェック用
   String? _checkTargetDate;
@@ -90,7 +94,12 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
 
   Future<void> _toggleReportingFlag(bool newValue) async {
     if (_isProcessing) return;
-    setState(() => _isProcessing = true);
+    final previous = _reportingEnabled;
+    setState(() {
+      _isProcessing = true;
+      // 操作中はトグル位置を合わせ、失敗時に previous へ戻す
+      _reportingEnabled = newValue;
+    });
 
     try {
       final auth = FirebaseAuth.instance;
@@ -109,25 +118,34 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
           );
 
       if (!mounted) return;
-      setState(() => _reportingEnabled = newValue);
       _showSnackBar(
         'reportingAggregatorEnabled を ${newValue ? 'ON' : 'OFF'} にしました',
         Colors.green,
       );
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar('エラー: $e', Colors.red);
+      setState(() => _reportingEnabled = previous);
+      if (isAnonymousAuthRestricted(e)) {
+        _showSnackBar(kAnonymousAuthUnavailableMessage, Colors.red);
+      } else {
+        _showSnackBar(kReportingFlagUpdateFailedMessage, Colors.red);
+      }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
   }
 
   Future<void> _loadTableDeviceSettings() async {
+    setState(() {
+      _loadingTableDeviceSettings = true;
+      _tableDeviceSettingsLoadError = false;
+    });
     try {
       final doc = await FirebaseFirestore.instance
           .collection('storeMeta')
           .doc('config')
           .get();
+      // 未作成 / tableDevice 未設定はデフォルト適用（読込成功扱い）
       final tableDevice = doc.data()?['tableDevice'] as Map<String, dynamic>?;
       final viewEnabled = tableDevice?['actionHistoryViewEnabled'];
       final rollbackEnabled = tableDevice?['actionHistoryRollbackEnabled'];
@@ -139,16 +157,16 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
           _tableDeviceActionHistoryRollbackEnabled = rollbackEnabled is bool
               ? rollbackEnabled
               : kDefaultTableDeviceActionHistoryRollbackEnabled;
+          _tableDeviceSettingsLoadError = false;
           _loadingTableDeviceSettings = false;
         });
       }
     } catch (_) {
       if (mounted) {
         setState(() {
-          _tableDeviceActionHistoryViewEnabled =
-              kDefaultTableDeviceActionHistoryViewEnabled;
-          _tableDeviceActionHistoryRollbackEnabled =
-              kDefaultTableDeviceActionHistoryRollbackEnabled;
+          _tableDeviceActionHistoryViewEnabled = null;
+          _tableDeviceActionHistoryRollbackEnabled = null;
+          _tableDeviceSettingsLoadError = true;
           _loadingTableDeviceSettings = false;
         });
       }
@@ -159,8 +177,14 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
     required bool viewEnabled,
     required bool rollbackEnabled,
   }) async {
-    if (_isProcessing) return;
-    setState(() => _isProcessing = true);
+    if (_isProcessing || _tableDeviceSettingsLoadError) return;
+    final previousView = _tableDeviceActionHistoryViewEnabled;
+    final previousRollback = _tableDeviceActionHistoryRollbackEnabled;
+    setState(() {
+      _isProcessing = true;
+      _tableDeviceActionHistoryViewEnabled = viewEnabled;
+      _tableDeviceActionHistoryRollbackEnabled = rollbackEnabled;
+    });
 
     try {
       final auth = FirebaseAuth.instance;
@@ -169,20 +193,34 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
       }
 
       final callable = _functions.httpsCallable('updateTableDeviceConfigCallable');
-      await callable.call({
+      final result = await callable.call({
         'actionHistoryViewEnabled': viewEnabled,
         'actionHistoryRollbackEnabled': rollbackEnabled,
       });
 
+      if (!isCallableSuccessResponse(result.data)) {
+        throw DeviceCallableSoftFail(result.data);
+      }
+
       if (!mounted) return;
-      setState(() {
-        _tableDeviceActionHistoryViewEnabled = viewEnabled;
-        _tableDeviceActionHistoryRollbackEnabled = rollbackEnabled;
-      });
       _showSnackBar('卓端末の操作履歴設定を更新しました', Colors.green);
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar('エラー: $e', Colors.red);
+      setState(() {
+        _tableDeviceActionHistoryViewEnabled = previousView;
+        _tableDeviceActionHistoryRollbackEnabled = previousRollback;
+      });
+      if (isAnonymousAuthRestricted(e)) {
+        _showSnackBar(kAnonymousAuthUnavailableMessage, Colors.red);
+      } else {
+        _showSnackBar(
+          mapDeviceCallableError(
+            e,
+            operation: 'updateTableDeviceConfigCallable',
+          ),
+          Colors.red,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
@@ -209,17 +247,18 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
           );
 
       if (!mounted) return;
-      final data = result.data as Map<String, dynamic>? ?? {};
-      final success = data['success'] == true;
-      final message = data['message'] as String? ?? (success ? '完了' : '失敗');
-
-      _showSnackBar(
-        message,
-        success ? Colors.green : Colors.orange,
-      );
+      final data = result.data;
+      if (isCallableSuccessResponse(data)) {
+        _showSnackBar('完了しました', Colors.green);
+      } else {
+        _showSnackBar(
+          mapCallableSoftFailMessage(data),
+          Colors.orange,
+        );
+      }
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar('エラー: $e', Colors.red);
+      _showSnackBar(mapCallableError(e).message, Colors.red);
     } finally {
       if (mounted) {
         setState(() => _isProcessing = false);
@@ -266,7 +305,7 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
       _showSnackBar(msg, color);
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar('エラー: $e', Colors.red);
+      _showSnackBar(mapCallableError(e).message, Colors.red);
     } finally {
       if (mounted) setState(() => _checkRunning[functionName] = false);
     }
@@ -368,7 +407,25 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     )
-                  : Column(
+                  : _tableDeviceSettingsLoadError
+                      ? ListTile(
+                          leading: const Icon(
+                            Icons.error_outline,
+                            color: Colors.red,
+                          ),
+                          title: const Text('卓端末の操作履歴設定'),
+                          subtitle: const Text(
+                            kTableDeviceSettingsLoadFailedMessage,
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.refresh),
+                            tooltip: '再試行',
+                            onPressed: _isProcessing
+                                ? null
+                                : _loadTableDeviceSettings,
+                          ),
+                        )
+                      : Column(
                       children: [
                         SwitchListTile(
                           secondary: const Icon(
@@ -412,6 +469,31 @@ class _AdminDetailSettingsPageState extends State<AdminDetailSettingsPage> {
                         ),
                       ],
                     ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              '卓管理',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.table_chart, color: Colors.blue),
+                title: const Text('一時テーブル作成'),
+                subtitle: const Text('トーナメント用の一時テーブルを作成します'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const CreateTemporaryTablePage(),
+                    ),
+                  );
+                },
+              ),
             ),
             const SizedBox(height: 24),
             const Text(

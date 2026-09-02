@@ -4,12 +4,14 @@ import 'package:holiday_jp/holiday_jp.dart' as holiday_jp;
 import 'shiftDateDialog.dart';
 import 'shiftDraftPage.dart';
 import 'shift_repository.dart';
+import 'errors/staff_shift_errors.dart';
 import '../Utils/time_converter.dart';
 import '../services/required_staff_by_time_slot_service.dart';
 import '../services/store_config_defaults.dart';
 import '../services/store_config_service.dart';
 import 'utils/gap_time_slots.dart';
 import 'utils/insufficient_time_slots.dart';
+import 'utils/merge_consecutive_gap_slots.dart';
 import 'utils/merge_consecutive_insufficient_slots.dart';
 
 /// シフト確定用ホーム画面（カレンダー表示）
@@ -40,6 +42,8 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
   /// 日付ごとの未処理申請一覧（ダイアログ表示・ドラフト遷移用）
   Map<String, List<ShiftRequest>> _pendingRequestsByDate = {};
   bool _isLoading = false;
+  /// 読込失敗（空データと区別。失敗時は編集させない）
+  bool _shiftDataLoadFailed = false;
   /// 1日／月の最終確定（Callable）実行中（ダイアログ確定後の画面全体ロック）
   bool _isFinalizeOperationLoading = false;
   
@@ -47,6 +51,7 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
   List<String> _insufficientDays = []; // 不足日のdateKeyリスト
   Map<String, List<RecruitmentTimeSlot>> _recruitmentSlots = {}; // 募集時間帯（dateKey -> 時間帯リスト）
   bool _isCalculatingInsufficientDays = false; // 不足日集計中のローディング状態
+  bool _isRecruitmentSending = false;
   
   // タブの展開状態（false: 初期位置、true: 展開位置）
   bool _isTabExpanded = false;
@@ -106,17 +111,24 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
         _shiftData = data;
         _pendingRequestCountByDate = pendingCountByDate;
         _pendingRequestsByDate = pendingRequestsByDate;
+        _shiftDataLoadFailed = false;
         _isLoading = false;
       });
     } catch (e) {
       debugPrint('Error loading shift data: $e');
       setState(() {
         _isLoading = false;
+        _shiftDataLoadFailed = true;
+        // 失敗を空と同一視しない（前回成功分は残す）
       });
-      // エラー時は空のMapを設定（UIが崩れないように）
-      setState(() {
-        _shiftData = {};
-      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(kShiftDayLoadFailedMessage),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -245,6 +257,15 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
   }
 
   void _showDateDialog(DateTime date) {
+    if (_shiftDataLoadFailed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(kShiftDayLoadFailedMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     final dateKey = _getDateKey(date);
     final dayData = _shiftData[dateKey];
     final pendingList = _pendingRequestsByDate[dateKey] ?? [];
@@ -289,7 +310,9 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('エラー: ${e.toString()}'),
+                content: Text(
+                  mapStaffShiftCallableError(e, operation: 'finalizeDay'),
+                ),
                 backgroundColor: Colors.red,
               ),
             );
@@ -335,7 +358,9 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                 if (parentContext.mounted) {
                   ScaffoldMessenger.of(parentContext).showSnackBar(
                     SnackBar(
-                      content: Text('エラー: ${e.toString()}'),
+                      content: Text(
+                        mapStaffShiftCallableError(e, operation: 'finalizeMonth'),
+                      ),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -367,7 +392,7 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
     final totalRowsHeight = rowHeight * requiredWeeks + rowMargin * (requiredWeeks > 0 ? requiredWeeks - 1 : 0);
 
     return PopScope(
-      canPop: !_isFinalizeOperationLoading,
+      canPop: !_isFinalizeOperationLoading && !_isRecruitmentSending,
       child: Stack(
         children: [
           Scaffold(
@@ -435,7 +460,7 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                     ],
                   ),
           ),
-          if (_isFinalizeOperationLoading)
+          if (_isFinalizeOperationLoading || _isRecruitmentSending)
             Positioned.fill(
               child: AbsorbPointer(
                 child: ColoredBox(
@@ -1614,30 +1639,31 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
       // データを再読み込み（不足日フラグが更新されている可能性があるため）
       await _loadShiftData();
       
+      if (!mounted) return;
       setState(() {
         _insufficientDays = insufficientDays;
-        _isCalculatingInsufficientDays = false;
       });
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('不足日を${insufficientDays.length}件検出しました'),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('不足日を${insufficientDays.length}件検出しました'),
+        ),
+      );
     } catch (e) {
-      setState(() {
-        _isCalculatingInsufficientDays = false;
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('エラー: ${e.toString()}'),
-            backgroundColor: Colors.red,
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapStaffShiftCallableError(e, operation: 'calculateInsufficientDays'),
           ),
-        );
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCalculatingInsufficientDays = false;
+        });
       }
     }
   }
@@ -1807,6 +1833,9 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
+              setState(() => _isRecruitmentSending = true);
+              var didSucceed = false;
+              Object? caught;
               try {
                 final now = DateTime.now();
                 final nextMonth = DateTime(now.year, now.month + 1, 1);
@@ -1838,27 +1867,38 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
                 // 募集内容を管理者に送信
                 await _repository.sendRecruitmentNotification(monthKey);
                 
-                // 募集スロットをクリア
+                // 募集スロットをクリア（成功時のみ）
                 setState(() {
                   _recruitmentSlots.clear();
                 });
-                
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('募集内容を管理者に送信しました'),
-                    ),
-                  );
-                }
+                didSucceed = true;
               } catch (e) {
+                caught = e;
+              } finally {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('エラー: ${e.toString()}'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  setState(() => _isRecruitmentSending = false);
                 }
+              }
+
+              if (!mounted) return;
+              if (didSucceed) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('募集内容を管理者に送信しました'),
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      mapStaffShiftCallableError(
+                        caught!,
+                        operation: 'sendRecruitmentNotification',
+                      ),
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             },
             child: const Text('送信'),
@@ -1989,10 +2029,12 @@ class _ShiftHomePageState extends State<ShiftHomePage> with SingleTickerProvider
         .map((a) => (startMinute: a.startMinute, endMinute: a.endMinute))
         .toList();
 
-    return findGapTimeSlots(
-      openMinute: dayData.businessHours.openMinute,
-      closeMinute: dayData.businessHours.closeMinute,
-      assignments: assignments,
+    return mergeConsecutiveGapSlots(
+      findGapTimeSlots(
+        openMinute: dayData.businessHours.openMinute,
+        closeMinute: dayData.businessHours.closeMinute,
+        assignments: assignments,
+      ),
     );
   }
 

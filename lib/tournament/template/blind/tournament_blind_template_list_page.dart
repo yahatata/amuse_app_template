@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'create_tournament_blind_basic.dart';
 
 class TournamentBlindTemplateList extends StatefulWidget {
@@ -41,7 +42,7 @@ class _TournamentBlindTemplateListState extends State<TournamentBlindTemplateLis
       final result = await callable.call();
       final response = result.data;
 
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         setState(() {
           // Cloud Functionsから返されるデータを適切な型に変換
           final rawTemplates = response['blindTemplates'] as List? ?? [];
@@ -56,13 +57,13 @@ class _TournamentBlindTemplateListState extends State<TournamentBlindTemplateLis
         });
       } else {
         setState(() {
-          _errorMessage = response['error'] ?? 'ブラインドテンプレートの取得に失敗しました';
+          _errorMessage = mapCallableSoftFailMessage(response);
           _isLoading = false;
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'ブラインドテンプレートの取得に失敗しました: $e';
+        _errorMessage = mapCallableError(e).message;
         _isLoading = false;
       });
     }
@@ -77,7 +78,7 @@ class _TournamentBlindTemplateListState extends State<TournamentBlindTemplateLis
       final result = await callable.call({'blindTemplateId': blindTemplateId});
       final response = result.data;
 
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         setState(() {
           _blindTemplates.removeWhere((template) => template['id'] == blindTemplateId);
         });
@@ -87,12 +88,12 @@ class _TournamentBlindTemplateListState extends State<TournamentBlindTemplateLis
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response['error'] ?? 'アーカイブに失敗しました')),
+          SnackBar(content: Text(mapCallableSoftFailMessage(response))),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('アーカイブに失敗しました: $e')),
+        SnackBar(content: Text(mapCallableError(e).message)),
       );
     }
   }

@@ -1,11 +1,15 @@
 import 'dart:io';
-import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'dart:math';
+
+import 'package:amuse_app_template/core/errors/errors.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/device.dart';
+import 'device_callable_errors.dart';
 import 'device_options.dart';
 
 /// デバイス管理サービス
@@ -105,7 +109,12 @@ class DeviceService {
         'platform': platform,
       });
 
-      final deviceData = result.data as Map<String, dynamic>;
+      final raw = result.data;
+      if (!isCallableSuccessResponse(raw)) {
+        throw DeviceCallableSoftFail(raw);
+      }
+
+      final deviceData = (raw as Map).cast<String, dynamic>();
       final deviceId = deviceData['deviceId'] as String;
 
       // ローカルキャッシュに保存
@@ -119,14 +128,12 @@ class DeviceService {
       final device = Device.fromFirestore(doc);
       _cachedDevice = device;
       return device;
+    } on FirebaseAuthException {
+      rethrow;
+    } on DeviceCallableSoftFail {
+      rethrow;
     } catch (e) {
       print('デバイス登録エラー: $e');
-
-      // 匿名認証が無効化されている場合の分かりやすいエラーメッセージ
-      if (e.toString().contains('admin-restricted-operation')) {
-        throw Exception('匿名認証が無効化されています。Firebase Console で匿名認証を有効化してください。');
-      }
-
       rethrow;
     }
   }
@@ -170,36 +177,36 @@ class DeviceService {
     }
   }
 
-  /// デバイス一覧を取得（管理者用。archived / retired は除外）
+  /// デバイス一覧を取得（管理者用。archived / retired は除外）。
+  ///
+  /// 読込失敗は空配列にせず呼び出し元へ再送出する（空一覧と区別する）。
   Future<List<Device>> getDevices() async {
-    try {
-      final snapshot = await _firestore
-          .collection('devices')
-          .orderBy('createdAt', descending: true)
-          .get();
+    final snapshot = await _firestore
+        .collection('devices')
+        .orderBy('createdAt', descending: true)
+        .get();
 
-      return snapshot.docs
-          .map((doc) => Device.fromFirestore(doc))
-          .where(
-            (device) => DeviceStatus.fromString(
-              device.status,
-            ).isVisibleInManagementList,
-          )
-          .toList();
-    } catch (e) {
-      print('デバイス一覧取得エラー: $e');
-      return [];
-    }
+    return snapshot.docs
+        .map((doc) => Device.fromFirestore(doc))
+        .where(
+          (device) => DeviceStatus.fromString(
+            device.status,
+          ).isVisibleInManagementList,
+        )
+        .toList();
   }
 
   /// デバイスのステータスを更新（管理者用・Cloud Function 経由）
   Future<void> updateDeviceStatus(String deviceId, String status) async {
     try {
       final callable = _functions.httpsCallable('updateDeviceStatus');
-      await callable.call(<String, dynamic>{
+      final result = await callable.call(<String, dynamic>{
         'deviceId': deviceId,
         'status': status,
       });
+      if (!isCallableSuccessResponse(result.data)) {
+        throw DeviceCallableSoftFail(result.data);
+      }
       final prefs = await SharedPreferences.getInstance();
       final myId = prefs.getString(_deviceIdKey);
       if (myId == deviceId) {
@@ -211,6 +218,8 @@ class DeviceService {
           _cachedDevice = Device.fromFirestore(refreshed);
         }
       }
+    } on DeviceCallableSoftFail {
+      rethrow;
     } catch (e) {
       print('デバイスステータス更新エラー: $e');
       rethrow;
@@ -225,10 +234,13 @@ class DeviceService {
   }) async {
     try {
       final callable = _functions.httpsCallable('updateDeviceRole');
-      await callable.call(<String, dynamic>{
+      final result = await callable.call(<String, dynamic>{
         'deviceId': targetDeviceId,
         'role': role,
       });
+      if (!isCallableSuccessResponse(result.data)) {
+        throw DeviceCallableSoftFail(result.data);
+      }
       final prefs = await SharedPreferences.getInstance();
       final myId = prefs.getString(_deviceIdKey);
       if (myId == targetDeviceId) {
@@ -241,6 +253,8 @@ class DeviceService {
           _cachedDevice = Device.fromFirestore(refreshed);
         }
       }
+    } on DeviceCallableSoftFail {
+      rethrow;
     } catch (e) {
       print('デバイスrole更新エラー: $e');
       rethrow;
@@ -251,13 +265,19 @@ class DeviceService {
   Future<void> archiveDevice(String deviceId) async {
     try {
       final callable = _functions.httpsCallable('archiveDevice');
-      await callable.call(<String, dynamic>{'deviceId': deviceId});
+      final result =
+          await callable.call(<String, dynamic>{'deviceId': deviceId});
+      if (!isCallableSuccessResponse(result.data)) {
+        throw DeviceCallableSoftFail(result.data);
+      }
       final prefs = await SharedPreferences.getInstance();
       final myId = prefs.getString(_deviceIdKey);
       if (myId == deviceId) {
         await clearLocalCache();
         _cachedDevice = null;
       }
+    } on DeviceCallableSoftFail {
+      rethrow;
     } catch (e) {
       print('デバイス削除エラー: $e');
       rethrow;
@@ -358,7 +378,11 @@ class DeviceService {
         callData['optionParams'] = optionParams;
       }
       final result = await callable.call(callData);
-      final data = (result.data as Map).cast<String, dynamic>();
+      final raw = result.data;
+      if (!isCallableSuccessResponse(raw)) {
+        throw DeviceCallableSoftFail(raw);
+      }
+      final data = (raw as Map).cast<String, dynamic>();
       final updated = (data['options'] as Map).cast<String, bool>();
       // 自分自身を更新した場合はキャッシュも更新
       final prefs = await SharedPreferences.getInstance();
@@ -367,6 +391,8 @@ class DeviceService {
         _cachedDevice = await getCurrentDevice();
       }
       return updated;
+    } on DeviceCallableSoftFail {
+      rethrow;
     } catch (e) {
       print('オプション更新エラー: $e');
       rethrow;

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:amuse_app_template/user_actions/tournament_user_addon_counter.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -109,10 +110,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(
-        find.text(kTournamentUserAddonCountLoadFailedMessage),
-        findsOneWidget,
-      );
+      expect(find.text(kUserActionAddonCountLoadFailedMessage), findsOneWidget);
       expect(failedFlags, contains(true));
     });
 

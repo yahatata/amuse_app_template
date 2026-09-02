@@ -74,4 +74,27 @@ void main() {
       );
     });
   });
+
+  group('calc target displayContext wiring', () {
+    test('asOf=2026-09-01 periodEnd=2026-08-31 → calc window true（未計算）', () {
+      expect(
+        isInPayrollCalculationWindow('2026-09-01', '2026-08-31', null),
+        isTrue,
+      );
+    });
+
+    test('asOf=2026-09-01 periodEnd=2026-08-31 → confirmed は false', () {
+      expect(
+        isInPayrollCalculationWindow('2026-09-01', '2026-08-31', 'confirmed'),
+        isFalse,
+      );
+    });
+
+    test('asOf=2026-09-26 periodEnd=2026-09-25 → calc window true（draft）', () {
+      expect(
+        isInPayrollCalculationWindow('2026-09-26', '2026-09-25', 'draft'),
+        isTrue,
+      );
+    });
+  });
 }

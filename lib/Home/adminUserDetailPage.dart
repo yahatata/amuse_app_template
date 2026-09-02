@@ -1,3 +1,4 @@
+import 'package:amuse_app_template/Home/home_list_load_errors.dart';
 import 'package:amuse_app_template/services/active_stays_service.dart';
 import 'package:amuse_app_template/user/balance_display.dart';
 import 'package:amuse_app_template/user/user_type_display.dart';
@@ -66,11 +67,11 @@ class AdminUserDetailPage extends StatelessWidget {
     Map<String, dynamic>? data,
   ) {
     if (snapshot.hasError && data == null) {
-      return Center(
+      return const Center(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(24),
           child: Text(
-            'エラーが発生しました: ${snapshot.error}',
+            kHomeUserDetailLoadFailedMessage,
             textAlign: TextAlign.center,
           ),
         ),
@@ -97,14 +98,13 @@ class AdminUserDetailPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (snapshot.hasError)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
               child: Text(
-                'リアルタイム更新に失敗しました: ${snapshot.error}',
-                style: const TextStyle(color: Colors.red),
+                kHomeUserDetailRealtimeFailedMessage,
+                style: TextStyle(color: Colors.red),
               ),
-            ),
-          Card(
+            ),          Card(
             elevation: 4,
             child: Padding(
               padding: const EdgeInsets.all(16),

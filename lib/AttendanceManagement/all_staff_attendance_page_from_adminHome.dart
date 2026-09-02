@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/AttendanceManagement/attendance_user_facing_errors.dart';
 import 'package:amuse_app_template/AttendanceManagement/staff_attendance_detail_page_from_allStaffAttendance.dart';
 import 'package:amuse_app_template/services/store_config_defaults.dart';
 import 'package:amuse_app_template/services/store_config_service.dart';
 import 'package:amuse_app_template/Home/staff_retired_ui_helpers.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 
 import 'attendanceService.dart';
 
@@ -22,6 +24,8 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
   String? selectedStaffId;
   List<String> staffNames = [];
   bool isLoading = false;
+  /// ATT-09: 読込失敗（空一覧と区別）
+  String? _attendanceLoadError;
   List<Map<String, dynamic>> attendances = [];
   List<Map<String, dynamic>> shifts = [];
   dynamic payrollData = []; // 給与データを追加
@@ -62,8 +66,9 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
     print('=== _loadAttendanceData 開始 ===');
     print('selectedDate: $selectedDate');
     
-    setState(() {
+      setState(() {
       isLoading = true;
+      _attendanceLoadError = null;
     });
 
     try {
@@ -76,7 +81,8 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
       print('給与データ取得パラメータ: month=$adjustedPayrollMonth, year=$payrollYear');
       
       // 勤怠データと給与データを個別に取得
-      Map<String, dynamic> result;
+      Map<String, dynamic>? result;
+      String? attendanceLoadError;
       try {
         print('勤怠データ取得開始: month=${selectedDate.month}, year=${selectedDate.year}');
         result = await AttendanceService.getAllStaffAttendance(
@@ -86,12 +92,25 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
           endDay: StoreConfigService.instance.latestData?.payrollEndDay ?? kDefaultPayrollEndDay,
         );
         print('勤怠データ取得成功: ${result['attendances']?.length ?? 0}件');
+        if (!isCallableSuccessResponse(result)) {
+          // ATT-09: soft-fail は空一覧に落とさない
+          attendanceLoadError = mapAttendanceCallableSoftFail(
+            result,
+            operation: 'getAllStaffAttendance',
+          );
+          result = null;
+        }
       } catch (e) {
-        print('勤怠データ取得エラー: $e');
-        result = {'success': false, 'attendances': [], 'shifts': []};
+        // ATT-09: 失敗と空一覧を区別。raw は出さない。
+        attendanceLoadError = mapAttendanceCallableError(
+          e,
+          operation: 'getAllStaffAttendance',
+        );
+        result = null;
       }
       
       List<dynamic> payrollResult = [];
+      String? payrollLoadError;
       try {
         final payrollData = await AttendanceService.getPayrollData(
           month: adjustedPayrollMonth,
@@ -99,16 +118,33 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
           startDay: StoreConfigService.instance.latestData?.payrollStartDay ?? kDefaultPayrollStartDay,
           endDay: StoreConfigService.instance.latestData?.payrollEndDay ?? kDefaultPayrollEndDay,
         );
-        
-        // AttendanceServiceで既に正規化済みなので、そのまま使用
+
         payrollResult = payrollData;
       } catch (e) {
+        payrollLoadError = mapAttendanceCallableError(
+          e,
+          operation: 'getPayrollData',
+        );
         payrollResult = [];
       }
 
-      print('result["success"]: ${result['success']}');
+      if (attendanceLoadError != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(attendanceLoadError)),
+          );
+          setState(() {
+            _attendanceLoadError = attendanceLoadError;
+            // 失敗を空一覧として扱わない（前回成功分は残す）
+            summaryData = null;
+          });
+        }
+        return;
+      }
+
+      print('result["success"]: ${result!['success']}');
       
-      if (result['success'] == true) {
+      if (isCallableSuccessResponse(result)) {
         print('=== 勤怠データ変換開始 ===');
         // 勤怠データの型安全な変換
         final attendancesList = <Map<String, dynamic>>[];
@@ -195,9 +231,16 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
           attendances = attendancesList;
           shifts = shiftsList;
           payrollData = payrollResult;
+          _attendanceLoadError = null;
           _updateSummaryData();
           _updateStaffNames();
         });
+
+        if (payrollLoadError != null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(payrollLoadError)),
+          );
+        }
         
         print('=== setState 後 ===');
         print('attendances.length: ${attendances.length}');
@@ -205,14 +248,20 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
         print('payrollData.length: ${payrollData.length}');
       }
     } catch (e) {
-      print('❌ _loadAttendanceData エラー: $e');
+      if (!mounted) return;
+      final msg = mapAttendanceCallableError(e, operation: 'getAllStaffAttendance');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('勤怠データの取得に失敗しました: $e')),
+        SnackBar(content: Text(msg)),
       );
-    } finally {
       setState(() {
-        isLoading = false;
+        _attendanceLoadError = msg;
       });
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
 
@@ -463,6 +512,29 @@ class _AllStaffAttendancePageState extends State<AllStaffAttendancePage>
   }
 
   Widget _buildAttendanceList() {
+    if (_attendanceLoadError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                _attendanceLoadError!,
+                style: const TextStyle(fontSize: 16, color: Colors.red),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => _loadAttendanceData(),
+                icon: const Icon(Icons.refresh),
+                label: const Text('再取得'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     if (attendances.isEmpty) {
       return const Center(
         child: Text(
@@ -738,7 +810,7 @@ class _DateByDateTab extends StatelessWidget {
               if (snapshot.hasError) {
                 return Center(
                   child: Text(
-                    'エラー: ${snapshot.error}',
+                    kAttendanceDataLoadFailedMessage,
                     style: const TextStyle(color: Colors.red),
                   ),
                 );
@@ -973,7 +1045,7 @@ class _DailyAttendanceTable extends StatelessWidget {
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return Text('エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red));
+                return Text(kAttendanceDataLoadFailedMessage, style: const TextStyle(color: Colors.red));
               }
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());

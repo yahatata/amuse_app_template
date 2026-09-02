@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 import 'package:cloud_functions/cloud_functions.dart';
@@ -32,14 +33,19 @@ class CreateOkibakeTemporaryEntryResult {
 
   factory CreateOkibakeTemporaryEntryResult.fromCallableData(dynamic raw) {
     if (raw is! Map) {
-      return const CreateOkibakeTemporaryEntryResult(success: false, errorMessage: '応答が不正です');
+      return CreateOkibakeTemporaryEntryResult(
+        success: false,
+        errorMessage: mapCallableSoftFailMessage(raw),
+      );
     }
     final m = Map<String, dynamic>.from(raw);
+    final success = isCallableSuccessResponse(m);
     return CreateOkibakeTemporaryEntryResult(
-      success: m['success'] == true,
+      success: success,
       okibakeEntryId: m['okibakeEntryId'] as String?,
       temporaryDisplayName: m['temporaryDisplayName'] as String?,
       replay: m['replay'] == true,
+      errorMessage: success ? null : mapCallableSoftFailMessage(m),
     );
   }
 
@@ -65,16 +71,17 @@ class AssignOkibakeTemporaryEntryToSeatResult {
 
   factory AssignOkibakeTemporaryEntryToSeatResult.fromCallableData(dynamic raw) {
     if (raw is! Map) {
-      return const AssignOkibakeTemporaryEntryToSeatResult(
+      return AssignOkibakeTemporaryEntryToSeatResult(
         success: false,
-        errorMessage: '応答が不正です',
+        errorMessage: mapCallableSoftFailMessage(raw),
       );
     }
     final m = Map<String, dynamic>.from(raw);
+    final success = isCallableSuccessResponse(m);
     return AssignOkibakeTemporaryEntryToSeatResult(
-      success: m['success'] == true,
+      success: success,
       replay: m['replay'] == true,
-      errorMessage: m['error'] as String? ?? m['message'] as String?,
+      errorMessage: success ? null : mapCallableSoftFailMessage(m),
     );
   }
 
@@ -100,29 +107,24 @@ class ApplyUserAddonResult {
 
   factory ApplyUserAddonResult.fromCallableData(dynamic raw) {
     if (raw is! Map) {
-      return const ApplyUserAddonResult(
+      return ApplyUserAddonResult(
         success: false,
-        errorMessage: '応答が不正です',
+        errorMessage: mapCallableSoftFailMessage(raw),
       );
     }
     final m = Map<String, dynamic>.from(raw);
+    final success = isCallableSuccessResponse(m);
     return ApplyUserAddonResult(
-      success: m['success'] == true,
+      success: success,
       replay: m['replay'] == true,
-      errorMessage: m['error'] as String? ?? m['message'] as String?,
+      errorMessage: success ? null : mapCallableSoftFailMessage(m),
     );
   }
 
   factory ApplyUserAddonResult.fromException(Object e) {
-    if (e is FirebaseFunctionsException) {
-      return ApplyUserAddonResult(
-        success: false,
-        errorMessage: '${e.code}: ${e.message ?? '(no message)'}',
-      );
-    }
     return ApplyUserAddonResult(
       success: false,
-      errorMessage: e.toString(),
+      errorMessage: formatTournamentCallableError(e),
     );
   }
 }
@@ -143,21 +145,21 @@ class ApplyOkibakeAddonResult {
 
   factory ApplyOkibakeAddonResult.fromCallableData(dynamic raw) {
     if (raw is! Map) {
-      return const ApplyOkibakeAddonResult(
+      return ApplyOkibakeAddonResult(
         success: false,
-        errorMessage: '応答が不正です',
+        errorMessage: mapCallableSoftFailMessage(raw),
       );
     }
     final m = Map<String, dynamic>.from(raw);
-    final successFlag = m['success'] == true;
+    final success = isCallableSuccessResponse(m);
     final replayFlag = m['replay'] == true;
     final ar = m['addonRecordId'];
     final addonRecordId = ar is String && ar.isNotEmpty ? ar : null;
     return ApplyOkibakeAddonResult(
-      success: successFlag,
+      success: success,
       replay: replayFlag,
       addonRecordId: addonRecordId,
-      errorMessage: m['error'] as String? ?? m['message'] as String?,
+      errorMessage: success ? null : mapCallableSoftFailMessage(m),
     );
   }
 
@@ -183,16 +185,17 @@ class BustOkibakeTemporaryEntryResult {
 
   factory BustOkibakeTemporaryEntryResult.fromCallableData(dynamic raw) {
     if (raw is! Map) {
-      return const BustOkibakeTemporaryEntryResult(
+      return BustOkibakeTemporaryEntryResult(
         success: false,
-        errorMessage: '応答が不正です',
+        errorMessage: mapCallableSoftFailMessage(raw),
       );
     }
     final m = Map<String, dynamic>.from(raw);
+    final success = isCallableSuccessResponse(m);
     return BustOkibakeTemporaryEntryResult(
-      success: m['success'] == true,
+      success: success,
       replay: m['replay'] == true,
-      errorMessage: m['error'] as String? ?? m['message'] as String?,
+      errorMessage: success ? null : mapCallableSoftFailMessage(m),
     );
   }
 
@@ -222,20 +225,22 @@ class LinkOkibakeTemporaryEntryToBillResult {
 
   factory LinkOkibakeTemporaryEntryToBillResult.fromCallableData(dynamic raw) {
     if (raw is! Map) {
-      return const LinkOkibakeTemporaryEntryToBillResult(
+      return LinkOkibakeTemporaryEntryToBillResult(
         success: false,
-        errorMessage: '応答が不正です',
+        errorMessage: mapCallableSoftFailMessage(raw),
       );
     }
     final m = Map<String, dynamic>.from(raw);
     final billRaw = m['billId'];
     final entryRaw = m['okibakeEntryId'];
+    final success = isCallableSuccessResponse(m);
     return LinkOkibakeTemporaryEntryToBillResult(
-      success: m['success'] == true,
+      success: success,
       replay: m['replay'] == true,
       billId: billRaw is String && billRaw.isNotEmpty ? billRaw : null,
       okibakeEntryId: entryRaw is String && entryRaw.isNotEmpty ? entryRaw : null,
-      errorMessage: m['error'] as String? ?? m['message'] as String?,
+      // AUTH-09: soft-fail 時は raw error/message を保持せず D-1 文言のみ
+      errorMessage: success ? null : mapCallableSoftFailMessage(m),
     );
   }
 
@@ -267,22 +272,23 @@ class UpdateOkibakeTemporaryEntryLinkedUserResult {
 
   factory UpdateOkibakeTemporaryEntryLinkedUserResult.fromCallableData(dynamic raw) {
     if (raw is! Map) {
-      return const UpdateOkibakeTemporaryEntryLinkedUserResult(
+      return UpdateOkibakeTemporaryEntryLinkedUserResult(
         success: false,
-        errorMessage: '応答が不正です',
+        errorMessage: mapCallableSoftFailMessage(raw),
       );
     }
     final m = Map<String, dynamic>.from(raw);
     final entryRaw = m['okibakeEntryId'];
     final userRaw = m['linkedUserId'];
     final nameRaw = m['linkedUserPokerName'];
+    final success = isCallableSuccessResponse(m);
     return UpdateOkibakeTemporaryEntryLinkedUserResult(
-      success: m['success'] == true,
+      success: success,
       replay: m['replay'] == true,
       okibakeEntryId: entryRaw is String && entryRaw.isNotEmpty ? entryRaw : null,
       linkedUserId: userRaw is String && userRaw.isNotEmpty ? userRaw : null,
       linkedUserPokerName: nameRaw is String && nameRaw.isNotEmpty ? nameRaw : null,
-      errorMessage: m['error'] as String? ?? m['message'] as String?,
+      errorMessage: success ? null : mapCallableSoftFailMessage(m),
     );
   }
 
@@ -311,18 +317,19 @@ class ResolveOkibakePendingReviewWithRemotePaymentResult {
 
   factory ResolveOkibakePendingReviewWithRemotePaymentResult.fromCallableData(dynamic raw) {
     if (raw is! Map) {
-      return const ResolveOkibakePendingReviewWithRemotePaymentResult(
+      return ResolveOkibakePendingReviewWithRemotePaymentResult(
         success: false,
-        errorMessage: '応答が不正です',
+        errorMessage: mapCallableSoftFailMessage(raw),
       );
     }
     final m = Map<String, dynamic>.from(raw);
+    final success = isCallableSuccessResponse(m);
     return ResolveOkibakePendingReviewWithRemotePaymentResult(
-      success: m['success'] == true,
+      success: success,
       replay: m['replay'] == true,
       billId: m['billId'] is String ? m['billId'] as String : null,
       okibakeEntryId: m['okibakeEntryId'] is String ? m['okibakeEntryId'] as String : null,
-      errorMessage: m['error'] as String? ?? m['message'] as String?,
+      errorMessage: success ? null : mapCallableSoftFailMessage(m),
     );
   }
 
@@ -533,8 +540,10 @@ class TournamentServiceImpl implements TournamentService {
           }
         }
       }
-      
-      throw Exception('トーナメント作成に失敗しました: $e');
+
+      // FirebaseFunctionsException の code / details.errorKey を呼出側で
+      // mapCallableError できるよう、ラップせず再送出する。
+      rethrow;
     }
   }
 
@@ -580,19 +589,14 @@ class TournamentServiceImpl implements TournamentService {
     required String tournamentId,
     required List<String> userIds,
   }) async {
-    try {
-      final callable = _functions.httpsCallable('registerParticipants');
-      
-      final result = await callable.call({
-        'tournamentId': tournamentId,
-        'userIds': userIds,
-      });
+    final callable = _functions.httpsCallable('registerParticipants');
 
-      final response = result.data as Map<String, dynamic>;
-      return response;
-    } catch (e) {
-      throw Exception('参加者登録に失敗しました: $e');
-    }
+    final result = await callable.call({
+      'tournamentId': tournamentId,
+      'userIds': userIds,
+    });
+
+    return result.data as Map<String, dynamic>;
   }
 
   @override
@@ -641,8 +645,11 @@ class TournamentServiceImpl implements TournamentService {
 
       final response = result.data as Map<String, dynamic>;
       return response;
-    } catch (e) {
-      throw Exception('卓追加に失敗しました: $e');
+    } on FirebaseFunctionsException {
+      rethrow;
+    } catch (_) {
+      // Phase 7A: raw を Exception に wrap しない（UI で D-1 / formatter へ）
+      rethrow;
     }
   }
   
@@ -661,8 +668,10 @@ class TournamentServiceImpl implements TournamentService {
 
       final response = result.data as Map<String, dynamic>;
       return response;
-    } catch (e) {
-      throw Exception('卓削除に失敗しました: $e');
+    } on FirebaseFunctionsException {
+      rethrow;
+    } catch (_) {
+      rethrow;
     }
   }
 
@@ -691,8 +700,10 @@ class TournamentServiceImpl implements TournamentService {
 
       final response = result.data as Map<String, dynamic>;
       return response;
-    } catch (e) {
-      throw Exception('待機者着席に失敗しました: $e');
+    } on FirebaseFunctionsException {
+      rethrow;
+    } catch (_) {
+      rethrow;
     }
   }
 
@@ -956,8 +967,10 @@ class TournamentServiceImpl implements TournamentService {
 
       final response = result.data as Map<String, dynamic>;
       return response;
-    } catch (e) {
-      throw Exception('全員リシートに失敗しました: $e');
+    } on FirebaseFunctionsException {
+      rethrow;
+    } catch (_) {
+      rethrow;
     }
   }
 
@@ -987,7 +1000,8 @@ class TournamentServiceImpl implements TournamentService {
       final response = result.data as Map<String, dynamic>;
       return response;
     } catch (e) {
-      throw Exception('Bust&退席に失敗しました: $e');
+      // FFE の code/details を失わせない（UI 境界で mapper へ渡す）
+      rethrow;
     }
   }
 

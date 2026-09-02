@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:amuse_app_template/Home/app_home_navigation.dart';
@@ -15,6 +16,8 @@ import 'package:amuse_app_template/tournament/active/widgets/dialogs/register_pa
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_list_dialog.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_register_dialog.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_end_okibake_guard.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_callable_error_formatter.dart';
 import 'package:amuse_app_template/tournament/active/widgets/okibake_waiting_list_tile.dart';
 import 'package:amuse_app_template/tournament/active/widgets/regular_waiting_list_tile.dart';
 import 'package:amuse_app_template/tournament/template/template_addon_limit_helpers.dart';
@@ -60,6 +63,13 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   List<WaitingPlayer> _waitingPlayers = [];
   List<TournamentUser> _tournamentUsers = [];
   bool _isLoadingData = true;
+  /// TOUR-01: 読込失敗時は終了/プライズ/順位操作を止める（空一覧と区別）。
+  bool _dataLoadFailed = false;
+  bool _dataNotFound = false;
+  /// 一度でも必須データ取得に成功したら、以降の更新失敗では一覧を空にせず保持する。
+  bool _hadSuccessfulDataLoad = false;
+  int _mainViewStreamReloadToken = 0;
+  int _bottomStatusStreamReloadToken = 0;
   
   // デバッグ用のログ出力
   @override
@@ -160,41 +170,147 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   Future<void> _loadTournamentData() async {
     setState(() {
       _isLoadingData = true;
+      _dataLoadFailed = false;
+      _dataNotFound = false;
     });
-    
+
     try {
-      final result = await _dataService.refreshTournamentData(widget.tournamentId);
-      
+      final tournamentDoc = await FirebaseFirestore.instance
+          .collection('scheduledTournaments')
+          .doc(widget.tournamentId)
+          .get();
+
+      if (!tournamentDoc.exists) {
+        setState(() {
+          if (shouldClearTournamentHomeListsOnLoadFail(
+            hadSuccessfulLoad: _hadSuccessfulDataLoad,
+          )) {
+            _tournamentTables = [];
+            _waitingPlayers = [];
+            _tournamentUsers = [];
+          }
+          _isLoadingData = false;
+          _dataLoadFailed = true;
+          _dataNotFound = true;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(tournamentOpsHomeLoadErrorMessage(notFound: true)),
+              backgroundColor: Colors.red,
+              action: SnackBarAction(
+                label: '再試行',
+                textColor: Colors.white,
+                onPressed: _loadTournamentData,
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final result =
+          await _dataService.refreshTournamentData(widget.tournamentId);
+
       if (result['success'] == true) {
         setState(() {
           _tournamentTables = result['tables'] ?? [];
           _waitingPlayers = result['waitingPlayers'] ?? [];
           _tournamentUsers = result['users'] ?? [];
           _isLoadingData = false;
+          _dataLoadFailed = false;
+          _dataNotFound = false;
+          _hadSuccessfulDataLoad = true;
         });
-        
+
         debugPrint('=== データ読み込み完了 ===');
         debugPrint('テーブル数: ${_tournamentTables.length}');
         debugPrint('待機者数: ${_waitingPlayers.length}');
         debugPrint('ユーザー数: ${_tournamentUsers.length}');
       } else {
-        throw Exception(result['error'] ?? 'データ読み込みに失敗しました');
+        // 必須データ失敗: 空成功扱いにしない。初回はクリア、更新失敗は表示保持。
+        final hadSuccess = _hadSuccessfulDataLoad;
+        setState(() {
+          if (shouldClearTournamentHomeListsOnLoadFail(
+            hadSuccessfulLoad: hadSuccess,
+          )) {
+            _tournamentTables = [];
+            _waitingPlayers = [];
+            _tournamentUsers = [];
+          }
+          _isLoadingData = false;
+          _dataLoadFailed = true;
+          _dataNotFound = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                tournamentOpsHomeRefreshFailMessage(
+                  hadSuccessfulLoad: hadSuccess,
+                ),
+              ),
+              backgroundColor: Colors.red,
+              action: SnackBarAction(
+                label: '再試行',
+                textColor: Colors.white,
+                onPressed: _loadTournamentData,
+              ),
+            ),
+          );
+        }
       }
     } catch (e) {
-      debugPrint('データ読み込みエラー: $e');
+      debugPrint('データ読み込みエラー');
+      final hadSuccess = _hadSuccessfulDataLoad;
       setState(() {
+        if (shouldClearTournamentHomeListsOnLoadFail(
+          hadSuccessfulLoad: hadSuccess,
+        )) {
+          _tournamentTables = [];
+          _waitingPlayers = [];
+          _tournamentUsers = [];
+        }
         _isLoadingData = false;
+        _dataLoadFailed = true;
+        _dataNotFound = false;
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('データ読み込みエラー: $e'),
+            content: Text(
+              tournamentOpsHomeRefreshFailMessage(
+                hadSuccessfulLoad: hadSuccess,
+              ),
+            ),
             backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: '再試行',
+              textColor: Colors.white,
+              onPressed: _loadTournamentData,
+            ),
           ),
         );
       }
     }
+  }
+
+  bool get _blockCriticalOps => _dataLoadFailed || _isLoadingData;
+
+  void _showDataLoadBlockedSnackBar() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          tournamentOpsHomeLoadErrorMessage(notFound: _dataNotFound),
+        ),
+        action: SnackBarAction(
+          label: '再試行',
+          onPressed: _loadTournamentData,
+        ),
+      ),
+    );
   }
 
   void _addTable() {
@@ -302,6 +418,10 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   }
 
   void _confirmPrizes() async {
+    if (_blockCriticalOps) {
+      _showDataLoadBlockedSnackBar();
+      return;
+    }
     // 遷移前にstatusをチェック
     try {
       final tournamentDoc = await FirebaseFirestore.instance
@@ -364,6 +484,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
       }
       // status == 'registered' の場合はそのまま遷移
       
+      if (!mounted) return;
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => PrizeSetupPage(
@@ -372,13 +493,22 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('エラーが発生しました: $e')),
+        SnackBar(
+          content: Text(
+            mapTournamentOpsCallableError(e, operation: 'confirmPrizesPrecheck'),
+          ),
+        ),
       );
     }
   }
 
   void _confirmRankings() async {
+    if (_blockCriticalOps) {
+      _showDataLoadBlockedSnackBar();
+      return;
+    }
     try {
       // プライズプールの存在確認
       final mainViewDoc = await FirebaseFirestore.instance
@@ -405,6 +535,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
         return;
       }
       
+      if (!mounted) return;
       // 順位確定画面に遷移
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -414,8 +545,13 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('エラーが発生しました: $e')),
+        SnackBar(
+          content: Text(
+            mapTournamentOpsCallableError(e, operation: 'confirmRankingsPrecheck'),
+          ),
+        ),
       );
     }
   }
@@ -441,7 +577,11 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
   void _endTournament() async {
     // 二重押下防止
     if (_isEndingTournament) return;
-    
+    if (_blockCriticalOps) {
+      _showDataLoadBlockedSnackBar();
+      return;
+    }
+
     // 検証処理を実行
     await _validateAndEndTournament();
   }
@@ -478,7 +618,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           progressDialogOpen = false;
         }
 
-        if (validateResult.data['success'] != true) {
+        if (!isCallableSuccessResponse(validateResult.data)) {
         final errorKey = validateResult.data['errorKey'] as String?;
         if (errorKey == 'TOURNAMENT_OKIBAKE_LINKED_USER_REQUIRED') {
           final blockingEntries = _parseBlockingOkibakeEntries(
@@ -491,7 +631,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           return;
         }
         final errorType = validateResult.data['errorType'];
-        final message = validateResult.data['message'] ?? '検証に失敗しました';
+        final message = mapCallableSoftFailMessage(validateResult.data);
         
         if (errorType == 'ended') {
           // 既に終了済み
@@ -622,14 +762,14 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
         progressDialogOpen = false;
       }
       
-      if (endResult.data['success'] == true) {
+      if (isCallableSuccessResponse(endResult.data)) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('トーナメントを終了しました')),
         );
         Navigator.of(context).pop();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(endResult.data['error'] ?? '終了処理に失敗しました')),
+          SnackBar(content: Text(mapCallableSoftFailMessage(endResult.data))),
         );
       }
     } on FirebaseFunctionsException catch (e) {
@@ -648,9 +788,11 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
         if (resolvedAll && mounted) {
           await _validateAndEndTournament();
         }
-      } else {
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラーが発生しました: ${e.message ?? e.code}')),
+          SnackBar(
+            content: Text(formatTournamentCallableError(e)),
+          ),
         );
       }
     } catch (e) {
@@ -658,13 +800,21 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
         Navigator.of(context, rootNavigator: true).pop();
         progressDialogOpen = false;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('エラーが発生しました: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentOpsCallableError(e, operation: 'endTournament'),
+            ),
+          ),
+        );
+      }
     } finally {
-      setState(() {
-        _isEndingTournament = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isEndingTournament = false;
+        });
+      }
     }
   }
 
@@ -927,6 +1077,9 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                 border: Border.all(color: Colors.blue[200]!),
               ),
               child: StreamBuilder<DocumentSnapshot>(
+                key: ValueKey(
+                  'bottom-main-view-$_bottomStatusStreamReloadToken',
+                ),
                 stream: FirebaseFirestore.instance
                     .collection('scheduledTournaments')
                     .doc(widget.tournamentId)
@@ -934,31 +1087,75 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                     .doc('main')
                     .snapshots(),
                 builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return Text('エラー: ${snapshot.error}', style: TextStyle(color: Colors.red));
+                  final hasStaleData =
+                      snapshot.hasData && (snapshot.data?.exists ?? false);
+
+                  if (snapshot.hasError && !hasStaleData) {
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          tournamentOpsStreamMessage(
+                            hasStaleData: false,
+                            error: snapshot.error,
+                          ),
+                          style: const TextStyle(color: Colors.red),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _bottomStatusStreamReloadToken++;
+                            });
+                          },
+                          child: const Text('再試行'),
+                        ),
+                      ],
+                    );
                   }
-                  
-                  if (snapshot.connectionState == ConnectionState.waiting) {
+
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      !snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  
-                  final data = snapshot.data?.data() != null 
-                      ? Map<String, dynamic>.from(snapshot.data!.data()! as Map)
+
+                  final data = snapshot.data?.data() != null
+                      ? Map<String, dynamic>.from(
+                          snapshot.data!.data()! as Map,
+                        )
                       : null;
-                  
+
                   return StreamBuilder<DocumentSnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('scheduledTournaments')
                         .doc(widget.tournamentId)
                         .snapshots(),
                     builder: (context, tournamentSnapshot) {
-                      final tournamentData = tournamentSnapshot.data?.data() as Map<String, dynamic>?;
-                      final status = tournamentData?['status'] as String? ?? 'scheduled';
+                      final tournamentData =
+                          tournamentSnapshot.data?.data()
+                              as Map<String, dynamic>?;
+                      final status =
+                          tournamentData?['status'] as String? ?? 'scheduled';
                       final statusText = _getStatusText(status);
-                      
+
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          if (snapshot.hasError && hasStaleData)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                tournamentOpsStreamMessage(
+                                  hasStaleData: true,
+                                  error: snapshot.error,
+                                ),
+                                style: TextStyle(
+                                  color: Colors.orange.shade800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
                           // ヘッダー部分
                           Row(
                             children: [
@@ -1171,7 +1368,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                     ),
                     const SizedBox(height: 8),
                     ElevatedButton.icon(
-                      onPressed: () => _confirmPrizes(),
+                      onPressed: _blockCriticalOps ? null : () => _confirmPrizes(),
                       icon: const Icon(Icons.emoji_events),
                       label: const Text('プライズ確定'),
                       style: ElevatedButton.styleFrom(
@@ -1190,7 +1387,8 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     ElevatedButton.icon(
-                      onPressed: () => _confirmRankings(),
+                      onPressed:
+                          _blockCriticalOps ? null : () => _confirmRankings(),
                       icon: const Icon(Icons.leaderboard),
                       label: const Text('順位確定'),
                       style: ElevatedButton.styleFrom(
@@ -1224,7 +1422,9 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                     ),
                     const SizedBox(height: 8),
                     ElevatedButton.icon(
-                      onPressed: _isEndingTournament ? null : () => _endTournament(),
+                      onPressed: (_isEndingTournament || _blockCriticalOps)
+                          ? null
+                          : () => _endTournament(),
                       icon: const Icon(Icons.stop),
                       label: const Text('終了処理'),
                       style: ElevatedButton.styleFrom(
@@ -1456,6 +1656,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           navigateToAppHome(context, adminInitialTerminalMode: true);
         },
         child: StreamBuilder<DocumentSnapshot>(
+        key: ValueKey('home-main-view-$_mainViewStreamReloadToken'),
         stream: FirebaseFirestore.instance
             .collection('scheduledTournaments')
             .doc(widget.tournamentId)
@@ -1463,8 +1664,11 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
             .doc('main')
             .snapshots(),
         builder: (context, snapshot) {
-          // エラーハンドリング
-          if (snapshot.hasError) {
+          final hasStaleData =
+              snapshot.hasData && (snapshot.data?.exists ?? false);
+
+          // エラーハンドリング（初回失敗 vs 更新失敗）
+          if (snapshot.hasError && !hasStaleData) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1472,17 +1676,30 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                   const Icon(Icons.error, size: 64, color: Colors.red),
                   const SizedBox(height: 16),
                   Text(
-                    'エラーが発生しました: ${snapshot.error}',
+                    tournamentOpsStreamMessage(
+                      hasStaleData: false,
+                      error: snapshot.error,
+                    ),
                     style: const TextStyle(color: Colors.red),
                     textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _mainViewStreamReloadToken++;
+                      });
+                    },
+                    child: const Text('再試行'),
                   ),
                 ],
               ),
             );
           }
 
-          // ローディング状態
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          // ローディング状態（無限待ちを避ける）
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
             return const Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1503,15 +1720,19 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                 children: [
                   const Icon(Icons.info_outline, size: 64, color: Colors.blue),
                   const SizedBox(height: 16),
-                  const Text(
-                    'トーナメントデータが見つかりません',
-                    style: TextStyle(color: Colors.blue),
+                  Text(
+                    kTournamentNotFoundMessage,
+                    style: const TextStyle(color: Colors.blue),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Tournament ID: ${widget.tournamentId}',
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _mainViewStreamReloadToken++;
+                      });
+                    },
+                    child: const Text('再試行'),
                   ),
                 ],
               ),
@@ -1519,7 +1740,7 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
           }
 
           // データ取得成功
-          final data = snapshot.data!.data() != null 
+          final data = snapshot.data!.data() != null
               ? Map<String, dynamic>.from(snapshot.data!.data()! as Map)
               : null;
           debugPrint('=== views/main データ取得成功 ===');
@@ -1539,6 +1760,34 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
 
               return Column(
             children: [
+              if (snapshot.hasError && hasStaleData)
+                Material(
+                  color: Colors.orange.shade50,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            tournamentOpsStreamMessage(
+                              hasStaleData: true,
+                              error: snapshot.error,
+                            ),
+                            style: TextStyle(color: Colors.orange.shade900),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _mainViewStreamReloadToken++;
+                            });
+                          },
+                          child: const Text('再試行'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               if (isReadOnly) TournamentReadOnlyBanner(status: tourStatus),
               // メインコンテンツ
               Expanded(
@@ -1661,9 +1910,9 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
 
                                       final errMsgs = [
                                         if (waitingSnapshot.hasError)
-                                          '待機: ${waitingSnapshot.error}',
+                                          kTournamentWaitingLoadFailedMessage,
                                         if (okibakeSnap.hasError)
-                                          'オキバケ一覧: ${okibakeSnap.error}',
+                                          kTournamentOkibakeLoadFailedMessage,
                                       ].join('\n');
 
                                       return Column(
@@ -1937,15 +2186,26 @@ class _TournamentHomePageState extends State<TournamentHomePage> {
                                 builder: (context, tablesSnapshot) {
                                   if (tablesSnapshot.hasError) {
                                     return Center(
-                                      child: Text(
-                                        '卓データエラー: ${tablesSnapshot.error}',
-                                        style: const TextStyle(color: Colors.red),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(16),
+                                        child: Text(
+                                          tournamentOpsStreamErrorMessage(
+                                            kTournamentTablesLoadFailedMessage,
+                                            tablesSnapshot.error,
+                                          ),
+                                          style: const TextStyle(color: Colors.red),
+                                          textAlign: TextAlign.center,
+                                        ),
                                       ),
                                     );
                                   }
 
-                                  if (tablesSnapshot.connectionState == ConnectionState.waiting) {
-                                    return const Center(child: CircularProgressIndicator());
+                                  if (tablesSnapshot.connectionState ==
+                                          ConnectionState.waiting &&
+                                      !tablesSnapshot.hasData) {
+                                    return const Center(
+                                      child: CircularProgressIndicator(),
+                                    );
                                   }
 
                                   final allDocs = tablesSnapshot.data?.docs ?? [];

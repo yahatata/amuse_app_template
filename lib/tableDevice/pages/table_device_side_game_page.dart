@@ -22,7 +22,6 @@ class TableDeviceSideGamePage extends StatelessWidget {
       drawer: TableDeviceDrawer(tableId: tableId),
       disableBackNavigation: true,
       automaticallyImplyLeading: false,
-      showDebugActions: false,
       showEndGameButton: false,
       onGameEnded: () {
         Navigator.of(context).pushAndRemoveUntil(

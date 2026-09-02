@@ -29,8 +29,8 @@ interface InterimConfirmRequestsRequest {
  * - selections: [{ requestId, startMinute, endMinute }]
  * - shifts dayDoc が存在しない場合は FAILED_PRECONDITION
  * - isFinalized==true は拒否
- * - request: status pending -> interim_confirmed, start/end を selections で更新（originalは維持）
- * - shifts.assignments に upsert（sourceRequestId を入れる）
+ * - request: status pending -> interim_confirmed（start/end は staff 最新申請のまま保持、original は維持）
+ * - shifts.assignments に upsert（sourceRequestId を入れる。allocation は selections の start/end）
  * - pendingRequestCount -N
  * - isSufficient を再計算して更新（override==null のときのみ）
  */
@@ -251,13 +251,11 @@ export const interimConfirmRequests = onCall(
       filteredAssignments.push(...assignments);
 
       // すべての書き込みを実行
-      // 1. 申請ドキュメントを更新
+      // 1. 申請ドキュメントを更新（status のみ。staff 最新申請 start/end は保持）
       for (const update of requestUpdates) {
         const requestRef = db.collection("shiftRequests").doc(update.requestId);
         transaction.update(requestRef, {
           status: "interim_confirmed",
-          startMinute: update.startMinute,
-          endMinute: update.endMinute,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         confirmedCount++;

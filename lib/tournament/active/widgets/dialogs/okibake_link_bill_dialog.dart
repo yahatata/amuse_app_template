@@ -2,6 +2,7 @@ import 'package:amuse_app_template/services/active_stays_service.dart';
 import 'package:amuse_app_template/tournament/active/models/okibake_temporary_entry.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart';
 import 'package:amuse_app_template/tournament/active/utils/okibake_bill_link_stay_candidates.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:amuse_app_template/tournament/active/widgets/dialogs/okibake_link_user_picker_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -59,6 +60,7 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
 
   String? _selectedUserId;
   bool _initialSelectionApplied = false;
+  int _stayRetryToken = 0;
 
   QuerySnapshot<Map<String, dynamic>>? _cachedStaySnapshot;
   String? _cachedLinkedUserId;
@@ -123,7 +125,7 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
       if (!entrySnap.exists) {
         setState(() {
           _entryLoading = false;
-          _entryLoadError = '置きバケ情報が見つかりません。画面を更新してください。';
+          _entryLoadError = kTournamentOkibakeNotFoundMessage;
         });
         return;
       }
@@ -133,7 +135,7 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
       if (templateId is! String || templateId.trim().isEmpty) {
         setState(() {
           _entryLoading = false;
-          _entryLoadError = 'トーナメント情報が取得できません。画面を更新してください。';
+          _entryLoadError = kTournamentOkibakeBadDataMessage;
         });
         return;
       }
@@ -154,7 +156,7 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
       if (!mounted) return;
       setState(() {
         _entryLoading = false;
-        _entryLoadError = '置きバケ情報の取得に失敗しました';
+        _entryLoadError = mapTournamentOkibakeEntryLoadError(e);
       });
     }
   }
@@ -369,17 +371,53 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
                           child: Center(child: CircularProgressIndicator()),
                         )
                       : _entryLoadError != null
-                          ? Text(
-                              _entryLoadError!,
-                              style: TextStyle(color: Colors.red.shade700),
+                          ? Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _entryLoadError!,
+                                  style:
+                                      TextStyle(color: Colors.red.shade700),
+                                ),
+                                const SizedBox(height: 12),
+                                ElevatedButton(
+                                  onPressed: _submitting
+                                      ? null
+                                      : _loadDialogContext,
+                                  child: const Text('再試行'),
+                                ),
+                              ],
                             )
                           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              key: ValueKey('okibake-link-stay-$_stayRetryToken'),
                               stream: ActiveStaysService.instance.stream,
                               builder: (context, staySnap) {
                                 if (staySnap.hasError) {
-                                  return Text(
-                                    '入店情報の取得に失敗しました: ${staySnap.error}',
-                                    style: const TextStyle(color: Colors.red),
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        kTournamentActiveStaysLoadFailedMessage,
+                                        style: TextStyle(
+                                          color: Colors.red.shade700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      TextButton(
+                                        onPressed: _submitting
+                                            ? null
+                                            : () => setState(() {
+                                                  _stayRetryToken++;
+                                                  _selectedUserId = null;
+                                                  _initialSelectionApplied =
+                                                      false;
+                                                  _cachedStaySnapshot = null;
+                                                  _cachedCandidatesFuture =
+                                                      null;
+                                                }),
+                                        child: const Text('再試行'),
+                                      ),
+                                    ],
                                   );
                                 }
                                 if (!staySnap.hasData) {
@@ -406,10 +444,31 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
                                       );
                                     }
                                     if (candSnap.hasError) {
-                                      return Text(
-                                        '候補の取得に失敗しました: ${candSnap.error}',
-                                        style:
-                                            const TextStyle(color: Colors.red),
+                                      return Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            kTournamentCandidatesLoadFailedMessage,
+                                            style: TextStyle(
+                                              color: Colors.red.shade700,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          TextButton(
+                                            onPressed: _submitting
+                                                ? null
+                                                : () => setState(() {
+                                                      _cachedStaySnapshot =
+                                                          null;
+                                                      _cachedCandidatesFuture =
+                                                          null;
+                                                      _selectedUserId = null;
+                                                      _initialSelectionApplied =
+                                                          false;
+                                                    }),
+                                            child: const Text('再試行'),
+                                          ),
+                                        ],
                                       );
                                     }
 
@@ -475,10 +534,14 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
                     child: const Text('閉じる'),
                   ),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    key: ValueKey('okibake-link-actions-$_stayRetryToken'),
                     stream: ActiveStaysService.instance.stream,
                     builder: (context, staySnap) {
+                      final streamFailed = staySnap.hasError;
                       return FutureBuilder<List<OkibakeBillLinkStayCandidate>>(
-                        future: staySnap.hasData && _templateId != null
+                        future: staySnap.hasData &&
+                                !streamFailed &&
+                                _templateId != null
                             ? _loadCandidates(staySnap.data!)
                             : Future.value(const []),
                         builder: (context, candSnap) {
@@ -487,6 +550,8 @@ class _OkibakeLinkBillDialogState extends State<OkibakeLinkBillDialog> {
                           final enabled = !_submitting &&
                               !_entryLoading &&
                               _entryLoadError == null &&
+                              !streamFailed &&
+                              !candSnap.hasError &&
                               _canLinkBill &&
                               candSnap.connectionState ==
                                   ConnectionState.done &&

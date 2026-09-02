@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:amuse_app_template/Home/home_list_load_errors.dart';
 import 'package:amuse_app_template/Home/staffDetailPage.dart';
 
 class StaffListPage extends StatefulWidget {
@@ -12,8 +13,13 @@ class StaffListPage extends StatefulWidget {
 class _StaffListPageState extends State<StaffListPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _showRetired = false;
+  int _reloadToken = 0;
 
   bool _isRetired(Map<String, dynamic> data) => data['status'] == 'retired';
+
+  void _retry() {
+    setState(() => _reloadToken++);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,25 +29,25 @@ class _StaffListPageState extends State<StaffListPage> {
         backgroundColor: Colors.blue[600],
         foregroundColor: Colors.white,
         actions: [
-          Row(
-            children: [
-              const Text('退職済みを表示'),
-              Switch(
-                value: _showRetired,
-                onChanged: (value) {
-                  setState(() {
-                    _showRetired = value;
-                  });
-                },
-              ),
-            ],
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _showRetired = !_showRetired;
+              });
+            },
+            child: Text(
+              _showRetired ? '在籍を表示' : '退職済みを表示',
+              style: const TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
+        key: ValueKey('staffs-$_reloadToken'),
         stream: _firestore.collection('staffs').snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
             return const Center(
               child: CircularProgressIndicator(),
             );
@@ -49,7 +55,23 @@ class _StaffListPageState extends State<StaffListPage> {
 
           if (snapshot.hasError) {
             return Center(
-              child: Text('エラーが発生しました: ${snapshot.error}'),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      kHomeStaffListLoadFailedMessage,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _retry,
+                      child: const Text('再試行'),
+                    ),
+                  ],
+                ),
+              ),
             );
           }
 

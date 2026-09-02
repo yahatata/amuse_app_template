@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:flutter/rendering.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -173,7 +174,7 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
       });
 
       final response = result.data;
-      if (response['success'] == true) {
+      if (isCallableSuccessResponse(response)) {
         // MenuItemsManagerを更新（アーカイブされたアイテムも含める）
         await MenuItemsManager.fetchMenuItems(includeArchived: true);
         if (!mounted) return;
@@ -186,16 +187,16 @@ class _MenuEditorListPageState extends State<MenuEditorListPage> {
           ),
         );
       } else {
-        final error = response['error'] ?? '売り切れ状態の切り替えに失敗しました';
+        // MENU-03 soft-fail: raw 非表示、売切状態は再取得しない（成功確定しない）
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error)),
+          SnackBar(content: Text(mapCallableSoftFailMessage(response))),
         );
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('売り切れ状態の切り替えに失敗しました: $e')),
+        SnackBar(content: Text(mapCallableError(e).message)),
       );
     } finally {
       if (mounted) {

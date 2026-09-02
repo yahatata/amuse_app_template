@@ -9,9 +9,14 @@ import {
   classifyCandidates,
   buildEntry,
   applyMaxCountLimit,
+  collectCandidateStaffIds,
+  buildStaffNameFallbackFromCandidates,
   type AttendanceDoc,
   type CandidateEntry,
 } from '../../src/domains/attendance/callables/getPayrollCandidates';
+import {
+  findWageMissingStaff,
+} from '../../src/domains/attendance/helpers/payrollHourlyWageValidation';
 
 /** テスト用の Timestamp 風オブジェクト */
 function fakeTimestamp(isoString: string) {
@@ -318,6 +323,38 @@ describe('classifyCandidates — maxCandidatesCount 統合', () => {
     expect(result.group1).toHaveLength(2);
     expect(result.group2).toHaveLength(1);
     expect(result.group3).toHaveLength(0);
+  });
+});
+
+describe('collectCandidateStaffIds', () => {
+  it('group1/2 から staffId を重複排除して収集する', () => {
+    const g1 = [
+      buildEntry('a1', { staffId: 's1', staffsFullName: 'A' }, 'in_period', '期間内'),
+      buildEntry('a2', { staffId: 's1', staffsFullName: 'A' }, 'in_period', '期間内'),
+    ];
+    const g2 = [
+      buildEntry('b1', { staffId: 's2', staffsFullName: 'B' }, 'carry_over', 'CO'),
+    ];
+    expect(collectCandidateStaffIds(g1, g2).sort()).toEqual(['s1', 's2']);
+  });
+});
+
+describe('wageMissingStaff resolution', () => {
+  it('missing staff が wageMissingStaff に含まれ、正常 staff は含まれない', () => {
+    const g1 = [
+      buildEntry('a1', { staffId: 's-ok', staffsFullName: '正常' }, 'in_period', '期間内'),
+      buildEntry('a2', { staffId: 's-miss', staffsFullName: '未設定' }, 'in_period', '期間内'),
+    ];
+    const staffDocsById = new Map<string, Record<string, unknown>>([
+      ['s-ok', { fullName: '正常', hourlyWage: 1000 }],
+      ['s-miss', { fullName: '未設定' }],
+    ]);
+    const missing = findWageMissingStaff({
+      staffIds: collectCandidateStaffIds(g1, []),
+      staffDocsById,
+      staffNameFallback: buildStaffNameFallbackFromCandidates(g1, []),
+    });
+    expect(missing).toEqual([{ staffId: 's-miss', staffName: '未設定' }]);
   });
 });
 

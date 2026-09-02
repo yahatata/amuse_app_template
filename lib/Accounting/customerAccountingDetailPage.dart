@@ -1,13 +1,22 @@
+import 'package:amuse_app_template/Accounting/carryover_unsettled.dart';
+import 'package:amuse_app_template/Accounting/reopen_accounted_bill_action.dart';
 import 'package:amuse_app_template/user/balance_display.dart';
 import 'package:amuse_app_template/user/side_game_chip_display.dart';
 import 'package:flutter/material.dart';
 
-class CustomerAccountingDetailPage extends StatelessWidget {
+class CustomerAccountingDetailPage extends StatefulWidget {
   final Map<String, dynamic> customer;
 
   const CustomerAccountingDetailPage({Key? key, required this.customer})
     : super(key: key);
 
+  @override
+  State<CustomerAccountingDetailPage> createState() =>
+      _CustomerAccountingDetailPageState();
+}
+
+class _CustomerAccountingDetailPageState
+    extends State<CustomerAccountingDetailPage> {
   // 支払い方法の表示名を取得（A-7: config displayName。未知は現金へ落とさない）
   String _getPaymentMethodName(String paymentMethod) {
     return balanceDisplayName(paymentMethod);
@@ -69,9 +78,9 @@ class CustomerAccountingDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final customerName = customer['customerName'] ?? '不明';
+    final customerName = widget.customer['customerName'] ?? '不明';
     final accountingRecords =
-        customer['accountingRecords'] as List<dynamic>? ?? [];
+        widget.customer['accountingRecords'] as List<dynamic>? ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -365,10 +374,45 @@ class CustomerAccountingDetailPage extends StatelessWidget {
                 ],
               ),
             ),
+
+            // C1-B: 閉店持ち越しを後日 settle した伝票の reopen 導線
+            if (_canReopenCarryoverRecord(record)) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _reopenCarryoverRecord(record),
+                  icon: const Icon(Icons.undo),
+                  label: const Text('会計前に戻す（要対応へ）'),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  bool _canReopenCarryoverRecord(Map<String, dynamic> record) {
+    final status = record['status'] as String? ?? '';
+    if (status != 'settled' && status != 'post_settlement_pending') {
+      return false;
+    }
+    return isCarryoverUnsettledBillFromCloseSummary(record['closeSummary']);
+  }
+
+  Future<void> _reopenCarryoverRecord(Map<String, dynamic> record) async {
+    final billId = (record['billId'] ?? record['id']) as String?;
+    if (billId == null || billId.isEmpty) return;
+    final pokerName = widget.customer['customerName'] as String?;
+    final ok = await runReopenAccountedBillFlow(
+      context: context,
+      billId: billId,
+      pokerName: pokerName,
+    );
+    if (ok && mounted) {
+      Navigator.of(context).pop(true);
+    }
   }
 
   Widget _buildCategoryBreakdown(Map<String, dynamic> record) {

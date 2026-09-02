@@ -1320,6 +1320,8 @@
     if (!Number.isInteger(data.count) || data.count < 0) return false;
     if (data.count !== data.data.length) return false;
     if (!isLiffSettingsShape(data.liffSettings)) return false;
+    // 一覧フィルタと見出しを揃えるための営業日キー（yyyy-MM-dd）
+    if (!isYyyyMmDd(data.targetBusinessDate)) return false;
     for (var i = 0; i < data.data.length; i++) {
       if (!isLiffTournamentItemShape(data.data[i], { requireRegistrationFlag: true })) {
         return false;

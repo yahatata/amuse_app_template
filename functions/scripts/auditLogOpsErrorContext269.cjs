@@ -27,7 +27,7 @@ const path = require("path");
 const ts = require("typescript");
 
 const ROOT = path.join(__dirname, "..", "src");
-const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data", "unused_function_lib"]);
+const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data"]);
 const EXCLUDE_FILES = new Set([
   path.normalize(path.join(ROOT, "domains/analytics/callables/generateDummyData.ts")),
   path.normalize(path.join(ROOT, "domains/sideGame/callables/debugSideGame.ts")),
@@ -336,7 +336,7 @@ function main() {
   lines.push(`  - 各 \`logOpsError\` 呼び出しについて、 \`functionEntry\` / \`operation\` / 明示 \`context\` のキー / \`cause\` の有無 / 囲う catch の形を抽出`);
   lines.push(`  - 同一関数内の \`throw new FunctionCustomError({ errorKey, context })\` を列挙し、到達しうる FC 候補として併記（近似）`);
   lines.push(`  - マージ後の context キー（近似）= **throw 時の context キー ∪ logOpsError 呼び出しの明示 context キー**`);
-  lines.push(`- **除外**: \`debug\` / \`demo_data\` / \`unused_function_lib\`、\`generateDummyData.ts\`、\`debugSideGame.ts\``);
+  lines.push(`- **除外**: \`debug\` / \`demo_data\`、\`generateDummyData.ts\`、\`debugSideGame.ts\``);
   lines.push(`- **生成スクリプト**: \`functions/scripts/auditLogOpsErrorContext269.cjs\``);
   lines.push("");
   lines.push(`## サマリ`);

@@ -1161,41 +1161,6 @@ body {
   flex-wrap: wrap;
 }
 
-/* 未提出シフト関連のスタイル */
-.pending-shifts-container {
-  background: white;
-  padding: 30px;
-  border-radius: 20px;
-  margin-bottom: 30px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.pending-shifts-container h3 {
-  color: var(--primary-color);
-  margin-bottom: 20px;
-  font-size: 1.5rem;
-  text-align: center;
-  font-weight: 700;
-}
-
-.pending-shifts-list {
-  margin-bottom: 20px;
-}
-
-.pending-shift-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 15px;
-  border-bottom: 2px solid #f8f9fa;
-  gap: 20px;
-}
-
-.pending-shift-item:last-child {
-  border-bottom: none;
-}
-
 .shift-info {
   font-weight: 600;
   color: #333;
@@ -1581,37 +1546,6 @@ body {
   width: 100%;
   padding: 12px;
   font-size: 1rem;
-}
-
-/* 未提出シフトリストのレスポンシブ対応 */
-.pending-shifts-container {
-  max-width: 100%;
-  overflow-x: hidden;
-}
-
-.pending-shifts-container h3 {
-  font-size: 1.3rem;
-  margin-bottom: 15px;
-  word-wrap: break-word;
-}
-
-.pending-shifts-list {
-  max-width: 100%;
-}
-
-.pending-shifts-list .shift-item {
-  padding: 12px;
-  margin-bottom: 10px;
-  word-wrap: break-word;
-}
-
-.shift-item .shift-info {
-  font-size: 0.9rem;
-}
-
-.shift-item .remove-btn {
-  padding: 6px 12px;
-  font-size: 0.8rem;
 }
 
 /* 確定シフト表示のレスポンシブ対応 */

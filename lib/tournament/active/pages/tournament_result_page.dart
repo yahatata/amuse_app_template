@@ -1,9 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/tournament/active/utils/tournament_ops_user_facing_errors.dart';
 import 'package:amuse_app_template/tournament/active/utils/tournament_result_entries.dart';
 
 /// 終了済みトーナメントの順位・プライズ結果を閲覧専用で表示する。
-class TournamentResultPage extends StatelessWidget {
+class TournamentResultPage extends StatefulWidget {
   const TournamentResultPage({
     super.key,
     required this.tournamentId,
@@ -14,6 +15,19 @@ class TournamentResultPage extends StatelessWidget {
   final String tournamentName;
 
   @override
+  State<TournamentResultPage> createState() => _TournamentResultPageState();
+}
+
+class _TournamentResultPageState extends State<TournamentResultPage> {
+  int _streamReloadToken = 0;
+
+  void _retry() {
+    setState(() {
+      _streamReloadToken++;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -22,21 +36,38 @@ class TournamentResultPage extends StatelessWidget {
         foregroundColor: Colors.white,
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        key: ValueKey('result-main-$_streamReloadToken'),
         stream: FirebaseFirestore.instance
             .collection('scheduledTournaments')
-            .doc(tournamentId)
+            .doc(widget.tournamentId)
             .collection('views')
             .doc('main')
             .snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.hasError) {
+          final hasStale =
+              snapshot.hasData && (snapshot.data?.exists ?? false);
+
+          if (snapshot.hasError && !hasStale) {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Text(
-                  '結果の取得に失敗しました: ${snapshot.error}',
-                  style: TextStyle(color: Colors.red.shade700),
-                  textAlign: TextAlign.center,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      tournamentOpsStreamErrorMessage(
+                        kTournamentResultLoadFailedMessage,
+                        snapshot.error,
+                      ),
+                      style: TextStyle(color: Colors.red.shade700),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _retry,
+                      child: const Text('再試行'),
+                    ),
+                  ],
                 ),
               ),
             );
@@ -51,6 +82,7 @@ class TournamentResultPage extends StatelessWidget {
           final summary = parseTournamentResultSummary(mainViewData);
 
           if (!summary.hasPrizeStructure) {
+            // 空構造 ≠ Stream 失敗
             return _buildMessageBody(
               icon: Icons.info_outline,
               title: '結果は確定されていません',
@@ -67,46 +99,78 @@ class TournamentResultPage extends StatelessWidget {
             );
           }
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
+          return Column(
             children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        tournamentName,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+              if (snapshot.hasError && hasStale)
+                Material(
+                  color: Colors.orange.shade50,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            tournamentOpsStreamMessage(
+                              hasStaleData: true,
+                              error: snapshot.error,
+                            ),
+                            style: TextStyle(color: Colors.orange.shade900),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'プライズプール: ${formatYenAmount(summary.prizePool)}',
-                        style: const TextStyle(fontSize: 15),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '付与ポイント: ${summary.pointType}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade700,
+                        TextButton(
+                          onPressed: _retry,
+                          child: const Text('再試行'),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.tournamentName,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'プライズプール: ${formatYenAmount(summary.prizePool)}',
+                              style: const TextStyle(fontSize: 15),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '付与ポイント: ${summary.pointType}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      '順位結果',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    ...summary.entries
+                        .map((entry) => _ResultRankTile(entry: entry)),
+                  ],
+                ),
               ),
-              const SizedBox(height: 16),
-              const Text(
-                '順位結果',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              ...summary.entries.map((entry) => _ResultRankTile(entry: entry)),
             ],
           );
         },

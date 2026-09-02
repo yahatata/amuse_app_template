@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 
 class CreateTemporaryTablePage extends StatefulWidget {
@@ -185,32 +186,48 @@ class _CreateTemporaryTablePageState extends State<CreateTemporaryTablePage> {
         'maxSeats': int.parse(_maxSeatsController.text.trim()),
       });
 
-      final data = result.data as Map<String, dynamic>;
-      
-      if (data['success'] == true) {
+      final data = result.data;
+
+      if (isCallableSuccessResponse(data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(data['message'] ?? 'テーブルが正常に作成されました'),
+            const SnackBar(
+              content: Text('テーブルが正常に作成されました'),
               backgroundColor: Colors.green,
             ),
           );
-          
+
           // 成功時にフォームをクリア
           _tableNameController.clear();
           _maxSeatsController.text = '6';
-          
+
           // 作成結果を表示
-          _showSuccessDialog(data);
+          if (data is Map<String, dynamic>) {
+            _showSuccessDialog(data);
+          } else if (data is Map) {
+            _showSuccessDialog(Map<String, dynamic>.from(data));
+          }
         }
-      } else {
-        throw Exception(data['error'] ?? 'テーブル作成に失敗しました');
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapCallableSoftFailMessage(
+                data,
+                operation: 'table.createTemporary',
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('エラーが発生しました: $e'),
+            content: Text(
+              mapCallableError(e, operation: 'table.createTemporary').message,
+            ),
             backgroundColor: Colors.red,
           ),
         );

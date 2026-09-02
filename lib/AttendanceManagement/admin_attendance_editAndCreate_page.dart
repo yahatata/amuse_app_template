@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/AttendanceManagement/attendance_user_facing_errors.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 
 import 'attendanceService.dart';
 
@@ -45,6 +47,8 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
     with SingleTickerProviderStateMixin {
   bool _isSaving = false;
   bool _isLoadingStaffs = true;
+  bool _breaksLoadFailed = false;
+  bool _staffsLoadFailed = false;
   String? _errorText;
 
   late TabController _tabController;
@@ -128,10 +132,17 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
         }
       }
       if (!mounted) return;
-      setState(() => _breaks = items);
-    } catch (e) {
+      setState(() {
+        _breaks = items;
+        _breaksLoadFailed = false;
+      });
+    } catch (_) {
       if (!mounted) return;
-      setState(() => _errorText = '休憩データの取得に失敗しました: $e');
+      // ATT-12: 失敗と空一覧（0件）を区別。raw Firestore は出さない。
+      setState(() {
+        _breaksLoadFailed = true;
+        _errorText = kAttendanceBreaksLoadFailedMessage;
+      });
     }
   }
 
@@ -153,42 +164,65 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
       setState(() {
         _staffs = staffs;
         _isLoadingStaffs = false;
+        _staffsLoadFailed = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
+      // ATT-13: 失敗と空一覧を区別。raw Firestore は出さない。
       setState(() {
         _isLoadingStaffs = false;
-        _errorText = 'スタッフ取得に失敗しました: $e';
+        _staffsLoadFailed = true;
+        _errorText = kAttendanceStaffListLoadFailedMessage;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.isEdit ? '管理者用・勤怠データ編集' : '管理者用・勤怠データ登録'),
-        bottom: widget.isEdit
-            ? TabBar(
-                controller: _tabController,
-                tabs: const [
-                  Tab(text: '勤怠概要'),
-                  Tab(text: '休憩データ'),
-                ],
-              )
-            : null,
+    return PopScope(
+      canPop: !_isSaving,
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: Text(
+                widget.isEdit ? '管理者用・勤怠データ編集' : '管理者用・勤怠データ登録',
+              ),
+              bottom: widget.isEdit
+                  ? TabBar(
+                      controller: _tabController,
+                      tabs: const [
+                        Tab(text: '勤怠概要'),
+                        Tab(text: '休憩データ'),
+                      ],
+                    )
+                  : null,
+            ),
+            body: _isLoadingStaffs
+                ? const Center(child: CircularProgressIndicator())
+                : widget.isEdit
+                    ? TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildOverviewTab(),
+                          _buildBreaksTab(),
+                        ],
+                      )
+                    : _buildOverviewTab(),
+          ),
+          if (_isSaving)
+            Positioned.fill(
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
-      body: _isLoadingStaffs
-          ? const Center(child: CircularProgressIndicator())
-          : widget.isEdit
-              ? TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildOverviewTab(),
-                    _buildBreaksTab(),
-                  ],
-                )
-              : _buildOverviewTab(),
     );
   }
 
@@ -200,8 +234,10 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
           Text(_errorText!, style: const TextStyle(color: Colors.red)),
           const SizedBox(height: 12),
         ],
-        _buildStaffField(),
-        const SizedBox(height: 12),
+        if (!_staffsLoadFailed) ...[
+          _buildStaffField(),
+          const SizedBox(height: 12),
+        ],
         _buildDateField(),
         const SizedBox(height: 12),
         _buildTimeField(
@@ -255,7 +291,9 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
           Text(_errorText!, style: const TextStyle(color: Colors.red)),
           const SizedBox(height: 12),
         ],
-        if (_breaks.isEmpty)
+        if (_breaksLoadFailed)
+          const SizedBox.shrink()
+        else if (_breaks.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 24),
             child: Text(
@@ -456,15 +494,20 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
       _errorText = null;
     });
     try {
-      await _attendanceService.updateAttendance(
+      final response = await _attendanceService.updateAttendance(
         attendanceId: widget.attendanceDocId!,
         deleteBreakIds: [item.breakId],
       );
+      if (!isCallableSuccessResponse(response)) {
+        if (!mounted) return;
+        setState(() => _errorText = mapCallableSoftFailMessage(response));
+        return;
+      }
       await _loadBreaks();
       if (!mounted) return;
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errorText = '休憩の削除に失敗しました: $e');
+      setState(() => _errorText = mapCallableError(e, operation: 'updateAttendance').message);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -476,15 +519,20 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
       _errorText = null;
     });
     try {
-      await _attendanceService.updateAttendance(
+      final response = await _attendanceService.updateAttendance(
         attendanceId: widget.attendanceDocId!,
         restoreBreakIds: [item.breakId],
       );
+      if (!isCallableSuccessResponse(response)) {
+        if (!mounted) return;
+        setState(() => _errorText = mapCallableSoftFailMessage(response));
+        return;
+      }
       await _loadBreaks();
       if (!mounted) return;
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errorText = '休憩の復元に失敗しました: $e');
+      setState(() => _errorText = mapCallableError(e, operation: 'updateAttendance').message);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -684,15 +732,16 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
     try {
       final dateKey = _fmtDateKey(_selectedDate);
 
+      final Map<String, dynamic> response;
       if (widget.isEdit) {
-        await _attendanceService.updateAttendance(
+        response = await _attendanceService.updateAttendance(
           attendanceId: widget.attendanceDocId!,
           clockIn: clockInAt,
           clockOut: clockOutAt,
           updateBreaks: updateBreaks,
         );
       } else {
-        await _attendanceService.createAttendance(
+        response = await _attendanceService.createAttendance(
           staffId: _selectedStaffId!,
           staffName: _selectedStaffName!,
           date: dateKey,
@@ -701,11 +750,20 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
         );
       }
 
+      if (!isCallableSuccessResponse(response)) {
+        if (!mounted) return;
+        setState(() => _errorText = mapCallableSoftFailMessage(response));
+        return;
+      }
+
       if (!mounted) return;
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errorText = '保存に失敗しました: $e');
+      setState(() => _errorText = mapCallableError(
+            e,
+            operation: widget.isEdit ? 'updateAttendance' : 'createAttendance',
+          ).message);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -758,15 +816,20 @@ class _AdminAttendanceFormPageState extends State<AdminAttendanceFormPage>
       _errorText = null;
     });
     try {
-      await _attendanceService.updateAttendance(
+      final response = await _attendanceService.updateAttendance(
         attendanceId: widget.attendanceDocId!,
         markDeleted: true,
       );
+      if (!isCallableSuccessResponse(response)) {
+        if (!mounted) return;
+        setState(() => _errorText = mapCallableSoftFailMessage(response));
+        return;
+      }
       if (!mounted) return;
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errorText = '削除に失敗しました: $e');
+      setState(() => _errorText = mapCallableError(e, operation: 'updateAttendance').message);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

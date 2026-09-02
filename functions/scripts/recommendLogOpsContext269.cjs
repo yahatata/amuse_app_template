@@ -23,7 +23,7 @@ const path = require("path");
 const ts = require("typescript");
 
 const ROOT = path.join(__dirname, "..", "src");
-const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data", "unused_function_lib"]);
+const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data"]);
 const EXCLUDE_FILES = new Set([
   path.normalize(path.join(ROOT, "domains/analytics/callables/generateDummyData.ts")),
   path.normalize(path.join(ROOT, "domains/sideGame/callables/debugSideGame.ts")),

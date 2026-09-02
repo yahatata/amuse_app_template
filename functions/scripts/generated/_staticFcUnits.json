@@ -15,6 +15,48 @@
   },
   {
     "fe": "addon",
+    "op": "addonResolveSeatInvalidTableId",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "addon",
+    "op": "addonResolveSeatNotFound",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "addon",
+    "op": "addonResolveSeatReadFailed",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "addon",
+    "op": "addonResolveSeatSingleTableDocMissing",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "addon",
+    "op": "addonResolveSeatSingleTableReadFailed",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "addon",
+    "op": "addonResolveSeatSingleTableSeatMissing",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "addon",
     "op": "recordTournamentActionBestEffort",
     "total": 1,
     "staticFc": 0,
@@ -91,6 +133,34 @@
     "label": "FC静（全呼び出し）"
   },
   {
+    "fe": "applyOkibakeAddon",
+    "op": "applyOkibakeAddonCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "applyOkibakeAddon",
+    "op": "applyOkibakeAddonMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "applyOkibakeAddon",
+    "op": "httpsError",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "approveAttendanceCorrectionRequest",
+    "op": "approveAttendanceMissingTarget",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
     "fe": "approveAttendanceCorrectionRequest",
     "op": "approveRequestOuterCatch",
     "total": 1,
@@ -112,8 +182,36 @@
     "label": "—"
   },
   {
+    "fe": "archiveDevice",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
     "fe": "archiveTournamentTemplate",
     "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "assignOkibakeTemporaryEntryToSeat",
+    "op": "assignOkibakeCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "assignOkibakeTemporaryEntryToSeat",
+    "op": "assignOkibakeMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "assignOkibakeTemporaryEntryToSeat",
+    "op": "httpsError",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -147,15 +245,36 @@
     "label": "—"
   },
   {
-    "fe": "billsEventsOnCreate",
-    "op": "",
+    "fe": "attendanceOnWrite",
+    "op": "validateAttendanceDate",
     "total": 1,
     "staticFc": 0,
     "label": "—"
   },
   {
     "fe": "billsOnSettle",
-    "op": "",
+    "op": "billsOnSettleMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "billsOnSettle",
+    "op": "validateAccountingOpsForSettlement",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "billsOnSettle",
+    "op": "validateEventSnapshot",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "billsOnSettle",
+    "op": "writeReportingEntry",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -224,6 +343,27 @@
     "label": "—"
   },
   {
+    "fe": "bustOkibakeTemporaryEntry",
+    "op": "bustOkibakeCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "bustOkibakeTemporaryEntry",
+    "op": "bustOkibakeMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "bustOkibakeTemporaryEntry",
+    "op": "httpsError",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
     "fe": "calcBusinessDate",
     "op": "",
     "total": 1,
@@ -246,6 +386,13 @@
   },
   {
     "fe": "cancelOrder",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "changeSideGameTableGameName",
     "op": "",
     "total": 1,
     "staticFc": 0,
@@ -289,20 +436,6 @@
   {
     "fe": "closeAssessmentTask",
     "op": "",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "closeStore",
-    "op": "closeStoreCatch",
-    "total": 1,
-    "staticFc": 1,
-    "label": "FC静（全呼び出し）"
-  },
-  {
-    "fe": "closeStore",
-    "op": "closeStoreGenericCatch",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -358,6 +491,20 @@
   },
   {
     "fe": "completeAccountingV2",
+    "op": "completeAccountingV2ActiveStayBillIdMismatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "completeAccountingV2",
+    "op": "completeAccountingV2ActiveStayNotFound",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "completeAccountingV2",
     "op": "completeAccountingV2Catch",
     "total": 1,
     "staticFc": 1,
@@ -371,11 +518,18 @@
     "label": "—"
   },
   {
-    "fe": "confirmShiftRequest",
-    "op": "",
+    "fe": "completeAccountingV2",
+    "op": "completeAccountingV2PartyUserIdMissingAtSettle",
     "total": 1,
-    "staticFc": 0,
-    "label": "—"
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "completeAccountingV2",
+    "op": "completeAccountingV2PostSettleStayVisitLogFailed",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
   },
   {
     "fe": "continueBusinessTerminal",
@@ -390,6 +544,13 @@
     "total": 1,
     "staticFc": 1,
     "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "controlHookHttp",
+    "op": "controlHookTaskIndexMissingSuspicious",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
   },
   {
     "fe": "controlHookHttp",
@@ -490,8 +651,15 @@
     "label": "—"
   },
   {
-    "fe": "createMultipleShifts",
-    "op": "",
+    "fe": "createOkibakeTemporaryEntry",
+    "op": "createOkibakeMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createOkibakeTemporaryEntry",
+    "op": "httpsError",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -499,6 +667,48 @@
   {
     "fe": "createPayrollNotification",
     "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createPostSettlementAdjustment",
+    "op": "createPostSettlementAdjustmentCallable",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createPostSettlementAdjustment",
+    "op": "operationForErrorKey(error.errorKey)",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "createPostSettlementAdjustment",
+    "op": "processAdjustmentAnalyticsAtomically",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createPostSettlementAdjustment",
+    "op": "processCashActionAnalyticsAtomically",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createPostSettlementAdjustment",
+    "op": "runAdjustmentTransaction",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createPostSettlementAdjustment",
+    "op": "writeReportingEntry",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -533,7 +743,21 @@
   },
   {
     "fe": "createStaffAccount",
-    "op": "",
+    "op": "createStaffCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createStaffAccount",
+    "op": "createStaffHttpsError",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "createStaffAccount",
+    "op": "linkStaffRichMenu",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -610,13 +834,27 @@
   },
   {
     "fe": "depositChip",
+    "op": "depositChipMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "depositChip",
+    "op": "depositChipTransaction",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "endBreak",
     "op": "",
     "total": 1,
     "staticFc": 0,
     "label": "—"
   },
   {
-    "fe": "endBreak",
+    "fe": "endSideGameSession",
     "op": "",
     "total": 1,
     "staticFc": 0,
@@ -686,6 +924,20 @@
     "label": "—"
   },
   {
+    "fe": "executeMonthlyPayroll",
+    "op": "validateAttendanceBeforePayrollRun",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "executeMonthlyPayroll",
+    "op": "validateHourlyWageBeforePayrollRun",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
     "fe": "executeScheduledJobTask",
     "op": "markReplanCompletedBestEffort",
     "total": 1,
@@ -737,9 +989,9 @@
   {
     "fe": "generateQRCode",
     "op": "generateQRCodeOuterCatch",
-    "total": 1,
-    "staticFc": 1,
-    "label": "FC静（全呼び出し）"
+    "total": 2,
+    "staticFc": 0,
+    "label": "—"
   },
   {
     "fe": "generateQRCode",
@@ -798,6 +1050,13 @@
     "label": "—"
   },
   {
+    "fe": "getBusinessStyles",
+    "op": "config_read",
+    "total": 2,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
     "fe": "getCloseIntegrityData",
     "op": "closeIntegrityAggregate",
     "total": 1,
@@ -817,13 +1076,6 @@
     "total": 1,
     "staticFc": 1,
     "label": "FC静（全呼び出し）"
-  },
-  {
-    "fe": "getLineConfig",
-    "op": "warmupSecrets",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
   },
   {
     "fe": "getMenuItems",
@@ -889,22 +1141,8 @@
     "label": "—"
   },
   {
-    "fe": "getRefundHistory",
-    "op": "",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
     "fe": "getRequiredStaffByTimeSlot",
     "op": "config_read",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "getScheduledTournaments",
-    "op": "",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -925,28 +1163,7 @@
   },
   {
     "fe": "getShifts",
-    "op": "detailErrorLog",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "getShifts",
-    "op": "initCatch",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "getShifts",
     "op": "shiftFetchCatch",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "getShifts",
-    "op": "unknownErrorLog",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -974,7 +1191,7 @@
   },
   {
     "fe": "getTodayTournaments",
-    "op": "",
+    "op": "getTodayTournamentsCatch",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1016,7 +1233,7 @@
   },
   {
     "fe": "getUpcomingTournaments",
-    "op": "",
+    "op": "getUpcomingTournamentsCatch",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1024,7 +1241,7 @@
   {
     "fe": "getUserOrderHistory",
     "op": "",
-    "total": 1,
+    "total": 3,
     "staticFc": 0,
     "label": "—"
   },
@@ -1038,6 +1255,27 @@
   {
     "fe": "initializeStoreConfigCallable",
     "op": "initStoreMetaConfig",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "initReportingConfig",
+    "op": "callable",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "initReportingConfig",
+    "op": "initDocsMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "initReportingConfig",
+    "op": "scriptTopLevelCatch",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1065,42 +1303,42 @@
   },
   {
     "fe": "lineWebhook",
-    "op": "postback",
+    "op": "lineWebhookMissingChannelSecret",
     "total": 1,
     "staticFc": 0,
     "label": "—"
   },
   {
     "fe": "lineWebhook",
-    "op": "replyPostbackDeclineConfirmCatch",
+    "op": "lineWebhookMissingRawBody",
     "total": 1,
     "staticFc": 0,
     "label": "—"
   },
   {
     "fe": "lineWebhook",
-    "op": "replyPostbackDeclineConfirmNotOk",
+    "op": "lineWebhookSignatureSetupFailed",
     "total": 1,
     "staticFc": 0,
     "label": "—"
   },
   {
-    "fe": "lineWebhook",
-    "op": "replyPostbackPlanDisabledCatch",
+    "fe": "linkOkibakeTemporaryEntryToBill",
+    "op": "httpsError",
     "total": 1,
     "staticFc": 0,
     "label": "—"
   },
   {
-    "fe": "lineWebhook",
-    "op": "replyPostbackPlanDisabledNotOk",
+    "fe": "linkOkibakeTemporaryEntryToBill",
+    "op": "linkOkibakeCatch",
     "total": 1,
-    "staticFc": 0,
-    "label": "—"
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
   },
   {
-    "fe": "lineWebhook",
-    "op": "token",
+    "fe": "linkOkibakeTemporaryEntryToBill",
+    "op": "linkOkibakeMainCatch",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1136,7 +1374,7 @@
   {
     "fe": "manualCheckIn",
     "op": "",
-    "total": 1,
+    "total": 2,
     "staticFc": 1,
     "label": "FC静（全呼び出し）"
   },
@@ -1155,6 +1393,20 @@
     "label": "—"
   },
   {
+    "fe": "migrateStoreManagedUserToLine",
+    "op": "migrateMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "migrateStoreManagedUserToLine",
+    "op": "migrateTransaction",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
     "fe": "migrateTodaysBillsAccountingFields",
     "op": "",
     "total": 1,
@@ -1164,20 +1416,6 @@
   {
     "fe": "openAssessmentTask",
     "op": "",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "openStore",
-    "op": "openStoreCatch",
-    "total": 1,
-    "staticFc": 1,
-    "label": "FC静（全呼び出し）"
-  },
-  {
-    "fe": "openStore",
-    "op": "openStoreGenericCatch",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1199,6 +1437,27 @@
   {
     "fe": "openStoreTerminal",
     "op": "openTerminalPreflight",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "openStoreTerminal",
+    "op": "restoreSameDayUnsettled.activeStay",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "openStoreTerminal",
+    "op": "restoreSameDayUnsettled.billTxn",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "openStoreTerminal",
+    "op": "restoreSameDayUnsettled.userCount",
     "total": 1,
     "staticFc": 1,
     "label": "FC静（全呼び出し）"
@@ -1260,36 +1519,8 @@
     "label": "—"
   },
   {
-    "fe": "postEventAdjustment",
-    "op": "",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "postEventCancel",
-    "op": "",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "postEventRefund",
-    "op": "",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "postEventReopen",
-    "op": "",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "processRefund",
-    "op": "",
+    "fe": "placeOrderByUser",
+    "op": "placeOrderHttpsError",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1325,9 +1556,79 @@
   {
     "fe": "processVisitByQR",
     "op": "",
+    "total": 2,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "reactivateStaffAccount",
+    "op": "linkStaffRichMenu",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "reactivateStaffAccount",
+    "op": "reactivateStaffCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "reactivateStaffAccount",
+    "op": "reactivateStaffHttpsError",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "rebuildReportingMonthlyCallable",
+    "op": "callable",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "recordPostSettlementCashAction",
+    "op": "operationForErrorKey(error.errorKey)",
     "total": 1,
     "staticFc": 1,
     "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "recordPostSettlementCashAction",
+    "op": "processCashActionAnalyticsAtomically",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "recordPostSettlementCashAction",
+    "op": "runCashActionTransaction",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "recordPostSettlementCashAction",
+    "op": "writeReportingEntry",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "recordPostSettlementCollection",
+    "op": "recordPostSettlementCollectionCallable",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "recordPostSettlementRefund",
+    "op": "recordPostSettlementRefundCallable",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
   },
   {
     "fe": "recordTournamentAction",
@@ -1359,14 +1660,28 @@
   },
   {
     "fe": "registerForTournament",
-    "op": "recordTournamentAction",
+    "op": "recordSuccessOperationLog",
     "total": 1,
     "staticFc": 0,
     "label": "—"
   },
   {
     "fe": "registerForTournament",
-    "op": "registerTournamentFlow",
+    "op": "registerCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "registerForTournament",
+    "op": "registerGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerForTournament",
+    "op": "registerHttpsError",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1400,6 +1715,27 @@
     "label": "—"
   },
   {
+    "fe": "registerPaymentStatus",
+    "op": "resolveStaffResultDocument",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerTableToSideGame",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "registerTableToTournament",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
     "fe": "rejectAttendanceCorrectionRequest",
     "op": "",
     "total": 1,
@@ -1416,6 +1752,41 @@
   {
     "fe": "removeTableFromTournament",
     "op": "removeTableFromTournamentGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "reopenAccountedBill",
+    "op": "loadCurrentBusinessDateKey",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "reopenAccountedBill",
+    "op": "operationForErrorKey(errorKey)",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "reopenAccountedBill",
+    "op": "processReopenRollbackAnalyticsAtomically",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "reopenAccountedBill",
+    "op": "reopenAccountedBillCallable",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "reopenAccountedBill",
+    "op": "writeReportingRollback",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1463,6 +1834,20 @@
     "label": "—"
   },
   {
+    "fe": "resolveOkibakePendingReviewWithRemotePayment",
+    "op": "resolveOkibakeRemotePaymentCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "resolveOkibakePendingReviewWithRemotePayment",
+    "op": "resolveOkibakeRemotePaymentGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
     "fe": "resumeTournament",
     "op": "resumeTournamentCatch",
     "total": 1,
@@ -1473,6 +1858,13 @@
     "fe": "resumeTournament",
     "op": "resumeTournamentGenericCatch",
     "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "retireStaff",
+    "op": "",
+    "total": 2,
     "staticFc": 0,
     "label": "—"
   },
@@ -1496,6 +1888,13 @@
     "total": 1,
     "staticFc": 1,
     "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "runEnqueueTournamentTasks",
+    "op": "skipInvalidScheduledTournamentDoc",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
   },
   {
     "fe": "runGenerateRecurringTournaments",
@@ -1533,7 +1932,21 @@
     "label": "FC静（全呼び出し）"
   },
   {
+    "fe": "saveBusinessHoursStyles",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
     "fe": "saveQRCodeToStorage",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "saveRequiredStaffByTimeSlotCallable",
     "op": "",
     "total": 1,
     "staticFc": 0,
@@ -1568,34 +1981,6 @@
     "label": "—"
   },
   {
-    "fe": "sendLineButtonMessage",
-    "op": "buttonPushCatch",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "sendLineButtonMessage",
-    "op": "buttonPushResponseNotOk",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "sendLineButtonMessage",
-    "op": "token",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "sendLineButtonMessage",
-    "op": "validate",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
     "fe": "sendLinePushMessage",
     "op": "pushCatch",
     "total": 1,
@@ -1624,8 +2009,36 @@
     "label": "—"
   },
   {
+    "fe": "setInitialUserBalances",
+    "op": "setInitialMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "setInitialUserBalances",
+    "op": "setInitialTransaction",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "setInitialUserBalances",
+    "op": "setInitialValidation",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
     "fe": "setPrizeData",
     "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "setRankingData",
+    "op": "setRankingDataMainCatch",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1641,13 +2054,6 @@
     "fe": "setRankingData",
     "op": "setRankingDataRankings",
     "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "startAccounting",
-    "op": "operationForStartAccountingKey(error.errorKey)",
-    "total": 1,
     "staticFc": 1,
     "label": "FC静（全呼び出し）"
   },
@@ -1660,6 +2066,13 @@
   },
   {
     "fe": "startAccounting",
+    "op": "startAccountingCallableCustom",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "startAccounting",
     "op": "startAccountingRepoCatch",
     "total": 1,
     "staticFc": 0,
@@ -1667,6 +2080,13 @@
   },
   {
     "fe": "startBreak",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "submitShiftRequests",
     "op": "",
     "total": 1,
     "staticFc": 0,
@@ -1722,6 +2142,48 @@
     "label": "—"
   },
   {
+    "fe": "undoOkibakeAddon",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoOkibakeAssignSeat",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoOkibakeBust",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoOkibakeCreateEntry",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoOkibakeLinkToBill",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "undoOkibakeUpdateLinkedUser",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
     "fe": "undoRegisterForTournament",
     "op": "",
     "total": 1,
@@ -1743,7 +2205,28 @@
     "label": "—"
   },
   {
-    "fe": "updateAccounting",
+    "fe": "unlinkRichMenu",
+    "op": "unlinkRichMenuCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "unlinkRichMenu",
+    "op": "unlinkRichMenuHttpFail",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "unregisterTableFromSideGame",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "unregisterTableFromTournament",
     "op": "",
     "total": 1,
     "staticFc": 0,
@@ -1799,6 +2282,13 @@
     "label": "—"
   },
   {
+    "fe": "updateDeviceStatus",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
     "fe": "updateManualClockOutRecord",
     "op": "",
     "total": 1,
@@ -1815,6 +2305,34 @@
   {
     "fe": "updateMenuItem",
     "op": "menuUpdateCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateOkibakeTemporaryEntryLinkedUser",
+    "op": "httpsError",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateOkibakeTemporaryEntryLinkedUser",
+    "op": "updateLinkedUserCatch",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
+  },
+  {
+    "fe": "updateOkibakeTemporaryEntryLinkedUser",
+    "op": "updateLinkedUserMainCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "updateOrderQuantity",
+    "op": "",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1862,6 +2380,13 @@
     "label": "—"
   },
   {
+    "fe": "updateTableDeviceConfigCallable",
+    "op": "",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
     "fe": "updateTournamentRecurrence",
     "op": "",
     "total": 1,
@@ -1890,22 +2415,22 @@
     "label": "—"
   },
   {
-    "fe": "verifyLineIdToken",
-    "op": "",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "verifyPaymentSplit",
-    "op": "verifyPaymentSplitCatch",
+    "fe": "verifyCustomPayment",
+    "op": "verifyCustomPaymentCustom",
     "total": 1,
     "staticFc": 1,
     "label": "FC静（全呼び出し）"
   },
   {
-    "fe": "verifyPaymentSplit",
-    "op": "verifyPaymentSplitGenericCatch",
+    "fe": "verifyCustomPayment",
+    "op": "verifyCustomPaymentGenericCatch",
+    "total": 1,
+    "staticFc": 0,
+    "label": "—"
+  },
+  {
+    "fe": "verifyLineIdToken",
+    "op": "",
     "total": 1,
     "staticFc": 0,
     "label": "—"
@@ -1926,10 +2451,17 @@
   },
   {
     "fe": "withdrawChip",
-    "op": "",
+    "op": "withdrawChipMainCatch",
     "total": 1,
     "staticFc": 0,
     "label": "—"
+  },
+  {
+    "fe": "withdrawChip",
+    "op": "withdrawChipTransaction",
+    "total": 1,
+    "staticFc": 1,
+    "label": "FC静（全呼び出し）"
   },
   {
     "fe": "writeSchedulerDispatchLogBestEffort",

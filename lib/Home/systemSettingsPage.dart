@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import '../globalConstant.dart';
-import 'createTemporaryTablePage.dart';
-
 class SystemSettingsPage extends StatefulWidget {
   const SystemSettingsPage({super.key});
 
@@ -40,26 +38,6 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
               ),
             ),
             const SizedBox(height: 16),
-            // 一時テーブル作成機能
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.table_chart, color: Colors.blue),
-                title: const Text('一時テーブル作成'),
-                subtitle: const Text('トーナメント用の一時テーブルを作成します'),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () {
-                  // TODO: 一時テーブル作成機能の実装
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const CreateTemporaryTablePage(),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            
             // settledBills移管処理
             Card(
               child: ListTile(
@@ -226,7 +204,6 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              '• 一時テーブル作成: トーナメント用のテーブルを動的に作成\n'
               '• settledBills移管: 本機能は開発用です\n'
               '• ダミーデータ生成: テスト用のダミーデータを生成します\n'
               '• 全テーブルリセット: 全テーブルのステータスをopenにリセット\n'
@@ -317,17 +294,22 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
 
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('移管完了: ${result.data['message'] ?? ''}'),
+            const SnackBar(
+              content: Text('移管が完了しました'),
               backgroundColor: Colors.green,
             ),
           );
         }
       } else {
-        _showErrorDialog(result.data['error'] ?? '移管処理に失敗しました');
+        _showErrorDialog(
+          mapCallableSoftFailMessage(
+            result.data,
+            operation: 'migrateSettledBillsForBusinessDay',
+          ),
+        );
       }
     } catch (e) {
       debugPrint('移管処理エラー: $e');
@@ -335,10 +317,15 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
       
-      if (e.toString().contains('UNAUTHENTICATED')) {
+      if (_isUnauthenticatedError(e)) {
         _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
       } else {
-        _showErrorDialog('移管処理に失敗しました: $e');
+        _showErrorDialog(
+          mapCallableError(
+            e,
+            operation: 'migrateSettledBillsForBusinessDay',
+          ).message,
+        );
       }
     } finally {
       setState(() {
@@ -425,17 +412,22 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
 
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('4ヶ月分のダミーデータ生成完了: ${result.data['message'] ?? ''}'),
+            const SnackBar(
+              content: Text('ダミーデータの生成が完了しました'),
               backgroundColor: Colors.green,
             ),
           );
         }
       } else {
-        _showErrorDialog(result.data['error'] ?? 'ダミーデータ生成に失敗しました');
+        _showErrorDialog(
+          mapCallableSoftFailMessage(
+            result.data,
+            operation: 'generateDummyData',
+          ),
+        );
       }
     } catch (e) {
       debugPrint('4ヶ月分のダミーデータ生成エラー: $e');
@@ -443,10 +435,12 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
       
-      if (e.toString().contains('UNAUTHENTICATED')) {
+      if (_isUnauthenticatedError(e)) {
         _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
       } else {
-        _showErrorDialog('4ヶ月分のダミーデータ生成に失敗しました: $e');
+        _showErrorDialog(
+          mapCallableError(e, operation: 'generateDummyData').message,
+        );
       }
     } finally {
       setState(() {
@@ -527,17 +521,22 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
 
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('全テーブルリセット完了: ${result.data['message'] ?? ''}'),
+            const SnackBar(
+              content: Text('全テーブルリセットが完了しました'),
               backgroundColor: Colors.green,
             ),
           );
         }
       } else {
-        _showErrorDialog(result.data['error'] ?? '全テーブルリセットに失敗しました');
+        _showErrorDialog(
+          mapCallableSoftFailMessage(
+            result.data,
+            operation: 'resetAllTables',
+          ),
+        );
       }
     } catch (e) {
       debugPrint('全テーブルリセットエラー: $e');
@@ -545,10 +544,12 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
       
-      if (e.toString().contains('UNAUTHENTICATED')) {
+      if (_isUnauthenticatedError(e)) {
         _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
       } else {
-        _showErrorDialog('全テーブルリセットに失敗しました: $e');
+        _showErrorDialog(
+          mapCallableError(e, operation: 'resetAllTables').message,
+        );
       }
     } finally {
       setState(() {
@@ -629,17 +630,22 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
 
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('全サイドゲームリセット完了: ${result.data['message'] ?? ''}'),
+            const SnackBar(
+              content: Text('全サイドゲームリセットが完了しました'),
               backgroundColor: Colors.green,
             ),
           );
         }
       } else {
-        _showErrorDialog(result.data['error'] ?? '全サイドゲームリセットに失敗しました');
+        _showErrorDialog(
+          mapCallableSoftFailMessage(
+            result.data,
+            operation: 'resetAllSideGames',
+          ),
+        );
       }
     } catch (e) {
       debugPrint('全サイドゲームリセットエラー: $e');
@@ -647,10 +653,12 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
       
-      if (e.toString().contains('UNAUTHENTICATED')) {
+      if (_isUnauthenticatedError(e)) {
         _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
       } else {
-        _showErrorDialog('全サイドゲームリセットに失敗しました: $e');
+        _showErrorDialog(
+          mapCallableError(e, operation: 'resetAllSideGames').message,
+        );
       }
     } finally {
       setState(() {
@@ -748,17 +756,22 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       final result = await callable.call();
       if (!mounted) return;
       if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result.data['message'] ?? '投入完了'),
+            const SnackBar(
+              content: Text('投入が完了しました'),
               backgroundColor: Colors.green,
             ),
           );
         }
       } else {
-        _showErrorDialog(result.data['error'] ?? '投入に失敗しました');
+        _showErrorDialog(
+          mapCallableSoftFailMessage(
+            result.data,
+            operation: 'seedPayrollDemoData',
+          ),
+        );
       }
     } catch (e) {
       debugPrint('seedPayrollDemoData error: $e');
@@ -769,11 +782,15 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
           return;
         }
         if (e.code == 'failed-precondition') {
-          _showErrorDialog(e.message ?? '既にデモデータが存在します。先に削除してください。');
+          _showErrorDialog(
+            mapCallableError(e, operation: 'seedPayrollDemoData').message,
+          );
           return;
         }
       }
-      _showErrorDialog('投入に失敗しました: $e');
+      _showErrorDialog(
+        mapCallableError(e, operation: 'seedPayrollDemoData').message,
+      );
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
@@ -834,17 +851,22 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       final result = await callable.call();
       if (!mounted) return;
       if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result.data['message'] ?? '削除完了'),
+            const SnackBar(
+              content: Text('削除が完了しました'),
               backgroundColor: Colors.green,
             ),
           );
         }
       } else {
-        _showErrorDialog(result.data['error'] ?? '削除に失敗しました');
+        _showErrorDialog(
+          mapCallableSoftFailMessage(
+            result.data,
+            operation: 'deletePayrollDemoData',
+          ),
+        );
       }
     } catch (e) {
       debugPrint('deletePayrollDemoData error: $e');
@@ -855,7 +877,9 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
           return;
         }
       }
-      _showErrorDialog('削除に失敗しました: $e');
+      _showErrorDialog(
+        mapCallableError(e, operation: 'deletePayrollDemoData').message,
+      );
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
@@ -887,17 +911,22 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       final result = await callable.call();
       if (!mounted) return;
       if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result.data['message'] ?? '投入完了'),
+            const SnackBar(
+              content: Text('投入が完了しました'),
               backgroundColor: Colors.green,
             ),
           );
         }
       } else {
-        _showErrorDialog(result.data['error'] ?? '投入に失敗しました');
+        _showErrorDialog(
+          mapCallableSoftFailMessage(
+            result.data,
+            operation: 'seedAttendancesDemo',
+          ),
+        );
       }
     } catch (e) {
       debugPrint('seedAttendancesDemo error: $e');
@@ -908,7 +937,9 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
           return;
         }
       }
-      _showErrorDialog('投入に失敗しました: $e');
+      _showErrorDialog(
+        mapCallableError(e, operation: 'seedAttendancesDemo').message,
+      );
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
@@ -987,7 +1018,7 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
 
-      if (result.data['success'] == true) {
+      if (isCallableSuccessResponse(result.data)) {
         final deleted = result.data['deleted'] ?? 0;
         final failed = result.data['failed'] ?? 0;
         final message = 'Active stays cleanup: deleted=$deleted, failed=$failed';
@@ -1001,7 +1032,12 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
           );
         }
       } else {
-        _showErrorDialog(result.data['error'] ?? '閉店クリーンアップに失敗しました');
+        _showErrorDialog(
+          mapCallableSoftFailMessage(
+            result.data,
+            operation: 'cleanupActiveStaysOnClose',
+          ),
+        );
       }
     } catch (e) {
       debugPrint('閉店クリーンアップエラー: $e');
@@ -1009,11 +1045,9 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       // ローディングダイアログを閉じる
       Navigator.of(context).pop();
       
-      if (e.toString().contains('UNAUTHENTICATED')) {
-        _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
-      } else {
-        _showErrorDialog('閉店クリーンアップに失敗しました: $e');
-      }
+      _showErrorDialog(
+        mapCallableError(e, operation: 'cleanupActiveStaysOnClose').message,
+      );
     } finally {
       setState(() {
         _isProcessing = false;
@@ -1047,8 +1081,13 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       final result = await callable.call();
       if (!mounted) return;
       if (Navigator.of(context).canPop()) Navigator.of(context).pop(); // ローディングを閉じる
-      if (result.data['success'] != true) {
-        _showErrorDialog(result.data['error'] ?? '未会計伝票の取得に失敗しました');
+      if (!isCallableSuccessResponse(result.data)) {
+        _showErrorDialog(
+          mapCallableSoftFailMessage(
+            result.data,
+            operation: 'getUnsettledBillsForClose',
+          ),
+        );
         return;
       }
       final data = result.data['data'] as List<dynamic>? ?? [];
@@ -1073,13 +1112,9 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
     } catch (e) {
       debugPrint('getUnsettledBillsForClose error: $e');
       if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
-      if (e is FirebaseFunctionsException) {
-        if (e.code == 'unauthenticated' || e.code == 'permission-denied') {
-          _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
-          return;
-        }
-      }
-      _showErrorDialog('未会計伝票の取得に失敗しました: $e');
+      _showErrorDialog(
+        mapCallableError(e, operation: 'getUnsettledBillsForClose').message,
+      );
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
@@ -1200,8 +1235,13 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
       });
       if (!mounted) return;
       if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-      if (result.data['success'] != true) {
-        _showErrorDialog(result.data['error'] ?? '閉店時ラベルの付与に失敗しました');
+      if (!isCallableSuccessResponse(result.data)) {
+        _showErrorDialog(
+          mapCallableSoftFailMessage(
+            result.data,
+            operation: 'applyCloseSnapshot',
+          ),
+        );
         return;
       }
       final updatedBillIds = List<String>.from(result.data['updatedBillIds'] ?? []);
@@ -1212,13 +1252,9 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
     } catch (e) {
       debugPrint('applyCloseSnapshot error: $e');
       if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
-      if (e is FirebaseFunctionsException) {
-        if (e.code == 'unauthenticated' || e.code == 'permission-denied') {
-          _showErrorDialog('認証エラー: ログインしてから再度お試しください。');
-          return;
-        }
-      }
-      _showErrorDialog('閉店時ラベルの付与に失敗しました: $e');
+      _showErrorDialog(
+        mapCallableError(e, operation: 'applyCloseSnapshot').message,
+      );
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
@@ -1296,6 +1332,13 @@ class _SystemSettingsPageState extends State<SystemSettingsPage> {
         );
       },
     );
+  }
+
+  bool _isUnauthenticatedError(Object e) {
+    if (e is FirebaseFunctionsException) {
+      return e.code == 'unauthenticated' || e.code == 'permission-denied';
+    }
+    return e.toString().contains('UNAUTHENTICATED');
   }
 
   void _showErrorDialog(String errorMessage) {

@@ -1,5 +1,6 @@
 import 'package:amuse_app_template/user/balance_display.dart';
 import 'package:amuse_app_template/user/point_ids.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -21,6 +22,7 @@ class ChipPointLogsPage extends StatefulWidget {
 class _ChipPointLogsPageState extends State<ChipPointLogsPage> {
   late List<String> _tabs;
   late String _selectedLogType;
+  int _chipReloadToken = 0;
 
   @override
   void initState() {
@@ -65,6 +67,31 @@ class _ChipPointLogsPageState extends State<ChipPointLogsPage> {
       default:
         return reasonType.isEmpty ? '履歴' : reasonType;
     }
+  }
+
+  Widget _historyLoadFailed(VoidCallback? onRetry) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              kUserActionHistoryLoadFailedMessage,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.red[700]),
+            ),
+            if (onRetry != null) ...[
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: onRetry,
+                child: const Text('再読み込み'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -112,7 +139,7 @@ class _ChipPointLogsPageState extends State<ChipPointLogsPage> {
   }
 
   Widget _buildCurrencyPointLogs(String pointType) {
-    // 読取系: 画面領域 CPI のみ
+    // 読取系: 画面領域 CPI のみ。USER-74: タブ単位で fail ≠ empty（他タブを空扱いにしない）
     final query = FirebaseFirestore.instance
         .collection('users')
         .doc(widget.userId)
@@ -127,13 +154,17 @@ class _ChipPointLogsPageState extends State<ChipPointLogsPage> {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError) {
-          return Center(child: Text('履歴の取得に失敗しました: ${snapshot.error}'));
+        final status = resolveUserActionLogLoadStatus(
+          hasError: snapshot.hasError,
+          itemCount: snapshot.data?.docs.length ?? 0,
+        );
+        if (status == UserActionLogLoadStatus.failed) {
+          return _historyLoadFailed(null);
         }
-        final docs = snapshot.data?.docs ?? [];
-        if (docs.isEmpty) {
+        if (status == UserActionLogLoadStatus.empty) {
           return const Center(child: Text('履歴がありません'));
         }
+        final docs = snapshot.data!.docs;
         return ListView.builder(
           itemCount: docs.length,
           itemBuilder: (context, index) {
@@ -189,19 +220,27 @@ class _ChipPointLogsPageState extends State<ChipPointLogsPage> {
   }
 
   Widget _buildChipLogs() {
+    // USER-75: chip Future。失敗 ≠ 空。再読み込み可。ポイントタブとは独立。
     return FutureBuilder<List<_ChipLogRow>>(
+      key: ValueKey(_chipReloadToken),
       future: _loadChipLogs(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError) {
-          return Center(child: Text('履歴の取得に失敗しました: ${snapshot.error}'));
+        final status = resolveUserActionLogLoadStatus(
+          hasError: snapshot.hasError,
+          itemCount: snapshot.data?.length ?? 0,
+        );
+        if (status == UserActionLogLoadStatus.failed) {
+          return _historyLoadFailed(() {
+            setState(() => _chipReloadToken++);
+          });
         }
-        final rows = snapshot.data ?? [];
-        if (rows.isEmpty) {
+        if (status == UserActionLogLoadStatus.empty) {
           return const Center(child: Text('履歴がありません'));
         }
+        final rows = snapshot.data!;
         return ListView.builder(
           itemCount: rows.length,
           itemBuilder: (context, index) {

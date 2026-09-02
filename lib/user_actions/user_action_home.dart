@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:amuse_app_template/tournament/ranking_reward_point_candidates.dart';
-import 'package:amuse_app_template/user_actions/tournament_user_addon_counter.dart';
 import 'order_from_user_action_popup.dart';
 import 'bust_and_reentry_popup.dart';
 import 'bust_and_exit_popup.dart';
@@ -17,6 +16,12 @@ import 'tournament_history_popup.dart';
 import 'profile_popup.dart';
 import 'current_seat_popup.dart';
 import 'current_accounting_popup.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
+import 'package:amuse_app_template/user_actions/action_feedback_dialogs.dart';
+import 'package:amuse_app_template/user_actions/tournament_user_addon_counter.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
+import 'package:amuse_app_template/user_actions/side_game_dialog_layout.dart';
 
 /// When: ユーザー行をタップしてアクションを選択したいとき
 /// Where: StayingUsersListPage などユーザー一覧系の画面
@@ -33,7 +38,6 @@ Future<void> showUserActionHome({
   // How: switch相当の分岐でメニュー定義を返す
   final actions = _buildActionsForSource(sourcePage: sourcePage, user: user);
 
-  final size = MediaQuery.of(context).size;
   final showAddonCounter = sourcePage == 'tableHomeInScheduledTournament' &&
       user['tournamentId'] is String &&
       (user['tournamentId'] as String).isNotEmpty &&
@@ -45,23 +49,18 @@ Future<void> showUserActionHome({
     barrierDismissible: true,
     builder: (dialogContext) {
       const double scale = 1.2; // ポップの縦横スケール
-      // 画面からはみ出さない最大高さ（スクロールさせない想定のため広めに確保）
-      final double maxHeight = size.height - 48;
+      // USER-14: Addon 回数読込失敗時は操作を止める（失敗を 0 回扱いにしない）
+      // 読込中も操作不可（waiting は failure 扱いしないが busy でロック）
       var addonCountLoadFailed = false;
       var addonCountBusy = false;
 
       return StatefulBuilder(
         builder: (context, setMenuState) {
           return Dialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            insetPadding:
-                const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 520 * scale,
-                maxHeight: maxHeight,
-              ),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: KeyboardSafeDialogBody(
+              maxWidth: 520 * scale,
               child: SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
@@ -119,7 +118,8 @@ Future<void> showUserActionHome({
                         itemCount: actions.length,
                         itemBuilder: (context, index) {
                           final a = actions[index];
-                          final disableAddon = showAddonCounter &&
+                          final disableAddon =
+                              showAddonCounter &&
                               (addonCountLoadFailed || addonCountBusy) &&
                               a.label == 'Addon';
                           return _ActionTile(
@@ -129,11 +129,10 @@ Future<void> showUserActionHome({
                             onTap: () {
                               if (disableAddon) {
                                 if (addonCountLoadFailed) {
-                                  ScaffoldMessenger.of(dialogContext)
-                                      .showSnackBar(
+                                  ScaffoldMessenger.of(dialogContext).showSnackBar(
                                     const SnackBar(
                                       content: Text(
-                                        kTournamentUserAddonCountLoadFailedMessage,
+                                        kUserActionAddonCountLoadFailedMessage,
                                       ),
                                     ),
                                   );
@@ -260,7 +259,7 @@ _UserActionItem _buildBlockC(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || userId.isEmpty) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -297,7 +296,7 @@ _UserActionItem _buildBlockE(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || userId.isEmpty) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -334,7 +333,7 @@ _UserActionItem _buildBlockG(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || userId.isEmpty) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -358,7 +357,7 @@ _UserActionItem _buildBlockH(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || userId.isEmpty) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -388,7 +387,7 @@ _UserActionItem _buildBlockI(
         
         if (tournamentId == null || tableId == null || seatNumber == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('トーナメント情報が不足しています')),
+            SnackBar(content: Text(kUserActionTournamentInfoInsufficientMessage)),
           );
           return;
         }
@@ -421,7 +420,7 @@ _UserActionItem _buildBlockJ(
         
         if (tournamentId == null || tableId == null || seatNumber == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('トーナメント情報が不足しています')),
+            SnackBar(content: Text(kUserActionTournamentInfoInsufficientMessage)),
           );
           return;
         }
@@ -452,7 +451,7 @@ _UserActionItem _buildBlockK(
         
         if (tournamentId == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('トーナメント情報が不足しています')),
+            SnackBar(content: Text(kUserActionTournamentInfoInsufficientMessage)),
           );
           return;
         }
@@ -494,7 +493,7 @@ _UserActionItem _buildBlockM(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || pokerName == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -518,7 +517,7 @@ _UserActionItem _buildBlockN(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || pokerName == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -544,7 +543,7 @@ _UserActionItem _buildBlockO(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || pokerName == null || tableId == null || seatNumber == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('SideGame情報が不足しています')),
+            SnackBar(content: Text(kUserActionSideGameInfoMissingMessage)),
           );
           return;
         }
@@ -555,6 +554,7 @@ _UserActionItem _buildBlockO(Map<String, dynamic> user) => _UserActionItem(
           pokerName: pokerName,
           tableId: tableId,
           seatNumber: seatNumber,
+          closeUserActionMenuOnLeaveSuccess: true,
         );
       },
     );
@@ -570,7 +570,7 @@ _UserActionItem _buildBlockP(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || pokerName == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('ユーザー情報が不足しています')),
+            SnackBar(content: Text(kUserActionUserInfoInsufficientMessage)),
           );
           return;
         }
@@ -595,7 +595,7 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
         
         if (userId == null || pokerName == null || tableId == null || seatNumber == null) {
           ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('SideGame情報が不足しています')),
+            SnackBar(content: Text(kUserActionSideGameInfoMissingMessage)),
           );
           return;
         }
@@ -626,6 +626,7 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
         
         if (confirmed == true) {
           if (!ctx.mounted) return;
+          // 更新系: 全面ロック + CPI（成功・失敗とも finally で解除）
           showDialog<void>(
             context: ctx,
             barrierDismissible: false,
@@ -647,29 +648,39 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
               );
             },
           );
+          var leaveSucceeded = false;
           try {
             final functions = FunctionsClient.instance;
             final callable = functions.httpsCallable('leaveSeat');
 
-            await callable.call({
+            final result = await callable.call({
               'tableId': tableId,
               'seatNumber': seatNumber,
               'userId': userId,
             });
 
-            if (ctx.mounted) {
+            // USER-13: success==true のときのみ退席完了扱い。
+            leaveSucceeded = isCallableSuccessResponse(result.data);
+            if (!ctx.mounted) return;
+            if (!leaveSucceeded) {
               ScaffoldMessenger.of(ctx).showSnackBar(
                 SnackBar(
-                  content: Text('${pokerName}様を退席させました'),
-                  backgroundColor: Colors.green,
+                  content: Text(mapCallableSoftFailMessage(result.data)),
+                  backgroundColor: Colors.red,
                 ),
               );
             }
           } catch (e) {
+            leaveSucceeded = false;
             if (ctx.mounted) {
               ScaffoldMessenger.of(ctx).showSnackBar(
                 SnackBar(
-                  content: Text('退席処理に失敗しました: $e'),
+                  content: Text(
+                    buildAsyncActionErrorMessage(
+                      e,
+                      defaultMessage: kUserActionLeaveSeatFailedMessage,
+                    ),
+                  ),
                   backgroundColor: Colors.red,
                 ),
               );
@@ -677,6 +688,23 @@ _UserActionItem _buildBlockQ(Map<String, dynamic> user) => _UserActionItem(
           } finally {
             if (ctx.mounted) {
               Navigator.of(ctx, rootNavigator: true).pop();
+            }
+          }
+
+          if (!ctx.mounted) return;
+          if (leaveSucceeded) {
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              SnackBar(
+                content: Text('${pokerName}様を退席させました'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            // CLN-B3: 退席成功後は参加前提の操作メニューを閉じる（失敗時は残す）。
+            if (shouldCloseUserActionMenuAfterLeave(
+              operationSucceeded: true,
+              leftSeat: true,
+            )) {
+              Navigator.of(ctx).pop();
             }
           }
         }
@@ -775,3 +803,4 @@ class _ActionTile extends StatelessWidget {
     );
   }
 }
+

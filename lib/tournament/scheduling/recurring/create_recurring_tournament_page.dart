@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/tournament/active/tournament_service.dart' show kDevPlaceholderStoreId, kDevPlaceholderTenantId;
+import 'package:amuse_app_template/tournament/scheduling/errors/tournament_admin_user_facing_errors.dart';
 
 /// 定期開催トーナメント作成画面
 class CreateRecurringTournamentPage extends StatefulWidget {
@@ -14,6 +16,8 @@ class CreateRecurringTournamentPage extends StatefulWidget {
 class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamentPage> {
   List<Map<String, dynamic>> _tournamentTemplates = [];
   bool _isLoading = false;
+  bool _templatesLoading = true;
+  bool _templatesLoadFailed = false;
   
   // フォームの状態
   Map<String, dynamic>? _selectedTemplate;
@@ -64,33 +68,69 @@ class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamen
 
   /// トーナメントテンプレートを読み込み
   Future<void> _loadTournamentTemplates() async {
+    setState(() {
+      _templatesLoading = true;
+      _templatesLoadFailed = false;
+    });
+
     try {
       debugPrint('=== テンプレート読み込み開始 ===');
       final result = await FunctionsClient.instance
           .httpsCallable('getTournamentTemplates')
           .call();
 
-      debugPrint('Cloud Function レスポンス: ${result.data}');
-      
-      if (result.data['success'] == true) {
-        final templatesRaw = result.data['tournamentTemplates'] as List;
+      debugPrint('Cloud Function レスポンス完了');
+
+      if (isCallableSuccessResponse(result.data)) {
+        final templatesRaw = result.data['tournamentTemplates'] as List? ?? [];
         debugPrint('取得したテンプレート数: ${templatesRaw.length}');
-        
-        // 型変換を明示的に行う
+
         final templates = templatesRaw.map((template) {
           return Map<String, dynamic>.from(template as Map);
         }).toList();
-        
+
+        if (!mounted) return;
         setState(() {
           _tournamentTemplates = templates;
+          _templatesLoadFailed = false;
+          _templatesLoading = false;
         });
-        
+
         debugPrint('テンプレート読み込み完了: ${_tournamentTemplates.length}件');
       } else {
-        debugPrint('Cloud Function エラー: ${result.data['error']}');
+        if (!mounted) return;
+        setState(() {
+          _tournamentTemplates = [];
+          _templatesLoadFailed = true;
+          _templatesLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(mapTournamentAdminSoftFail(result.data)),
+            action: SnackBarAction(
+              label: '再試行',
+              onPressed: _loadTournamentTemplates,
+            ),
+          ),
+        );
       }
     } catch (e) {
-      debugPrint('テンプレートの読み込みに失敗しました: $e');
+      debugPrint('テンプレートの読み込みに失敗しました');
+      if (!mounted) return;
+      setState(() {
+        _tournamentTemplates = [];
+        _templatesLoadFailed = true;
+        _templatesLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(kTournamentAdminTemplatesLoadFailedMessage),
+          action: SnackBarAction(
+            label: '再試行',
+            onPressed: _loadTournamentTemplates,
+          ),
+        ),
+      );
     }
   }
 
@@ -167,20 +207,36 @@ class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamen
           .httpsCallable('createTournamentRecurrence')
           .call(requestData);
 
+      if (!mounted) return;
+
       if (result.data['success'] == true) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(result.data['message'])),
-          );
-          Navigator.pop(context);
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('定期開催トーナメントを作成しました')),
+        );
+        Navigator.pop(context);
       } else {
-        throw Exception(result.data['error'] ?? '定期開催トーナメントの作成に失敗しました');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              mapTournamentAdminSoftFail(
+                result.data,
+                operation: kCreateTournamentRecurrenceOperation,
+              ),
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: $e')),
+          SnackBar(
+            content: Text(
+              mapTournamentAdminCallableError(
+                e,
+                operation: kCreateTournamentRecurrenceOperation,
+              ),
+            ),
+          ),
         );
       }
     } finally {
@@ -198,13 +254,37 @@ class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamen
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
       ),
-      body: _isLoading
+      body: _templatesLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+          : _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (_templatesLoadFailed) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        border: Border.all(color: Colors.red.shade200),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(kTournamentAdminTemplatesLoadFailedMessage),
+                          TextButton(
+                            onPressed: _loadTournamentTemplates,
+                            child: const Text('再試行'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   // テンプレート選択
                   const Text(
                     'トーナメントテンプレート',
@@ -395,7 +475,9 @@ class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamen
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _createRecurringTournament,
+                      onPressed: (_isLoading || _templatesLoadFailed)
+                          ? null
+                          : _createRecurringTournament,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue,
                         foregroundColor: Colors.white,

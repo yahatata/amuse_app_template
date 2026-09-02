@@ -62,6 +62,7 @@ void main() {
       final r = LinkOkibakeTemporaryEntryToBillResult.fromCallableData(null);
       expect(r.success, false);
       expect(r.errorMessage, isNotNull);
+      expect(r.errorMessage, isNot(contains('null')));
     });
   });
 

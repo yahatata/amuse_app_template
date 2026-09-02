@@ -4,6 +4,7 @@
 /// 参照フィールド: analyticsMonthly/{YYYY-MM}/byCategory/summary.itemSales
 /// 遅延ロード: なし（データは既に取得済み）
 
+import 'package:amuse_app_template/dashboard/errors/dashboard_user_facing_errors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -148,8 +149,12 @@ class _CategoryItemBreakdownPageState extends ConsumerState<CategoryItemBreakdow
           return _buildItemBreakdownContent(context, categorySummary);
         },
         loading: () => _buildSkeletonContent(context),
-        error: (error, stack) => Center(
-          child: Text('エラーが発生しました: $error'),
+        error: (error, stack) => dashboardLoadErrorWidget(
+          message: mapDashboardLoadError(error),
+          onRetry: () {
+            final month = ref.read(selectedMonthProvider);
+            ref.invalidate(categorySummaryProvider(month));
+          },
         ),
       ),
     );

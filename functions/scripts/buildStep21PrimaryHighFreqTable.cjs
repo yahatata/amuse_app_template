@@ -8,7 +8,7 @@ const path = require("path");
 const ts = require("typescript");
 
 const ROOT = path.join(__dirname, "..", "src");
-const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data", "unused_function_lib"]);
+const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data"]);
 const EXCLUDE_FILES = new Set([
   path.normalize(path.join(ROOT, "domains/analytics/callables/generateDummyData.ts")),
   path.normalize(path.join(ROOT, "domains/sideGame/callables/debugSideGame.ts")),
@@ -26,14 +26,12 @@ const STATIC_FC_LINES = new Set([
   "src/domains/scheduler/replan/enqueueTournamentTasksReplanRequest.ts:129",
   "src/domains/scheduler/replan/enqueueTournamentTasksReplanRequest.ts:146",
   "src/domains/scheduler/replan/enqueueTournamentTasksReplanTask.ts:132",
-  "src/domains/storeMeta/callables/closeStore.ts:76",
   "src/domains/storeMeta/callables/closeStoreTerminal.ts:149",
   "src/domains/storeMeta/callables/closeStoreTerminal.ts:171",
   "src/domains/storeMeta/callables/closeStoreTerminal.ts:428",
   "src/domains/storeMeta/callables/closeStoreTerminal.ts:502",
   "src/domains/storeMeta/callables/closeStoreTerminal.ts:551",
   "src/domains/storeMeta/callables/continueBusinessTerminal.ts:330",
-  "src/domains/storeMeta/callables/openStore.ts:105",
   "src/domains/storeMeta/callables/openStoreTerminal.ts:50",
   "src/domains/storeMeta/callables/openStoreTerminal.ts:82",
   "src/domains/storeMeta/callables/openStoreTerminal.ts:221",
@@ -279,7 +277,7 @@ function main() {
   let md = `# 重要度判定 Step 2-1: 主要業務 / 高頻度業務 判定単位一覧（実質 269 件スコープ）
 
 - **根拠要件**: \`エラーログ_重要度判定要件定義.md\` §6.6（主要業務・高頻度業務の定義）
-- **対象**: \`logOpsError\` 呼び出し **269 件**（\`functions/src\` から \`debug\` / \`demo_data\` / \`unused_function_lib\` を除き、\`generateDummyData\` / \`debugSideGame\` を除く）
+- **対象**: \`logOpsError\` 呼び出し **269 件**（\`functions/src\` から \`debug\` / \`demo_data\` を除き、\`generateDummyData\` / \`debugSideGame\` を除く）
 - **判定単位**: \`operation\` なし → \`functionEntry\` のみ。 \`operation\` あり → \`functionEntry\` + \`operation\`（式は短縮表示）
 - **service**: \`serviceByFunctionEntry.ts\` / \`functionEntry_service_対応表.md\` 由来（補助）
 - **静的 function_custom 確定（52 件）**: サンプル行が \`countStaticFunctionCustomLogOps.cjs\` と同一条件の一覧に含まれる単位。判断メモに記載。

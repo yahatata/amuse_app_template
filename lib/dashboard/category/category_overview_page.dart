@@ -4,6 +4,7 @@
 /// 参照フィールド: analyticsMonthly/{YYYY-MM}（月次Doc）、byCategory/summary（商品別）
 /// 遅延ロード: あり（商品別データは初回ロード時）
 
+import 'package:amuse_app_template/dashboard/errors/dashboard_user_facing_errors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -160,8 +161,12 @@ class _CategoryOverviewPageState extends ConsumerState<CategoryOverviewPage>
         return _buildCategoryContent(context, monthlyData, categorySummaryAsync);
       },
       loading: () => _buildSkeletonContent(context),
-      error: (error, stack) => Center(
-        child: Text('エラーが発生しました: $error'),
+      error: (error, stack) => dashboardLoadErrorWidget(
+        message: mapDashboardLoadError(error),
+        onRetry: () {
+          final month = ref.read(selectedMonthProvider);
+          ref.invalidate(monthlyDataProvider(month));
+        },
       ),
     );
   }
@@ -177,8 +182,9 @@ class _CategoryOverviewPageState extends ConsumerState<CategoryOverviewPage>
         return _buildYearlyComparisonContent(context, yearlyData);
       },
       loading: () => _buildSkeletonContent(context),
-      error: (error, stack) => Center(
-        child: Text('エラーが発生しました: $error'),
+      error: (error, stack) => dashboardLoadErrorWidget(
+        message: mapDashboardLoadError(error),
+        onRetry: () => ref.invalidate(yearlyDataProvider(_selectedYear)),
       ),
     );
   }
@@ -312,8 +318,15 @@ class _CategoryOverviewPageState extends ConsumerState<CategoryOverviewPage>
             loading: () => const Center(
               child: CircularProgressIndicator(),
             ),
-            error: (error, stack) => Center(
-              child: Text('エラーが発生しました: $error'),
+            error: (error, stack) => dashboardLoadErrorWidget(
+              message: dashboardStreamErrorMessage(
+                hasStaleData: false,
+                isPartial: true,
+              ),
+              onRetry: () {
+                final month = ref.read(selectedMonthProvider);
+                ref.invalidate(categorySummaryProvider(month));
+              },
             ),
           ),
         ],
@@ -480,7 +493,7 @@ class _CategoryOverviewPageState extends ConsumerState<CategoryOverviewPage>
               );
             },
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, stack) => const Text('エラーが発生しました'),
+            error: (error, stack) => Text(kDashboardLoadFailedMessage),
           );
         },
       ),
