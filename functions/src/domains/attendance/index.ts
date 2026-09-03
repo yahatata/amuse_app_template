@@ -27,6 +27,5 @@ export { cancelPayrollRun } from "./callables/cancelPayrollRun";
 export { registerPaymentStatus } from "./callables/registerPaymentStatus";
 export { processStaffPayroll } from "./tasks/processStaffPayroll";
 export { finalizePayrollRun } from "./tasks/finalizePayrollRun";
-export { seedAttendancesDemo } from "./callables/seedAttendancesDemo";
 export { processPayrollNotifications } from "./tasks/processPayrollNotifications";
 export { attendanceOnWrite } from "./triggers/attendanceOnWrite";

@@ -1,6 +1,4 @@
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
 
 /** Phase6 Step3: ターミナルから呼ぶ core。共通化用。 */
 export async function runResetAllSideGames(
@@ -44,33 +42,3 @@ export async function runResetAllSideGames(
   await batch.commit();
   return { count };
 }
-
-export const resetAllSideGames = onCall(async (request) => {
-  try {
-    const db = getFirestore();
-    const { count } = await runResetAllSideGames(db);
-    logOpsSuccess({
-      message: 'resetAllSideGames 成功',
-      functionEntry: 'resetAllSideGames',
-      context: { sideGamesResetCount: count },
-    });
-
-    return {
-      success: true,
-      message: count === 0 ? 'サイドゲームが存在しません' : `${count}件のサイドゲームをリセットしました`,
-      count,
-    };
-  } catch (error) {
-    logOpsError({
-      message: 'resetAllSideGamesエラー:',
-      functionEntry: 'resetAllSideGames',
-      cause: error,
-      context: { callerUid: request.auth?.uid ?? null },
-    });
-    throw new HttpsError(
-      'internal',
-      `全サイドゲームリセットに失敗しました: ${error}`
-    );
-  }
-});
-

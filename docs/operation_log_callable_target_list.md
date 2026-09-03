@@ -397,10 +397,10 @@ operationLogs は定期トリガーで古いドキュメントを削除する。
 | 2 | op-210 | 開店ターミナル処理 | 翌営業日の初期化等。 | openStoreTerminal | 運用ログとして有用。 | - |
 | 2 | op-211 | 閉店ターミナル処理 | 未会計付与→reset→cleanup→migrate→finalize をステップ実行。lastCompletedStep で進捗記録、runId で再開可能。 | closeStoreTerminal | 再開・ロールバック仕組みあり。外す条件①に近い。 | - |
 | 2 | op-212 | 営業継続ターミナル処理 | 日跨ぎ時の状態更新。 | continueBusinessTerminal | 運用・監査に有用。 | - |
-| 2 | op-213 | サイドゲームリセット | サイドゲーム状態を初期化。 | resetAllSideGames, closeStoreTerminal（resetSideGames） | 再設定で訂正可能。 | - |
-| 2 | op-214 | 卓リセット | 卓状態を初期化。 | resetAllTables, closeStoreTerminal（resetTables） | 同上。 | - |
-| 2 | op-215 | 滞在データクリーンアップ | 閉店時 activeStays を整理。 | cleanupActiveStaysOnClose, closeStoreTerminal（cleanupActiveStays） | 閉店プロセスの一部。 | - |
-| 2 | op-216 | 未会計伝票をアナリティクスに移管 | 会計済み伝票を BigQuery 等へ送信。 | migrateSettledBillsForBusinessDay, closeStoreTerminal（migrateMissedSettlements） | 移行バッチ。冪等性に依存。 | - |
+| 2 | op-213 | サイドゲームリセット | サイドゲーム状態を初期化。 | closeStoreTerminal（resetSideGames / 内部 `runResetAllSideGames`） | 再設定で訂正可能。 | - |
+| 2 | op-214 | 卓リセット | 卓状態を初期化。 | closeStoreTerminal（resetTables / 内部 `runResetAllTables`） | 同上。 | - |
+| 2 | op-215 | 滞在データクリーンアップ | 閉店時 activeStays を整理。 | closeStoreTerminal（cleanupActiveStays / 内部 `runCleanupActiveStays`）。logOps 論理 FE は `cleanupActiveStaysOnClose` | 閉店プロセスの一部。 | - |
+| 2 | op-216 | 精算済み伝票をアナリティクスに移管 | 会計済み伝票を月次分析へ移管。 | closeStoreTerminal（migrateMissedSettlements / 内部 `runMigrateSettledBillsForBusinessDay`）。logOps 論理 FE は `migrateSettledBillsForBusinessDay` | 移行バッチ。冪等性に依存。 | - |
 | 2 | op-216b | 閉店状態を確定する | storeMeta を closed に更新。processing 解放。 | closeStoreTerminal（finalizeCloseStateDoc） | 閉店ターミナル処理の最終ステップ。 | - |
 
 **集計: 10 操作**
@@ -490,7 +490,7 @@ operationLogs は定期トリガーで古いドキュメントを削除する。
 |-----|----------|------------------------|------|
 | | 参照系 | getActionLogs, getBillPreviewTotals, getOpenBills, getUnsettledBillsForClose, getPayrollData, getPrizeData, getRankingData, getScheduledTournaments, getScheduledTournamentsForEdit, getShifts, getStaffAttendance, getAllStaffAttendance, getStaffListForAttendance, getAttendanceCorrectionRequests, getTodayTournaments, getTournamentRecurrences, getUpcomingTournaments, getBlindTemplates, getTournamentTemplates, getAvailableTables, getMenuItems, getUserOrderHistory, getUserStatus | データ取得のみ。書き込みなし。 |
 | | 検証系 | verifyPaymentSplit, verifyQRCode, validateEndTournament, checkExistingCorrectionRequest, calculateInsufficientDays | 照合・判定・算出のみ。書き込みなし。 |
-| | デバッグ系 | calculateFirestoreSize, generateDummyData | 開発・検証・テスト用。本番ログ対象外。 |
+| | デバッグ・保守系 | calculateFirestoreSize | 保守用サイズ計算。**KEEP**（undeploy しない）。demo `generateDummyData` は source 削除・production undeploy **完了**（2026-09-04）。 |
 
 **集計: 34 Callable（参照・検証・デバッグとして L3）**
 

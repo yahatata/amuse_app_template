@@ -8,7 +8,7 @@
  *     （成功側が厚いのに失敗側が薄いときの目印。catch のみのファイルは偽陽性になりやすい）
  *  4. ERROR_COUNT_GT_SUCCESS — ファイル内 logOpsError 呼び出し数 > logOpsSuccess（相関の片方が欠けている疑い）
  *
- * 除外: debug/, demo_data/（recommendLogOpsContext269 と同趣旨）
+ * 除外: node_modules
  *
  * 実行: node functions/scripts/auditLogOpsSuccessCorrelation.cjs
  * オプション: --json （JSON のみ stdout）
@@ -18,7 +18,7 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "..", "src");
-const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data"]);
+const EXCLUDE_DIRS = new Set(["node_modules"]);
 
 /** @param {string} s @param {number} openBraceIndex index of '{' */
 function findMatchingBrace(s, openBraceIndex) {

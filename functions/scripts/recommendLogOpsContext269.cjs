@@ -23,11 +23,7 @@ const path = require("path");
 const ts = require("typescript");
 
 const ROOT = path.join(__dirname, "..", "src");
-const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data"]);
-const EXCLUDE_FILES = new Set([
-  path.normalize(path.join(ROOT, "domains/analytics/callables/generateDummyData.ts")),
-  path.normalize(path.join(ROOT, "domains/sideGame/callables/debugSideGame.ts")),
-]);
+const EXCLUDE_DIRS = new Set(["node_modules"]);
 
 /** 追加入力候補（recommendedAdd）を出さない logOps 呼び出し: `相対パス:行`（`path.relative(functions, file)` 相当・区切りは `/`） */
 const SCOPE_FALSE_POSITIVE_WAIVE = new Set([
@@ -156,7 +152,6 @@ function walkTsFiles(dir, list = []) {
       if (EXCLUDE_DIRS.has(ent.name)) continue;
       walkTsFiles(full, list);
     } else if (ent.isFile() && ent.name.endsWith(".ts")) {
-      if (EXCLUDE_FILES.has(path.normalize(full))) continue;
       list.push(full);
     }
   }

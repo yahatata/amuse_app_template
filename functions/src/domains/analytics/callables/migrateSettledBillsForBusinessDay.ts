@@ -1,49 +1,6 @@
-import { onCall } from "firebase-functions/v2/https";
-import { getFirestore, Firestore } from "firebase-admin/firestore";
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { Firestore } from "firebase-admin/firestore";
+import { logOpsError } from "../../../shared/logging/logOpsError";
 import { processBillAnalyticsAtomically } from "../services/updateAnalyticsForBill";
-
-/** storeMeta/currentBusinessDay のドキュメントパス */
-const STORE_META_CURRENT_BUSINESS_DAY = "currentBusinessDay";
-
-/**
- * 移管対象の営業日を storeMeta から取得する。
- * - currentBusinessDateKey が設定されていればそれを使用（営業中＝その日を移管対象とする）。
- * - null の場合は lastClosedBusinessDateKey を使用（閉店後＝直近に閉店した営業日を移管対象とする）。
- */
-async function getBusinessDateFromStoreMeta(db: Firestore): Promise<string> {
-  const docRef = db.collection("storeMeta").doc(STORE_META_CURRENT_BUSINESS_DAY);
-  const doc = await docRef.get();
-
-  if (!doc.exists) {
-    throw new Error(
-      "storeMeta/currentBusinessDay が存在しません。初期化スクリプトを実行してください。"
-    );
-  }
-
-  const data = doc.data();
-  if (!data) {
-    throw new Error("storeMeta/currentBusinessDay のデータが取得できません。");
-  }
-
-  const currentBusinessDateKey = data.currentBusinessDateKey as string | null | undefined;
-  const lastClosedBusinessDateKey = data.lastClosedBusinessDateKey as string | null | undefined;
-
-  const businessDate =
-    currentBusinessDateKey != null && typeof currentBusinessDateKey === "string" && currentBusinessDateKey.trim() !== ""
-      ? currentBusinessDateKey.trim()
-      : lastClosedBusinessDateKey != null && typeof lastClosedBusinessDateKey === "string" && lastClosedBusinessDateKey.trim() !== ""
-        ? lastClosedBusinessDateKey.trim()
-        : null;
-
-  if (businessDate == null) {
-    throw new Error(
-      "storeMeta/currentBusinessDay に currentBusinessDateKey も lastClosedBusinessDateKey も設定されていません。営業日を特定できません。"
-    );
-  }
-
-  return businessDate;
-}
 
 /** Phase6 Step3: ターミナルから呼ぶ core。営業日を指定して移管を実行する。閉店完了ダイアログ表示用に processedPokerNames を返す。 */
 export async function runMigrateSettledBillsForBusinessDay(
@@ -113,49 +70,3 @@ export async function runMigrateSettledBillsForBusinessDay(
 
   return { processedCount, skippedCount, month, processedPokerNames };
 }
-
-export const migrateSettledBillsForBusinessDay = onCall(async (request) => {
-  const db = getFirestore();
-
-  try {
-    const businessDate = await getBusinessDateFromStoreMeta(db);
-    const result = await runMigrateSettledBillsForBusinessDay(db, businessDate);
-    const { processedCount, skippedCount, month } = result;
-
-    logOpsSuccess({
-      message: "migrateSettledBillsForBusinessDay 成功",
-      functionEntry: "migrateSettledBillsForBusinessDay",
-      operation: "callable",
-      context: {
-        businessDate,
-        processedCount,
-        skippedCount,
-        month,
-        processedPokerNamesCount: result.processedPokerNames.length,
-      },
-    });
-
-    return {
-      success: true,
-      processedCount,
-      skippedCount,
-      month,
-      businessDate,
-      message:
-        result.processedCount === 0 && result.skippedCount === 0
-          ? '移管対象のドキュメントがありません'
-          : `移管処理完了: 処理=${processedCount}件, スキップ=${skippedCount}件`,
-    };
-  } catch (error) {
-    logOpsError({
-      message: '移管処理エラー:',
-      functionEntry: 'migrateSettledBillsForBusinessDay',
-      operation: 'callable',
-      cause: error,
-    });
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-});

@@ -407,13 +407,6 @@
   },
   {
     "fe": "cleanupActiveStaysOnClose",
-    "op": "cleanupOuterCatch",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "cleanupActiveStaysOnClose",
     "op": "deleteActiveStayDocument",
     "total": 1,
     "staticFc": 1,
@@ -1380,13 +1373,6 @@
   },
   {
     "fe": "migrateSettledBillsForBusinessDay",
-    "op": "callable",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "migrateSettledBillsForBusinessDay",
     "op": "runMigratePerBill",
     "total": 1,
     "staticFc": 0,
@@ -1815,20 +1801,6 @@
   {
     "fe": "reseatAllPlayers",
     "op": "updatePlacePerAssignmentBestEffort",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "resetAllSideGames",
-    "op": "",
-    "total": 1,
-    "staticFc": 0,
-    "label": "—"
-  },
-  {
-    "fe": "resetAllTables",
-    "op": "",
     "total": 1,
     "staticFc": 0,
     "label": "—"

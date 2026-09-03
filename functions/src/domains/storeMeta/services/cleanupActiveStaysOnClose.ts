@@ -1,11 +1,5 @@
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
-import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
-import {
-  getCallerDeviceByUid,
-  hasStoreManagementPermission,
-  isActive,
-} from '../../../shared/devices';
+import { logOpsError } from "../../../shared/logging/logOpsError";
 
 /** Phase6 Step3: ターミナルから呼ぶ core。共通化用。 */
 export async function runCleanupActiveStays(
@@ -69,61 +63,3 @@ export async function runCleanupActiveStays(
 
   return { deleted, failed, unsettledBillIds };
 }
-
-/**
- * 閉店時に activeStays をクリーンアップする callable
- * 営業管理可能（admin または terminal＋store_management）かつ有効なデバイスのみ実行可能
- */
-export const cleanupActiveStaysOnClose = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', '認証が必要です');
-  }
-
-  const callerUid = request.auth.uid;
-  const db = getFirestore();
-
-  const device = await getCallerDeviceByUid(callerUid);
-  if (!device || !isActive(device.status) || !hasStoreManagementPermission(device)) {
-    throw new HttpsError('permission-denied', '営業管理の権限がありません');
-  }
-
-  try {
-    const start = Date.now();
-    const result = await runCleanupActiveStays(db);
-    const elapsedMs = Date.now() - start;
-
-    logOpsSuccess({
-      message: 'cleanupActiveStaysOnClose 成功',
-      functionEntry: 'cleanupActiveStaysOnClose',
-      operation: 'cleanupCallable',
-      context: {
-        callerUid,
-        deleted: result.deleted,
-        failed: result.failed,
-        elapsedMs,
-        unsettledBillIdsCount: result.unsettledBillIds.length,
-      },
-    });
-
-    return {
-      success: true,
-      deleted: result.deleted,
-      failed: result.failed,
-      elapsedMs,
-      unsettledBillIds:
-        result.unsettledBillIds.length > 0 ? result.unsettledBillIds : undefined,
-    };
-  } catch (error) {
-    logOpsError({
-      message: 'cleanupActiveStaysOnClose: error',
-      functionEntry: 'cleanupActiveStaysOnClose',
-      operation: 'cleanupOuterCatch',
-      cause: error,
-    });
-    throw new HttpsError(
-      'internal',
-      `閉店クリーンアップに失敗しました: ${error}`
-    );
-  }
-});
-

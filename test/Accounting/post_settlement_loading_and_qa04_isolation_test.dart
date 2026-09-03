@@ -20,11 +20,22 @@ void main() {
       expect(source.contains("'会計後操作'"), isTrue);
     });
 
-    test('冪等再送ページ本体ファイルは残置（削除しない）', () {
+    test('冪等再送 QA page source is deleted', () {
       expect(
-        File('lib/Accounting/postSettlementIdempotencyReplayPage.dart').existsSync(),
-        isTrue,
+        File('lib/Accounting/postSettlementIdempotencyReplayPage.dart')
+            .existsSync(),
+        isFalse,
       );
+    });
+
+    test('PostSettlementIdempotencyReplayPage is not rewired in Terminal', () {
+      final source = File('lib/Home/terminalHomePage.dart').readAsStringSync();
+      expect(source.contains('PostSettlementIdempotencyReplayPage'), isFalse);
+      expect(
+        source.contains('postSettlementIdempotencyReplayPage.dart'),
+        isFalse,
+      );
+      expect(source.contains('会計後操作 冪等再送確認'), isFalse);
     });
   });
 

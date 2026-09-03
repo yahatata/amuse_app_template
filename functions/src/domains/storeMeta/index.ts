@@ -12,9 +12,6 @@ export { closeAssessmentTask } from './callables/closeAssessmentTask';
 export { openAssessmentTask } from './callables/openAssessmentTask';
 export { temporaryUnlockAlreadyRunningDifferentDateTerminal } from './callables/temporaryUnlockAlreadyRunningDifferentDateTerminal';
 // 閉店まわり（Phase2B: close_process から移管）
-export { resetAllTables } from './services/resetAllTables';
-export { resetAllSideGames } from './services/resetAllSideGames';
-export { cleanupActiveStaysOnClose } from './services/cleanupActiveStaysOnClose';
 export { getUnsettledBillsForClose } from './services/getUnsettledBillsForClose';
 export { getUnclockedStaffForClose } from './services/getUnclockedStaffForClose';
 export { updateUnclockedAttendanceWithAuth } from './callables/updateUnclockedAttendanceWithAuth';
