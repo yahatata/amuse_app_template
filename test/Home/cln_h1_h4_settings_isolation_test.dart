@@ -21,15 +21,23 @@ void main() {
       expect(src.contains('_startCloseFlow'), isTrue);
     });
 
-    test('SystemSettings page class remains for non-sales use', () {
+    test('SystemSettings page source is deleted', () {
       expect(
         File('lib/Home/systemSettingsPage.dart').existsSync(),
-        isTrue,
+        isFalse,
       );
-      final src = File('lib/Home/systemSettingsPage.dart').readAsStringSync();
-      expect(src.contains('class SystemSettingsPage'), isTrue);
-      expect(src.contains('全テーブルリセット'), isTrue);
-      expect(src.contains('全サイドゲームリセット'), isTrue);
+    });
+
+    test('SystemSettingsPage is not rewired in sales-visible Home sources', () {
+      for (final path in [
+        'lib/Home/terminalHomePage.dart',
+        'lib/Home/adminHomePage.dart',
+        'lib/pages/admin_detail_settings_page.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains('SystemSettingsPage'), isFalse, reason: path);
+        expect(src.contains('systemSettingsPage.dart'), isFalse, reason: path);
+      }
     });
   });
 
@@ -47,13 +55,6 @@ void main() {
       final src = File('lib/Home/adminHomePage.dart').readAsStringSync();
       expect(src.contains("label: '詳細設定'"), isTrue);
       expect(src.contains('AdminDetailSettingsPage'), isTrue);
-    });
-
-    test('SystemSettings no longer hosts temporary-table tile', () {
-      final src = File('lib/Home/systemSettingsPage.dart').readAsStringSync();
-      expect(src.contains('CreateTemporaryTablePage'), isFalse);
-      expect(src.contains('createTemporaryTablePage.dart'), isFalse);
-      expect(src.contains('一時テーブル作成'), isFalse);
     });
 
     test('temporary-table page still calls existing callable', () {

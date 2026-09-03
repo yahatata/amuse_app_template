@@ -1,6 +1,6 @@
 /**
  * Regenerate functions/scripts/generated/_staticFcUnits.json from current source.
- * Same walk scope as extractLogOpsJudgmentUnits.cjs (excludes debug, demo_data, generateDummyData, debugSideGame).
+ * Same walk scope as extractLogOpsJudgmentUnits.cjs.
  *
  * Usage (from functions/):
  *   node scripts/regenerateStaticFcUnits.cjs
@@ -12,11 +12,7 @@ const ts = require("typescript");
 
 const ROOT = path.join(__dirname, "..", "src");
 const OUT = path.join(__dirname, "generated", "_staticFcUnits.json");
-const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data"]);
-const EXCLUDE_FILES = new Set([
-  path.normalize(path.join(ROOT, "domains/analytics/callables/generateDummyData.ts")),
-  path.normalize(path.join(ROOT, "domains/sideGame/callables/debugSideGame.ts")),
-]);
+const EXCLUDE_DIRS = new Set(["node_modules"]);
 
 function walkTsFiles(dir, list = []) {
   if (!fs.existsSync(dir)) return list;
@@ -26,7 +22,6 @@ function walkTsFiles(dir, list = []) {
       if (EXCLUDE_DIRS.has(ent.name)) continue;
       walkTsFiles(full, list);
     } else if (ent.isFile() && ent.name.endsWith(".ts")) {
-      if (EXCLUDE_FILES.has(path.normalize(full))) continue;
       list.push(full);
     }
   }

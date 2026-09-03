@@ -4,7 +4,6 @@
  * 検証内容:
  * - requireAdmin を利用する Callable: admin / terminal+store_management で通過、terminal のみ・0件・2件・非アクティブで permission-denied
  * - openStoreTerminal / closeStoreTerminal: terminal+store_management で開店・閉店が成功すること
- * - cleanupActiveStaysOnClose: terminal+store_management で成功すること
  * - permission-denied 時のメッセージが「営業管理の権限がありません」であること
  *
  * Firestore Emulator 使用（localhost:8081）。
@@ -23,7 +22,6 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
   let applyCloseSnapshot: typeof import('../../src/domains/storeMeta/services/applyCloseSnapshot').applyCloseSnapshot;
   let openStoreTerminal: typeof import('../../src/domains/storeMeta/callables/openStoreTerminal').openStoreTerminal;
   let closeStoreTerminal: typeof import('../../src/domains/storeMeta/callables/closeStoreTerminal').closeStoreTerminal;
-  let cleanupActiveStaysOnClose: typeof import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose').cleanupActiveStaysOnClose;
 
   let emulatorAvailable = true;
   const PERMISSION_DENIED_MESSAGE = '営業管理の権限がありません';
@@ -41,13 +39,11 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
     const applyMod = await import('../../src/domains/storeMeta/services/applyCloseSnapshot');
     const openMod = await import('../../src/domains/storeMeta/callables/openStoreTerminal');
     const closeMod = await import('../../src/domains/storeMeta/callables/closeStoreTerminal');
-    const cleanupMod = await import('../../src/domains/storeMeta/services/cleanupActiveStaysOnClose');
 
     getUnsettledBillsForClose = getMod.getUnsettledBillsForClose;
     applyCloseSnapshot = applyMod.applyCloseSnapshot;
     openStoreTerminal = openMod.openStoreTerminal;
     closeStoreTerminal = closeMod.closeStoreTerminal;
-    cleanupActiveStaysOnClose = cleanupMod.cleanupActiveStaysOnClose;
   });
 
   afterAll(async () => {
@@ -395,58 +391,6 @@ describe('Phase6.5: 営業管理権限（store_management）', () => {
       expect(snap.data()?.currentBusinessDateKey).toBe('2026-02-12');
       const runs = await db.collection('storeMeta').doc('closeRuns').collection('runs').get();
       expect(runs.empty).toBe(true);
-    });
-  });
-
-  describe('cleanupActiveStaysOnClose', () => {
-    it('terminal + store_management で呼ぶと success が返る', async () => {
-      if (!emulatorAvailable) return;
-      await db.collection('devices').doc('dev-sm-cleanup').set({
-        uid: 'uid-sm-cleanup',
-        role: 'terminal',
-        options: { store_management: true },
-        status: 'active',
-      });
-      await db.collection('activeStays').doc('stay-1').set({
-        uid: 'u1',
-        billId: 'b1',
-        pokerName: 'P1',
-        table: 'T1',
-        seat: 1,
-        isActive: true,
-        startedAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-      });
-
-      const result = await cleanupActiveStaysOnClose.run({
-        auth: { uid: 'uid-sm-cleanup' },
-        data: {},
-      } as any);
-
-      expect(result.success).toBe(true);
-      expect(result.deleted).toBe(1);
-      const afterDoc = await db.collection('activeStays').doc('stay-1').get();
-      expect(afterDoc.exists).toBe(false);
-    });
-
-    it('terminal（store_management なし）で呼ぶと permission-denied で「営業管理の権限がありません」', async () => {
-      if (!emulatorAvailable) return;
-      await db.collection('devices').doc('dev-no-sm-cleanup').set({
-        uid: 'uid-no-sm-cleanup',
-        role: 'terminal',
-        options: {},
-        status: 'active',
-      });
-
-      await expect(
-        cleanupActiveStaysOnClose.run({
-          auth: { uid: 'uid-no-sm-cleanup' },
-          data: {},
-        } as any)
-      ).rejects.toMatchObject({
-        code: 'permission-denied',
-        message: PERMISSION_DENIED_MESSAGE,
-      });
     });
   });
 });

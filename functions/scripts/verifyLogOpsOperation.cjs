@@ -7,7 +7,7 @@
  * 使い方（functions ディレクトリで）:
  *   node scripts/verifyLogOpsOperation.cjs
  *
- * 除外: src/debug, demo_data
+ * 除外: src/node_modules
  */
 
 const fs = require("fs");
@@ -18,8 +18,6 @@ const ROOT = path.join(__dirname, "..", "src");
 
 const DEFAULT_EXCLUDE_DIR_NAMES = new Set([
   "node_modules",
-  "debug",
-  "demo_data",
 ]);
 
 function walkTsFiles(dir, list = []) {

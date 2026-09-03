@@ -22,15 +22,18 @@ void main() {
       expect(src.contains("label: '全スタッフ勤怠'"), isTrue);
     });
 
-    test('sample page and logOps callable remain (not deleted this batch)', () {
+    test('LogOpsErrorSamplePage source is deleted', () {
       expect(
         File('lib/pages/log_ops_error_sample_page.dart').existsSync(),
-        isTrue,
+        isFalse,
       );
-      final src =
-          File('lib/pages/log_ops_error_sample_page.dart').readAsStringSync();
-      expect(src.contains('class LogOpsErrorSamplePage'), isTrue);
-      expect(src.contains('emitLogOpsErrorSamples'), isTrue);
+    });
+
+    test('LogOpsErrorSamplePage is not rewired in Admin home', () {
+      final src = File('lib/Home/adminHomePage.dart').readAsStringSync();
+      expect(src.contains('LogOpsErrorSamplePage'), isFalse);
+      expect(src.contains('log_ops_error_sample_page.dart'), isFalse);
+      expect(src.contains('logOpsError 代表サンプル'), isFalse);
     });
   });
 }

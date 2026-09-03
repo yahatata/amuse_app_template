@@ -17,9 +17,6 @@ import { setGlobalOptions } from "firebase-functions/v2/options";
 admin.initializeApp();
 setGlobalOptions({ region: "asia-northeast1" });
 
-// 給与検証用デモデータ（開発）
-export * from "./demo_data";
-
 // 認証・ユーザー・入店（Phase4: user）
 export * from "./domains/user/index";
 // メニューアイテム・注文（Phase4: itemOrder）
@@ -57,9 +54,6 @@ export * from "./domains/webhook";
 // 週次Planner・認定処理（Phase2: storeMeta に統合）
 // export は domains/storeMeta 経由で行う
 // トリガ関連（bills）は domains/bills 経由で export
-
-// logOpsError 検証用 Callable（管理者のみ。本番業務導線と分離）
-export * from "./debug/errorShapeProbes";
 
 // トーナメント時間管理システム（Phase1）
 import { controlHook } from "./shared/http/controlHook";

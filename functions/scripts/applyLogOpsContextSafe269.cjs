@@ -11,11 +11,7 @@ const path = require("path");
 const ts = require("typescript");
 
 const ROOT = path.join(__dirname, "..", "src");
-const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data"]);
-const EXCLUDE_FILES = new Set([
-  path.normalize(path.join(ROOT, "domains/analytics/callables/generateDummyData.ts")),
-  path.normalize(path.join(ROOT, "domains/sideGame/callables/debugSideGame.ts")),
-]);
+const EXCLUDE_DIRS = new Set(["node_modules"]);
 
 // --- copy from recommendLogOpsContext269.cjs (trimmed) -----------------
 const EXCLUDE_BINDING_NAMES = new Set([
@@ -38,7 +34,6 @@ function walkTsFiles(dir, list = []) {
       if (EXCLUDE_DIRS.has(ent.name)) continue;
       walkTsFiles(full, list);
     } else if (ent.isFile() && ent.name.endsWith(".ts")) {
-      if (EXCLUDE_FILES.has(path.normalize(full))) continue;
       list.push(full);
     }
   }

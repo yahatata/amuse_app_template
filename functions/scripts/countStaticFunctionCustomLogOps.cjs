@@ -8,7 +8,7 @@
  * 使い方（functions ディレクトリで）:
  *   node scripts/countStaticFunctionCustomLogOps.cjs
  *   EXCLUDE_MAIN_TARGETS=1 node scripts/countStaticFunctionCustomLogOps.cjs
- *     → generateDummyData / debugSideGame を除外（269 件スコープに寄せる）
+ *   EXCLUDE_MAIN_TARGETS=1 は旧 generateDummyData / debugSideGame 除外用。当該 source 削除済みのため no-op。
  */
 
 const fs = require("fs");
@@ -17,12 +17,9 @@ const ts = require("typescript");
 
 const ROOT = path.join(__dirname, "..", "src");
 
-const EXCLUDE_DIRS = new Set(["node_modules", "debug", "demo_data"]);
+const EXCLUDE_DIRS = new Set(["node_modules"]);
 
-const EXCLUDE_FILES_MAIN_TARGETS = new Set([
-  path.join(ROOT, "domains", "analytics", "callables", "generateDummyData.ts"),
-  path.join(ROOT, "domains", "sideGame", "callables", "debugSideGame.ts"),
-]);
+const EXCLUDE_FILES_MAIN_TARGETS = new Set([]);
 
 function walkTsFiles(dir, list = []) {
   if (!fs.existsSync(dir)) return list;

@@ -1,6 +1,4 @@
 // Analytics domain: callables and scheduler (services/aggregator is internal)
-export { migrateSettledBillsForBusinessDay } from "./callables/migrateSettledBillsForBusinessDay";
-export { generateDummyData } from "./callables/generateDummyData";
 // 整合性チェック（C-3）
 export { analyticsDailyCheck } from "./callables/analyticsDailyCheck";
 export { analyticsMonthlyCheck } from "./callables/analyticsMonthlyCheck";

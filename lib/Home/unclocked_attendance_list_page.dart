@@ -5,17 +5,6 @@ import 'package:amuse_app_template/core/utils/functions_client.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 
-/// インデックスエラー原因切り分け用テストモード
-/// UNCLOCKED_LIST_INDEX_DEBUG.md の Step 1 に従い、どのクエリで失敗するか特定する。
-enum _QueryTestMode {
-  /// A: where のみ（orderBy なし）→ 成功なら orderBy が原因
-  testA,
-  /// B: where + orderBy('date') のみ
-  testB,
-  /// C: where + orderBy('date') + orderBy('clockIn')（元のクエリ）
-  testC,
-}
-
 /// Phase4 03 拡張: 未退勤 attendances 一覧
 ///
 /// Firestore snapshot でリアルタイム取得。日付バー＋カード形式で表示。
@@ -35,33 +24,15 @@ class UnclockedAttendanceListPage extends StatefulWidget {
 class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPage> {
   static const _limit = 200;
 
-  /// 切り分け: testA → testB → testC の順に変更してエラーが出る段階を確認
-  static const _queryTestMode = _QueryTestMode.testA;
-
   Stream<QuerySnapshot<Map<String, dynamic>>> _unclockedStream() {
     // closedStoreWithoutClockOut: true のデータのみ（閉店時未退勤としてフラグ付されたもの）
-    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+    final query = FirebaseFirestore.instance
         .collection('attendances')
-        .where('closedStoreWithoutClockOut', isEqualTo: true);
-
-    switch (_queryTestMode) {
-      case _QueryTestMode.testA:
-        // orderBy なし（単一フィールド index で実行可）
-        query = query.limit(_limit);
-        break;
-      case _QueryTestMode.testB:
-        query = query.orderBy('date', descending: true).limit(_limit);
-        break;
-      case _QueryTestMode.testC:
-        query = query
-            .orderBy('date', descending: true)
-            .orderBy('clockIn', descending: true)
-            .limit(_limit);
-        break;
-    }
+        .where('closedStoreWithoutClockOut', isEqualTo: true)
+        .limit(_limit);
 
     return query.snapshots().handleError((err, st) {
-      debugPrint('=== UnclockedAttendance Firestore Error [$_queryTestMode] ===');
+      debugPrint('=== UnclockedAttendance Firestore Error ===');
       debugPrint('error: $err');
       debugPrint('stackTrace: $st');
       if (err is FirebaseException) {
@@ -73,9 +44,8 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
     });
   }
 
-  /// testA のときは取得後にメモリで date desc → clockIn desc にソート
-  List<Map<String, dynamic>> _sortItemsIfNeeded(List<Map<String, dynamic>> items) {
-    if (_queryTestMode != _QueryTestMode.testA) return items;
+  /// Firestore orderBy なしのため、取得後に date desc → clockIn desc でソートする
+  List<Map<String, dynamic>> _sortItems(List<Map<String, dynamic>> items) {
     final list = List<Map<String, dynamic>>.from(items);
     list.sort((a, b) {
       final cmpDate = (b['date'] ?? '').toString().compareTo((a['date'] ?? '').toString());
@@ -596,7 +566,7 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
             return const Center(child: Text('未退勤データはありません'));
           }
 
-          final sortedItems = _sortItemsIfNeeded(items);
+          final sortedItems = _sortItems(items);
           final groups = _groupByDate(sortedItems);
           final listChildren = <Widget>[];
 
@@ -646,7 +616,6 @@ class _UnclockedAttendanceListPageState extends State<UnclockedAttendanceListPag
 
   Widget _buildCard(Map<String, dynamic> item) {
     final staffName = item['staffName'] as String? ?? '—';
-    final dateStr = item['date'] as String? ?? '';
     final clockIn = item['clockIn'];
     final closedStore = item['closedStoreWithoutClockOut'] == true;
 

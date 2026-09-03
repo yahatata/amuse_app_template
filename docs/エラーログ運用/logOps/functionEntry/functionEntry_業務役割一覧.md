@@ -111,16 +111,16 @@
 | 60 | `updateStaffBankInfo` | 管理者がスタッフの振込口座情報を更新する | 1 | 1 | 主処理 |  |
 | 61 | `updateStaffHourlyWage` | 管理者がスタッフの時給を更新する | 1 | 1 | 主処理 |  |
 
-## storeMeta（6 件）
+## storeMeta（4 件）
 
 | # | functionEntry | 業務上の役割 | 主要業務 | 高頻度業務 | 主処理/補助 | FC静 |
 |---|---------------|-------------|----------|-----------|-------------|-----------|
 | 62 | `closeAssessmentTask` | スケジュールされた閉店認定を実行し閉店時間超過やブロッカーを記録する | 5 | 3 | 主処理 |  |
 | 63 | `finalizeUnsettledBillAfterAccounting` | 未会計ラベル付き請求の会計後にcloseSnapshot解消とユーザー未会計件数を減らす | 3 | 1 | 補助 | ✓ |
 | 64 | `openAssessmentTask` | スケジュールされた開店認定を実行し開店可否をstateに記録する | 5 | 3 | 主処理 |  |
-| 65 | `resetAllSideGames` | 全サイドゲームを非アクティブ化し席・ゲーム名をクリアする（システム設定の手動メンテ失敗時のみこの functionEntry の logOpsError に載る想定） | 1 | 1 | 主処理 |  |
-| 66 | `resetAllTables` | 全テーブルをopen状態に戻す（システム設定の手動メンテ失敗時のみこの functionEntry の logOpsError に載る想定） | 1 | 1 | 主処理 |  |
 | 67 | `weeklyPlanner` | 週の起点日から7日分の開店・閉店認定用Cloud Tasksを投入する | 5 | 1 | 主処理 |  |
+
+> **historical:** `resetAllSideGames` / `resetAllTables` は public callable 削除済み（Final Cleanup Phase 5）。現行の実行経路は `closeStoreTerminal` 内部の `runResetAllSideGames` / `runResetAllTables`。当該 functionEntry の logOps は無い。
 
 ## tournament_activeTournament（7 件）
 
@@ -188,10 +188,12 @@
 
 ## analytics — `migrateSettledBillsForBusinessDay`（営業日の精算済み伝票をアナリティクス用に移行）
 
+public callable wrapper は削除済み。現行は `closeStoreTerminal` 内部 `runMigrateSettledBillsForBusinessDay`。logOps の functionEntry 文字列は **変更していない**。
+
 | # | functionEntry | operation | 業務上の役割 | 主要業務 | 高頻度業務 | 主処理/補助 | FC静 | 備考 |
 |---|---------------|-----------|-------------|----------|-----------|-------------|-----------|---------------|
-| 1 | `migrateSettledBillsForBusinessDay` | `callable` | Callable全体が失敗した際のログ記録 | 1 | 1 | 主処理 |  | Callable 全体の外側 catch。保守目的のため優先度低 |
-| 2 | `migrateSettledBillsForBusinessDay` | `runMigratePerBill` | 請求1件ごとの分析移管が失敗した際のログ記録 | 3 | 3 | 主処理 |  | 1 件ごとの移管失敗。ループ内でスキップして継続 |
+| 1 | `migrateSettledBillsForBusinessDay` | `callable` | （廃止）旧 public wrapper 全体 catch | — | — | — |  | **deleted**。wrapper 削除に伴い当該 operation の logOps は無い |
+| 2 | `migrateSettledBillsForBusinessDay` | `runMigratePerBill` | 請求1件ごとの分析移管が失敗した際のログ記録 | 3 | 3 | 主処理 |  | 現行。internal 1 件ごとの移管失敗 |
 
 ## attendance
 
@@ -282,8 +284,8 @@
 | 55 | `applyCloseSnapshot` | `applyBillCloseSnapshotTxn` | 閉店スナップショット適用時に会計ドキュメントへのトランザクション更新が失敗した際のログ | 5 | 3 | 主処理 | ✓ | 会計ドキュメントのトランザクション更新失敗。未会計マークが一部適用されない |
 | 56 | `applyCloseSnapshot` | `incrementUserUnsettledBillsCount` | 未会計マーク後にユーザーの未会計件数カウンタを増やす更新が失敗した際のログ | 3 | 3 | 補助 | ✓ | ユーザー未会計件数カウンタの増加失敗。カウントが不正確になるがメイン処理は成功 |
 | 57 | `applyCloseSnapshot` | `getClosedBusinessDate` | 閉店スナップショット実行前の営業日取得で業務エラーが発生した際のログ | 5 | 3 | 主処理 | ✓ | 営業日取得の業務エラー。スナップショット処理自体が開始できない |
-| 58 | `cleanupActiveStaysOnClose` | `deleteActiveStayDocument` | 閉店クリーンアップで個別のactiveStayドキュメント削除に失敗した際のログ | 3 | 3 | 主処理 | ✓ | 個別の activeStay 削除失敗。他は継続。翌日に残留データが残る |
-| 59 | `cleanupActiveStaysOnClose` | `cleanupOuterCatch` | 閉店時のactiveStays一括クリーンアップ処理全体が例外で失敗した際のログ | 3 | 3 | 主処理 |  | クリーンアップ全体の例外 |
+| 58 | `cleanupActiveStaysOnClose` | `deleteActiveStayDocument` | 閉店クリーンアップで個別のactiveStayドキュメント削除に失敗した際のログ | 3 | 3 | 主処理 | ✓ | 現行。internal `runCleanupActiveStays`。個別の activeStay 削除失敗。他は継続。翌日に残留データが残る |
+| 59 | `cleanupActiveStaysOnClose` | `cleanupOuterCatch` | （廃止）旧 public wrapper 全体 catch | — | — | — |  | **deleted**。wrapper 削除に伴い当該 operation の logOps は無い |
 | 60 | `closeStoreTerminal` | `closeTerminalPreflight` | 閉店前チェック（営業中・営業日キー設定など）で業務エラーが発生した際のログ | 5 | 3 | 主処理 | ✓ | 事前チェック失敗（営業中でない・営業日キー未設定等）。閉店処理開始できず |
 | 61 | `closeStoreTerminal` | `acquireProcessingLease` | 端末閉店フローで排他制御用のprocessingリース取得に失敗した際のログ | 5 | 3 | 主処理 | ✓ | 排他制御リース取得失敗。別の閉店処理と競合、またはリース未解放 |
 | 62 | `closeStoreTerminal` | `finalizeCloseStateDoc.enqueueOpenAssessmentRecheck` | 閉店確定後に開店評価の再チェック用Cloud Task投入に失敗した際のログ | 3 | 3 | 補助 | ✓ | 閉店成功後の開店評価再チェック Cloud Task 投入失敗。閉店自体は成功済み |

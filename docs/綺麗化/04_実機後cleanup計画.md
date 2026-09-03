@@ -13,7 +13,7 @@
 > | 作成日 | 2026-08-18 |
 > | 対象 | 統合実機確認第一巡の発見事項 + `03` §19 既存候補 + 既知 A〜L + 再走査追加 |
 > | 更新区分 | 変更時（実装バッチ完了・仕様判断のたびに状態列を更新） |
-> | 最終更新 | 2026-09-03（§13.3 Batch 9 batch 4 hygiene 完了・Batch 9 CLOSED。§2 の 54 件 resolved 数は変更なし） |
+> | 最終更新 | 2026-09-04（Final Cleanup Phase 10: **CLOSED**。production undeploy 12 件完了） |
 > | 参照元 | `00` / `03`（第一巡記録） |
 > | 参照先 | `docs/綺麗化/E1-E3_勤怠再設計_仕様判断前調査.md`（調査履歴 + §32.11 確定仕様。実装は案件化後） |
 
@@ -148,12 +148,12 @@ P3 の残 **1**（F6）が営業前 cleanup の唯一の判断対象。E1〜E4 �
 | CLN-G1 | cleanup実装 | P1 | Admin 自身の「オプション編集」 | 自端末でもオプション編集は出る。role/status/archive は非表示 | `hasOption(..., adminBypass: true)` および Terminal `_isAdminDevice` で **admin role は options 不問で全許可**。Admin ホームは options 非参照。options は Terminal 業務ボタン用 | **判定 A。** Admin role 端末では「オプション編集」を出さない（self だけでなく他 Admin も）。self 判定は既存 `isCurrentDevice`（role/status/archive は従来どおり self のみ非表示）。他 Terminal のオプション編集は残す。保存 callable / schema 未変更 | なし | 実機: self Admin にオプション編集なし。他 Terminal には残る | 解消済み |
 | CLN-G2 | 現状維持 | P4 | device archive | 他端末向け正式導線。destructive HIGH で未実行 | `03` DEV-03 | 削除候補にしない。正式導線として残す | なし | 不要 | 解消済み |
 | CLN-G3 | cleanup実装 | P1 | last-admin テスト整合 | 最後の 1 台降格は実機しない。test 根拠 | 有効 Admin = `role==admin` かつ status 正規化後 `active`。blocked / archived / retired は含めない。保護対象は role 降格・block・archive。backend（`assertNotRemovingLastActiveAdmin`）が正本。UI は self 危険操作のみ非表示（last-admin 件数は持たない）。archive の sole admin は自己禁止が先。複数 Admin の正当変更は許可 | **ケース A。** 本番コード変更なし。helper 単体 + Emulator callable + Flutter wiring が一致。危険実機は未実施・不要 | なし | 不要（automated 代替） | 解消済み |
-| CLN-H1 | QA隔離 | P0 | SystemSettings（Terminal 歯車） | reset / demo / 移管 / 開発用タイルが営業 Terminal から到達 | `03` QA-01。実機: Terminal ホームに入口なし | Terminal AppBar の歯車／`SystemSettingsPage` 遷移を削除。page class と内部処理は残置。正式閉店 `closeStoreTerminal` は残す | なし | 不要（実機 PASS） | 解消済み |
-| CLN-H2 | QA隔離 | P1 | logOps 代表サンプル | Admin ホームに `logOpsError 代表サンプル` | `adminHomePage.dart`。emit 未実施 | **判定 A（入口）。** 営業 Admin グリッドから入口削除。`LogOpsErrorSamplePage` 本体は残置。**Batch 8 再判定 B:** caller 0 だが QA/developer の logOps emit 画面として残す価値あり。page/callable は削除しない | なし | 実機: Admin ホームにサンプルなし。他 Admin 項目維持 | 解消済み |
-| CLN-H3 | QA隔離 | P1 | Firestore サイズ計算 | **Terminal ホーム通常ボタン**として常時表示（`optionKeys: null`） | `terminalHomePage.dart`。QA-03 は入口確認のみ。page は開いただけでは scan せず「サイズを計算」押下で `calculateFirestoreSize`（read） | **判定 A（入口）。** Terminal 営業ホームから入口削除。`FirestoreSizePage` 本体は残置。**Batch 8 再判定 B:** caller 0 だが保守/maintenance の read-only サイズ計算として残す価値あり。page/callable は削除しない。Admin へは移設しない | なし | 実機: Terminal ホームにサイズ計算なし。SystemSettings 歯車も非表示維持。正式営業項目維持 **PASS** | 解消済み |
+| CLN-H1 | QA隔離 | P0 | SystemSettings（Terminal 歯車） | reset / demo / 移管 / 開発用タイルが営業 Terminal から到達 | `03` QA-01。実機: Terminal ホームに入口なし | **当時:** Terminal AppBar の歯車／遷移削除、page 残置。**現行:** Final Cleanup Phase 1 で `SystemSettingsPage` **DELETE完了**。正式閉店 `closeStoreTerminal` は残す | なし | 不要（実機 PASS） | 解消済み |
+| CLN-H2 | QA隔離 | P1 | logOps 代表サンプル | Admin ホームに `logOpsError 代表サンプル` | `adminHomePage.dart`。emit 未実施 | **当時 Batch 8 判定 B:** 入口削除・page 残置。**現行:** Final Cleanup Phase 1 で `LogOpsErrorSamplePage` **DELETE完了** | なし | 実機: Admin ホームにサンプルなし。他 Admin 項目維持 | 解消済み |
+| CLN-H3 | QA隔離 | P1 | Firestore サイズ計算 | **Terminal ホーム通常ボタン**として常時表示（`optionKeys: null`） | `terminalHomePage.dart`。QA-03 は入口確認のみ。page は開いただけでは scan せず「サイズを計算」押下で `calculateFirestoreSize`（read） | **当時:** 営業入口削除・page 残置（Batch 8 判定 B）。**現行方針変更: KEEP** `FirestoreSizePage` + `calculateFirestoreSize`。Admin へは移設しない。Phase 9 undeploy 対象外 | なし | 実機: Terminal ホームにサイズ計算なし。SystemSettings 歯車も非表示維持。正式営業項目維持 **PASS** | 解消済み |
 | CLN-H4 | cleanup実装 | P2 | 一時テーブル作成 | SystemSettings 内。保存未実施 | `03` QA-06。実機: 詳細設定 → 卓管理 → 一時テーブル作成 PASS（保存なし） | **仕様確定:** 詳細設定 → 卓管理 → 一時テーブル作成。既存 `CreateTemporaryTablePage` を再利用。SystemSettings 側 tile は削除。保存ロジックは未変更 | CLN-H1 | 不要（入口実機 PASS。保存は必須ではない） | 解消済み |
-| CLN-H5 | 現状維持 | P4 | 冪等再送 QA | Terminal 正式入口は隔離済み。再実機 PASS | `03` QA-04。ページ本体 `postSettlementIdempotencyReplayPage.dart` は残置 | **完了。** 入口を戻さない。本体削除は dead バッチで任意 | なし | 不要 | 解消済み |
-| CLN-I1 | QA隔離 | P1 | Settings 単体 reset | 全卓/全SG reset・閉店 cleanup・未会計移管は正式閉店の代替にしない | `03` CLS-06。H1 後の静的確認: Flutter UI 入口は `systemSettingsPage.dart` のみ。営業入口 0。Admin 詳細設定へ未移設。callable は `storeMeta` に残置 | **解消。** H1 で SystemSettings 営業入口削除。4 操作は営業 UI 非到達。正式閉店は `closeStoreTerminal`（内部で snapshot/cleanup 相当を実行）。Block 11 正式閉店→LINE→開店 PASS。destructive 単体実行は不要。callable 削除・認可再設計はしない | CLN-H1 | 不要 | 解消済み |
+| CLN-H5 | 現状維持 | P4 | 冪等再送 QA | Terminal 正式入口は隔離済み。再実機 PASS | `03` QA-04。ページ本体 `postSettlementIdempotencyReplayPage.dart` | **当時:** 入口を戻さない・本体削除は任意。**現行:** Final Cleanup Phase 1 で page **DELETE完了** | なし | 不要 | 解消済み |
+| CLN-I1 | QA隔離 | P1 | Settings 単体 reset | 全卓/全SG reset・閉店 cleanup・未会計移管は正式閉店の代替にしない | `03` CLS-06。H1 後の静的確認: Flutter UI 入口は当時 `systemSettingsPage.dart` のみ | **当時:** 営業 UI 非到達・callable 残置。**現行:** Phase 5 で public wrappers **DELETE**。internal `run*` KEEP。Phase 9 production undeploy **完了** | CLN-H1 | 不要 | 解消済み |
 | CLN-I2 | 現状維持 | P2 | 強制閉店 | 通常閉店 PASS のため未実施。未終了トーナメントがあると「強制閉店する」が出る | `close_pre_confirmation_page.dart` | **現状維持判断で解消。** emergency / escape hatch として残し、通常閉店を正規フローとする。条件成立時のみ表示を維持し、追加実装は行わない | なし | 不要（通常閉店で cover） | 解消済み |
 | CLN-I3 | 現状維持 | P4 | 閉店後 LINE | 未入店・注文不可が反映。PASS | `03` CLS-04 | 退行させない | なし | 閉店フロー回帰時 | 解消済み |
 | CLN-I4 | cleanup実装 | P1 | 閉店前確認の復旧導線 | 閉店前確認で未会計・未退勤は表示のみで、解消しに行く導線がない | `close_pre_confirmation_page.dart` / `accountingPage.dart` / `staff_attendance_page_from_terminalHome.dart` | **解消済み。** 未終了TN/未会計/未退勤を同一パターン（カード→詳細dialog→正式画面）。未会計は `AccountingPage(forUnsettledBillId)`、未退勤は `StaffAttendancePage`。未会計 dialog から内部 status 表示削除。復帰後 `_fetch`/`getCloseIntegrityData`。mutation 新規なし。smoke PASS。I4-1〜I4-3 実機 **PASS** | なし | 不要（実機 PASS） | 解消済み |
@@ -440,7 +440,7 @@ SideGame
 - **CLN-B4:** **解消済み。**（二重計上しない）
 - **CLN-H1 / H4 / I1:** **解消済み。** H1 実機 PASS。一時卓は詳細設定へ移設済み。単体 reset 群は営業 UI 非到達。追加 destructive 実機は不要
 - **CLN-H2:** **解消済み。** 実機: Admin ホームから logOps サンプル消失。他 Admin 項目維持
-- **CLN-H3:** **解消済み。** Terminal 営業ホームから Firestoreサイズ計算を削除。page 本体は残置（caller 0。Batch 8 dead/maintenance 候補）。実機: 非表示 / 歯車なし / 正式項目維持 PASS
+- **CLN-H3:** **解消済み。** Terminal 営業ホームから Firestoreサイズ計算を削除。**現行: page + `calculateFirestoreSize` は KEEP**（当時 Batch 8 は caller 0 残置。方針変更）。実機: 非表示 / 歯車なし / 正式項目維持 PASS
 - **残り:** なし
 - **deploy:** H2/H3 は Flutter。Hosting なし。全 Functions deploy 禁止
 - **再実機:** H3 完了
@@ -495,9 +495,10 @@ SideGame
 
 ### Batch 8 — dead 削除
 
-- **対象:** CLN-K1〜K6。H2 後の `LogOpsErrorSamplePage`、H3 後の `FirestoreSizePage` は caller 0
+- **対象:** CLN-K1〜K6。H2 の `LogOpsErrorSamplePage` は Phase 1 で DELETE。H3 の `FirestoreSizePage` は **KEEP**
 - **CLN-K1〜K6:** **解消済み。** K6 は frontend のみ（Functions `createMultipleShifts` 残置）
-- **LogOpsErrorSamplePage / FirestoreSizePage:** **判定 B。今回削除しない。** QA/maintenance 残置
+- **LogOpsErrorSamplePage:** **DELETE完了**（Final Cleanup Phase 1）。当時 Batch 8 判定 B は入口隔離時点の判断
+- **FirestoreSizePage / calculateFirestoreSize:** **KEEP**（方針変更。Phase 9 undeploy 対象外）
 - **test:** grep ゼロ + 既存 public/Flutter tests PASS
 - **deploy:** Hosting / Flutter 該当分（未実施）
 - **再実機:** 不要（静的）
@@ -661,3 +662,58 @@ ACC-02「後で」UX/名称は C1 解消後も将来判断として残す（C1 �
 | `public/css/common.css` | legacy `.pending-shifts-*` ルール削除 |
 | logOps scripts | `unused_function_lib` exclude 除去（directory 削除済み） |
 | Batch 9 | **CLOSED** |
+
+---
+
+## 14. Final Cleanup Batch（2026-09-04）— **CLOSED**
+
+**本節は §2 / §4 の 54 件 inventory とは別枠。** resolved 数は変更しない。E1〜E4 は別途 deferred。リポジトリ全体の課題ゼロではない。
+
+### 14.1 Phase 1〜6 実施結果
+
+| Phase | 内容 | 状態 |
+|-------|------|------|
+| 1 | QA page 3 件 DELETE（`SystemSettingsPage` / `LogOpsErrorSamplePage` / `PostSettlementIdempotencyReplayPage`） | 完了 |
+| 1/4 | `FirestoreSizePage` + `calculateFirestoreSize` **KEEP**（当時 Batch 8 判定 B「page 残置」から方針変更。KEEP は残置 QA ではなく保守ツール維持） | 完了 |
+| 2 | demo Functions + `demo_data/` source DELETE | 完了（production undeploy 済） |
+| 3 | errorShapeProbes 4 callable source DELETE。logOpsErrorShape unit test ADD | 完了（production undeploy 済） |
+| 4 | SKIP | — |
+| 5 | close public wrappers 4 件 source DELETE。internal `run*` KEEP。emulator close regression **44/44 PASS** | 完了（production undeploy 済） |
+| 6 | unclocked list `_QueryTestMode` / testA/B/C residue DELETE。旧 testA query を正式実装。where / limit 200 / no orderBy / memory sort **unchanged** | 完了 |
+
+`lib/to_be_deleted`: 既に 0。
+
+### 14.2 Phase 7（本更新）
+
+docs / `serviceByFunctionEntry` / logOps scripts / `_staticFcUnits.json` を Phase 1〜6 に同期。production Function 挙動は変更しない。`_staticFcUnits.json` は 354 → **350** units（`resetAllTables` / `resetAllSideGames` の stale 4 units 除去）。`migrateSettledBillsForBusinessDay` / `cleanupActiveStaysOnClose` は internal logOps 由来で残る（live）。
+
+`migrateSettledBillsForBusinessDay` / `cleanupActiveStaysOnClose` は public export ではないが、internal が同一文字列で logOps するため mapping **KEEP**（論理処理識別子。export 名リネームはしない）。
+
+### 14.3 Phase 8〜10
+
+| Phase | 結果 |
+|-------|------|
+| 8 | final regression **PASS** |
+| 9 | production undeploy **12 件完了**（197 → 185。unexpected deletion 0。`calculateFirestoreSize` KEEP） |
+| 10 | narrow final audit **CLOSED** |
+
+`calculateFirestoreSize` は undeploy **していない（KEEP）**。
+
+Phase 9 削除 12 件:
+
+1. `generateDummyData`
+2. `seedAttendancesDemo`
+3. `seedPayrollDemoData`
+4. `deletePayrollDemoData`
+5. `resetAllTables`
+6. `resetAllSideGames`
+7. `migrateSettledBillsForBusinessDay`
+8. `cleanupActiveStaysOnClose`
+9. `emitLogOpsErrorSamples`
+10. `emitLogOpsErrorRealSdkSamples`
+11. `emitThrowOnlyTc01NotFound`
+12. `enqueueThrowOnlyTc06WeeklyPlannerTask`
+
+KEEP（例）: `calculateFirestoreSize` / `openStoreTerminal` / `closeStoreTerminal` / `createInitialStateDocCallable` / `initializeStoreConfigCallable` / `generateRecurringTournaments` / `scheduled-job-generate-recurring-tournaments-by-scheduler` / `getUnsettledBillsForClose` / `applyCloseSnapshot` / `createPostSettlementAdjustment`
+
+commit / push: **未実施**。undeploy: **完了**
