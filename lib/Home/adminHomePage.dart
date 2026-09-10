@@ -1,5 +1,7 @@
 import 'package:amuse_app_template/StaffDate/businessDayMenuPage.dart';
 import 'package:amuse_app_template/StaffDate/shiftMenuPage.dart';
+import 'package:amuse_app_template/theme/home_button_theme.dart';
+import 'package:amuse_app_template/Home/terminal_mode_state.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
@@ -24,19 +26,51 @@ class AdminHomePage extends StatefulWidget {
   State<AdminHomePage> createState() => _AdminHomePageState();
 }
 
-class _AdminHomePageState extends State<AdminHomePage> {
-  late bool _isTerminalMode;
+class _AdminHomePageState extends State<AdminHomePage> with RouteAware {
+  // G4: ローカル状態を削除。terminalModeNotifier / isOnHomeScreenNotifier を使用。
 
   @override
   void initState() {
     super.initState();
-    _isTerminalMode = widget.initialTerminalMode;
+    // G4: グローバルノティファーをこの AdminHomePage の初期値で初期化
+    terminalModeNotifier.value = widget.initialTerminalMode;
+    isOnHomeScreenNotifier.value = true;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // G4: RouteObserver にこのページを登録（ルート変化の追跡開始）
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void dispose() {
+    // G4: RouteObserver の登録解除 + ノティファーをリセット
+    appRouteObserver.unsubscribe(this);
+    terminalModeNotifier.value = false;
+    isOnHomeScreenNotifier.value = true;
+    super.dispose();
+  }
+
+  // G4: サブページへ遷移したとき → ボタンを無効化
+  @override
+  void didPushNext() {
+    isOnHomeScreenNotifier.value = false;
+  }
+
+  // G4: サブページから戻ってきたとき → ボタンを有効化
+  @override
+  void didPopNext() {
+    isOnHomeScreenNotifier.value = true;
   }
 
   void _toggleMode() {
-    setState(() {
-      _isTerminalMode = !_isTerminalMode;
-    });
+    // G4: ローカル setState ではなくグローバルノティファーを更新
+    terminalModeNotifier.value = !terminalModeNotifier.value;
   }
 
   Widget _buildNotificationBell() {
@@ -55,7 +89,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
           icon: Badge(
             isLabelVisible: unreadCount > 0,
             label: Text('$unreadCount', style: const TextStyle(fontSize: 10)),
-            child: const Icon(Icons.notifications_outlined, color: Colors.white),
+            child: const Icon(Icons.notifications_outlined),
           ),
           onPressed: () {
             Navigator.push(
@@ -70,83 +104,318 @@ class _AdminHomePageState extends State<AdminHomePage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final buttonHeight = (screenHeight - kToolbarHeight - 80) / 2.3;
+  // ── Admin レイアウト定数 ──────────────────────────
+  static const _rowPairs = <(int, int)>[(0, 1), (2, 3)];
 
-          final List<({String label, Widget destination})> buttons = [
-        (label: 'シフト', destination: const ShiftMenuPage()),
-        (label: '営業日', destination: const BusinessDayMenuPage()),
-        (label: '全スタッフ勤怠', destination: const AllStaffAttendancePage()),
-        (label: '勤怠修正申請', destination: const AttendanceCorrectionRequestsPage()),
-        (label: 'デバイス管理', destination: const DeviceManagementPage()),
-        (label: '詳細設定', destination: const AdminDetailSettingsPage()),
-        (label: 'スタッフ一覧', destination: const StaffListPage()),
-        (label: '給与計算', destination: const PayrollCalcPage()),
-        (label: '売上ダッシュボード', destination: const DashboardHomePage()),
-      ];
-
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 16,
-        title: Text(
-          _isTerminalMode ? 'Terminal' : 'Admin',
-          style: const TextStyle(fontSize: 30),
+  List<(HomeCategoryTheme, List<HomeBtnDef>)> get _catDefs => [
+    // [0] 営業日・シフト管理
+    (
+      AdminCategoryColors.shift,
+      [
+        HomeBtnDef(
+          label: '営業日',
+          icon: Icons.business_center,
+          destination: const BusinessDayMenuPage(),
         ),
-        actions: [
-          if (!_isTerminalMode) _buildNotificationBell(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: TextButton.icon(
-              onPressed: _toggleMode,
-              icon: Icon(
-                _isTerminalMode ? Icons.switch_left : Icons.switch_right,
-                color: Colors.white,
-              ),
-              label: Text(
-                _isTerminalMode ? 'Terminalモード中' : 'Adminモード中',
-                style: const TextStyle(color: Colors.white),
-              ),
-              style: TextButton.styleFrom(
-                backgroundColor: _isTerminalMode ? Colors.teal : Colors.deepPurple,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
+        HomeBtnDef(
+          label: 'シフト',
+          icon: Icons.calendar_month,
+          destination: const ShiftMenuPage(),
+        ),
+      ],
+    ),
+    // [1] 勤怠
+    (
+      AdminCategoryColors.attendance,
+      [
+        HomeBtnDef(
+          label: '全スタッフ勤怠',
+          icon: Icons.people,
+          destination: const AllStaffAttendancePage(),
+        ),
+        HomeBtnDef(
+          label: '勤怠修正申請',
+          icon: Icons.edit_note,
+          destination: const AttendanceCorrectionRequestsPage(),
+        ),
+      ],
+    ),
+    // [2] スタッフ管理
+    (
+      AdminCategoryColors.staff,
+      [
+        HomeBtnDef(
+          label: 'スタッフ一覧',
+          icon: Icons.badge,
+          destination: const StaffListPage(),
+        ),
+        HomeBtnDef(
+          label: '給与計算',
+          icon: Icons.payments,
+          destination: const PayrollCalcPage(),
+        ),
+      ],
+    ),
+    // [3] 設定・分析
+    (
+      AdminCategoryColors.settings,
+      [
+        HomeBtnDef(
+          label: '売上ダッシュボード',
+          icon: Icons.bar_chart,
+          destination: const DashboardHomePage(),
+        ),
+        HomeBtnDef(
+          label: 'デバイス管理',
+          icon: Icons.devices,
+          destination: const DeviceManagementPage(),
+        ),
+        HomeBtnDef(
+          label: '詳細設定',
+          icon: Icons.settings,
+          destination: const AdminDetailSettingsPage(),
+        ),
+      ],
+    ),
+  ];
+
+  Widget _buildAdminLayout(BuildContext context) {
+    final cats = _catDefs;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availH = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : MediaQuery.of(context).size.height - kToolbarHeight - MediaQuery.of(context).padding.top;
+        final btnW = HomeLayoutConst.calcBtnW(
+          constraints.maxWidth,
+          numSlots: HomeLayoutConst.adminSlots,
+        );
+        final (:btnH, :extraVPad) =
+            HomeLayoutConst.calcAdminBtnH(availH, btnW);
+
+        return SingleChildScrollView(
+          physics: const NeverScrollableScrollPhysics(),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: HomeLayoutConst.hPad,
+              vertical: HomeLayoutConst.vPad + extraVPad,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (int i = 0; i < _rowPairs.length; i++) ...[
+                  if (i > 0)
+                    const SizedBox(height: HomeLayoutConst.rowGap),
+                  _buildPairRow(
+                    context,
+                    cats[_rowPairs[i].$1],
+                    cats[_rowPairs[i].$2],
+                    btnW,
+                    btnH,
+                  ),
+                ],
+              ],
             ),
           ),
-        ],
-      ),
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
-        child: _isTerminalMode
-            ? const terminalHomePage(key: ValueKey('terminal'))
-            : GridView.custom(
-          key: const ValueKey('admin'),
-          padding: const EdgeInsets.all(16),
-          physics: const ClampingScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            mainAxisExtent: buttonHeight,
+        );
+      },
+    );
+  }
+
+  Widget _buildPairRow(
+    BuildContext context,
+    (HomeCategoryTheme, List<HomeBtnDef>) cat1Data,
+    (HomeCategoryTheme, List<HomeBtnDef>) cat2Data,
+    double btnW,
+    double btnH,
+  ) {
+    final sectionH = HomeLayoutConst.headerH + HomeLayoutConst.headerGap + btnH;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildCatSection(context, cat1Data.$1, cat1Data.$2, btnW, btnH),
+        SizedBox(
+          width: HomeLayoutConst.catDividerGap,
+          height: sectionH,
+          child: Center(
+            child: Container(
+              width: 1,
+              height: btnH * 0.65,
+              color: Colors.grey.shade300,
+            ),
           ),
-          childrenDelegate: SliverChildListDelegate.fixed(
-            buttons.map((btn) {
-              return ElevatedButton(
-                onPressed: () {
+        ),
+        _buildCatSection(context, cat2Data.$1, cat2Data.$2, btnW, btnH),
+      ],
+    );
+  }
+
+  Widget _buildCatSection(
+    BuildContext context,
+    HomeCategoryTheme theme,
+    List<HomeBtnDef> buttons,
+    double btnW,
+    double btnH,
+  ) {
+    final sectionW = buttons.length * btnW +
+        (buttons.length - 1) * HomeLayoutConst.btnGap;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: sectionW,
+          height: HomeLayoutConst.headerH,
+          child: Row(
+            children: [
+              Container(
+                width: 4,
+                height: 14,
+                decoration: BoxDecoration(
+                  color: theme.fg,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  theme.label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey.shade600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: HomeLayoutConst.headerGap),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (int i = 0; i < buttons.length; i++) ...[
+              if (i > 0) const SizedBox(width: HomeLayoutConst.btnGap),
+              SizedBox(
+                width: btnW,
+                height: btnH,
+                child: _buildBtn(context, buttons[i], theme, btnH),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBtn(
+    BuildContext context,
+    HomeBtnDef btn,
+    HomeCategoryTheme catTheme,
+    double height,
+  ) {
+    final iconSize = (height * 0.28).clamp(18.0, 40.0);
+    final fontSize = (height * 0.10).clamp(10.0, 14.0);
+
+    return Material(
+      color: catTheme.bg,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: Colors.grey.shade300),
+      ),
+      child: InkWell(
+        customBorder: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        onTap: btn.destination != null
+            ? () {
+                if (context.mounted) {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => btn.destination),
+                    MaterialPageRoute(builder: (_) => btn.destination!),
                   );
-                },
-                child: Text(btn.label, textAlign: TextAlign.center),
-              );
-            }).toList(),
+                }
+              }
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(btn.icon, color: catTheme.fg, size: iconSize),
+              const SizedBox(height: 6),
+              Text(
+                btn.label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: catTheme.fg,
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w600,
+                  height: 1.2,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
         ),
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // G4: terminalModeNotifier を監視してビルドを切り替える
+    return ValueListenableBuilder<bool>(
+      valueListenable: terminalModeNotifier,
+      builder: (context, isTerminalMode, _) {
+        return Scaffold(
+          // G4: Terminal モード中は terminalHomePage 自身の AppBar を使うため非表示
+          // （バナーがモード表示を担い、terminalHomePage AppBar が営業状態を表示する）
+          appBar: isTerminalMode
+              ? null
+              : AppBar(
+                  titleSpacing: 16,
+                  title: const Text('Admin', style: TextStyle(fontSize: 30)),
+                  actions: [
+                    _buildNotificationBell(),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: TextButton.icon(
+                        onPressed: _toggleMode,
+                        icon: const Icon(Icons.switch_right, color: Colors.white),
+                        label: const Text(
+                          'Adminモード中',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        style: TextButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  bottom: PreferredSize(
+                    preferredSize: const Size.fromHeight(1),
+                    child: Divider(height: 1, thickness: 1, color: Colors.black.withValues(alpha: 0.10)),
+                  ),
+                ),
+          body: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: isTerminalMode
+                ? const terminalHomePage(key: ValueKey('terminal'))
+                : KeyedSubtree(
+                    key: const ValueKey('admin'),
+                    child: _buildAdminLayout(context),
+                  ),
+          ),
+        );
+      },
     );
   }
 }

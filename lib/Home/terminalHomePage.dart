@@ -1,3 +1,4 @@
+import 'package:amuse_app_template/theme/home_button_theme.dart';
 import 'package:amuse_app_template/Home/close_pre_confirmation_page.dart';
 import 'package:amuse_app_template/Home/home_list_load_errors.dart';
 import 'package:amuse_app_template/Home/store_terminal_callable_result.dart';
@@ -1023,108 +1024,6 @@ class _terminalHomePageState extends State<terminalHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final buttonHeight = (screenHeight - kToolbarHeight - 80) / 2.3;
-
-    // 通常のボタン（直接遷移）
-    // optionKeys: いずれか1つでも付与されていれば表示（null = 常に表示）
-    final List<({String label, Widget destination, List<String>? optionKeys})>
-    buttons = [
-      (
-        label: 'ユーザー作成',
-        destination: const CreateUserAccount(),
-        optionKeys: null,
-      ),
-      (
-        label: 'ユーザーログイン',
-        destination: const UserCheckInPage(),
-        optionKeys: [DeviceOptionKeys.userEntryExit],
-      ),
-      (
-        label: 'メニュー追加',
-        destination: const MenuEditorListPage(),
-        optionKeys: null,
-      ),
-      (
-        label: '注文画面',
-        destination: const CategorySelectPage(),
-        optionKeys: [DeviceOptionKeys.order],
-      ),
-      (
-        label: '入店中ユーザー一覧',
-        destination: const AdminUserListPage(),
-        optionKeys: null,
-      ),
-      (
-        label: 'Tournament 作成',
-        destination: const TournamentCreationMenuPage(),
-        optionKeys: [DeviceOptionKeys.tournament],
-      ),
-      (
-        label: 'Tournament Home',
-        destination: const ScheduledTournamentListPage(),
-        optionKeys: [DeviceOptionKeys.tournament],
-      ),
-      (
-        label: '卓ページ',
-        destination: const TableHomePage(),
-        optionKeys: [
-          DeviceOptionKeys.tournament,
-          DeviceOptionKeys.tournamentTable,
-        ],
-      ),
-      (
-        label: 'ブラインドタイマー',
-        destination: const BlindTimerTournamentSelectPage(),
-        optionKeys: [DeviceOptionKeys.tournament],
-      ),
-      (
-        label: 'sideGame',
-        destination: const SideGameTableListPage(),
-        optionKeys: [DeviceOptionKeys.sideGame],
-      ),
-      (
-        label: '注文管理',
-        destination: const OrderManagementPage(),
-        optionKeys: [DeviceOptionKeys.kitchen],
-      ),
-      (
-        label: '勤怠管理・スタッフ打刻',
-        destination: const StaffAttendancePage(),
-        optionKeys: [DeviceOptionKeys.staffEntryExit],
-      ),
-      (
-        label: '会計管理',
-        destination: const AccountingPage(),
-        optionKeys: [DeviceOptionKeys.accounting],
-      ),
-      (
-        label: '要対応の会計',
-        destination: const RequireSpecialAttentionPage(),
-        optionKeys: [DeviceOptionKeys.accounting],
-      ),
-      (
-        label: '会計後操作',
-        destination: const PostSettlementOperationsPage(),
-        optionKeys: [DeviceOptionKeys.accounting],
-      ),
-      // 旧経路ボタン（postAccountingAdjustmentsPage）は to_be_deleted に移動済み 2026-05-29
-    ];
-
-    final visibleButtons = buttons.where((btn) {
-      // 管理者端末は全表示
-      if (_isAdminDevice) return true;
-      // オプションがまだ付与されていない（空）場合は従来通り全表示
-      if (_deviceOptions.isEmpty) return true;
-      // オプションキーが無いボタンは常に表示（一般系）
-      if (btn.optionKeys == null) return true;
-      // いずれか1つでも付与済みなら表示
-      return btn.optionKeys!.any((key) => _deviceOptions[key] == true);
-    }).toList();
-
-    final showStoreManagementButton =
-        _isAdminDevice ||
-        _deviceOptions[DeviceOptionKeys.storeManagement] == true;
     final isStoreManagement =
         _isAdminDevice ||
         _deviceOptions[DeviceOptionKeys.storeManagement] == true;
@@ -1137,12 +1036,16 @@ class _terminalHomePageState extends State<terminalHomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Terminal ホーム'),
+        title: const Text('ホーム'),
         centerTitle: true,
         actions: [
           // 営業状態表示（日付は横長楕円枠で囲み、タップで開閉店管理ダイアログを開く）
           _buildStoreStatusAction(context),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Divider(height: 1, thickness: 1, color: Colors.black.withValues(alpha: 0.10)),
+        ),
       ),
       body: _loadingDevice
           ? const Center(child: CircularProgressIndicator())
@@ -1155,45 +1058,406 @@ class _terminalHomePageState extends State<terminalHomePage> {
               onBusinessContinue: isStoreManagement
                   ? () => _onBusinessContinue(context)
                   : null,
-              child: GridView.custom(
-                padding: const EdgeInsets.all(16),
-                physics: const AlwaysScrollableScrollPhysics(), // スクロール可能に変更
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 5,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  mainAxisExtent: buttonHeight,
-                ),
-                childrenDelegate: SliverChildListDelegate.fixed([
-                  // 通常ボタン
-                  ...visibleButtons.map((btn) {
-                    return ElevatedButton(
-                      onPressed: () async {
-                        if (context.mounted) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => btn.destination),
-                          );
-                        }
-                      },
-                      child: Text(btn.label, textAlign: TextAlign.center),
-                    );
-                  }),
-                  // 営業管理ボタン（開閉店管理ダイアログ）
-                  if (showStoreManagementButton)
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.brown,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: () => _showStoreManagementDialog(context),
-                      child: const Text('営業管理', textAlign: TextAlign.center),
-                    ),
-                ]),
-              ),
+              child: _buildTerminalLayout(context),
             ),
     );
   }
+
+  // ══════════════════════════════════════════════════════════
+  // G1: カテゴリ×ボタン定義 + ペアレイアウト
+  // ══════════════════════════════════════════════════════════
+
+  /// 行ペア定義（カテゴリインデックス）
+  static const _rowPairs = <(int, int)>[(0, 1), (2, 3), (4, 5)];
+
+  /// カテゴリ＋ボタン定義（インデックスは _rowPairs と対応）
+  List<(HomeCategoryTheme, List<HomeBtnDef>)> get _catDefs => [
+    // [0] ユーザー（Row1 左）
+    (
+      TerminalCategoryColors.user,
+      [
+        HomeBtnDef(
+          label: 'ユーザーログイン',
+          icon: Icons.login,
+          optionKeys: const [DeviceOptionKeys.userEntryExit],
+          destination: const UserCheckInPage(),
+        ),
+        HomeBtnDef(
+          label: 'ユーザー作成',
+          icon: Icons.person_add,
+          destination: const CreateUserAccount(),
+        ),
+        HomeBtnDef(
+          label: '入店中ユーザー一覧',
+          icon: Icons.people,
+          destination: const AdminUserListPage(),
+        ),
+      ],
+    ),
+    // [1] 営業（Row1 右）
+    (
+      TerminalCategoryColors.operations,
+      [
+        const HomeBtnDef(
+          label: '営業管理',
+          icon: Icons.store,
+          optionKeys: [DeviceOptionKeys.storeManagement],
+          isStoreManagementDialog: true,
+        ),
+        HomeBtnDef(
+          label: '勤怠打刻',
+          icon: Icons.schedule,
+          optionKeys: const [DeviceOptionKeys.staffEntryExit],
+          destination: const StaffAttendancePage(),
+        ),
+        HomeBtnDef(
+          label: 'メニュー追加',
+          icon: Icons.restaurant_menu,
+          destination: const MenuEditorListPage(),
+        ),
+      ],
+    ),
+    // [2] 会計
+    (
+      TerminalCategoryColors.accounting,
+      [
+        HomeBtnDef(
+          label: '会計管理',
+          icon: Icons.receipt_long,
+          optionKeys: const [DeviceOptionKeys.accounting],
+          destination: const AccountingPage(),
+        ),
+        HomeBtnDef(
+          label: '要対応の会計',
+          icon: Icons.warning_amber_rounded,
+          optionKeys: const [DeviceOptionKeys.accounting],
+          destination: const RequireSpecialAttentionPage(),
+        ),
+        HomeBtnDef(
+          label: '会計後操作',
+          icon: Icons.post_add,
+          optionKeys: const [DeviceOptionKeys.accounting],
+          destination: const PostSettlementOperationsPage(),
+        ),
+      ],
+    ),
+    // [3] 注文
+    (
+      TerminalCategoryColors.order,
+      [
+        HomeBtnDef(
+          label: '注文画面',
+          icon: Icons.point_of_sale,
+          optionKeys: const [DeviceOptionKeys.order],
+          destination: const CategorySelectPage(),
+        ),
+        HomeBtnDef(
+          label: '注文管理',
+          icon: Icons.receipt,
+          optionKeys: const [DeviceOptionKeys.kitchen],
+          destination: const OrderManagementPage(),
+        ),
+      ],
+    ),
+    // [4] Tournament
+    (
+      TerminalCategoryColors.tournament,
+      [
+        HomeBtnDef(
+          label: 'トーナメント作成',
+          icon: Icons.emoji_events,
+          optionKeys: const [DeviceOptionKeys.tournament],
+          destination: const TournamentCreationMenuPage(),
+        ),
+        HomeBtnDef(
+          label: 'トーナメントホーム',
+          icon: Icons.sports_esports,
+          optionKeys: const [DeviceOptionKeys.tournament],
+          destination: const ScheduledTournamentListPage(),
+        ),
+        HomeBtnDef(
+          label: '卓ページ',
+          icon: Icons.table_restaurant,
+          optionKeys: const [
+            DeviceOptionKeys.tournament,
+            DeviceOptionKeys.tournamentTable,
+          ],
+          destination: const TableHomePage(),
+        ),
+        HomeBtnDef(
+          label: 'ブラインドタイマー',
+          icon: Icons.timer,
+          optionKeys: const [DeviceOptionKeys.tournament],
+          destination: const BlindTimerTournamentSelectPage(),
+        ),
+      ],
+    ),
+    // [5] SideGame
+    (
+      TerminalCategoryColors.sideGame,
+      [
+        HomeBtnDef(
+          label: 'サイドゲーム',
+          icon: Icons.casino,
+          optionKeys: const [DeviceOptionKeys.sideGame],
+          destination: const SideGameTableListPage(),
+        ),
+      ],
+    ),
+  ];
+
+  /// DeviceOption に基づくアクティブ判定
+  bool _isBtnActive(HomeBtnDef btn) {
+    // 管理者端末は全アクティブ
+    if (_isAdminDevice) return true;
+    // オプション未設定端末は全アクティブ（旧仕様互換）
+    if (_deviceOptions.isEmpty) return true;
+    // optionKeys=null のボタンは常にアクティブ（一般操作）
+    if (btn.optionKeys == null) return true;
+    // いずれか1つでも付与済みならアクティブ
+    return btn.optionKeys!.any((k) => _deviceOptions[k] == true);
+  }
+
+  /// Terminal ホームレイアウト（LayoutBuilder でサイズを動的計算）
+  Widget _buildTerminalLayout(BuildContext context) {
+    final cats = _catDefs;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Redmi 等で maxHeight=∞ になる場合のフォールバック
+        final availH = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : MediaQuery.of(context).size.height - kToolbarHeight - MediaQuery.of(context).padding.top;
+        final btnW = HomeLayoutConst.calcBtnW(
+          constraints.maxWidth,
+          numSlots: HomeLayoutConst.terminalSlots,
+        );
+        final btnH = HomeLayoutConst.calcTerminalBtnH(availH);
+
+        return SingleChildScrollView(
+          // 1ページ収まるが、計算誤差によるはみ出しを防ぐ安全弁
+          physics: const NeverScrollableScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: HomeLayoutConst.hPad,
+              vertical: HomeLayoutConst.vPad,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (int i = 0; i < _rowPairs.length; i++) ...[
+                  if (i > 0)
+                    const SizedBox(height: HomeLayoutConst.rowGap),
+                  _buildPairRow(
+                    context,
+                    cats[_rowPairs[i].$1],
+                    cats[_rowPairs[i].$2],
+                    btnW,
+                    btnH,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 2カテゴリを横並びにした1行
+  Widget _buildPairRow(
+    BuildContext context,
+    (HomeCategoryTheme, List<HomeBtnDef>) cat1Data,
+    (HomeCategoryTheme, List<HomeBtnDef>) cat2Data,
+    double btnW,
+    double btnH,
+  ) {
+    final sectionH = HomeLayoutConst.headerH + HomeLayoutConst.headerGap + btnH;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildCatSection(context, cat1Data.$1, cat1Data.$2, btnW, btnH),
+        SizedBox(
+          width: HomeLayoutConst.catDividerGap,
+          height: sectionH,
+          child: Center(
+            child: Container(
+              width: 1,
+              height: btnH * 0.65,
+              color: Colors.grey.shade300,
+            ),
+          ),
+        ),
+        _buildCatSection(context, cat2Data.$1, cat2Data.$2, btnW, btnH),
+      ],
+    );
+  }
+
+  /// カテゴリセクション（ヘッダー＋ボタン行）
+  Widget _buildCatSection(
+    BuildContext context,
+    HomeCategoryTheme theme,
+    List<HomeBtnDef> buttons,
+    double btnW,
+    double btnH,
+  ) {
+    final sectionW = buttons.length * btnW +
+        (buttons.length - 1) * HomeLayoutConst.btnGap;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // カテゴリヘッダー（左バー＋ラベル）
+        SizedBox(
+          width: sectionW,
+          height: HomeLayoutConst.headerH,
+          child: Row(
+            children: [
+              Container(
+                width: 4,
+                height: 14,
+                decoration: BoxDecoration(
+                  color: theme.fg,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  theme.label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey.shade600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: HomeLayoutConst.headerGap),
+        // ボタン行
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (int i = 0; i < buttons.length; i++) ...[
+              if (i > 0) const SizedBox(width: HomeLayoutConst.btnGap),
+              SizedBox(
+                width: btnW,
+                height: btnH,
+                child: _buildHomeBtn(context, buttons[i], theme, btnH),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// ボタン1個
+  Widget _buildHomeBtn(
+    BuildContext context,
+    HomeBtnDef btn,
+    HomeCategoryTheme catTheme,
+    double height,
+  ) {
+    final active = _isBtnActive(btn);
+    final bg = active ? catTheme.bg : HomeButtonGreyTheme.bg;
+    final fg = active ? catTheme.fg : HomeButtonGreyTheme.fg;
+    final borderColor =
+        active ? Colors.grey.shade300 : HomeButtonGreyTheme.borderColor;
+    final iconSize = (height * 0.28).clamp(18.0, 34.0);
+    final fontSize = (height * 0.12).clamp(10.0, 13.5);
+
+    VoidCallback? onTap;
+    if (active) {
+      if (btn.isStoreManagementDialog) {
+        onTap = () => _showStoreManagementDialog(context);
+      } else if (btn.destination != null) {
+        onTap = () {
+          if (context.mounted) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => btn.destination!),
+            );
+          }
+        };
+      }
+    }
+
+    // ボタン本体コンテンツ（アイコン + ラベル + [権限なし]）
+    final btnContent = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(btn.icon, color: fg, size: iconSize),
+          SizedBox(height: (height * 0.04).clamp(3.0, 8.0)),
+          Text(
+            btn.label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: fg,
+              fontSize: fontSize,
+              fontWeight: FontWeight.w600,
+              height: 1.2,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          // グレーアウト時のみ「権限なし」テキストを表示
+          if (!active) ...[
+            const SizedBox(height: 3),
+            Text(
+              '権限なし',
+              style: TextStyle(
+                color: Colors.red.shade300,
+                fontSize: 9,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    return Material(
+      color: bg,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: borderColor),
+      ),
+      child: InkWell(
+        customBorder: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        onTap: onTap,
+        // グレーアウト時のみ Stack で鍵アイコンをオーバーレイ
+        child: active
+            ? btnContent
+            : Stack(
+                children: [
+                  // Positioned.fill でコンテンツを全面に広げ、Column の中央寄せを維持する
+                  Positioned.fill(child: btnContent),
+                  Positioned(
+                    top: 5,
+                    right: 6,
+                    child: Icon(
+                      Icons.lock_outline,
+                      size: 13,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════
 
   /// 営業継続: 同一ダイアログ内で閉店時間の目安（1〜8時間）を選択し、Callable で override＋closeAssessment 更新＋enqueue を実行。
   void _onBusinessContinue(BuildContext context) {
@@ -1203,7 +1467,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
     if (info == null) {
       ScaffoldMessenger.of(
         pageContext,
-      ).showSnackBar(const SnackBar(content: Text('強警告が解消されています。')));
+      ).showSnackBar(const SnackBar(content: Text('強警告が解消されています。'), backgroundColor: Colors.green));
       return;
     }
 
@@ -1375,7 +1639,7 @@ class _terminalHomePageState extends State<terminalHomePage> {
     if (targetBusinessDateKey.isEmpty) {
       ScaffoldMessenger.of(
         pageContext,
-      ).showSnackBar(const SnackBar(content: Text('閉店対象日を取得できません。')));
+      ).showSnackBar(const SnackBar(content: Text('閉店対象日を取得できません。'), backgroundColor: Colors.red));
       return;
     }
 

@@ -420,7 +420,7 @@ class _AdminStoreManagedToLineMigrationPageState
         children: [
           Scaffold(
             appBar: AppBar(
-              title: const Text('店舗管理→LINE移行'),
+              title: const Text('LINE移行設定'),
               backgroundColor: Colors.deepPurple,
               foregroundColor: Colors.white,
             ),

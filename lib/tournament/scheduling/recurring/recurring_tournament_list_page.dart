@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:amuse_app_template/core/errors/errors.dart';
 import 'package:amuse_app_template/core/utils/functions_client.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:amuse_app_template/tournament/scheduling/recurring/create_recurring_tournament_page.dart';
 import 'package:amuse_app_template/tournament/scheduling/recurring/edit_recurring_tournament_page.dart';
@@ -114,74 +113,33 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
     }
   }
 
-  /// 編集画面へ遷移（Firestore snapshot から最新データを取得して渡す）
-  Future<void> _navigateToEdit(BuildContext context, String recurrenceId) async {
-    // ローディング表示
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
+  /// 編集画面へ遷移
+  /// 一覧読み込み済みの [_recurrences] からデータを取得して渡す。
+  /// Firestore への直接アクセスを廃止し、Cloud Function 経由で取得済みのデータを流用する。
+  void _navigateToEdit(BuildContext context, String recurrenceId) {
+    final recurrence = _recurrences.firstWhere(
+      (r) => r['id']?.toString() == recurrenceId,
+      orElse: () => <String, dynamic>{},
     );
 
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('tournamentRecurrences')
-          .doc(recurrenceId)
-          .get();
-
-      if (!mounted) return;
-      Navigator.of(context).pop(); // ローディングを閉じる
-
-      if (!doc.exists) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text(kTournamentAdminRecurrenceNotFoundMessage)),
-        );
-        return;
-      }
-
-      final data = doc.data()!;
-
-      // Timestamp → String / List に正規化
-      final recurrenceData = <String, dynamic>{
-        'id': doc.id,
-        'templateId': data['templateId'] ?? '',
-        'storeId': data['storeId'] ?? '',
-        'tenantId': data['tenantId'] ?? '',
-        'interval': data['interval'] ?? '',
-        'byWeekday': (data['byWeekday'] as List?)
-                ?.map((e) => e.toString())
-                .toList() ??
-            [],
-        'startTime': data['startTime'] ?? '',
-        'isActive': data['isActive'] ?? false,
-        'startOn': (data['startOn'] as Timestamp?)?.toDate().toIso8601String() ??
-            data['startOn']?.toString() ?? '',
-        'endsOn': data['endsOn'] != null
-            ? (data['endsOn'] as Timestamp?)?.toDate().toIso8601String() ??
-                data['endsOn'].toString()
-            : null,
-        'createdAt':
-            (data['createdAt'] as Timestamp?)?.toDate().toIso8601String() ?? '',
-        'updatedAt':
-            (data['updatedAt'] as Timestamp?)?.toDate().toIso8601String() ?? '',
-      };
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => EditRecurringTournamentPage(
-            recurrenceId: recurrenceId,
-            recurrenceData: recurrenceData,
-          ),
+    if (recurrence.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(kTournamentAdminRecurrenceDetailLoadFailedMessage),
         ),
       );
-    } catch (e) {
-      if (!mounted) return;
-      Navigator.of(context).pop(); // ローディングを閉じる
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(kTournamentAdminRecurrenceDetailLoadFailedMessage)),
-      );
+      return;
     }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditRecurringTournamentPage(
+          recurrenceId: recurrenceId,
+          recurrenceData: recurrence,
+        ),
+      ),
+    );
   }
 
   /// 定期開催を削除
@@ -201,7 +159,7 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
 
       if (result.data['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('定期開催を削除しました')),
+          const SnackBar(content: Text('定期開催を削除しました'), backgroundColor: Colors.green),
         );
         await _loadRecurrences();
       } else {

@@ -40,8 +40,10 @@ class _TableHomePageState extends State<TableHomePage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      // G6-06: ロード中も AppBar を表示する（ロード完了後 TournamentSelectPage の AppBar と同タイトル）
+      return Scaffold(
+        appBar: AppBar(title: const Text('卓選択')),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 

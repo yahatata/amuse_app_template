@@ -37,7 +37,7 @@ class _AdminAttendanceListPageState extends State<AdminAttendanceListPage> {
   Widget build(BuildContext context) {
     final dateKey = _fmtDateKey(_selectedDate);
     return Scaffold(
-      appBar: AppBar(title: const Text('管理者用・勤怠データ一覧')),
+      appBar: AppBar(title: const Text('勤怠データ一覧')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openAddPage,
         label: const Text('出勤データの追加'),

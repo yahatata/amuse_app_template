@@ -165,21 +165,21 @@ class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamen
   Future<void> _createRecurringTournament() async {
     if (_selectedTemplate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('テンプレートを選択してください')),
+        const SnackBar(content: Text('テンプレートを選択してください'), backgroundColor: Colors.amber),
       );
       return;
     }
 
     if (_selectedStartDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('開始日を選択してください')),
+        const SnackBar(content: Text('開始日を選択してください'), backgroundColor: Colors.amber),
       );
       return;
     }
 
     if (_selectedWeekdays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('開催曜日を選択してください')),
+        const SnackBar(content: Text('開催曜日を選択してください'), backgroundColor: Colors.amber),
       );
       return;
     }
@@ -211,7 +211,7 @@ class _CreateRecurringTournamentPageState extends State<CreateRecurringTournamen
 
       if (result.data['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('定期開催トーナメントを作成しました')),
+          const SnackBar(content: Text('定期開催トーナメントを作成しました'), backgroundColor: Colors.green),
         );
         Navigator.pop(context);
       } else {

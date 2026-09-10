@@ -126,6 +126,7 @@ class _StaffRetirementPageState extends State<StaffRetirementPage> {
           content: Text(
             mapCallableSoftFailMessage(result.data, operation: 'retireStaff'),
           ),
+          backgroundColor: Colors.red,
         ),
       );
     } on FirebaseFunctionsException catch (e) {
@@ -143,15 +144,16 @@ class _StaffRetirementPageState extends State<StaffRetirementPage> {
                 '\n（申請: ${shiftCount ?? 0}件 / 割当: ${assignmentCount ?? 0}件）';
           }
         }
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: Colors.red));
       } else if (details is Map && details['errorKey'] == 'STAFF_ALREADY_RETIRED') {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('このスタッフは既に退職済みです')),
+          const SnackBar(content: Text('このスタッフは既に退職済みです'), backgroundColor: Colors.red),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(mapCallableError(e, operation: 'retireStaff').message),
+            backgroundColor: Colors.red,
           ),
         );
       }
@@ -160,6 +162,7 @@ class _StaffRetirementPageState extends State<StaffRetirementPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(mapCallableError(e, operation: 'retireStaff').message),
+            backgroundColor: Colors.red,
           ),
         );
       }

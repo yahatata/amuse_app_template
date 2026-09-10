@@ -340,33 +340,103 @@ class _UserCheckInPageState extends State<UserCheckInPage> {
         title: const Text('ユーザーログイン'),
         centerTitle: true,
         actions: [
-          buildHomeButton(context), // ← 追加
+          buildHomeButton(context),
         ],
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32.0),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          const gap = 32.0;
+          const hPadding = 48.0;
+          // ボタン幅: 左右余白 + gap を除いた幅の半分、最大240pt・最小80pt
+          final rawW = (constraints.maxWidth - hPadding * 2 - gap) / 2;
+          final btnW = rawW.clamp(80.0, 240.0).toDouble();
+          // ボタン高さ: 幅の4/3（3:4比率）、画面高さの65%を超えない
+          final btnH = (btnW * 4 / 3).clamp(0.0, constraints.maxHeight * 0.65).toDouble();
+          return Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _CheckInCard(
+                  icon: Icons.qr_code_scanner,
+                  label: 'QRチェックイン',
+                  bgColor: Colors.green[50]!,
+                  fgColor: Colors.green[800]!,
+                  borderColor: Colors.green[200]!,
+                  onTap: _openQRCheckIn,
+                  width: btnW,
+                  height: btnH,
+                ),
+                const SizedBox(width: 32),
+                _CheckInCard(
+                  icon: Icons.edit,
+                  label: '手動チェックイン',
+                  bgColor: Colors.amber[50]!,
+                  fgColor: Colors.amber[800]!,
+                  borderColor: Colors.amber[200]!,
+                  onTap: _openManualCheckIn,
+                  width: btnW,
+                  height: btnH,
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// --------------------------------------------------------------------------
+// チェックイン選択カードウィジェット
+// --------------------------------------------------------------------------
+
+class _CheckInCard extends StatelessWidget {
+  const _CheckInCard({
+    required this.icon,
+    required this.label,
+    required this.bgColor,
+    required this.fgColor,
+    required this.borderColor,
+    required this.onTap,
+    required this.width,
+    required this.height,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color bgColor;
+  final Color fgColor;
+  final Color borderColor;
+  final VoidCallback onTap;
+  final double width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Material(
+        color: bgColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: borderColor, width: 1.5),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              ElevatedButton.icon(
-                icon: const Icon(Icons.qr_code),
-                label: const Text('QRチェックイン'),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  textStyle: const TextStyle(fontSize: 18),
+              Icon(icon, size: 52, color: fgColor),
+              const SizedBox(height: 12),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: fgColor,
                 ),
-                onPressed: _openQRCheckIn,
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.edit),
-                label: const Text('手動チェックイン'),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  textStyle: const TextStyle(fontSize: 18),
-                ),
-                onPressed: _openManualCheckIn,
               ),
             ],
           ),

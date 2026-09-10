@@ -78,7 +78,6 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
         });
       }
     } catch (e) {
-      print('権限読み込みエラー');
       if (mounted) {
         setState(() {
           _permissionsLoadFailed = true;
@@ -94,7 +93,7 @@ class _SideGameTableListPageState extends State<SideGameTableListPage> {
       children: [
         Scaffold(
       appBar: AppBar(
-        title: const Text('サイドゲーム テーブル選択'),
+        title: const Text('サイドゲーム 卓選択'),
         centerTitle: true,
       ),
       body: StoreStrongWarningWrapper(
