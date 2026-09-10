@@ -242,7 +242,7 @@ class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPag
 
       if (isCallableSuccessResponse(response)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response['message'] ?? '更新が完了しました')),
+          SnackBar(content: Text(response['message'] ?? '更新が完了しました'), backgroundColor: Colors.green),
         );
         Navigator.pop(context);
       } else {
@@ -519,17 +519,26 @@ class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPag
                                 ),
                               )
                             else
-                              GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 8,
-                                  childAspectRatio: 1.2,
-                                  crossAxisSpacing: 8,
-                                  mainAxisSpacing: 8,
-                                ),
-                                itemCount: _scheduledTournaments.length,
-                                itemBuilder: (context, index) {
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  // 最小セル幅 60px を確保しつつ最大 8 列でレスポンシブ化
+                                  const minCellWidth = 60.0;
+                                  const spacing = 8.0;
+                                  final crossAxisCount = ((constraints.maxWidth + spacing) /
+                                      (minCellWidth + spacing))
+                                      .floor()
+                                      .clamp(3, 8);
+                                  return GridView.builder(
+                                    shrinkWrap: true,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: crossAxisCount,
+                                      childAspectRatio: 1.2,
+                                      crossAxisSpacing: spacing,
+                                      mainAxisSpacing: spacing,
+                                    ),
+                                    itemCount: _scheduledTournaments.length,
+                                    itemBuilder: (context, index) {
                                   final tournament = _scheduledTournaments[index];
                                   final status = (tournament['status'] ?? 'scheduled').toString();
                                   final isCancelled = status == 'cancelled' || status == 'canceled';
@@ -615,6 +624,8 @@ class _EditRecurringTournamentPageState extends State<EditRecurringTournamentPag
                                         ],
                                       ),
                                     ),
+                                  );
+                                    },
                                   );
                                 },
                               ),

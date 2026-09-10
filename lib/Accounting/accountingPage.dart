@@ -2055,7 +2055,7 @@ class _AccountingPageState extends State<AccountingPage> {
         if (baseMethod == null || baseMethod.isEmpty) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('決済方法を選択してください')));
+          ).showSnackBar(const SnackBar(content: Text('決済方法を選択してください'), backgroundColor: Colors.amber));
           return;
         }
         baseMethodForRequest = baseMethod;
@@ -2089,7 +2089,7 @@ class _AccountingPageState extends State<AccountingPage> {
         if (cashLikeAmount <= 0) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('ポイントのみでの支払いはできません。')));
+          ).showSnackBar(const SnackBar(content: Text('ポイントのみでの支払いはできません。'), backgroundColor: Colors.amber));
           return;
         }
 
@@ -2103,7 +2103,7 @@ class _AccountingPageState extends State<AccountingPage> {
       if (paymentMethodsByAmount.isEmpty) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('支払い金額の計算に失敗しました')));
+        ).showSnackBar(const SnackBar(content: Text('支払い金額の計算に失敗しました'), backgroundColor: Colors.red));
         return;
       }
 
@@ -2260,7 +2260,7 @@ class _AccountingPageState extends State<AccountingPage> {
         if (mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('会計を完了しました')));
+          ).showSnackBar(const SnackBar(content: Text('会計を完了しました'), backgroundColor: Colors.green));
         }
         // 未会計会計フローの場合は users と closeSnapshot.unresolved の更新を呼んでから戻る
         if (mounted &&
@@ -2785,7 +2785,7 @@ class _AccountingPageState extends State<AccountingPage> {
             _loadActiveBills(_currentBusinessDateKey!);
           }
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('会計開始を取り消しました')),
+            const SnackBar(content: Text('会計開始を取り消しました'), backgroundColor: Colors.green),
           );
         }
         return true;

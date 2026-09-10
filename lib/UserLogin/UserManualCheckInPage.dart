@@ -144,47 +144,76 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
               padding: const EdgeInsets.all(16.0),
               child: Center(
                 child: SingleChildScrollView(
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.lock, size: 80, color: Colors.blue),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 400),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.lock, size: 48, color: Colors.blue),
                         const SizedBox(height: 20),
                         const Text(
                           "ログイン",
                           style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 20),
-                        TextFormField(
-                          controller: _loginIdController,
-                          readOnly: _isLoading,
-                          decoration: const InputDecoration(
-                            labelText: "ログインID",
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.person),
-                          ),
-                          validator: (value) =>
-                              value!.isEmpty ? "ログインIDを入力してください" : null,
+                        // ログインID フィールド（ラベル上側・入力BOXはフル幅）
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'ログインID',
+                              style: TextStyle(fontSize: 14, color: Colors.black87),
+                            ),
+                            const SizedBox(height: 6),
+                            TextFormField(
+                              controller: _loginIdController,
+                              readOnly: _isLoading,
+                              decoration: const InputDecoration(
+                                hintText: 'ポーカーネーム+誕生日（MMDD）※スペース等なし',
+                                hintStyle: TextStyle(color: Colors.grey, fontSize: 12),
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.person),
+                              ),
+                              validator: (value) =>
+                                  value!.isEmpty ? 'ログインIDを入力してください' : null,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 15),
-                        TextFormField(
-                          controller: _pinController,
-                          readOnly: _isLoading,
-                          decoration: const InputDecoration(
-                            labelText: "PIN (4桁)",
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.lock),
-                          ),
-                          keyboardType: TextInputType.number,
-                          obscureText: true,
-                          validator: (value) =>
-                              value!.length != 4 ? "PINは4桁で入力してください" : null,
+                        const SizedBox(height: 16),
+                        // PIN フィールド（ラベル上側・入力BOXはフル幅）
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'PIN（4桁）',
+                              style: TextStyle(fontSize: 14, color: Colors.black87),
+                            ),
+                            const SizedBox(height: 6),
+                            TextFormField(
+                              controller: _pinController,
+                              readOnly: _isLoading,
+                              decoration: const InputDecoration(
+                                hintText: '4桁の数字',
+                                hintStyle: TextStyle(color: Colors.grey),
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.lock),
+                              ),
+                              keyboardType: TextInputType.number,
+                              obscureText: true,
+                              validator: (value) =>
+                                  value!.length != 4 ? 'PINは4桁で入力してください' : null,
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 20),
-                        ElevatedButton(
-                          onPressed: _isLoading ? null : _loginWithAuthFirst,
-                          child: const Text("ログイン"),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _loginWithAuthFirst,
+                            child: const Text("ログイン"),
+                          ),
                         ),
                         TextButton(
                           onPressed: _isLoading
@@ -200,12 +229,13 @@ class _UserManualCheckInPageState extends State<UserManualCheckInPage> {
                           child: const Text("新規登録はこちら"),
                         ),
                       ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+                    ),      // Column
+                  ),        // Form
+                ),          // ConstrainedBox
+              ),            // SingleChildScrollView
+            ),              // Center
+          ),                // Padding (body)
+        ),                  // Scaffold
           if (_isLoading)
             Positioned.fill(
               child: AbsorbPointer(

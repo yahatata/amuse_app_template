@@ -1,5 +1,7 @@
 import 'package:amuse_app_template/core/errors/app_initialize_user_facing_errors.dart';
 import 'package:amuse_app_template/Home/adminHomePage.dart';
+import 'package:amuse_app_template/Home/terminal_mode_banner.dart';
+import 'package:amuse_app_template/Home/terminal_mode_state.dart';
 import 'package:amuse_app_template/Home/terminalHomePage.dart';
 import 'package:amuse_app_template/models/device.dart';
 import 'package:amuse_app_template/pages/device_registration_page.dart';
@@ -61,6 +63,48 @@ class MyApp extends StatelessWidget {
         Locale('en', 'US'), // 英語（フォールバック）
       ],
       locale: const Locale('ja', 'JP'), // デフォルトを日本語に設定
+      // G4: ルート変化の監視（AdminHomePage の RouteAware が利用）
+      navigatorObservers: [appRouteObserver],
+      // G4: Admin デバイスが Terminal モード中のみ全画面上部にバナーを表示
+      builder: (context, child) {
+        return ValueListenableBuilder<bool>(
+          valueListenable: terminalModeNotifier,
+          builder: (context, isTerminal, _) {
+            if (!isTerminal) {
+              // Admin モード: バナーなし、通常表示
+              return child!;
+            }
+            // Terminal モード: バナーをステータスバー直下に表示
+            final mq = MediaQuery.of(context);
+            return Column(
+              children: [
+                // ステータスバー分の余白 + バナー本体（バナー色で塗りつぶし）
+                ColoredBox(
+                  color: TerminalModeBanner.bannerContentHeight == 0
+                      ? Colors.transparent
+                      : const Color(0xFF00796B),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(height: mq.padding.top), // ステータスバー領域
+                      const TerminalModeBanner(),
+                    ],
+                  ),
+                ),
+                // Navigator: ステータスバーの上パディングを 0 にして二重余白を防ぐ
+                Expanded(
+                  child: MediaQuery(
+                    data: mq.copyWith(
+                      padding: mq.padding.copyWith(top: 0),
+                    ),
+                    child: child!,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
       home: const AppInitializer(), // デバイス登録状態をチェックして適切な画面に遷移
     );
   }

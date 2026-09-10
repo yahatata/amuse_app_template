@@ -372,7 +372,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
       if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('ステータスを更新しました')),
+            const SnackBar(content: Text('ステータスを更新しました'), backgroundColor: Colors.green),
           );
         }
         await _loadTournaments();
@@ -458,7 +458,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
     if (!RegExp(r'^\d{2}:\d{2}$').hasMatch(input)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('時刻は HH:MM 形式で入力してください')),
+          const SnackBar(content: Text('時刻は HH:MM 形式で入力してください'), backgroundColor: Colors.amber),
         );
       }
       return;
@@ -470,7 +470,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
     if (hh < 0 || hh > 23 || mm < 0 || mm > 59) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('時刻の範囲が不正です')),
+          const SnackBar(content: Text('時刻の範囲が不正です'), backgroundColor: Colors.amber),
         );
       }
       return;
@@ -498,7 +498,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
       if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('開始時刻を更新しました')),
+            const SnackBar(content: Text('開始時刻を更新しました'), backgroundColor: Colors.green),
           );
         }
         await _loadTournaments();
@@ -547,7 +547,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
               await _loadTournaments();
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('開始時刻を更新しました')),
+                  const SnackBar(content: Text('開始時刻を更新しました'), backgroundColor: Colors.green),
                 );
               }
             },
@@ -675,14 +675,14 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
     }
     if (_tournamentTemplates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(kTournamentAdminTemplatesEmptyMessage)),
+        const SnackBar(content: Text(kTournamentAdminTemplatesEmptyMessage), backgroundColor: Colors.amber),
       );
       return;
     }
 
     if (_selectedDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('日付を選択してください')),
+        const SnackBar(content: Text('日付を選択してください'), backgroundColor: Colors.amber),
       );
       return;
     }
@@ -799,7 +799,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
               onPressed: () async {
                 if (selectedTemplate == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('テンプレートを選択してください')),
+                    const SnackBar(content: Text('テンプレートを選択してください'), backgroundColor: Colors.amber),
                   );
                   return;
                 }
@@ -828,7 +828,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
   }) async {
     if (templateId.isEmpty || startDate.isEmpty || startTime.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('すべての項目を入力してください')),
+        const SnackBar(content: Text('すべての項目を入力してください'), backgroundColor: Colors.amber),
       );
       return;
     }
@@ -885,7 +885,7 @@ class _CreateTournamentFromCalendarPageState extends State<CreateTournamentFromC
       if (isCallableSuccessResponse(result.data)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('トーナメントを作成しました')),
+            const SnackBar(content: Text('トーナメントを作成しました'), backgroundColor: Colors.green),
           );
 
           // トーナメントリストを更新

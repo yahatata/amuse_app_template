@@ -120,7 +120,7 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
   Future<void> _createTournament() async {
     if (_selectedTemplate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('テンプレートを選択してください')),
+        const SnackBar(content: Text('テンプレートを選択してください'), backgroundColor: Colors.amber),
       );
       return;
     }
@@ -131,21 +131,21 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
 
     if (startDate.isEmpty || startTime.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('すべての項目を入力してください')),
+        const SnackBar(content: Text('すべての項目を入力してください'), backgroundColor: Colors.amber),
       );
       return;
     }
 
     if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(startDate)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('開始日の形式が正しくありません (YYYY-MM-DD)')),
+        const SnackBar(content: Text('開始日の形式が正しくありません (YYYY-MM-DD)'), backgroundColor: Colors.amber),
       );
       return;
     }
 
     if (!RegExp(r'^\d{2}:\d{2}$').hasMatch(startTime)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('開始時刻の形式が正しくありません (HH:MM)')),
+        const SnackBar(content: Text('開始時刻の形式が正しくありません (HH:MM)'), backgroundColor: Colors.amber),
       );
       return;
     }
@@ -185,7 +185,7 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
       if (result['success'] == true) {
         final message = result['message'] as String?;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message ?? 'トーナメントを作成しました')),
+          SnackBar(content: Text(message ?? 'トーナメントを作成しました'), backgroundColor: Colors.green),
         );
         // トーナメント作成メニュー画面に戻る
         Navigator.pop(context);
@@ -195,14 +195,14 @@ class _CreateSingleTournamentPageState extends State<CreateSingleTournamentPage>
       // soft-fail: raw error/message は表示しない
       final softFail = mapCreateSingleTournamentSoftFail(result);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(softFail.message)),
+        SnackBar(content: Text(softFail.message), backgroundColor: Colors.red),
       );
     } catch (e) {
       if (!mounted) return;
       // TOUR-72: UID / Functions raw / $e は表示しない
       final mapped = mapCreateSingleTournamentCallableError(e);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mapped.message)),
+        SnackBar(content: Text(mapped.message), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) {

@@ -219,7 +219,7 @@ class _ShiftStyleRequiredStaffSettingsPageState
     final validationError = validateRequiredStaffByStyle(_requiredStaffByStyle);
     if (validationError != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(validationError), backgroundColor: Colors.orange),
+        SnackBar(content: Text(validationError), backgroundColor: Colors.amber),
       );
       return;
     }

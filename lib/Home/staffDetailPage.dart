@@ -129,7 +129,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
     await _reloadStaffData();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('退職手続きが完了しました')),
+      const SnackBar(content: Text('退職手続きが完了しました'), backgroundColor: Colors.green),
     );
   }
 
@@ -140,7 +140,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
         _accountNumberController.text.isEmpty ||
         _accountHolderController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('すべての項目を入力してください')),
+        const SnackBar(content: Text('すべての項目を入力してください'), backgroundColor: Colors.amber),
       );
       return;
     }
@@ -149,7 +149,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
     if (_accountNumberController.text.length != 7 || 
         int.tryParse(_accountNumberController.text) == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('口座番号は7桁の数字で入力してください')),
+        const SnackBar(content: Text('口座番号は7桁の数字で入力してください'), backgroundColor: Colors.amber),
       );
       return;
     }
@@ -175,7 +175,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
         final data = result.data;
         if (isCallableSuccessResponse(data)) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('銀行口座情報を更新しました')),
+            const SnackBar(content: Text('銀行口座情報を更新しました'), backgroundColor: Colors.green),
           );
           setState(() {
             _isEditingBankInfo = false;
@@ -215,7 +215,7 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
   Future<void> _updateHourlyWage() async {
     if (_hourlyWageController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('時給を入力してください')),
+        const SnackBar(content: Text('時給を入力してください'), backgroundColor: Colors.amber),
       );
       return;
     }
@@ -223,14 +223,14 @@ class _StaffDetailPageState extends State<StaffDetailPage> {
     final hourlyWage = int.tryParse(_hourlyWageController.text);
     if (hourlyWage == null || hourlyWage < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('有効な時給を入力してください')),
+        const SnackBar(content: Text('有効な時給を入力してください'), backgroundColor: Colors.amber),
       );
       return;
     }
 
     if (hourlyWage > 10000) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('時給は10,000円以下で入力してください')),
+        const SnackBar(content: Text('時給は10,000円以下で入力してください'), backgroundColor: Colors.amber),
       );
       return;
     }
