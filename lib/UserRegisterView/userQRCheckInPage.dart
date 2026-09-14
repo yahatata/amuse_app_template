@@ -140,13 +140,17 @@ class _UserQRCheckInPageState extends State<UserQRCheckInPage> {
             body: Column(
               children: [
                 Expanded(
-                  child: Transform.rotate(
-                      angle: -1.5708, // -90度（反時計回りに90度回転）をラジアンで指定（-π/2 ≈ -1.5708）
-                      child: MobileScanner(
-                        controller: _scannerController,
-                        onDetect: _handleDetect,
+                  child: ClipRect(
+                    child: SizedBox.expand(
+                      child: Transform.rotate(
+                        angle: -1.5708, // -90度（反時計回り）
+                        child: MobileScanner(
+                          controller: _scannerController,
+                          onDetect: _handleDetect,
+                        ),
                       ),
                     ),
+                  ),
                 ),
                 if (_lastMessage != null)
                   Padding(

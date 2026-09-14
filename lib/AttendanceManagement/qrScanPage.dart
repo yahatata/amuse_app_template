@@ -86,55 +86,58 @@ class _QRScanPageState extends State<QRScanPage> {
     );
   }
 
-  // カメラビュー
+  // カメラビュー（body の Expanded 領域にそのまま fit。AppBar とは Scaffold が分離）
   Widget _buildCameraView() {
-    return Stack(
-      children: [
-        // カメラビュー（インカメラ + 270度回転）
-        Transform.rotate(
-          angle: 4.71238898, // 約270度（時計回り）
-          child: MobileScanner(
-            controller: cameraController,
-            onDetect: (capture) {
-              final List<Barcode> barcodes = capture.barcodes;
-              for (final barcode in barcodes) {
-                if (barcode.rawValue != null) {
-                  _onQRCodeDetected(barcode.rawValue!);
-                  break;
+    return ClipRect(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // カメラビュー（インカメラ + 270度回転）
+          Transform.rotate(
+            angle: 4.71238898, // 約270度（時計回り）
+            child: MobileScanner(
+              controller: cameraController,
+              onDetect: (capture) {
+                final List<Barcode> barcodes = capture.barcodes;
+                for (final barcode in barcodes) {
+                  if (barcode.rawValue != null) {
+                    _onQRCodeDetected(barcode.rawValue!);
+                    break;
+                  }
                 }
-              }
-            },
-          ),
-        ),
-        
-        // スキャンエリアのオーバーレイ
-        _buildScanOverlay(),
-        
-        // 処理中インジケーター
-        if (_isProcessing)
-          Container(
-            color: Colors.black54,
-            child: const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    '処理中...',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
+              },
             ),
           ),
-      ],
+
+          // スキャンエリアのオーバーレイ
+          _buildScanOverlay(),
+
+          // 処理中インジケーター
+          if (_isProcessing)
+            Container(
+              color: Colors.black54,
+              child: const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      '処理中...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

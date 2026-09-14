@@ -2005,6 +2005,8 @@
 
 
       // カレンダーとシフト管理の機能
+      // 営業デモ一時: true の間、シフト申請タブは②期間(16–22)でもカレンダー表示に固定（保存/Functionsは不変。営業後は false へ）
+      const DEMO_FORCE_SHIFT_APPLICATION_CALENDAR = true;
       let currentMonth = new Date();
       let selectedDates = []; // 複数の日付文字列を保存（YYYY-MM-DD形式の配列）
       let shiftEditData = {}; // 編集ページのデータ { dateKey: { startHour, startMinute, endHour, endMinute } }
@@ -2735,27 +2737,62 @@
           return;
         }
         
-        // 既存の申請データを取得（提出期間中のみ）
-        const existingRequests = new Map();
+        // 既存の申請・確定データを月全体で取得（未選択日の読取専用表示＋選択日の初期値用）
+        // Map: dateKey -> { kind: 'pending'|'confirmed', requestId, startMinute, endMinute, status }
+        const existingShiftsByDate = new Map();
+        const formatShiftMinutes = (minutes) => {
+          if (minutes === 1440) return '24:00';
+          if (typeof minutes !== 'number' || !Number.isFinite(minutes)) return '--:--';
+          const hours = Math.floor(minutes / 60);
+          const mins = minutes % 60;
+          return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+        };
         const currentUid = getCurrentUid();
-        if (currentUid && selectedDates.length > 0) {
+        if (currentUid) {
           try {
             const { collection, query, where, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-            const requestsQuery = query(
+            const prefix = `${yearMonth}-`;
+            const pendingQuery = query(
               collection(window.Firebase.db, 'shiftRequests'),
               where('staffId', '==', currentUid),
               where('status', '==', 'pending')
             );
-            const requestsSnapshot = await getDocs(requestsQuery);
-            requestsSnapshot.forEach(doc => {
-              const data = doc.data();
-              if (selectedDates.includes(data.dateKey)) {
-                existingRequests.set(data.dateKey, {
-                  requestId: doc.id,
-                  startMinute: data.startMinute,
-                  endMinute: data.endMinute,
-                });
-              }
+            const confirmedQuery = query(
+              collection(window.Firebase.db, 'shiftRequests'),
+              where('staffId', '==', currentUid),
+              where('status', 'in', ['interim_confirmed', 'final_confirmed'])
+            );
+            const [pendingSnap, confirmedSnap] = await Promise.all([getDocs(pendingQuery), getDocs(confirmedQuery)]);
+
+            pendingSnap.forEach((docSnap) => {
+              const data = docSnap.data() || {};
+              const dateKey = data.dateKey;
+              if (typeof dateKey !== 'string' || !dateKey.startsWith(prefix)) return;
+              if (typeof data.startMinute !== 'number' || typeof data.endMinute !== 'number') return;
+              existingShiftsByDate.set(dateKey, {
+                kind: 'pending',
+                requestId: docSnap.id,
+                startMinute: data.startMinute,
+                endMinute: data.endMinute,
+                status: 'pending',
+              });
+            });
+
+            confirmedSnap.forEach((docSnap) => {
+              const data = docSnap.data() || {};
+              const dateKey = data.dateKey;
+              const status = data.status;
+              if (typeof dateKey !== 'string' || !dateKey.startsWith(prefix)) return;
+              if (status !== 'interim_confirmed' && status !== 'final_confirmed') return;
+              if (typeof data.startMinute !== 'number' || typeof data.endMinute !== 'number') return;
+              // カレンダー同様、confirmed を pending より優先
+              existingShiftsByDate.set(dateKey, {
+                kind: 'confirmed',
+                requestId: docSnap.id,
+                startMinute: data.startMinute,
+                endMinute: data.endMinute,
+                status,
+              });
             });
           } catch (error) {
             console.error('既存申請データの取得エラー:', error);
@@ -2831,20 +2868,15 @@
             }
           }
           
-          // 既存の申請データを取得（選択されていない日付でも確認）
-          const existingRequest = existingRequests.get(dateKey);
+          // 既存の申請・確定（選択外でも表示）
+          const existingShift = existingShiftsByDate.get(dateKey) || null;
+          const existingRequest = existingShift && existingShift.kind === 'pending' ? existingShift : null;
           let existingRequestTimeText = '';
           if (existingRequest) {
-            const formatTime = (minutes) => {
-              if (minutes === 1440) return '24:00';
-              const hours = Math.floor(minutes / 60);
-              const mins = minutes % 60;
-              return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-            };
-            const startTimeStr = formatTime(existingRequest.startMinute);
-            const endTimeStr = formatTime(existingRequest.endMinute);
-            existingRequestTimeText = `${startTimeStr} - ${endTimeStr}`;
+            existingRequestTimeText = `${formatShiftMinutes(existingRequest.startMinute)} - ${formatShiftMinutes(existingRequest.endMinute)}`;
           }
+          const existingStartTimeStr = existingShift ? formatShiftMinutes(existingShift.startMinute) : '';
+          const existingEndTimeStr = existingShift ? formatShiftMinutes(existingShift.endMinute) : '';
           
           // 編集データを初期化（選択した日のみ）
           if (isSelected && !isClosed && dayData) {
@@ -2855,13 +2887,8 @@
               
               if (existingRequest) {
                 // 既存の申請データを使用
-                const formatTime = (minutes) => {
-                  if (minutes === 1440) return '24:00';
-                  const hours = Math.floor(minutes / 60);
-                  return `${String(hours).padStart(2, '0')}:00`;
-                };
-                const startTimeStr = formatTime(existingRequest.startMinute);
-                const endTimeStr = formatTime(existingRequest.endMinute);
+                const startTimeStr = formatShiftMinutes(existingRequest.startMinute);
+                const endTimeStr = formatShiftMinutes(existingRequest.endMinute);
                 initialStartHour = startTimeStr === '24:00' ? '24' : startTimeStr.split(':')[0];
                 initialEndHour = endTimeStr === '24:00' ? '24' : endTimeStr.split(':')[0];
               }
@@ -2898,13 +2925,44 @@
           } else if (!isClosed) {
             businessHoursText = window.LiffErrors.MESSAGES.SHIFT_BUSINESS_HOURS_UNAVAILABLE;
           }
+
+          // ヘッダ右の状態ラベル（未選択かつ申請/確定あり）
+          let statusLabelHtml = '';
+          if (isClosed) {
+            statusLabelHtml = '<span style="color: #333; font-size: 0.9em; margin-left: 8px;">店休日</span>';
+          } else if (isSelected) {
+            statusLabelHtml = existingRequest
+              ? '<span style="color: #ff9800; font-size: 0.9em;">（修正可能）</span>'
+              : '<span style="color: #4caf50; font-size: 0.9em;">(選択済)</span>';
+          } else if (existingShift && existingShift.kind === 'confirmed') {
+            statusLabelHtml = '<span style="color: #2196F3; font-size: 0.9em;">（確定済み）</span>';
+          } else if (existingShift && existingShift.kind === 'pending') {
+            statusLabelHtml = '<span style="color: #4caf50; font-size: 0.9em;">（申請済み）</span>';
+          } else {
+            statusLabelHtml = '<span style="color: #666; font-size: 0.9em;">(未選択)</span>';
+          }
+
+          // 読取専用の開始/終了（編集UIと同位置・同ラベル、select 不可版）
+          const readOnlyTimeInputsHtml = existingShift ? `
+                <div class="shift-time-inputs" style="display: flex; flex-direction: row; gap: 15px; align-items: flex-start;">
+                  <div style="flex: 1; display: flex; flex-direction: column;">
+                    <label style="font-size: 0.9em; color: #666; margin-bottom: 5px;">開始時刻</label>
+                    <span style="font-size: 16px; color: #333; line-height: 40px;">${existingStartTimeStr}</span>
+                  </div>
+                  <div style="flex: 1; display: flex; flex-direction: column;">
+                    <label style="font-size: 0.9em; color: #666; margin-bottom: 5px;">終了時刻</label>
+                    <span style="font-size: 16px; color: #333; line-height: 40px;">${existingEndTimeStr}</span>
+                  </div>
+                </div>
+                <p style="color: #666; margin: 10px 0 0 0; font-size: 0.9em;">営業時間: ${businessHoursText}</p>
+              ` : '';
           
           html += `
             <div class="shift-edit-card" data-date="${dateKey}" data-open-hour="${openHour}" data-close-hour="${closeHour}" style="border: 1px solid #ddd; border-radius: 8px; padding: ${isClosed ? '10px' : '15px'}; margin-bottom: ${isClosed ? '10px' : '15px'}; background-color: ${isClosed ? '#f5f5f5' : isSelected ? '#fff' : '#f9f9f9'};">
               <div style="display: flex; justify-content: space-between; align-items: center; ${isClosed ? '' : 'margin-bottom: 10px;'}">
                 <h4 style="margin: 0; color: ${isClosed ? '#999' : '#333'}; font-weight: ${isClosed ? 'normal' : 'bold'};">
                   ${isClosed ? formattedDate.replace(`<span style="color: ${dayColor};">`, `<span style="color: ${dayColor}; font-weight: normal;">`) : formattedDate}
-                  ${isSelected ? (existingRequest ? '<span style="color: #ff9800; font-size: 0.9em;">（修正可能）</span>' : '<span style="color: #4caf50; font-size: 0.9em;">(選択済)</span>') : !isSelected && !isClosed ? (existingRequest ? '' : '<span style="color: #666; font-size: 0.9em;">(未選択)</span>') : isClosed ? '<span style="color: #333; font-size: 0.9em; margin-left: 8px;">店休日</span>' : ''}
+                  ${statusLabelHtml}
                 </h4>
                 ${isSelected && !isClosed ? `
                   <label style="display: flex; align-items: center; gap: 5px;">
@@ -2931,9 +2989,8 @@
                   </div>
                 </div>
                 <p style="color: #666; margin: 10px 0 0 0; font-size: 0.9em;">営業時間: ${businessHoursText}</p>
-              ` : `
+              ` : existingShift ? readOnlyTimeInputsHtml : `
                 <p style="color: #666; margin: 0; font-size: 0.9em;">営業時間: ${businessHoursText}</p>
-                ${existingRequest ? `<p style="color: #ff9800; margin: 5px 0 0 0; font-size: 0.9em; font-weight: bold;">以前の申請時間: ${existingRequestTimeText}</p>` : ''}
                 <p style="color: #999; margin: 5px 0 0 0; font-size: 0.85em;">※カレンダーページで選択すると編集可能になります</p>
               `}
             </div>
@@ -3449,7 +3506,13 @@
       // ②期間（シフトを組む期間）かどうかを判定
       // 対象月の前月16日〜22日が②期間
       // この期間中は基本的に提出・修正不可。管理者が不足日・不足時間を送信したタイミングで、不足日・不足時間のみ提出可能になる
+      // ※ UI判定のみ。submitShiftRequests 等の backend 期間判定とは独立。
       function isInShiftSchedulingPeriod() {
+        // 営業デモ: 申請タブを常にカレンダー側へ（確定済みメッセージ分岐は isNextMonthFinalized が優先）
+        if (DEMO_FORCE_SHIFT_APPLICATION_CALENDAR) {
+          return false;
+        }
+
         // JSTの現在日付を取得
         const now = new Date();
         const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -4893,7 +4956,7 @@
         }
         if (preflight.exists === true) {
           hideCorrectionForm();
-          await showMutationFeedback(LE ? LE.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この日の勤怠修正はすでに申請されています。');
+          await showMutationFeedback(LE ? LE.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この勤怠は既に修正申請済みです。');
           return;
         }
 
@@ -5002,7 +5065,7 @@
         });
         if (!status) return null;
         if (status.exists === true && options.silent !== true) {
-          showError(window.LiffErrors ? window.LiffErrors.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この日の勤怠修正はすでに申請されています。');
+          showError(window.LiffErrors ? window.LiffErrors.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この勤怠は既に修正申請済みです。');
         }
         return status;
       }
@@ -5020,7 +5083,7 @@
         }
         if (status.exists === true) {
           hideCorrectionForm();
-          showError(LE ? LE.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この日の勤怠修正はすでに申請されています。');
+          await showMutationFeedback(LE ? LE.MESSAGES.ATT_CORRECTION_ALREADY_EXISTS : 'この勤怠は既に修正申請済みです。');
           return;
         }
         showCorrectionForm(attendanceData);

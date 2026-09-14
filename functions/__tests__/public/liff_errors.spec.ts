@@ -2351,7 +2351,7 @@ describe('liff_errors (Phase L7 staff attendance)', () => {
     expect(MESSAGES.ATT_PAGE_LOAD_FAILED).toBe('勤怠情報を取得できませんでした。再試行してください。');
     expect(MESSAGES.ATT_CORRECTION_SUCCESS).toBe('勤怠修正を申請しました。');
     expect(MESSAGES.ATT_CORRECTION_RESULT_UNKNOWN).toBe('勤怠修正申請の結果を確認できません。再度操作せず、申請状況を確認してください。');
-    expect(MESSAGES.ATT_CORRECTION_ALREADY_EXISTS).toBe('この日の勤怠修正はすでに申請されています。');
+    expect(MESSAGES.ATT_CORRECTION_ALREADY_EXISTS).toBe('この勤怠は既に修正申請済みです。');
   });
 
   it('attendance validator: normal/empty/malformed', () => {
