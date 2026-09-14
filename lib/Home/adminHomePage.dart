@@ -28,13 +28,21 @@ class AdminHomePage extends StatefulWidget {
 
 class _AdminHomePageState extends State<AdminHomePage> with RouteAware {
   // G4: ローカル状態を削除。terminalModeNotifier / isOnHomeScreenNotifier を使用。
+  late final int _ownerEpoch;
 
   @override
   void initState() {
     super.initState();
-    // G4: グローバルノティファーをこの AdminHomePage の初期値で初期化
-    terminalModeNotifier.value = widget.initialTerminalMode;
-    isOnHomeScreenNotifier.value = true;
+    // build 中の ValueNotifier 更新は親の ValueListenableBuilder を壊すため、
+    // フレーム後に反映する（Home 戻りでの AdminHomePage 差し替え対策）。
+    _ownerEpoch = ++adminHomeNotifierOwnerEpoch;
+    final initialTerminalMode = widget.initialTerminalMode;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_ownerEpoch != adminHomeNotifierOwnerEpoch) return;
+      terminalModeNotifier.value = initialTerminalMode;
+      isOnHomeScreenNotifier.value = true;
+    });
   }
 
   @override
@@ -51,8 +59,13 @@ class _AdminHomePageState extends State<AdminHomePage> with RouteAware {
   void dispose() {
     // G4: RouteObserver の登録解除 + ノティファーをリセット
     appRouteObserver.unsubscribe(this);
-    terminalModeNotifier.value = false;
-    isOnHomeScreenNotifier.value = true;
+    final epoch = _ownerEpoch;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // 新しい AdminHomePage が既に所有権を持っている場合は触らない
+      if (epoch != adminHomeNotifierOwnerEpoch) return;
+      terminalModeNotifier.value = false;
+      isOnHomeScreenNotifier.value = true;
+    });
     super.dispose();
   }
 

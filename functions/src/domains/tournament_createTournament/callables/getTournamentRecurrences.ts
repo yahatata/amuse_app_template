@@ -22,6 +22,7 @@ export const getTournamentRecurrences = onCall(async (request) => {
         storeId: data.storeId || '',
         tenantId: data.tenantId || '',
         startOn: data.startOn?.toDate?.() || data.startOn,
+        startTime: typeof data.startTime === 'string' ? data.startTime : '',
         interval: data.interval || '',
         byWeekday: data.byWeekday || [],
         endsOn: data.endsOn?.toDate?.() || data.endsOn,

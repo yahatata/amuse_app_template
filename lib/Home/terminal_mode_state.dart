@@ -18,6 +18,11 @@ final ValueNotifier<bool> terminalModeNotifier = ValueNotifier<bool>(false);
 /// AdminHomePage が最前面（サブページへの遷移がない）かどうか
 final ValueNotifier<bool> isOnHomeScreenNotifier = ValueNotifier<bool>(true);
 
+/// 現在の [AdminHomePage] 所有者 epoch。
+/// Home 戻りで AdminHomePage が差し替わるとき、旧ページ dispose の遅延リセットが
+/// 新ページの初期化を上書きしないようにする。
+int adminHomeNotifierOwnerEpoch = 0;
+
 /// ルート変化を全体で監視するオブザーバー
 /// MaterialApp の navigatorObservers に追加する
 final RouteObserver<ModalRoute<void>> appRouteObserver =

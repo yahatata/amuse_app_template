@@ -361,135 +361,168 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
   }
 
   Widget _buildTableDisplay(int maxSeats, Map<String, dynamic> seats) {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      child: Stack(
-        children: [
-            // ポーカーテーブル（横長楕円形）
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              bottom: 0,
-              child: Center(
-                child: Container(
-                  width: MediaQuery.of(context).size.width * 0.6, // 画面幅の60%
-                  height: MediaQuery.of(context).size.width * 0.4, // 画面幅の40%（3:2の比率）
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(MediaQuery.of(context).size.width * 0.2), // 楕円形（画面幅の20%）
-                    color: Colors.green.shade800,
-                    border: Border.all(color: Colors.green.shade900, width: 3),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: Stack(
-                    children: [
-                      // ゲーム名称（テーブル内中央上部）
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              _currentGameName,
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'SIDE GAME',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white70,
-                              ),
-                            ),
-                          ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const seatWidth = 120.0;
+        const seatHeight = 60.0;
+        const edgePad = 4.0;
+
+        // seat が Stack 端で切れないよう、seat 半サイズ分の余白を確保した usable 領域で配置する。
+        // 終了処理ボタンは Expanded 外のため、ここでは Stack 実高のみを対象にする。
+        final padX = seatWidth / 2 + edgePad;
+        final padY = seatHeight / 2 + edgePad;
+        final usableWidth =
+            (constraints.maxWidth - 2 * padX).clamp(1.0, constraints.maxWidth);
+        final usableHeight =
+            (constraints.maxHeight - 2 * padY).clamp(1.0, constraints.maxHeight);
+
+        // 従来比率（幅基準 0.64 / 0.44）を維持しつつ、usable に収まるよう一様スケール
+        final desiredEllipseWidth = constraints.maxWidth * 0.64;
+        final desiredEllipseHeight = constraints.maxWidth * 0.44;
+        final scale = Math.min(
+          1.0,
+          Math.min(
+            usableWidth / desiredEllipseWidth,
+            usableHeight / desiredEllipseHeight,
+          ),
+        );
+        final ellipseWidth = desiredEllipseWidth * scale;
+        final ellipseHeight = desiredEllipseHeight * scale;
+        final tableWidth = constraints.maxWidth * 0.6 * scale;
+        final tableHeight = constraints.maxWidth * 0.4 * scale;
+
+        return SizedBox(
+          width: constraints.maxWidth,
+          height: constraints.maxHeight,
+          child: Stack(
+            children: [
+              // ポーカーテーブル（横長楕円形）
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: Container(
+                    width: tableWidth,
+                    height: tableHeight,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(tableWidth / 3),
+                      color: Colors.green.shade800,
+                      border:
+                          Border.all(color: Colors.green.shade900, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          blurRadius: 10,
+                          offset: const Offset(0, 5),
                         ),
-                      ),
-                      
-                      // ディーラーポジション（中央下部）
-                      Positioned(
-                        bottom: 20,
-                        left: 0,
-                        right: 0,
-                        child: Center(
-                          child: Container(
-                            width: 60,
-                            height: 30,
-                            decoration: BoxDecoration(
-                              color: Colors.red.shade700,
-                              borderRadius: BorderRadius.circular(15),
-                            ),
-                            child: const Center(
-                              child: Text(
-                                'DEALER',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
+                      ],
+                    ),
+                    child: Stack(
+                      children: [
+                        Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                _currentGameName,
+                                style: const TextStyle(
+                                  fontSize: 24,
                                   fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'SIDE GAME',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 20,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: Container(
+                              width: 60,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade700,
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'DEALER',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-            
-            // 座席配置（テーブル周囲）
-            ..._buildSeatPositions(seats, maxSeats),
-        ],
-      ),
+
+              // 座席配置（usable 楕円周上）
+              ..._buildSeatPositions(
+                seats,
+                maxSeats,
+                centerX: constraints.maxWidth * 0.5,
+                centerY: constraints.maxHeight * 0.5,
+                ellipseWidth: ellipseWidth,
+                ellipseHeight: ellipseHeight,
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  List<Widget> _buildSeatPositions(Map<String, dynamic> seats, int maxSeats) {
+  List<Widget> _buildSeatPositions(
+    Map<String, dynamic> seats,
+    int maxSeats, {
+    required double centerX,
+    required double centerY,
+    required double ellipseWidth,
+    required double ellipseHeight,
+  }) {
     final widgets = <Widget>[];
-    
-    // テーブルの中心位置を画面中央に設定
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final tableCenterX = screenWidth * 0.5; // 画面中央
-    final tableCenterY = screenHeight * 0.5; // 画面中央
-    
+    const seatWidth = 120.0;
+    const seatHeight = 60.0;
+
     // 座席数 + 1（ディーラーポジション含む）で等間隔配置
     final totalPositions = maxSeats + 1;
-    
+    final a = ellipseWidth / 2;
+    final b = ellipseHeight / 2;
+
     for (int i = 1; i <= maxSeats; i++) {
       final seatNoStr = i.toString().padLeft(2, '0');
       final userId = seats['seat${seatNoStr}UserId'] as String?;
       final pokerName = seats['seat${seatNoStr}PokerName'] as String?;
       final isOccupied = userId != null && userId.isNotEmpty;
-      
-      // 座席の位置を計算（左右反転）
-      // 左右反転: -cos(angle) を使用
-      final angle = i * (2 * 3.14159 / totalPositions) - (3.14159 / 2); // 12時方向から開始
-      
-      // 楕円の配置（画面サイズに応じた楕円周上に配置）
-      final ellipseWidth = MediaQuery.of(context).size.width * 0.64; // 画面幅の64%
-      final ellipseHeight = MediaQuery.of(context).size.width * 0.44; // 画面幅の44%（3:2の比率）
-      final a = ellipseWidth / 2; // 楕円の横半径
-      final b = ellipseHeight / 2; // 楕円の縦半径
-      
-      final x = tableCenterX - a * Math.cos(angle); // 左右反転
-      final y = tableCenterY - b * Math.sin(angle); // 上下反転
-      
+
+      final angle = i * (2 * 3.14159 / totalPositions) - (3.14159 / 2);
+      final x = centerX - a * Math.cos(angle);
+      final y = centerY - b * Math.sin(angle);
+
       widgets.add(
         Positioned(
-          left: x - 60, // 120pxの座席サイズの半分
-          top: y - 100,  // 60pxの座席サイズの半分
+          left: x - seatWidth / 2,
+          top: y - seatHeight / 2,
           child: _buildSeatWidget(
             seatNumber: i,
             userId: userId,
@@ -499,7 +532,7 @@ class _SideGameTableHomePageState extends State<SideGameTableHomePage> {
         ),
       );
     }
-    
+
     return widgets;
   }
 

@@ -212,7 +212,7 @@
       '勤怠修正申請を送信できませんでした。ページを再読み込みしてください。',
     ATT_CORRECTION_NONCE_CONFLICT:
       '勤怠修正申請の内容を確認できませんでした。ページを再読み込みしてください。',
-    ATT_CORRECTION_ALREADY_EXISTS: 'この日の勤怠修正はすでに申請されています。',
+    ATT_CORRECTION_ALREADY_EXISTS: 'この勤怠は既に修正申請済みです。',
     ATT_CORRECTION_STATUS_LOAD_FAILED:
       '勤怠修正の申請状況を確認できませんでした。再試行してください。',
     ATT_INVALID_ARGUMENT: '入力内容を確認してください。',

@@ -45,6 +45,9 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
         final recurrencesRaw = result.data['recurrences'] as List? ?? [];
         debugPrint('取得した定期開催数: ${recurrencesRaw.length}');
 
+        // 一覧表示用にテンプレート名を一括突合（N+1 を避ける）
+        final templateNameById = await _loadTemplateNameById();
+
         final recurrences = recurrencesRaw.map((recurrence) {
           final recurrenceMap = Map<String, dynamic>.from(recurrence as Map);
 
@@ -60,6 +63,15 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
           if (recurrenceMap['updatedAt'] != null) {
             recurrenceMap['updatedAt'] = recurrenceMap['updatedAt'].toString();
           }
+
+          final templateId = recurrenceMap['templateId']?.toString();
+          final resolvedName = (templateId != null)
+              ? templateNameById[templateId]
+              : null;
+          recurrenceMap['templateName'] =
+              (resolvedName != null && resolvedName.isNotEmpty)
+                  ? resolvedName
+                  : '名称未設定';
 
           return recurrenceMap;
         }).toList();
@@ -110,6 +122,31 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
           _isLoading = false;
         });
       }
+    }
+  }
+
+  /// テンプレート ID → 表示名のマップを一括取得する（一覧表示用）。
+  Future<Map<String, String>> _loadTemplateNameById() async {
+    try {
+      final result = await FunctionsClient.instance
+          .httpsCallable('getTournamentTemplates')
+          .call();
+      if (!isCallableSuccessResponse(result.data)) {
+        return {};
+      }
+      final rawTemplates = result.data['tournamentTemplates'] as List? ?? [];
+      final map = <String, String>{};
+      for (final template in rawTemplates) {
+        if (template is! Map) continue;
+        final id = template['id']?.toString();
+        if (id == null || id.isEmpty) continue;
+        final name = template['name']?.toString().trim();
+        map[id] = (name != null && name.isNotEmpty) ? name : '名称未設定';
+      }
+      return map;
+    } catch (e) {
+      debugPrint('テンプレート名の一括取得に失敗しました');
+      return {};
     }
   }
 
@@ -197,13 +234,25 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
   }
 
   /// 削除確認ダイアログを表示
-  void _showDeleteDialog(String recurrenceId, String templateName) {
+  void _showDeleteDialog(
+    String recurrenceId, {
+    required String templateName,
+    required String scheduleLabel,
+    required String startTimeLabel,
+  }) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('削除確認'),
-          content: Text('定期開催「$templateName」を削除しますか？\n関連するトーナメントもアーカイブされます。'),
+          content: Text(
+            '$templateName\n'
+            '$scheduleLabel\n'
+            '開始: $startTimeLabel\n'
+            '\n'
+            'この定期開催設定を削除しますか？\n'
+            '関連するトーナメントもアーカイブされます。',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -223,6 +272,29 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
         );
       },
     );
+  }
+
+  /// 利用者向けテンプレート名（欠損時は安全表示）
+  String _templateNameLabel(Map<String, dynamic> recurrence) {
+    final name = recurrence['templateName']?.toString().trim();
+    if (name == null || name.isEmpty) return '名称未設定';
+    return name;
+  }
+
+  /// 利用者向け開始時刻（recurrence.startTime string）
+  String _startTimeLabel(Map<String, dynamic> recurrence) {
+    final startTime = recurrence['startTime']?.toString().trim();
+    if (startTime == null || startTime.isEmpty) return '未設定';
+    return startTime;
+  }
+
+  /// 利用者向けの開催周期ラベル（例: 1週間ごと（金））
+  String _scheduleLabel(Map<String, dynamic> recurrence) {
+    final intervalText =
+        _getIntervalText(_formatInterval(recurrence['interval']));
+    final weekdayText = _getWeekdayText(recurrence['byWeekday'] ?? []);
+    if (weekdayText.isEmpty) return intervalText;
+    return '$intervalText（$weekdayText）';
   }
 
   /// 間隔の表示文字列を取得
@@ -355,7 +427,7 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
                               children: [
                                 Expanded(
                                   child: Text(
-                                    recurrence['templateId'] ?? '無名テンプレート',
+                                    _templateNameLabel(recurrence),
                                     style: const TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
@@ -380,32 +452,34 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
                               ],
                             ),
                             const SizedBox(height: 12),
-                            
-                            // 開催情報
+
+                            // 開催周期
                             Row(
                               children: [
                                 const Icon(Icons.schedule, size: 16, color: Colors.grey),
                                 const SizedBox(width: 8),
-                                Text(
-                                  '${_getIntervalText(_formatInterval(recurrence['interval']))} (${_getWeekdayText(recurrence['byWeekday'] ?? [])})',
-                                  style: const TextStyle(fontSize: 14),
+                                Expanded(
+                                  child: Text(
+                                    _scheduleLabel(recurrence),
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 8),
-                            
-                            // 開始日
+
+                            // 開始時刻（startTime string。startOn は使わない）
                             Row(
                               children: [
-                                const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                                const Icon(Icons.access_time, size: 16, color: Colors.grey),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '開始: ${_formatDate(recurrence['startOn'])}',
+                                  '開始: ${_startTimeLabel(recurrence)}',
                                   style: const TextStyle(fontSize: 14),
                                 ),
                               ],
                             ),
-                            
+
                             // 終了日（設定されている場合）
                             if (recurrence['endsOn'] != null) ...[
                               const SizedBox(height: 8),
@@ -420,9 +494,9 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
                                 ],
                               ),
                             ],
-                            
+
                             const SizedBox(height: 16),
-                            
+
                             // アクションボタン
                             Row(
                               mainAxisAlignment: MainAxisAlignment.end,
@@ -439,7 +513,9 @@ class _RecurringTournamentListPageState extends State<RecurringTournamentListPag
                                   onPressed: () {
                                     _showDeleteDialog(
                                       recurrence['id'],
-                                      recurrence['templateId'] ?? '無名テンプレート',
+                                      templateName: _templateNameLabel(recurrence),
+                                      scheduleLabel: _scheduleLabel(recurrence),
+                                      startTimeLabel: _startTimeLabel(recurrence),
                                     );
                                   },
                                 ),
