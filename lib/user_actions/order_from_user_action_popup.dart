@@ -1,0 +1,418 @@
+import 'package:flutter/material.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
+import 'package:amuse_app_template/core/utils/functions_client.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import '../Utils/menuItemsManager.dart';
+import '../services/store_config_defaults.dart';
+import '../services/store_config_service.dart';
+import 'action_feedback_dialogs.dart';
+import 'package:amuse_app_template/user_actions/user_action_validation_messages.dart';
+import 'package:amuse_app_template/user_actions/user_action_load_errors.dart';
+
+/// When: 「注文」ブロックから注文フローを開始したい時
+/// Where: userActionHome（別ダイアログ）
+/// What: カテゴリー選択とメニュー一覧、アイテムタップで数量→確定
+/// How: MenuItemsManager と StoreConfigService を参照し、placeOrder を呼び出す
+Future<void> showOrderFromUserDialog({
+  required BuildContext pageContext,
+  required Map<String, dynamic> user,
+}) async {
+  final String billId = (user['billId'] ?? '').toString();
+  if (billId.isEmpty) {
+    ScaffoldMessenger.of(
+      pageContext,
+    ).showSnackBar(SnackBar(content: Text(kUserActionBillIdMissingMessage)));
+    return;
+  }
+
+  // userId は表示用に保持（billId が主要）
+  final String userId = (user['userId'] ?? '').toString();
+
+  // 初期カテゴリーは All 相当
+  String selectedCategory = 'All';
+  var loading = false;
+  String? loadError;
+
+  Future<bool> loadMenus() async {
+    loading = true;
+    final ok = await MenuItemsManager.fetchMenuItems();
+    loading = false;
+    if (!ok) {
+      // USER-22: MenuItemsManager.lastError は raw を含むため使わない
+      loadError = kUserActionMenuLoadFailedMessage;
+      return false;
+    }
+    loadError = null;
+    return true;
+  }
+
+  // データが無ければロード
+  if (MenuItemsManager.allMenuItems.isEmpty) {
+    await loadMenus();
+  }
+
+  if (loadError != null) {
+    if (!pageContext.mounted) return;
+    // 失敗 ≠ 0件メニュー。注文ブロック。再読み込み可。
+    final retry = await showDialog<bool>(
+      context: pageContext,
+      builder: (dCtx) => AlertDialog(
+        title: const Text('メニュー取得エラー'),
+        content: const Text(kUserActionMenuLoadFailedMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dCtx).pop(false),
+            child: const Text('閉じる'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dCtx).pop(true),
+            child: const Text('再読み込み'),
+          ),
+        ],
+      ),
+    );
+    if (retry == true && pageContext.mounted) {
+      final ok = await loadMenus();
+      if (!ok || !pageContext.mounted) {
+        if (pageContext.mounted) {
+          ScaffoldMessenger.of(pageContext).showSnackBar(
+            const SnackBar(content: Text(kUserActionMenuLoadFailedMessage)),
+          );
+        }
+        return;
+      }
+    } else {
+      return;
+    }
+  }
+
+  if (!pageContext.mounted) {
+    return;
+  }
+
+  debugPrint('[OrderPop] open for userId=$userId');
+  await showDialog<void>(
+    context: pageContext,
+    barrierDismissible: true,
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (ctx, setState) {
+          debugPrint(
+            '[OrderPop] build stateful dialog selectedCategory=$selectedCategory',
+          );
+          // 表示対象メニューの抽出
+          final items = selectedCategory == 'All'
+              ? MenuItemsManager.getDisplayableMenuItems()
+              : MenuItemsManager.getDisplayableMenuItems()
+                    .where((e) => e.category == selectedCategory)
+                    .toList();
+
+          return Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        // 左上「戻る」
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.shopping_bag_outlined, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '注文 - ${(user['pokerName'] ?? '(名前未設定)').toString()}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 48,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          const SizedBox(width: 8),
+                          ChoiceChip(
+                            label: const Text('All'),
+                            selected: selectedCategory == 'All',
+                            onSelected: (_) =>
+                                setState(() => selectedCategory = 'All'),
+                          ),
+                          const SizedBox(width: 8),
+                          ...(StoreConfigService
+                                      .instance
+                                      .latestData
+                                      ?.menuCategories ??
+                                  kDefaultMenuCategories)
+                              .map(
+                                (c) => Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ChoiceChip(
+                                    label: Text(c),
+                                    selected: selectedCategory == c,
+                                    onSelected: (_) =>
+                                        setState(() => selectedCategory = c),
+                                  ),
+                                ),
+                              ),
+                          const SizedBox(width: 8),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: loading
+                          ? const Center(child: CircularProgressIndicator())
+                          : items.isEmpty
+                          ? const Center(child: Text('メニューがありません'))
+                          : ListView.builder(
+                              itemCount: items.length,
+                              itemBuilder: (context, index) {
+                                final item = items[index];
+                                return Card(
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 4,
+                                  ),
+                                  child: ListTile(
+                                    leading: SizedBox(
+                                      width: 56,
+                                      height: 56,
+                                      child: item.imageUrl.isNotEmpty
+                                          ? ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              child: Image.network(
+                                                item.imageUrl,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.image_not_supported,
+                                              color: Colors.grey,
+                                            ),
+                                    ),
+                                    title: Text(
+                                      item.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      '¥${item.price} • ${item.category}',
+                                    ),
+                                    onTap: () async {
+                                      debugPrint(
+                                        '[OrderPop] tap item id=${item.id} name=${item.name}',
+                                      );
+                                      // 一覧ポップは閉じず、その上に数量ポップを重ねて表示
+                                      await _showQuantityAndConfirm(
+                                        pageContext: pageContext,
+                                        orderDialogContext: ctx,
+                                        billId: billId,
+                                        userId: userId,
+                                        item: item,
+                                      );
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+/// When: アイテムを選択し数量を確定したい時
+/// Where: 注文ダイアログ
+/// What: 数量入力→Cloud Functions placeOrder の呼び出し
+/// How: showDialog + TextField/Step 後に httpsCallable('placeOrder') を実行
+Future<void> _showQuantityAndConfirm({
+  required BuildContext pageContext,
+  required BuildContext orderDialogContext,
+  required String billId,
+  required String userId,
+  required MenuItem item,
+}) async {
+  int quantity = 1;
+  // ✅ ダイアログが開いている間は固定の clientNonce（画面セッションで固定）
+  final String clientNonce =
+      'order_${DateTime.now().millisecondsSinceEpoch}_${userId.substring(0, 8)}';
+  bool isSubmitting = false; // 二重タップ対策フラグ
+
+  final selectedQuantity = await showDialog<int>(
+    context: pageContext,
+    barrierDismissible: false,
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (ctx, setState) {
+          final totalPrice = item.price * quantity;
+          return PopScope(
+            canPop: !isSubmitting,
+            child: Stack(
+              children: [
+                AlertDialog(
+                  title: Text('${item.name} を注文'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('単価: ¥${item.price}'),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline),
+                            onPressed: isSubmitting
+                                ? null
+                                : quantity > 1
+                                ? () => setState(() => quantity -= 1)
+                                : null,
+                          ),
+                          Text(
+                            '$quantity',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline),
+                            onPressed: isSubmitting
+                                ? null
+                                : () => setState(() => quantity += 1),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '合計: ¥$totalPrice',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: isSubmitting
+                          ? null
+                          : () => Navigator.of(ctx).pop(),
+                      child: const Text('キャンセル'),
+                    ),
+                    ElevatedButton(
+                      onPressed: isSubmitting
+                          ? null
+                          : () async {
+                              setState(() {
+                                isSubmitting = true;
+                              });
+                              Navigator.of(ctx).pop(quantity);
+                            },
+                      child: const Text('注文確定'),
+                    ),
+                  ],
+                ),
+                if (isSubmitting)
+                  Positioned.fill(
+                    child: AbsorbPointer(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        child: const Center(child: CircularProgressIndicator()),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+
+  if (selectedQuantity == null || !pageContext.mounted) {
+    return;
+  }
+
+  final feedback = ActionProgressDialogController(pageContext);
+  try {
+    debugPrint(
+      '[OrderPop] confirm order for item=${item.id} qty=$selectedQuantity billId=$billId clientNonce=$clientNonce',
+    );
+    await feedback.showLoading(message: '注文処理中...');
+
+    final functions = FunctionsClient.instance;
+    final callable = functions.httpsCallable('placeOrder');
+    final resp = await callable.call({
+      'billId': billId,
+      'item': {'menuItemId': item.id, 'quantity': selectedQuantity},
+      'clientNonce': clientNonce,
+    });
+
+    final data = resp.data;
+    feedback.hideLoading();
+
+    if (isCallableSuccessResponse(data)) {
+      if (orderDialogContext.mounted) {
+        Navigator.of(orderDialogContext).pop();
+      }
+      if (pageContext.mounted) {
+        await showActionSuccessDialog(
+          pageContext,
+          message: '${item.name} の注文を送信しました',
+        );
+      }
+      return;
+    }
+
+    // USER-23 soft-fail: raw error / toString 非表示
+    if (pageContext.mounted) {
+      await showActionErrorDialog(
+        pageContext,
+        message: mapCallableSoftFailMessage(data),
+      );
+    }
+  } catch (e) {
+    feedback.hideLoading();
+    debugPrint('[OrderPop] ERROR: ${e.toString()}');
+    debugPrint('[OrderPop] ERROR Type: ${e.runtimeType}');
+    if (e is FirebaseFunctionsException) {
+      debugPrint('[OrderPop] Functions Error Code: ${e.code}');
+      debugPrint('[OrderPop] Functions Error Message: ${e.message}');
+      debugPrint('[OrderPop] Functions Error Details: ${e.details}');
+    }
+    if (pageContext.mounted) {
+      await showActionErrorDialog(
+        pageContext,
+        message: buildAsyncActionErrorMessage(e, defaultMessage: '注文に失敗しました'),
+      );
+    }
+  } finally {
+    feedback.hideLoading();
+  }
+}

@@ -1,0 +1,399 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import 'package:amuse_app_template/Accounting/errors/accounting_error_operations.dart';
+import 'package:amuse_app_template/Accounting/errors/accounting_load_user_facing_errors.dart';
+import 'package:amuse_app_template/Accounting/errors/map_accounting_error.dart';
+import 'package:amuse_app_template/core/errors/errors.dart';
+import 'package:amuse_app_template/user/balance_display.dart';
+import 'package:amuse_app_template/user/point_ids.dart';
+import 'package:amuse_app_template/user/side_game_chip_display.dart';
+
+/// 会計後追加徴収ダイアログ。
+///
+/// 仕様書 [04_仕様書/06_要対応の会計画面と一覧取得.md] の primary action `collect` 用。
+/// `recordPostSettlementCollection` callable を呼ぶ。
+///
+/// Step04 で追加された新 callable を Step06 でこの画面から呼び出す。
+/// C-2.5 でポイント/sideGameChip 選択肢と残高表示を追加。
+class PostSettlementCollectionDialog extends StatefulWidget {
+  final String billId;
+  final int initialAmountIncl;
+
+  const PostSettlementCollectionDialog({
+    super.key,
+    required this.billId,
+    required this.initialAmountIncl,
+  });
+
+  @override
+  State<PostSettlementCollectionDialog> createState() =>
+      _PostSettlementCollectionDialogState();
+}
+
+class _PostSettlementCollectionDialogState
+    extends State<PostSettlementCollectionDialog> {
+  final _firestore = FirebaseFirestore.instance;
+  final _functions = FirebaseFunctions.instanceFor(region: 'asia-northeast1');
+
+  late final TextEditingController _amountCtrl;
+  String _method = 'cash';
+  bool _loading = true;
+  bool _submitting = false;
+  String? _error;
+
+  /// 対象 cycle の effective adjustment 一覧
+  List<({String id, int remaining})> _effectiveAdjustments = [];
+
+  /// ユーザー残高（sideGameChip=枚数、pointA/pointB=円）
+  String? _userId;
+  Map<String, int> _userBalance = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _amountCtrl = TextEditingController(
+      text: widget.initialAmountIncl.toString(),
+    );
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      final billSnap =
+          await _firestore.collection('bills').doc(widget.billId).get();
+      final billData = billSnap.data();
+      final cycleNo =
+          ((billData?['reopenSummary']
+                      as Map<String, dynamic>?)?['currentSettlementCycle']
+                  as num?)
+              ?.toInt() ??
+          1;
+
+      // userId 取得
+      _userId = ((billData?['party'] as Map<String, dynamic>?)?['userId'])
+          as String?;
+
+      // effective adjustment 一覧
+      final adjSnap = await _firestore
+          .collection('bills')
+          .doc(widget.billId)
+          .collection('settlementCycles')
+          .doc(cycleNo.toString())
+          .collection('adjustments')
+          .where('adjustmentState', isEqualTo: 'effective')
+          .get();
+
+      final list = adjSnap.docs
+          .map((d) {
+            final data = d.data();
+            final remaining =
+                (data['requiredActionRemainingIncl'] as num?)?.toInt() ?? 0;
+            return (id: d.id, remaining: remaining);
+          })
+          .where((e) => e.remaining > 0)
+          .toList();
+
+      // ユーザー残高取得
+      if (_userId != null) {
+        final userSnap =
+            await _firestore.collection('users').doc(_userId).get();
+        final userData = userSnap.data() ?? {};
+        _userBalance = {
+          'sideGameChip': (userData['sideGameChip'] as num?)?.toInt() ?? 0,
+          'pointA': (userData['pointA'] as num?)?.toInt() ?? 0,
+          'pointB': (userData['pointB'] as num?)?.toInt() ?? 0,
+          'pointC': (userData['pointC'] as num?)?.toInt() ?? 0,
+          'pointD': (userData['pointD'] as num?)?.toInt() ?? 0,
+          'pointE': (userData['pointE'] as num?)?.toInt() ?? 0,
+        };
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _effectiveAdjustments = list;
+        _loading = false;
+      });
+    } catch (e, stackTrace) {
+      debugPrint('[_loadData collection] エラー: $e\n$stackTrace');
+      if (!mounted) return;
+      setState(() {
+        _error = kAccountingPostSettlementAdjustmentContextLoadFailedMessage;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _submit() async {
+    final amount = int.tryParse(_amountCtrl.text);
+    if (amount == null || amount <= 0) {
+      setState(() => _error = '金額を 1 以上の整数で入力してください');
+      return;
+    }
+    if (_effectiveAdjustments.isEmpty) {
+      setState(() => _error = '対象 adjustment が見つかりません');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    var succeeded = false;
+    try {
+      final target = _effectiveAdjustments.first;
+      final allocAmount = amount > target.remaining ? target.remaining : amount;
+
+      final result = await _functions
+          .httpsCallable('recordPostSettlementCollection')
+          .call({
+        'billId': widget.billId,
+        'amountIncl': allocAmount,
+        'methodBreakdown': [
+          {'method': _method, 'amountIncl': allocAmount},
+        ],
+        'allocations': [
+          {'adjustmentId': target.id, 'amountIncl': allocAmount},
+        ],
+      });
+
+      if (!mounted) return;
+
+      final data = result.data;
+      if (!isCallableSuccessResponse(data)) {
+        final mapped = mapAccountingSoftFailError(
+          data,
+          operation: AccountingErrorOperations.recordPostSettlementCollection,
+        );
+        setState(() => _error = mapped.message);
+        return;
+      }
+
+      succeeded = true;
+    } catch (e, stackTrace) {
+      debugPrint('[recordPostSettlementCollection] エラー: $e\n$stackTrace');
+      if (!mounted) return;
+      final mapped = mapAccountingCallableError(
+        e,
+        operation: AccountingErrorOperations.recordPostSettlementCollection,
+      );
+      setState(() => _error = mapped.message);
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
+
+    if (!succeeded || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pop();
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(kAccountingPostSettlementCollectionRecordedMessage),
+      ),
+    );
+  }
+
+  List<DropdownMenuItem<String>> _buildMethodItems() {
+    final fmt = NumberFormat('#,###');
+
+    final items = <DropdownMenuItem<String>>[
+      const DropdownMenuItem(value: 'cash', child: Text('現金')),
+      const DropdownMenuItem(
+          value: 'credit_card', child: Text('クレジットカード')),
+      const DropdownMenuItem(
+          value: 'electronic_money', child: Text('電子マネー')),
+      const DropdownMenuItem(value: 'qr', child: Text('QR')),
+      const DropdownMenuItem(value: 'bank_transfer', child: Text('銀行振込')),
+    ];
+
+    if (_userId != null) {
+      final enabled = enabledBalanceIdsFromStoreConfig().toSet();
+
+      if (enabled.contains(kSideGameChipId)) {
+        final chipBalance = _userBalance['sideGameChip'] ?? 0;
+        items.add(DropdownMenuItem(
+          value: 'sideGameChip',
+          child: Text(
+              '${balanceDisplayName(kSideGameChipId)}（残高: ${formatSideGameChipBalanceDisplay(chipBalance)}）'),
+        ));
+      }
+
+      for (final p in kCurrencyPointIds) {
+        if (!enabled.contains(p)) continue;
+        final bal = _userBalance[p] ?? 0;
+        items.add(DropdownMenuItem(
+          value: p,
+          child: Text('${balanceDisplayName(p)}（残高: ¥${fmt.format(bal)}）'),
+        ));
+      }
+    }
+
+    return items;
+  }
+
+  /// 選択中メソッドの残高上限を「円」で返す（ガイド表示用）
+  int? _selectedMethodMaxYen() {
+    if (_userId == null) return null;
+    switch (_method) {
+      case 'sideGameChip':
+        return sideGameChipBalanceToReferenceYen(
+          _userBalance['sideGameChip'] ?? 0,
+        );
+      case 'pointA':
+        return _userBalance['pointA'] ?? 0;
+      case 'pointB':
+        return _userBalance['pointB'] ?? 0;
+      case 'pointC':
+        return _userBalance['pointC'] ?? 0;
+      case 'pointD':
+        return _userBalance['pointD'] ?? 0;
+      case 'pointE':
+        return _userBalance['pointE'] ?? 0;
+      default:
+        return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    return PopScope(
+      canPop: !_submitting,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Center(
+              child: AlertDialog(
+      title: const Text('追加徴収'),
+      content: _loading
+          ? const SizedBox(
+              height: 80,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          : _error != null && _effectiveAdjustments.isEmpty
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.red, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _submitting
+                        ? null
+                        : () {
+                            setState(() {
+                              _loading = true;
+                              _error = null;
+                            });
+                            _loadData();
+                          },
+                    child: const Text('再試行'),
+                  ),
+                ),
+              ],
+            )
+          : SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_effectiveAdjustments.isNotEmpty)
+                    Text(
+                      '対象 adjustment: ${_effectiveAdjustments.first.id}（残額 ¥${_effectiveAdjustments.first.remaining}）',
+                      style: const TextStyle(fontSize: 12),
+                    )
+                  else
+                    const Text(
+                      '対象 adjustment がありません（既に解消済みの可能性）',
+                      style: TextStyle(fontSize: 12, color: Colors.red),
+                    ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _amountCtrl,
+                    keyboardType: TextInputType.number,
+                    enabled: !_submitting,
+                    decoration: InputDecoration(
+                      labelText: '徴収額（円・税込）',
+                      helperText: () {
+                        final max = _selectedMethodMaxYen();
+                        if (max == null) return null;
+                        return '残高上限: ¥${NumberFormat('#,###').format(max)}';
+                      }(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _method,
+                    decoration: const InputDecoration(labelText: '支払方法'),
+                    items: _buildMethodItems(),
+                    onChanged: _submitting
+                        ? null
+                        : (v) {
+                            if (v == null) return;
+                            setState(() => _method = v);
+                          },
+                  ),
+                  if (_userId == null) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'この伝票はユーザー未紐付けのため、ポイント/チップ払いは利用できません。',
+                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
+                  ],
+                  if (_error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _error!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('キャンセル'),
+        ),
+        ElevatedButton(
+          onPressed: (_submitting || _loading || _effectiveAdjustments.isEmpty)
+              ? null
+              : _submit,
+          child: const Text('徴収する'),
+        ),
+      ],
+              ),
+            ),
+            if (_submitting)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "staffIds": [
+    "REPLACE_WITH_DEMO_STAFF_UID_A",
+    "REPLACE_WITH_DEMO_STAFF_UID_B",
+    "REPLACE_WITH_DEMO_STAFF_UID_C"
+  ],
+  "displayNames": [
+    "DemoStaff-A",
+    "DemoStaff-B",
+    "DemoStaff-C"
+  ]
+}

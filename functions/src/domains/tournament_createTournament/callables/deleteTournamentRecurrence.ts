@@ -1,0 +1,102 @@
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { getFirestore } from "firebase-admin/firestore";
+import { z } from "zod";
+import { getCallerDeviceByUid, hasRequiredOption, isActive } from "../../../shared/devices";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+
+// 入力スキーマの定義
+const deleteTournamentRecurrenceSchema = z.object({
+  recurrenceId: z.string().min(1, "定期開催IDは必須です"),
+});
+
+export const deleteTournamentRecurrence = onCall(async (request) => {
+  // 認証チェック
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '認証が必要です');
+  }
+
+  const callerUid = request.auth.uid;
+
+  // デバイス権限の確認（role: admin または options.tournament: true）
+  const device = await getCallerDeviceByUid(callerUid);
+  if (!device || !isActive(device.status)) {
+    throw new HttpsError('permission-denied', 'デバイスが見つからないか、アクティブではありません');
+  }
+
+  const hasPermission = device.role === 'admin' || hasRequiredOption(device.options, 'tournament');
+  if (!hasPermission) {
+    throw new HttpsError('permission-denied', 'トーナメント運営の権限がありません');
+  }
+
+  try {
+    console.log('=== 定期開催トーナメント削除開始 ===');
+    console.log('受信データ:', JSON.stringify(request.data, null, 2));
+    
+    // 入力検証
+    const validatedData = deleteTournamentRecurrenceSchema.parse(request.data);
+    const { recurrenceId } = validatedData;
+
+    const db = getFirestore();
+
+    // 定期開催データの存在確認
+    const recurrenceDoc = await db.collection('tournamentRecurrences').doc(recurrenceId).get();
+    if (!recurrenceDoc.exists) {
+      throw new HttpsError('not-found', '指定された定期開催が見つかりません');
+    }
+
+    // 関連するscheduledTournamentsを取得
+    const relatedTournaments = await db.collection('scheduledTournaments')
+      .where('recurrenceId', '==', recurrenceId)
+      .where('status', '==', 'scheduled')
+      .get();
+
+    console.log('関連するトーナメント数:', relatedTournaments.docs.length);
+
+    // 関連するトーナメントを削除（またはアーカイブ）
+    const batch = db.batch();
+    relatedTournaments.docs.forEach(doc => {
+      batch.update(doc.ref, {
+        isArchived: true,
+        updatedAt: new Date()
+      });
+    });
+
+    // 定期開催データを削除
+    batch.delete(recurrenceDoc.ref);
+
+    await batch.commit();
+
+    const archivedCount = relatedTournaments.docs.length;
+
+    logOpsSuccess({
+      message: 'deleteTournamentRecurrence 成功',
+      functionEntry: 'deleteTournamentRecurrence',
+      context: {
+        recurrenceId,
+        archivedTournamentCount: archivedCount,
+      },
+    });
+
+    return {
+      success: true,
+      deletedTournaments: archivedCount,
+      message: `定期開催を削除し、関連する${archivedCount}件のトーナメントをアーカイブしました`,
+    };
+
+  } catch (error) {
+    const recHint = deleteTournamentRecurrenceSchema.safeParse(request.data);
+    logOpsError({
+      message: '定期開催トーナメント削除エラー:',
+      functionEntry: 'deleteTournamentRecurrence',
+      cause: error,
+      context: {
+        recurrenceId: recHint.success ? recHint.data.recurrenceId : undefined,
+        callerUid,
+      },
+    });
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError('internal', `定期開催トーナメントの削除に失敗しました: ${error}`);
+  }
+});

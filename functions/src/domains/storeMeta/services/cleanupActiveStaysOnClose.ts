@@ -1,0 +1,65 @@
+import { getFirestore } from 'firebase-admin/firestore';
+import { logOpsError } from "../../../shared/logging/logOpsError";
+
+/** Phase6 Step3: ターミナルから呼ぶ core。共通化用。 */
+export async function runCleanupActiveStays(
+  db: ReturnType<typeof getFirestore>
+): Promise<{ deleted: number; failed: number; unsettledBillIds: string[] }> {
+  let deleted = 0;
+  let failed = 0;
+  const unsettledBillIds: string[] = [];
+
+  const snap = await db.collection('activeStays').get();
+
+  for (const doc of snap.docs) {
+    const billId = doc.get('billId') as string | undefined;
+
+    try {
+      if (billId) {
+        const billRef = db.doc(`bills/${billId}`);
+        const bill = await billRef.get();
+        if (bill.exists) {
+          const status = bill.get('status');
+          if (status && !['settling', 'settled', 'in_progress', 'open'].includes(status)) {
+            unsettledBillIds.push(billId);
+          }
+        }
+      }
+
+      let retryCount = 0;
+      const maxRetries = 3;
+      let deleteSuccess = false;
+
+      while (retryCount < maxRetries && !deleteSuccess) {
+        try {
+          await doc.ref.delete();
+          deleteSuccess = true;
+          deleted++;
+        } catch (deleteError) {
+          retryCount++;
+          if (retryCount < maxRetries) {
+            const delayMs = 100 * Math.pow(2, retryCount - 1);
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          } else {
+            throw deleteError;
+          }
+        }
+      }
+    } catch (e) {
+      failed++;
+      logOpsError({
+        message: 'cleanupActiveStaysOnClose: delete failed',
+        functionEntry: 'cleanupActiveStaysOnClose',
+        operation: 'deleteActiveStayDocument',
+        cause: e,
+        errorKey: 'STORE_CLEANUP_ACTIVE_STAY_DELETE_FAILED',
+        context: {
+          activeStayId: doc.id,
+          billId,
+        },
+      });
+    }
+  }
+
+  return { deleted, failed, unsettledBillIds };
+}

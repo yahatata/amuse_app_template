@@ -1,0 +1,27 @@
+---
+description: Phase4.1 changeSpec 作成・実装時のガイド
+globs: docs/config_migration/phase4_1/**/*
+alwaysApply: false
+---
+
+# Phase4.1 changeSpec ガイド
+
+## 参照すべきドキュメント
+
+- **仕様**: `docs/config_migration/phase4_1/Flow1_DETAILED_SPEC.md`
+- **段階計画**: `docs/config_migration/phase4_1/Flow2_IMPLEMENTATION_PHASES.md`
+- **進め方**: `docs/config_migration/phase4_1/WORKFLOW.md`
+
+## changeSpec 作成時
+
+1. Flow2 の「段階別参照ファイル」を確認し、該当段階の参照ファイル一覧を把握する
+2. 参照ファイルをすべて開き、AS-IS の実装を把握する
+3. Flow1 の該当セクションを確認する
+4. `docs/config_migration/phase4_1/docs/stepX/` の該当 step の stepX_changeSpec.md をコピーし、`phase_X/CHANGESPEC.md` として編集する（4.1-A→stepA, 4.1-B→stepB, … 4.1-E2→stepE2, 4.1-F→stepF）。依存先確認時は必ず stepX_completion_summary.md を確認し、必要に応じて実コードも確認する
+5. 完了条件・検証ポイントを Flow2 から転記し、チェック可能な形で記載する
+
+## 実装時
+
+1. CHANGESPEC の実装順序に従う
+2. 段階のスコープを超える変更は行わない
+3. 各タスク完了ごとにチェックリストを更新する

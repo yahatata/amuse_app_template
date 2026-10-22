@@ -1,0 +1,453 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // ===== 開発用設定（セキュリティを緩く設定） =====
+    // 本番環境では適切な認証制限を再設定してください
+
+    // ユーザーコレクション（開発用：読み取り全許可）
+    match /users/{userId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+      
+      // ログサブコレクション（pointALogs, pointBLogs, sideGameChipLogs）
+      match /{logCollection=**} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+    }
+
+    match /staffs/{staffId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // scheduledTournaments関連のルール（開発用：読み取り全許可）
+    match /scheduledTournaments/{tournamentId} {
+      // トーナメント基本情報の読み取り（開発用：全許可）
+      allow read: if true;
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+
+
+
+      // views サブコレクションの読み取り（開発用：全許可）
+      match /views/{viewId} {
+        allow read: if true;
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+
+      // 置きバケ一時参加者（Phase2: クライアントは読み取りのみ、作成は Callable）
+      match /okibakeTemporaryEntries/{entryId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      // tablesSeat サブコレクションの読み取り（開発用：全許可）
+      match /tablesSeat/{docId} {
+        allow read: if true;
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+
+      // actionLog サブコレクションの読み取り（開発用：全許可）
+      match /actionLog/{logId} {
+        allow read: if true;
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+
+      // users サブコレクション（開発用：読み取り全許可）
+      match /users/{userId} {
+        allow read: if true;
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+
+      // tables サブコレクション（開発用：読み取り全許可）
+      match /tables/{tableId} {
+        allow read: if true;
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+
+      // events サブコレクション（開発用：読み取り全許可）
+      match /events/{eventId} {
+        allow read: if true;
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+
+      // taskIndex サブコレクション（Step 9）
+      // 内部台帳。enqueue バッチ・controlHook が Admin SDK で読み書き。クライアント非公開。
+      // docID は taskType（startTournament, closeRegistration）。
+      match /taskIndex/{taskType} {
+        allow read, write: if false;
+      }
+    }
+
+    // collectionGroup('okibakeTemporaryEntries') 用の読み取り許可
+    // 例: requireSpecialAttentionPage の pending_review 取得
+    match /{path=**}/okibakeTemporaryEntries/{entryId} {
+      allow read: if true; // 既存開発用方針に合わせる
+      allow write: if false; // client write は許可しない
+    }
+
+    // tournamentTemplates の読み取り（開発用：全許可）
+    match /tournamentTemplates/{templateId} {
+      allow read: if true;
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // recurrenceRules の読み取り（開発用：全許可）
+    match /recurrenceRules/{ruleId} {
+      allow read: if true;
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // todaysBills の読み取り（開発用：全許可）
+    match /todaysBills/{billId} {
+      allow read: if true;
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // tables — 読み取りのみ（書き込みは Cloud Functions 経由）
+    match /tables/{tableId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false;
+    }
+
+    // sideGame — 読み取りのみ（書き込みは Cloud Functions 経由）
+    match /sideGame/{tableId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false;
+    }
+
+    // デバイスコレクション（開発用：読み取り全許可）
+    match /devices/{deviceId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // シフトコレクション
+    match /shifts/{shiftId} {
+      // 読み取り: 全ユーザー（テスト用）
+      allow read: if true;
+
+      // 書き込み: 全ユーザー（テスト用）
+      allow write: if true;
+      
+      // days サブコレクション
+      match /days/{dayId} {
+        allow read: if true;
+        allow write: if true;
+      }
+    }
+
+    // 営業時間月次マップコレクション
+    match /businessHoursMonthlyMap/{yearMonth} {
+      // 読み取り: 全ユーザー（テスト用）
+      allow read: if true;
+      
+      // 書き込み: Cloud Functions経由のみ
+      allow write: if false;
+    }
+
+    // シフト申請コレクション
+    match /shiftRequests/{requestId} {
+      // 読み取り: 全ユーザー（テスト用）
+      allow read: if true;
+      
+      // 書き込み: Cloud Functions経由のみ（申請作成はCallable経由）
+      allow write: if false;
+    }
+
+    // 勤怠コレクション（開発用：読み取り全許可）
+    match /attendances/{attendanceId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+
+      // 休憩サブコレクション（endBreakForAttendance で endedAt==null の break を取得するため読み取り許可）
+      match /breaks/{breakId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+    }
+
+    // 勤怠修正申請コレクション（開発用：読み取り全許可）
+    match /attendanceCorrectionRequests/{requestId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // 会計履歴コレクション（開発用：読み取り全許可）
+    match /accountingHistory/{historyId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // orders コレクション（開発用：読み取り・書き込み全許可）
+    match /orders/{orderId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if true; // 開発用：全許可
+      
+      // _TodaysOrders サブコレクション
+      match /_TodaysOrders/{subOrderId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if true; // 開発用：全許可
+      }
+    }
+
+    // analyticsMonthly コレクション（開発用：読み取り全許可）
+    match /analyticsMonthly/{monthId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+      
+      // days サブコレクション
+      match /days/{dayId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+      
+      // byCategory サブコレクション
+      match /byCategory/{categoryId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+      
+      // byTemplateTournaments サブコレクション
+      match /byTemplateTournaments/{templateId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+      
+      // byUser サブコレクション
+      match /byUser/{userId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+      
+      // aggregationMarkers サブコレクション
+      match /aggregationMarkers/{markerId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+    }
+
+    // settledBills コレクション（開発用：読み取り全許可）
+    match /settledBills/{dateId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+      
+      match /{billId} {
+        allow read: if true; // 開発用：全許可
+        allow write: if false; // 書き込みはCloud Functions経由のみ
+      }
+    }
+
+    // 管理者コレクション
+    match /admins/{adminId} {
+      allow read: if request.auth != null && request.auth.uid == adminId;
+    }
+
+    // メニューアイテムコレクション（開発用：読み取り全許可）
+    match /menuItems/{menuItemId} {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // activeStays コレクション（最小スキーマ、座席情報は bills.place.* に保持）
+    match /activeStays/{uid} {
+      // 読み取り: 認証済みユーザーは全員可（在席一覧表示のため）
+      allow read: if request.auth != null;
+      // 作成・更新・削除: Functions のみ許可（クライアント直書き禁止）
+      allow write: if false;
+    }
+
+    // bills コレクション（新スキーマ）
+    match /bills/{billId} {
+      // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+      allow read: if true;
+      // 書き込み: Functions のみ許可
+      // 親ドキュメントの updatedAt, amounts, categoryBreakdown, paymentsSummary, postEvents は Functions 専任
+      // クライアントは status, place.* のみ更新可能（将来実装）
+      allow write: if false;
+      
+      // サブコレクション
+      // items, extras, sideGameChips, tournaments: status != "settled" の間のみ書込可（Functions 経由）
+      // payments: Functions のみ書込（クライアント直書き禁止）
+      // events: Functions のみ書込（クライアント直書き禁止）
+      match /payments/{paymentId} {
+        // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+        allow read: if true;
+        // 書き込み: Functions のみ許可（クライアント直書き禁止）
+        allow write: if false;
+      }
+      
+      match /events/{eventId} {
+        // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+        allow read: if true;
+        // 書き込み: Functions のみ許可（クライアント直書き禁止）
+        allow write: if false;
+      }
+      
+      match /items/{itemId} {
+        // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+        allow read: if true;
+        // 書き込み: Functions のみ許可（クライアント直書き禁止）
+        allow write: if false;
+      }
+      
+      match /idempotency/{key} {
+        // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+        allow read: if true;
+        // 書き込み: Functions のみ許可（完全 Functions 限定）
+        allow write: if false;
+      }
+      
+      match /{subcollection}/{subId} {
+        // 読み取り: 認証済みユーザーは全員可（開発用：全許可）
+        allow read: if true;
+        // 書き込み: Functions のみ許可
+        allow write: if false;
+      }
+
+      // Step02 / Step03 / Step04 / Step05 の nested subcollections
+      // 実機確認と current-scope UI が baseline / adjustments / cashActions を直接参照するため read を許可する。
+      // write は引き続き Functions 専任。
+      match /settlementCycles/{cycleNo}/baselineSnapshot/{snapshotId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      match /settlementCycles/{cycleNo}/adjustments/{adjustmentId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      match /settlementCycles/{cycleNo}/cashActions/{cashActionId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    // storeMeta/config ドキュメント（店舗設定。StoreConfigService が購読）
+    match /storeMeta/config {
+      allow read: if true; // 開発用：全許可。必要に応じて request.auth != null に変更
+      allow write: if false; // 書き込みは initializeStoreConfigCallable 等 Functions 経由のみ
+    }
+
+    // storeMeta/businessStyles ドキュメント（営業スタイル + 必要人数。BusinessStylesService が購読）
+    match /storeMeta/businessStyles {
+      allow read: if true; // 開発用：全許可
+      allow write: if false; // 書き込みは Functions 経由のみ
+    }
+
+    // storeMeta/payrollConfig ドキュメント（Phase4.3 給与設定。PayrollConfigService が購読）
+    // admin 制限は Callable 側。read は認証済みクライアントに許可（リリース優先の簡素化）。
+    match /storeMeta/payrollConfig {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // storeMeta/currentBusinessDay コレクション
+    match /storeMeta/currentBusinessDay {
+      // 読み取り: 全ユーザー許可（UIがsnapshot購読するため）
+      // 必要に応じて request.auth != null や staff/admin チェックに変更可能
+      allow read: if true;
+      // 書き込み: Functions経由のみ（UIからの直接書き込み禁止）
+      allow write: if false; // Functionsはadmin権限で実行されるため
+    }
+
+    // storeMeta/currentBusinessDay/logs サブコレクション
+    match /storeMeta/currentBusinessDay/logs/{logId} {
+      // 読み取り: 全ユーザー許可（必要に応じて制限可能）
+      allow read: if true;
+      // 書き込み: Functions経由のみ
+      allow write: if false;
+    }
+
+    // storeMeta/currentBusinessDay/assessmentLogs サブコレクション（自動閉店・開店認定のログ）
+    match /storeMeta/currentBusinessDay/assessmentLogs/{logId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Phase4.3: 給与計算結果（read は認証済み。書き込みは Functions のみ）
+    match /monthlyPayroll/{paymentPeriodKey} {
+      allow read: if isSignedIn();
+      allow write: if false;
+
+      match /payrollRuns/{runId} {
+        allow read: if isSignedIn();
+        allow write: if false;
+
+        match /staffResults/{staffId} {
+          allow read: if isSignedIn();
+          allow write: if false;
+
+          match /attendanceItems/{itemId} {
+            allow read: if isSignedIn();
+            allow write: if false;
+          }
+        }
+      }
+    }
+
+    // Phase4.3: 給与通知（read は認証済み。isRead/isFlagged のみクライアント update 可）
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn();
+      allow create, delete: if false;
+      allow update: if isSignedIn()
+        && resource.data.operationCategory == 'payroll'
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'isRead',
+          'isFlagged'
+        ]);
+    }
+
+    // reportingEntries コレクション（Functions のみ）
+    match /reportingEntries/{entryId} {
+      allow read: if true;  // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // reportingMonthly コレクション（Functions のみ）
+    match /reportingMonthly/{monthKey} {
+      allow read: if true;  // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+
+      // aggregationMarkers サブコレクション
+      match /aggregationMarkers/{markerId} {
+        allow read: if false;
+        allow write: if false;
+      }
+    }
+
+    // storeMeta/taxReportingBehavior
+    match /storeMeta/taxReportingBehavior {
+      allow read: if true;  // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // storeMeta/reportingGroupConfig
+    match /storeMeta/reportingGroupConfig {
+      allow read: if true;  // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+    }
+
+    // batchJobLogs（整合性チェック結果ログ）
+    match /batchJobLogs/{jobKey} {
+      allow read: if true;  // 開発用：全許可
+      allow write: if false; // 書き込みはCloud Functions経由のみ
+
+      match /executions/{executionId} {
+        allow read: if true;  // 開発用：全許可
+        allow write: if false;
+      }
+    }
+
+    // その他のコレクションは読み書き禁止
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

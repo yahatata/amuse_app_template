@@ -1,0 +1,3631 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ユーザーページ - Amuse App</title>
+    <!-- LIFF SDK -->
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <!-- 店舗別設定ファイル -->
+    <script src="./config.js"></script>
+    <script src="../js/liff_errors.js"></script>
+    <script src="../js/app_dialogs.js"></script>
+    <script src="./liffTournamentDisplayHelpers.js?v=20260603-fee0"></script>
+    <!-- Firebase初期化スクリプト -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+      import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+      import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+      // 設定ファイルから設定を取得
+      const { firebaseConfig, liffId, functionsRegion: configuredFunctionsRegion } = window.__CONFIG__;
+      const functionsRegion = configuredFunctionsRegion || "asia-northeast1";
+      
+      // Cloud Functions URLを動的に生成
+      const functionsUrl = `https://${functionsRegion}-${firebaseConfig.projectId}.cloudfunctions.net`;
+
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+
+      // グローバルに公開
+      window.Firebase = { app, auth, db };
+      window.FirebaseAuth = { signInWithCustomToken };
+      window.FunctionsRegion = functionsRegion;
+      window.FunctionsUrl = functionsUrl; // グローバルに公開
+
+      function stageError(stage, cause) {
+        return window.LiffErrors.createStageError(stage, cause);
+      }
+
+      // LIFFとFirebase認証の初期化関数
+      window.initLiffAndFirebaseAuth = async function() {
+        if (window._debugLog) window._debugLog('2. initLiffAndFirebaseAuth開始');
+        window.__LIFF_LOGIN_REDIRECTING__ = false;
+        if (!window.liff) {
+          if (window._debugLog) window._debugLog('2a. window.liffなし', true);
+          throw stageError('liff.sdk_missing');
+        }
+        try {
+          if (window._debugLog) window._debugLog('2b. liff.init実行中');
+          try {
+            await liff.init({ liffId });
+          } catch (initErr) {
+            throw stageError('liff.init', initErr);
+          }
+          if (window._debugLog) window._debugLog('2c. liff.init完了');
+          if (typeof window.updateInitProgress === 'function') window.updateInitProgress(20);
+
+          if (!liff.isLoggedIn()) {
+            if (window._debugLog) window._debugLog('2d. 未ログイン→liff.login()へリダイレクト');
+            window.__LIFF_LOGIN_REDIRECTING__ = true;
+            liff.login();
+            return;
+          }
+          if (window._debugLog) window._debugLog('2e. ログイン済み');
+
+          // ミニアプリ用：profile権限の確認と要求（失敗時は表示せず続行）
+          try {
+            const permissionStatus = await liff.permission.query("profile");
+            if (permissionStatus.state === "prompt") {
+              await liff.permission.requestAll();
+            }
+          } catch (permError) {
+            console.warn("Permission check not supported or failed");
+            // LIFF環境では権限APIが使えない場合があるため、エラーは無視して続行
+          }
+
+          if (window._debugLog) window._debugLog('2f. getIDToken取得中');
+          let idToken;
+          try {
+            idToken = await liff.getIDToken();
+          } catch (tokenErr) {
+            throw stageError('auth.id_token', tokenErr);
+          }
+          if (idToken == null || String(idToken).trim() === '') {
+            throw stageError('auth.id_token');
+          }
+          if (window._debugLog) window._debugLog('2g. getIDToken取得成功');
+          if (typeof window.updateInitProgress === 'function') window.updateInitProgress(40);
+
+          // サーバーからFirebaseカスタムトークンを取得
+          if (window._debugLog) window._debugLog('2h. getFirebaseCustomToken呼び出し中');
+          let res;
+          try {
+            res = await fetch(`${functionsUrl}/getFirebaseCustomToken`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${idToken}`,
+                "Content-Type": "application/json"
+              }
+            });
+          } catch (fetchErr) {
+            throw stageError('auth.custom_token', fetchErr);
+          }
+
+          if (!res.ok) {
+            if (window._debugLog) window._debugLog('2h-ERR. getFirebaseCustomToken失敗 status=' + res.status, true);
+            throw stageError('auth.custom_token');
+          }
+          if (window._debugLog) window._debugLog('2i. getFirebaseCustomToken成功');
+          if (typeof window.updateInitProgress === 'function') window.updateInitProgress(60);
+
+          let tokenPayload;
+          try {
+            tokenPayload = await res.json();
+          } catch (parseErr) {
+            throw stageError('auth.custom_token_malformed', parseErr);
+          }
+          if (!window.LiffErrors.isFirebaseCustomTokenShape(tokenPayload)) {
+            throw stageError('auth.custom_token_malformed');
+          }
+          const firebaseToken = tokenPayload.firebaseToken;
+
+          // Firebase v10 modular SDK対応
+          const { auth } = window.Firebase;
+          const { signInWithCustomToken } = window.FirebaseAuth;
+          const SIGNIN_TIMEOUT_MS = 15000; // 15秒
+          const signInStartMs = Date.now();
+          if (window._debugLog) window._debugLog('2j. signInWithCustomToken実行中 (タイムアウト=' + SIGNIN_TIMEOUT_MS + 'ms)');
+          const waitIntervalMs = 3000;
+          const waitIntervalId = setInterval(() => {
+            if (window._debugLog) {
+              const elapsed = Math.round((Date.now() - signInStartMs) / 1000);
+              window._debugLog('2j-wait. signInWithCustomToken待機中 (' + elapsed + '秒経過)');
+            }
+          }, waitIntervalMs);
+          try {
+            await Promise.race([
+              signInWithCustomToken(auth, firebaseToken),
+              new Promise((_, reject) => setTimeout(() => reject(stageError('auth.timeout')), SIGNIN_TIMEOUT_MS))
+            ]);
+            clearInterval(waitIntervalId);
+            if (window._debugLog) window._debugLog('2k. signInWithCustomToken正常完了 (所要' + (Date.now() - signInStartMs) + 'ms)');
+          } catch (signInErr) {
+            clearInterval(waitIntervalId);
+            if (signInErr && signInErr.liffStage) {
+              if (window._debugLog) window._debugLog('2j-STAGE. ' + signInErr.liffStage, true);
+              throw signInErr;
+            }
+            if (window._debugLog) window._debugLog('2j-ERR. signInWithCustomToken失敗', true);
+            throw stageError('auth.signin', signInErr);
+          }
+          if (!auth.currentUser) {
+            throw stageError('auth.no_user');
+          }
+          if (window._debugLog) window._debugLog('2k-done. 認証完了');
+          if (typeof window.updateInitProgress === 'function') window.updateInitProgress(80);
+
+          // 利用者情報をwindowにセット
+          window.LiffFirebase = {
+            idToken,
+            user: auth.currentUser
+          };
+        } catch (e) {
+          if (window._debugLog) window._debugLog('2-ERR. 認証エラー stage=' + (e?.liffStage || 'unknown'), true);
+          console.error("LIFF認証エラー");
+          if (e && e.liffStage) throw e;
+          throw stageError('liff.init', e);
+        }
+      };
+    </script>
+    <link rel="stylesheet" href="../css/common.css?v=20260603-register-green">
+    <link rel="stylesheet" href="../css/user.css?v=20260603-register-green">
+    <style>
+      /* index.html と同梱 — user.css キャッシュ時もトーナメント余白を抑える */
+      .tournament-page .tournament-list { gap: 12px !important; }
+      .tournament-page .tournament-card {
+        margin-bottom: 0 !important;
+        padding: 10px 10px 8px !important;
+      }
+      .tournament-page .tournament-card-title {
+        margin: 0 0 8px !important;
+        line-height: 1.25 !important;
+        font-size: 1.10rem !important;
+      }
+      .tournament-page .tournament-card-brief { margin-bottom: 8px !important; }
+      .tournament-page .tournament-card-brief p {
+        margin: 0 !important;
+        padding: 5px 0 !important;
+        font-size: 1.10rem !important;
+        line-height: 1.25 !important;
+      }
+      .tournament-page .tournament-card-brief-value {
+        color: #333 !important;
+        font-weight: 600 !important;
+      }
+      .tournament-page .tournament-card-brief p:last-child {
+        padding-bottom: 0 !important;
+      }
+      .tournament-page .tournament-card-details .detail-row {
+        font-size: 1.10rem !important;
+        line-height: 1.25 !important;
+        padding: 5px 0 !important;
+      }
+      .tournament-page .tournament-card-details .detail-value {
+        color: #333 !important;
+        font-weight: 600 !important;
+      }
+      .tournament-page .tournament-card-summary {
+        position: relative !important;
+        padding-right: 52px !important;
+      }
+      .tournament-page .tournament-card-actions-row {
+        flex-direction: column !important;
+        align-items: center !important;
+        gap: 4px !important;
+        margin-top: 0 !important;
+        margin-bottom: 8px !important;
+        width: 100% !important;
+      }
+      .tournament-page .tournament-card-actions-buttons {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        width: 100% !important;
+        gap: 4px 6px !important;
+        align-items: center !important;
+      }
+      .tournament-page .tournament-card-actions-row .btn-register {
+        padding: 7px 17px !important;
+        font-size: 1.43rem !important;
+        min-width: 122px !important;
+      }
+      .tournament-page .tournament-card-actions-row .btn-register:not(.btn-disabled):not([aria-disabled="true"]) {
+        background: linear-gradient(135deg, #4caf50, #43a047) !important;
+        color: #fff !important;
+        box-shadow: 0 4px 12px rgba(76, 175, 80, 0.35) !important;
+      }
+      .tournament-page button.btn.btn-disabled[aria-disabled="true"] {
+        opacity: 0.5 !important;
+        cursor: pointer !important;
+      }
+      .tournament-page .tournament-detail-toggle {
+        font-size: 1.07rem !important;
+      }
+      .tournament-page .tournament-detail-toggle-icon {
+        font-size: 0.98rem !important;
+      }
+      .tournament-page .tournament-card-actions-row .btn {
+        margin: 0 !important;
+        padding: 4px 10px !important;
+        box-shadow: none !important;
+        letter-spacing: 0 !important;
+        text-transform: none !important;
+      }
+    </style>
+  </head>
+  <body>
+<!-- ========== DEBUG OVERLAY START ==========
+  config.js の DEBUG_SHOW_LIFF_PROCESS で表示可否を切り替え。
+  詳細: docs/LINEミニアプリ、LIFF/LINEミニアプリ、LIFF処理表示.md -->
+<div id="debug-overlay" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.95);color:#fff;font-size:12px;padding:10px;max-height:50vh;overflow-y:auto;font-family:monospace;display:none;">
+  <strong>【デバッグ】ユーザーLIFF処理内容表示（時:分:秒形式）</strong>
+  <div id="debug-log"></div>
+</div>
+<script>
+  (function() {
+    var show = window.__CONFIG__ && window.__CONFIG__.DEBUG_SHOW_LIFF_PROCESS;
+    if (!show) {
+      window._debugLog = function() {};
+      return;
+    }
+    var overlay = document.getElementById('debug-overlay');
+    if (overlay) overlay.style.display = 'block';
+    window._debugLog = function(msg, isError) {
+      try {
+        var el = document.getElementById('debug-log');
+        if (!el) return;
+        var d = new Date();
+        var timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0') + ':' + String(d.getSeconds()).padStart(2,'0');
+        var line = document.createElement('div');
+        line.style.color = (isError ? '#ff6b6b' : '#fff');
+        line.textContent = '[' + timeStr + '] ' + msg;
+        el.appendChild(line);
+        el.parentElement.scrollTop = el.parentElement.scrollHeight;
+      } catch (e) {}
+    };
+    window._debugLog('1. ページHTML解析完了');
+  })();
+</script>
+<!-- ========== DEBUG OVERLAY END ========== -->
+
+    <div class="container">
+      <!-- ローディング画面 -->
+      <div id="loading" class="loading">
+        <p class="loading-text">読み込み中...</p>
+        <div class="progress-bar-container">
+          <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+        </div>
+        <div id="loading-retry-container" style="display:none;margin-top:15px"></div>
+      </div>
+      
+      <!-- グローバルローディングオーバーレイ（処理中表示用） -->
+      <div id="global-loading-overlay" class="global-loading-overlay" style="display: none;">
+        <div class="global-loading-content">
+        <div class="spinner"></div>
+        <p class="global-loading-message"></p>
+        </div>
+      </div>
+
+      <!-- ホーム画面 -->
+      <div id="home-page" class="page home-page">
+        <div id="user-info">
+          <div class="spinner"></div>
+        </div>
+        
+        <!-- メイン機能ボタン -->
+        <div class="main-functions">
+          <div class="function-grid">
+            <button class="function-btn qr-btn" onclick="showQRCode()">
+              <div class="btn-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="3" y="3" width="5" height="5" fill="currentColor"/>
+                  <rect x="16" y="3" width="5" height="5" fill="currentColor"/>
+                  <rect x="3" y="16" width="5" height="5" fill="currentColor"/>
+                  <rect x="7" y="7" width="2" height="2" fill="currentColor"/>
+                  <rect x="11" y="7" width="2" height="2" fill="currentColor"/>
+                  <rect x="15" y="7" width="2" height="2" fill="currentColor"/>
+                  <rect x="7" y="11" width="2" height="2" fill="currentColor"/>
+                  <rect x="11" y="11" width="2" height="2" fill="currentColor"/>
+                  <rect x="15" y="11" width="2" height="2" fill="currentColor"/>
+                  <rect x="7" y="15" width="2" height="2" fill="currentColor"/>
+                  <rect x="11" y="15" width="2" height="2" fill="currentColor"/>
+                  <rect x="15" y="15" width="2" height="2" fill="currentColor"/>
+                  <rect x="19" y="7" width="2" height="2" fill="currentColor"/>
+                  <rect x="19" y="11" width="2" height="2" fill="currentColor"/>
+                  <rect x="7" y="19" width="2" height="2" fill="currentColor"/>
+                  <rect x="11" y="19" width="2" height="2" fill="currentColor"/>
+                </svg>
+              </div>
+              <div class="btn-text">
+                <h3>入店QR</h3>
+                <p>入店・退店用QRコードを表示</p>
+              </div>
+            </button>
+            
+            <button id="order-btn" class="function-btn order-btn" onclick="showOrderPage()">
+              <div class="btn-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M7 18C5.9 18 5.01 18.9 5.01 20C5.01 21.1 5.9 22 7 22C8.1 22 9 21.1 9 20C9 18.9 8.1 18 7 18ZM1 2V4H3L6.6 11.59L5.25 14.04C5.09 14.32 5 14.65 5 15C5 16.1 5.9 17 7 17H19V15H7.42C7.28 15 7.17 14.89 7.17 14.75L7.2 14.63L8.1 13H16.55C17.3 13 17.96 12.59 18.3 11.97L21.88 5.5C22.25 4.82 21.77 4 21 4H5.21L4.27 2H1ZM17 18C15.9 18 15.01 18.9 15.01 20C15.01 21.1 15.9 22 17 22C18.1 22 19 21.1 19 20C19 18.9 18.1 18 17 18Z" fill="currentColor"/>
+                </svg>
+              </div>
+              <div class="btn-text">
+                <h3>注文</h3>
+                <p>メニューから注文する</p>
+              </div>
+            </button>
+            
+            <button id="tournament-btn" class="function-btn tournament-btn" onclick="showTournament()">
+              <div class="btn-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <!-- スペードマーク（Material Design Iconsから取得） -->
+                  <path d="M12,2C9,7 4,9 4,14C4,16 6,18 8,18C9,18 10,18 11,17C11,17 11.32,19 9,22H15C13,19 13,17 13,17C14,18 15,18 16,18C18,18 20,16 20,14C20,9 15,7 12,2Z" fill="currentColor"/>
+                </svg>
+              </div>
+              <div class="btn-text">
+                <h3>トーナメント</h3>
+                <p>トーナメント情報・参加</p>
+              </div>
+            </button>
+            
+            <button class="function-btn profile-btn" onclick="showProfile()">
+              <div class="btn-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12ZM12 14C9.33 14 4 15.34 4 18V20H20V18C20 15.34 14.67 14 12 14Z" fill="currentColor"/>
+                </svg>
+              </div>
+              <div class="btn-text">
+                <h3>プロフィール</h3>
+                <p>ユーザー情報・設定</p>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 登録画面 -->
+      <div id="registration-page" class="page registration-page" style="display: none;">
+        <h1>ユーザー登録</h1>
+        <p>初回利用のため、ユーザー情報を登録してください。</p>
+        <form id="registration-form">
+          <div class="form-group">
+            <label for="pokerName">pokerName</label>
+            <input type="text" id="pokerName" placeholder="pokerNameを入力" required>
+          </div>
+          <div class="form-group">
+            <label for="email">メールアドレス</label>
+            <input type="email" id="email" placeholder="example@email.com" required>
+          </div>
+          <div class="form-group">
+            <label for="pin">PIN</label>
+            <input type="password" id="pin" placeholder="4桁のPINを入力" minlength="4" maxlength="4" pattern="[0-9]{4}" required>
+            <small style="color: #666; font-size: 0.9rem; margin-top: 5px; display: block;">4桁の数字で入力してください</small>
+          </div>
+          <div class="form-group">
+            <label>誕生日</label>
+            <div style="display: flex; gap: 10px;">
+              <select id="birthMonth" required style="flex: 1;">
+                <option value="">月</option>
+              </select>
+              <select id="birthDay" required style="flex: 1;">
+                <option value="">日</option>
+              </select>
+            </div>
+            <small style="color: #666; font-size: 0.9rem; margin-top: 5px; display: block;">月と日を選択してください</small>
+          </div>
+          <button type="submit" class="btn">登録する</button>
+        </form>
+      </div>
+
+      <!-- QRコード表示画面 -->
+      <div id="qr-page" class="page qr-page" style="display: none;">
+        <h1>入店QRコード</h1>
+        <div class="qr-container">
+          <div id="qr-code-display" class="qr-code-display">
+            <div class="spinner"></div>
+          </div>
+          <div class="qr-info">
+            <p>このQRコードを店舗端末で読み取ってください</p>
+            <p class="qr-expiry">有効期限: <span id="qr-expiry-time">-</span></p>
+          </div>
+        </div>
+        <div class="qr-actions">
+          <button class="btn" onclick="generateNewQR()">新しいQRを生成・更新</button>
+          <button class="btn" onclick="showHomePage()">ホームに戻る</button>
+        </div>
+      </div>
+
+      <!-- 注文メニュー画面 -->
+      <div id="order-page" class="page order-page" style="display: none;">
+        <h1>注文メニュー</h1>
+        
+        <div class="menu-categories">
+          <button class="category-btn active" onclick="showCategory('フード')">フード</button>
+          <button class="category-btn" onclick="showCategory('ノンアルコール')">ノンアルコール</button>
+          <button class="category-btn" onclick="showCategory('アルコール')">アルコール</button>
+          </div>
+        <div id="menu-items" class="menu-items">
+          <div class="spinner"></div>
+        </div>
+        
+        <div class="order-actions">
+          <button class="btn" onclick="showOrderHistory()">📋 注文履歴</button>
+          <button class="btn" onclick="showHomePage()">ホームに戻る</button>
+        </div>
+      </div>
+      
+      <!-- カートモーダル -->
+      <div id="cart-modal" class="modal" style="display: none;">
+        <div class="modal-content cart-modal-content">
+          <div class="modal-header">
+            <h2>🛒 カート (<span id="cart-item-count">0</span>個)</h2>
+            <button class="modal-close-btn" onclick="closeCartModal()">×</button>
+          </div>
+          <div class="modal-body">
+          <div id="cart-items" class="cart-items">
+            <!-- カートアイテムがここに表示される -->
+          </div>
+          </div>
+          <div class="modal-footer">
+            <div class="cart-summary">
+            <div class="cart-total">
+              <strong>合計: ¥<span id="cart-total-price">0</span></strong>
+              </div>
+              <button class="btn secondary-btn" onclick="clearCart()">カートを空にする</button>
+            </div>
+            <button id="order-all-btn" class="btn order-all-btn" onclick="orderAllItems()" disabled>
+              全て注文する
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 注文履歴画面 -->
+      <div id="order-history-page" class="page order-history-page" style="display: none;">
+        <h1>📋 本日の注文履歴</h1>
+        
+        <!-- 更新ボタン -->
+        <div class="history-actions-top">
+          <button class="btn secondary-btn" onclick="refreshOrderHistory()">🔄 更新</button>
+        </div>
+        
+        <!-- 統計情報 -->
+        <div id="history-stats" class="history-stats" style="display: none;">
+          <div class="stat-item">
+            <span class="stat-label">本日の注文数:</span>
+            <span id="total-orders" class="stat-value">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">本日の利用金額:</span>
+            <span id="total-amount" class="stat-value">¥0</span>
+          </div>
+        </div>
+        
+        <!-- 注文履歴リスト -->
+        <div id="order-history-list" class="order-history-list">
+          <div class="spinner"></div>
+        </div>
+        
+        <div class="history-actions">
+          <button class="btn" onclick="showOrderPage()">注文メニューに戻る</button>
+        </div>
+      </div>
+
+      <!-- トーナメント画面（本日 / 近日 / カレンダー タブ統合） -->
+      <div id="tournament-page" class="page tournament-page" style="display: none;">
+        <h1>トーナメント</h1>
+        <div id="tournament-tab-bar" class="tournament-tab-bar">
+          <button type="button" class="tournament-tab-btn active" data-tab="today" onclick="switchTournamentTab('today')">本日</button>
+          <button type="button" class="tournament-tab-btn" data-tab="upcoming" onclick="switchTournamentTab('upcoming')">近日</button>
+          <button type="button" class="tournament-tab-btn" id="tournament-calendar-tab" data-tab="calendar" onclick="switchTournamentTab('calendar')" style="display: none;">カレンダー</button>
+        </div>
+
+        <div id="tournament-tab-today" class="tournament-tab-panel">
+          <div class="tournament-date-info">
+            <h2 id="today-date">今日のトーナメント</h2>
+          </div>
+          <div id="today-tournament-list" class="tournament-list">
+            <div class="spinner"></div>
+          </div>
+        </div>
+
+        <div id="tournament-tab-upcoming" class="tournament-tab-panel" style="display: none;">
+          <div class="tournament-period-info">
+            <h2>1週間先までのトーナメント</h2>
+          </div>
+          <div id="upcoming-tournament-list" class="tournament-list">
+            <div class="spinner"></div>
+          </div>
+        </div>
+
+        <div id="tournament-tab-calendar" class="tournament-tab-panel" style="display: none;">
+          <div class="calendar-controls" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <button type="button" class="btn" id="calendar-prev-month-btn" onclick="previousMonth()" style="padding: 8px 16px;">← 前月</button>
+            <h2 id="calendar-current-month" style="margin: 0;">2025年11月</h2>
+            <button type="button" class="btn" onclick="nextMonth()" style="padding: 8px 16px;">次月 →</button>
+          </div>
+          <div class="calendar-container flexible-container-flex">
+            <div id="tournament-calendar" class="tournament-calendar calendar-grid flexible-container-flex"></div>
+          </div>
+          <div id="selected-date-tournaments" class="selected-date-tournaments" style="display: none; margin-top: 20px;">
+            <h3 id="selected-date-title"></h3>
+            <div id="selected-date-tournament-list" class="tournament-list"></div>
+          </div>
+        </div>
+
+        <div class="tournament-actions">
+          <button type="button" class="btn secondary" onclick="showHomePage()">ホームに戻る</button>
+        </div>
+      </div>
+
+      <!-- プロフィール画面 -->
+      <div id="profile-page" class="page profile-page" style="display: none;">
+        <h1>プロフィール</h1>
+        <div id="profile-info" class="profile-info">
+          <div class="spinner"></div>
+        </div>
+        <div class="profile-actions">
+          <button class="btn" onclick="showHomePage()">ホームに戻る</button>
+        </div>
+      </div>
+
+      <!-- エラー表示 -->
+      <div id="error-message" class="error" style="display: none;"></div>
+    </div>
+    
+    <!-- カートを見るボタン（画面下部固定） - .containerの外側に配置 -->
+    <div id="view-cart-btn-container" class="view-cart-btn-container" style="display: none;">
+      <button class="btn view-cart-btn" onclick="openCartModal()">
+        🛒 カートを見る (<span id="cart-badge-count">0</span>)
+      </button>
+    </div>
+
+    <script type="module">
+      // ページ要素の取得
+      const loadingEl = document.getElementById('loading');
+      const homePageEl = document.getElementById('home-page');
+      const registrationPageEl = document.getElementById('registration-page');
+      const qrPageEl = document.getElementById('qr-page');
+      const orderPageEl = document.getElementById('order-page');
+      const orderHistoryPageEl = document.getElementById('order-history-page');
+      const tournamentPageEl = document.getElementById('tournament-page');
+      const profilePageEl = document.getElementById('profile-page');
+      const errorEl = document.getElementById('error-message');
+      const userInfoEl = document.getElementById('user-info');
+      const registrationFormEl = document.getElementById('registration-form');
+      const progressFillEl = document.getElementById('progress-fill');
+      window.updateInitProgress = (percent) => { if (progressFillEl) progressFillEl.style.width = Math.min(100, Math.max(0, percent)) + '%'; };
+
+      // カレンダー用の変数
+      let calendarCurrentMonth = new Date();
+      let calendarSelectedDateStr = null;
+      let calendarClickEventsBound = false;
+      let allTournamentsData = null; // null=未取得/invalidated, []=正常0件
+
+      // ページ読み込み完了時の初期化処理
+      document.addEventListener('DOMContentLoaded', function() {
+        // 注文・トーナメントボタンを確実に非表示にする
+        const orderBtn = document.getElementById('order-btn');
+        const tournamentBtn = document.getElementById('tournament-btn');
+        if (orderBtn) orderBtn.style.display = 'none';
+        if (tournamentBtn) tournamentBtn.style.display = 'none';
+      });
+
+      // === ローディング制御用の共通関数 ===
+      
+      // グローバルローディングオーバーレイ表示
+      function showGlobalLoading(message = '処理中...') {
+        const overlay = document.getElementById('global-loading-overlay');
+        if (!overlay) return;
+        const msgEl = overlay.querySelector('.global-loading-message');
+        if (msgEl) msgEl.textContent = message;
+        overlay.style.display = 'flex';
+      }
+      
+      // グローバルローディングオーバーレイ非表示
+      function hideGlobalLoading() {
+        const overlay = document.getElementById('global-loading-overlay');
+        if (overlay) overlay.style.display = 'none';
+      }
+
+      function setQrSectionBusy(busy) {
+        const container = document.querySelector('#qr-page .qr-container');
+        if (!container) return;
+        container.classList.add('busy-overlay-host');
+        let ov = container.querySelector(':scope > .section-busy-overlay');
+        if (!ov) {
+          ov = document.createElement('div');
+          ov.className = 'section-busy-overlay';
+          ov.innerHTML = '<div class="spinner"></div>';
+          container.appendChild(ov);
+        }
+        ov.classList.toggle('is-visible', !!busy);
+        document.querySelectorAll('#qr-page .qr-actions .btn').forEach((b) => {
+          b.disabled = !!busy;
+        });
+      }
+
+      function setCartModalOrderBusy(busy, message = '注文送信中…') {
+        const mc = document.querySelector('#cart-modal .cart-modal-content');
+        if (!mc) return;
+        let ov = mc.querySelector(':scope > .section-busy-overlay');
+        if (!ov) {
+          ov = document.createElement('div');
+          mc.appendChild(ov);
+        }
+        if (!ov.classList.contains('section-busy-overlay--dim-card')) {
+          ov.className = 'section-busy-overlay section-busy-overlay--dim-card';
+          ov.innerHTML =
+            '<div class="section-busy-card"><div class="spinner"></div><p class="section-busy-message"></p></div>';
+        }
+        if (busy) {
+          const msgEl = ov.querySelector('.section-busy-message');
+          if (msgEl) msgEl.textContent = message;
+        }
+        ov.classList.toggle('is-visible', !!busy);
+        const closeBtn = document.querySelector('#cart-modal .modal-close-btn');
+        if (closeBtn) closeBtn.disabled = !!busy || (typeof isCartLocked === 'function' && isCartLocked());
+        orderPageEl.classList.toggle('order-flow-busy', !!busy);
+        if (typeof applyOrderLockUi === 'function') applyOrderLockUi();
+      }
+
+      function setMenuItemsOrderBusy(busy) {
+        const mi = document.getElementById('menu-items');
+        if (!mi) return;
+        mi.classList.add('busy-overlay-host');
+        let ov = document.getElementById('menu-items-busy-overlay');
+        if (!ov) {
+          ov = document.createElement('div');
+          ov.id = 'menu-items-busy-overlay';
+          mi.appendChild(ov);
+        }
+        if (!ov.classList.contains('section-busy-overlay--dim-card')) {
+          ov.className = 'section-busy-overlay section-busy-overlay--dim-card';
+          ov.innerHTML =
+            '<div class="section-busy-card"><div class="spinner"></div><p class="section-busy-message">注文送信中…</p></div>';
+        }
+        ov.classList.toggle('is-visible', !!busy);
+        orderPageEl.classList.toggle('order-flow-busy', !!busy);
+      }
+      
+      // グローバルローディング付き処理の実行
+      async function executeWithGlobalLoading(asyncFunction, message = '処理中...') {
+        try {
+          showGlobalLoading(message);
+          const result = await asyncFunction();
+          return result;
+        } catch (error) {
+          throw error;
+        } finally {
+          hideGlobalLoading();
+        }
+      }
+
+      // エラー表示関数（resolver の message のみ。raw error は表示しない）
+      function showUserFacingError(resolved, options = {}) {
+        const retry = options.retry === true;
+        const onRetry = typeof options.onRetry === 'function' ? options.onRetry : null;
+        const message =
+          resolved && typeof resolved.message === 'string' && resolved.message.trim()
+            ? resolved.message
+            : (window.LiffErrors && window.LiffErrors.MESSAGES
+              ? window.LiffErrors.MESSAGES.PROCESS
+              : '処理に失敗しました。時間をおいてもう一度お試しください。');
+        const retryLabel =
+          (resolved && resolved.retryLabel) ||
+          (window.LiffErrors && window.LiffErrors.MESSAGES && window.LiffErrors.MESSAGES.RETRY) ||
+          '再試行';
+
+        errorEl.innerHTML = '';
+        errorEl.appendChild(document.createTextNode(message));
+        if (retry && onRetry) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn primary-btn';
+          btn.textContent = retryLabel;
+          btn.style.marginTop = '15px';
+          btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            errorEl.style.display = 'none';
+            onRetry();
+          });
+          errorEl.appendChild(btn);
+        }
+        errorEl.style.display = 'block';
+        errorEl.style.whiteSpace = 'pre-wrap';
+        loadingEl.style.display = 'none';
+      }
+
+      function resolveForDisplay(messageOrResolved, error) {
+        const LE = window.LiffErrors;
+        if (messageOrResolved && typeof messageOrResolved === 'object' && typeof messageOrResolved.message === 'string') {
+          return messageOrResolved;
+        }
+        if (error && LE) {
+          return LE.resolveUserFacingError({ error });
+        }
+        if (typeof messageOrResolved === 'string' && messageOrResolved.trim()) {
+          return { message: messageOrResolved, action: null, retryLabel: null, kind: 'unknown' };
+        }
+        if (LE) return LE.resolveUserFacingError({});
+        return { message: '処理に失敗しました。時間をおいてもう一度お試しください。', action: 'retry', retryLabel: '再試行', kind: 'unknown' };
+      }
+
+      function showError(message, error) {
+        // 第2引数の raw error は表示に使わない（互換のため受け取るのみ）
+        void error;
+        showUserFacingError(resolveForDisplay(message, null), { retry: false });
+      }
+
+      const INIT_TIMEOUT_MS = 15000;       // 15秒
+      const INIT_SLOW_WARN_MS = 5000;      // 5秒
+      const SLOW_WARN_MESSAGE = '処理に時間がかかっています....';
+
+      function resolveInitTimeout() {
+        if (window.LiffErrors) {
+          return window.LiffErrors.resolveUserFacingError({ stage: 'init.timeout' });
+        }
+        return { message: '処理に時間がかかっています。もう一度お試しください。', action: 'retry', retryLabel: '再試行', kind: 'timeout' };
+      }
+
+      function makeInitRetryHandler() {
+        return () => {
+          const r = () => location.reload();
+          const a = window.Firebase?.auth;
+          a ? Promise.race([a.signOut(), new Promise(x => setTimeout(x, 2000))]).then(r).catch(r) : r();
+        };
+      }
+
+      // エラー表示＋再試行ボタン（タイムアウト・初期化失敗時）
+      function showErrorWithRetry(message, error, onRetry) {
+        // raw error は表示に使わない。stage 付き error のみ解決に使用
+        const hasStage = error && typeof error === 'object' && error.liffStage;
+        const resolved = hasStage
+          ? resolveForDisplay(null, error)
+          : resolveForDisplay(message, null);
+        const canRetry = typeof onRetry === 'function' && resolved.action !== null;
+        showUserFacingError(resolved, { retry: canRetry, onRetry: canRetry ? onRetry : null });
+      }
+
+      // ページ表示関数
+      function showPage(pageElement) {
+        loadingEl.style.display = 'none';
+
+        // QR画面離脱時は期限timerを解除
+        if (pageElement !== qrPageEl && typeof clearQrExpiryTimer === 'function') {
+          clearQrExpiryTimer();
+        }
+        
+        // 全てのページを明示的に非表示
+        homePageEl.style.display = 'none';
+        registrationPageEl.style.display = 'none';
+        qrPageEl.style.display = 'none';
+        orderPageEl.style.display = 'none';
+        orderHistoryPageEl.style.display = 'none';
+        tournamentPageEl.classList.remove('active');
+        profilePageEl.style.display = 'none';
+        
+        // 全てのページのactiveクラスを確実に削除
+        homePageEl.classList.remove('active');
+        registrationPageEl.classList.remove('active');
+        qrPageEl.classList.remove('active');
+        orderPageEl.classList.remove('active');
+        orderHistoryPageEl.classList.remove('active');
+        tournamentPageEl.classList.remove('active');
+        profilePageEl.classList.remove('active');
+        
+        // カートボタンの表示制御：注文ページのみ表示（カートが空でない場合）
+        const viewCartBtnContainer = document.getElementById('view-cart-btn-container');
+        if (pageElement === orderPageEl) {
+          // 注文ページの場合、カートに商品があれば表示（updateCartDisplayが制御）
+          // ここでは何もしない（updateCartDisplayに任せる）
+        } else {
+          // 注文ページ以外では常に非表示
+          if (viewCartBtnContainer) {
+            viewCartBtnContainer.style.display = 'none';
+          }
+        }
+        
+        // 対象ページのみ表示してactiveクラスを追加
+        pageElement.style.display = 'block';
+        pageElement.classList.add('active');
+      }
+
+      // URLハッシュナビゲーション処理
+      async function handleHashNavigation() {
+        const hash = window.location.hash;
+        
+        // ハッシュに応じてページ遷移
+        if (hash === '#qr') {
+          await showQRCode();
+        } else if (hash === '#order') {
+          await showOrderPage();
+        } else if (hash === '#history') {
+          window.showOrderHistory();
+        } else if (hash === '#tournament') {
+          window.showTournament();
+        } else if (hash === '#profile') {
+          window.showProfilePage();
+        } else {
+          // ハッシュがない場合はホームページを表示
+          showPage(homePageEl);
+        }
+      }
+
+      // --- 入店状態（true / false / 'unknown'） ---
+      window.userStayingStatus = 'unknown';
+      let checkinIntervalId = null;
+      let checkinInFlight = false;
+      let checkinPollUserId = null;
+      let checkinGeneration = 0;
+
+      function stopCheckinPolling() {
+        if (checkinIntervalId != null) {
+          clearInterval(checkinIntervalId);
+          checkinIntervalId = null;
+        }
+        checkinPollUserId = null;
+      }
+
+      function startCheckinPolling(userId) {
+        stopCheckinPolling();
+        checkinPollUserId = userId;
+        checkinIntervalId = setInterval(() => {
+          if (checkinPollUserId) updateCheckinStatusUI(checkinPollUserId, { fromInterval: true });
+        }, 30000);
+      }
+
+      function applyStayStatusUI(status) {
+        const LE = window.LiffErrors;
+        const normalized = LE
+          ? LE.normalizeStayStatus(status)
+          : (status === true || status === false ? status : 'unknown');
+        window.userStayingStatus = normalized;
+
+        const statusStayingEl = document.getElementById('status-staying');
+        const statusNotStayingEl = document.getElementById('status-not-staying');
+        const statusDescriptionEl = document.getElementById('status-description');
+        const orderBtn = document.getElementById('order-btn');
+        const tournamentBtn = document.getElementById('tournament-btn');
+        const statusSepEl = statusStayingEl
+          ? statusStayingEl.parentElement && statusStayingEl.parentElement.querySelector('span[style*="color: #999"]')
+          : null;
+
+        if (tournamentBtn) tournamentBtn.style.display = 'block';
+
+        if (normalized === 'unknown') {
+          const unknownLabel = (LE && LE.MESSAGES.CHECKIN_UNKNOWN) || '確認できません';
+          if (statusStayingEl) {
+            statusStayingEl.textContent = unknownLabel;
+            statusStayingEl.style.color = '#999';
+            statusStayingEl.style.fontWeight = 'bold';
+            statusStayingEl.style.fontSize = '1.5em';
+            statusStayingEl.style.backgroundColor = 'transparent';
+            statusStayingEl.style.padding = '0';
+            statusStayingEl.style.borderRadius = '0';
+            statusStayingEl.style.display = 'inline-block';
+          }
+          if (statusNotStayingEl) statusNotStayingEl.style.display = 'none';
+          if (statusSepEl) statusSepEl.style.display = 'none';
+          if (statusDescriptionEl) {
+            statusDescriptionEl.textContent = '';
+            statusDescriptionEl.style.display = 'none';
+          }
+          if (orderBtn) orderBtn.style.display = 'none';
+          return;
+        }
+
+        if (statusStayingEl) {
+          statusStayingEl.textContent = '入店中';
+          statusStayingEl.style.display = 'inline-block';
+        }
+        if (statusNotStayingEl) {
+          statusNotStayingEl.style.display = 'inline-block';
+          statusNotStayingEl.textContent = '未入店';
+        }
+        if (statusSepEl) statusSepEl.style.display = '';
+
+        if (normalized === true) {
+          if (statusStayingEl) {
+            statusStayingEl.style.backgroundColor = '#1B5E20';
+            statusStayingEl.style.color = 'white';
+            statusStayingEl.style.fontWeight = 'bold';
+            statusStayingEl.style.padding = '6px 12px';
+            statusStayingEl.style.borderRadius = '12px';
+            statusStayingEl.style.fontSize = '1.2em';
+          }
+          if (statusNotStayingEl) {
+            statusNotStayingEl.style.color = '#999';
+            statusNotStayingEl.style.fontWeight = 'normal';
+            statusNotStayingEl.style.fontSize = '1.5em';
+            statusNotStayingEl.style.backgroundColor = 'transparent';
+            statusNotStayingEl.style.padding = '0';
+            statusNotStayingEl.style.borderRadius = '0';
+          }
+          if (statusDescriptionEl) {
+            statusDescriptionEl.textContent = '※トーナメント参加や注文等が可能です。';
+            statusDescriptionEl.style.display = 'block';
+            statusDescriptionEl.style.background = 'transparent';
+            statusDescriptionEl.style.border = 'none';
+            statusDescriptionEl.style.boxShadow = 'none';
+            statusDescriptionEl.style.padding = '0';
+          }
+          if (orderBtn) orderBtn.style.display = 'block';
+        } else {
+          if (statusStayingEl) {
+            statusStayingEl.style.color = '#999';
+            statusStayingEl.style.fontWeight = 'normal';
+            statusStayingEl.style.fontSize = '1.5em';
+            statusStayingEl.style.backgroundColor = 'transparent';
+            statusStayingEl.style.padding = '0';
+            statusStayingEl.style.borderRadius = '0';
+          }
+          if (statusNotStayingEl) {
+            statusNotStayingEl.style.color = 'red';
+            statusNotStayingEl.style.fontWeight = 'bold';
+            statusNotStayingEl.style.fontSize = '1.5em';
+            statusNotStayingEl.style.backgroundColor = 'transparent';
+            statusNotStayingEl.style.padding = '0';
+            statusNotStayingEl.style.borderRadius = '0';
+          }
+          if (statusDescriptionEl) {
+            statusDescriptionEl.textContent = '※入店することでトーナメント参加や注文等が可能です。';
+            statusDescriptionEl.style.display = 'block';
+            statusDescriptionEl.style.background = 'transparent';
+            statusDescriptionEl.style.border = 'none';
+            statusDescriptionEl.style.boxShadow = 'none';
+            statusDescriptionEl.style.padding = '0';
+          }
+          if (orderBtn) orderBtn.style.display = 'none';
+        }
+
+        if (typeof window.refreshTodayTournamentCardsIfCached === 'function') {
+          window.refreshTodayTournamentCardsIfCached();
+        }
+      }
+
+      // store登録確認関数
+      async function checkStoreRegistration() {
+        if (window._debugLog) window._debugLog('4. checkStoreRegistration開始');
+        const LE = window.LiffErrors;
+        try {
+          const { db } = window.Firebase;
+          if (!window.LiffFirebase || !window.LiffFirebase.user) {
+            throw LE
+              ? LE.createStageError('auth.no_user')
+              : new Error('auth.no_user');
+          }
+
+          const { user } = window.LiffFirebase;
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const userDocRef = doc(db, 'users', user.uid);
+          const userDoc = await getDoc(userDocRef);
+
+          if (userDoc.exists()) {
+            if (window._debugLog) window._debugLog('4a. ユーザー登録済み');
+            const userData = userDoc.data();
+            const pokerName = userData?.pokerName || '未設定';
+
+            // 取得前は unknown（未入店を先出ししない）
+            window.userStayingStatus = 'unknown';
+            userInfoEl.innerHTML = `
+              <p style="font-weight: bold; font-size: 1.5rem; margin-bottom: 15px; color: black; margin-top: 25px;">pokerName: ${pokerName}</p>
+              <div style="display: flex; gap: 10px; margin-top: 20px; align-items: center; justify-content: center;">
+                <span id="status-staying" style="color: #999; font-size: 1.5em; font-weight: bold; display: inline-block;"></span>
+                <span style="color: #999; display: none;">|</span>
+                <span id="status-not-staying" style="display: none;"></span>
+              </div>
+              <p id="status-description" style="margin-top: 8px; font-size: 0.9rem; color: #666; background: transparent; border: none; box-shadow: none; padding: 0; text-align: center; display: none;"></p>
+            `;
+            applyStayStatusUI('unknown');
+
+            const orderBtn = document.getElementById('order-btn');
+            const tournamentBtn = document.getElementById('tournament-btn');
+            if (orderBtn) orderBtn.style.display = 'none';
+            if (tournamentBtn) tournamentBtn.style.display = 'none';
+
+            await updateCheckinStatusUI(user.uid, { fromInit: true });
+            startCheckinPolling(user.uid);
+
+            try {
+              await handleHashNavigation();
+            } catch (navError) {
+              console.error('[ハッシュナビゲーションエラー]');
+              showPage(homePageEl);
+            }
+          } else {
+            if (window._debugLog) window._debugLog('4d. ユーザー未登録→登録ページ表示');
+            stopCheckinPolling();
+            showPage(registrationPageEl);
+          }
+        } catch (error) {
+          if (window._debugLog) window._debugLog('4-ERR. checkStoreRegistrationエラー', true);
+          console.error('[登録状態確認エラー]');
+          stopCheckinPolling();
+          throw error;
+        }
+      }
+
+      // 登録フォーム処理
+      registrationFormEl.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const controls = registrationFormEl.querySelectorAll('input, select, button');
+        const LE = window.LiffErrors;
+
+        const runRegistration = async () => {
+          const pokerName = document.getElementById('pokerName').value;
+          const email = document.getElementById('email').value;
+          const pin = document.getElementById('pin').value;
+          const birthMonth = document.getElementById('birthMonth').value;
+          const birthDay = document.getElementById('birthDay').value;
+
+          if (!window.LiffFirebase || !window.LiffFirebase.user) {
+            throw LE
+              ? LE.createStageError('auth.no_user')
+              : new Error('auth.no_user');
+          }
+
+          // PIN形式はクライアントで確実に判定できる場合のみ個別文言
+          if (!/^\d{4}$/.test(String(pin))) {
+            const pinMsg = (LE && LE.MESSAGES.USER_PIN_INVALID) || 'PINは4桁の数字で入力してください。';
+            await window.AppDialogs.showAppAlert(pinMsg);
+            return { aborted: true };
+          }
+
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
+          const createUserAccount = httpsCallable(functions, 'createUserAccount');
+
+          const result = await createUserAccount({
+            pokerName: pokerName,
+            email: email,
+            pin: pin,
+            birthMonth: birthMonth,
+            birthDay: birthDay
+          });
+
+          const data = result && result.data;
+          if (!LE || !LE.isCallableSuccessResponse(data)) {
+            if (LE) {
+              throw Object.assign(new Error('create_user_account_soft_fail'), {
+                liffResolved: LE.mapSoftFailResponse(data, { operation: 'create_user_account' }),
+              });
+            }
+            throw new Error('create_user_account_soft_fail');
+          }
+
+          if (data.alreadyRegistered === true) {
+            await window.AppDialogs.showAppAlert('このアカウントは既に登録済みです。');
+          } else {
+            await window.AppDialogs.showAppAlert((LE && LE.MESSAGES.USER_REGISTER_OK) || '登録が完了しました。');
+          }
+
+          const loadingElRegister = document.getElementById('loading');
+          if (loadingElRegister) {
+            loadingElRegister.style.display = 'block';
+          }
+
+          await checkStoreRegistration();
+          return { aborted: false };
+        };
+
+        controls.forEach((el) => {
+          el.disabled = true;
+        });
+
+        try {
+          const outcome = await executeWithGlobalLoading(runRegistration, '登録処理中…');
+          if (outcome && outcome.aborted) return;
+        } catch (error) {
+          if (error && error.liffResolved) {
+            await window.AppDialogs.showAppAlert(error.liffResolved.message);
+          } else if (LE) {
+            await window.AppDialogs.showAppAlert(LE.mapCallableError(error, { operation: 'create_user_account' }).message);
+          } else {
+            await window.AppDialogs.showAppAlert('登録に失敗しました。再度お試しください。');
+          }
+        } finally {
+          controls.forEach((el) => {
+            el.disabled = false;
+          });
+        }
+      });
+
+      // 入店状態に応じてUIを更新する関数
+      async function updateCheckinStatusUI(userId, options = {}) {
+        const LE = window.LiffErrors;
+        if (checkinInFlight) return;
+        checkinInFlight = true;
+        const gen = ++checkinGeneration;
+        try {
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
+          const getUserStatus = httpsCallable(functions, 'getUserStatus');
+
+          const result = await getUserStatus({});
+          if (gen !== checkinGeneration) return;
+
+          const data = result && result.data;
+          if (!LE || !LE.isGetUserStatusShape(data)) {
+            applyStayStatusUI('unknown');
+            if (!options.fromInterval) {
+              if (data && typeof data === 'object' && data.success === false) {
+                showErrorWithRetry(
+                  LE.mapSoftFailResponse(data, { operation: 'get_user_status' }),
+                  null,
+                  () => updateCheckinStatusUI(userId, { fromRetry: true })
+                );
+              } else {
+                showErrorWithRetry(
+                  LE
+                    ? LE.resolveUserFacingError({ operation: 'get_user_status' })
+                    : { message: '入店状況を確認できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' },
+                  null,
+                  () => updateCheckinStatusUI(userId, { fromRetry: true })
+                );
+              }
+            } else {
+              // interval中の失敗はバッジのみunknown（連打alert回避）。注文は無効のまま
+            }
+            return;
+          }
+
+          applyStayStatusUI(data.user.isStaying);
+          if (options.fromRetry || options.fromInit) {
+            errorEl.style.display = 'none';
+          }
+        } catch (error) {
+          if (gen !== checkinGeneration) return;
+          applyStayStatusUI('unknown');
+          if (!options.fromInterval) {
+            showErrorWithRetry(
+              LE
+                ? LE.mapCallableError(error, { operation: 'get_user_status' })
+                : { message: '入店状況を確認できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' },
+              null,
+              () => updateCheckinStatusUI(userId, { fromRetry: true })
+            );
+          }
+        } finally {
+          checkinInFlight = false;
+        }
+      }
+
+      // ページ遷移関数
+      window.showHomePage = () => showPage(homePageEl);
+      window.showQRPage = () => showPage(qrPageEl);
+      window.showOrderPage = async () => {
+        showPage(orderPageEl);
+        
+        // カテゴリー情報とメニューデータを動的に取得
+        const menuData = await loadCategoriesAndMenuData();
+        
+        if (menuData && menuData.categories.length > 0) {
+          // デフォルトで最初のカテゴリを表示
+          const defaultCategory = menuData.categories[0];
+          loadMenuItems(defaultCategory, menuData.allMenuItems);
+        }
+        
+        // カートに商品がある場合、カートボタンを表示
+        updateCartDisplay();
+      };
+      window.showOrderHistory = () => {
+        showPage(orderHistoryPageEl);
+        loadOrderHistory();
+      };
+      window.showProfilePage = () => {
+        showPage(profilePageEl);
+        loadProfile();
+      };
+
+      // QRコード関連関数
+      let qrExpiryTimerId = null;
+      let qrDisplayGeneration = 0;
+
+      function clearQrExpiryTimer() {
+        if (qrExpiryTimerId != null) {
+          clearTimeout(qrExpiryTimerId);
+          qrExpiryTimerId = null;
+        }
+      }
+
+      function clearQrDisplay() {
+        clearQrExpiryTimer();
+        const qrDisplay = document.getElementById('qr-code-display');
+        const expiryTime = document.getElementById('qr-expiry-time');
+        if (qrDisplay) {
+          qrDisplay.innerHTML = '';
+        }
+        if (expiryTime) {
+          expiryTime.textContent = '-';
+        }
+      }
+
+      function showQrResolvedError(resolved, onRetry) {
+        clearQrDisplay();
+        const qrDisplay = document.getElementById('qr-code-display');
+        if (!qrDisplay) {
+          showErrorWithRetry(resolved, null, onRetry);
+          return;
+        }
+        qrDisplay.innerHTML = '';
+        const p = document.createElement('p');
+        p.textContent = resolved.message;
+        qrDisplay.appendChild(p);
+        if (resolved.action !== null && typeof onRetry === 'function') {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn primary-btn';
+          btn.textContent = resolved.retryLabel || '再試行';
+          btn.style.marginTop = '15px';
+          btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            onRetry();
+          });
+          qrDisplay.appendChild(btn);
+        }
+      }
+
+      function scheduleQrExpiry(expiryDate) {
+        clearQrExpiryTimer();
+        if (!(expiryDate instanceof Date) || Number.isNaN(expiryDate.getTime())) return;
+        const ms = expiryDate.getTime() - Date.now();
+        const gen = qrDisplayGeneration;
+        const run = async () => {
+          if (gen !== qrDisplayGeneration) return;
+          if (!qrPageEl || !qrPageEl.classList.contains('active')) return;
+          clearQrDisplay();
+          try {
+            await generateNewQRCode();
+          } catch (e) {
+            // generateNewQRCode 内で表示済み
+          }
+        };
+        if (ms <= 0) {
+          run();
+          return;
+        }
+        qrExpiryTimerId = setTimeout(run, ms);
+      }
+
+      window.showQRCode = async () => {
+        const LE = window.LiffErrors;
+        try {
+          showPage(qrPageEl);
+          await displayStoredQRCode();
+        } catch (error) {
+          const resolved = LE
+            ? (error && error.liffResolved
+              ? error.liffResolved
+              : LE.resolveUserFacingError({ operation: 'qr_display' }))
+            : { message: 'QRコードを表示できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' };
+          showQrResolvedError(resolved, () => { window.showQRCode(); });
+        }
+      };
+
+      window.generateNewQR = async () => {
+        const LE = window.LiffErrors;
+        try {
+          setQrSectionBusy(true);
+          clearQrDisplay();
+          const qrDisplay = document.getElementById('qr-code-display');
+          if (qrDisplay) qrDisplay.innerHTML = '<div class="spinner"></div>';
+          await generateNewQRCode({ fromUserAction: true });
+        } catch (error) {
+          const resolved = LE
+            ? (error && error.liffResolved
+              ? error.liffResolved
+              : LE.mapCallableError(error, { operation: 'generate_qr' }))
+            : { message: 'QRコードを更新できませんでした。しばらくしてから再度お試しください。', action: 'retry', retryLabel: '再試行' };
+          showQrResolvedError(resolved, () => { window.generateNewQR(); });
+        } finally {
+          setQrSectionBusy(false);
+        }
+      };
+
+      // QRコード表示関数（Storageから取得）
+      async function displayStoredQRCode() {
+        const LE = window.LiffErrors;
+        const qrDisplay = document.getElementById('qr-code-display');
+        const expiryTime = document.getElementById('qr-expiry-time');
+        qrDisplayGeneration += 1;
+        const gen = qrDisplayGeneration;
+        clearQrExpiryTimer();
+        qrDisplay.innerHTML = '<div class="spinner"></div>';
+        if (expiryTime) expiryTime.textContent = '-';
+
+        try {
+          const { auth } = window.Firebase;
+          const currentUser = auth.currentUser;
+
+          if (!currentUser) {
+            clearQrDisplay();
+            const resolved = LE
+              ? { message: LE.MESSAGES.QR_AUTH, action: 'retry', retryLabel: LE.MESSAGES.RETRY, kind: 'auth' }
+              : { message: 'ログイン情報を確認できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' };
+            const err = new Error('qr_auth');
+            err.liffResolved = resolved;
+            throw err;
+          }
+
+          const { db } = window.Firebase;
+          const { doc, getDocFromServer } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const userDoc = await getDocFromServer(doc(db, 'users', currentUser.uid));
+          if (gen !== qrDisplayGeneration) return;
+
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+
+            if (userData.qrCodeUrl && userData.qrExpiresAt) {
+              const now = new Date();
+              const expiryDate = userData.qrExpiresAt.toDate();
+              const isExpired = now > expiryDate;
+
+              if (isExpired) {
+                qrDisplay.innerHTML = '<p>QRコードを生成中...</p>';
+                await generateNewQRCode();
+                return;
+              }
+
+              qrDisplay.innerHTML = `<img src="${userData.qrCodeUrl}" alt="QR Code" style="max-width: 300px; width: 100%;">`;
+              if (expiryTime) expiryTime.textContent = expiryDate.toLocaleString('ja-JP');
+              scheduleQrExpiry(expiryDate);
+            } else {
+              qrDisplay.innerHTML = '<p>QRコードを生成中...</p>';
+              await generateNewQRCode();
+            }
+          } else {
+            clearQrDisplay();
+            const resolved = LE
+              ? { message: LE.MESSAGES.QR_NO_USER, action: 'retry', retryLabel: LE.MESSAGES.RETRY, kind: 'unknown' }
+              : { message: 'ユーザー情報が見つかりません。登録が完了しているか確認してください。', action: 'retry', retryLabel: '再試行' };
+            showQrResolvedError(resolved, () => { window.showQRCode(); });
+          }
+        } catch (error) {
+          if (error && error.liffResolved) throw error;
+          const resolved = LE
+            ? LE.resolveUserFacingError({ operation: 'qr_display' })
+            : { message: 'QRコードを表示できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' };
+          const wrap = new Error('qr_load');
+          wrap.liffResolved = resolved;
+          throw wrap;
+        }
+      }
+
+      // QR再生成の無限ループ防止用
+      let regenInFlight = false;
+      let lastRegenAtMs = 0;
+
+      // 新しいQRコード生成関数（内部用）- 60秒ルール適用
+      async function generateNewQRCode(options = {}) {
+        const LE = window.LiffErrors;
+        const now = Date.now();
+        const qrDisplay = document.getElementById('qr-code-display');
+
+        if (regenInFlight) {
+          if (qrDisplay) qrDisplay.innerHTML = '<p>QRコードを生成中...</p>';
+          return;
+        }
+
+        if (lastRegenAtMs > 0 && now - lastRegenAtMs < 60000) {
+          const remainingSec = Math.ceil((60000 - (now - lastRegenAtMs)) / 1000);
+          clearQrExpiryTimer();
+          if (qrDisplay) {
+            qrDisplay.innerHTML = '<p>QRコードは60秒間隔で再生成できます。<br>あと' + remainingSec + '秒お待ちください。</p>';
+          }
+          return;
+        }
+
+        regenInFlight = true;
+        lastRegenAtMs = now;
+        if (qrDisplay) qrDisplay.innerHTML = '<div class="spinner"></div>';
+
+        try {
+          setQrSectionBusy(true);
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
+          const generateQRCode = httpsCallable(functions, 'generateQRCode');
+
+          const result = await generateQRCode({ type: 'user' });
+          const data = result && result.data;
+
+          if (!LE || !LE.isGenerateQRCodeShape(data)) {
+            const resolved = LE
+              ? LE.resolveUserFacingError({ operation: 'generate_qr' })
+              : { message: 'QRコードを更新できませんでした。しばらくしてから再度お試しください。', action: 'retry', retryLabel: '再試行' };
+            clearQrDisplay();
+            if (options.fromUserAction) {
+              const err = new Error('qr_shape');
+              err.liffResolved = resolved;
+              throw err;
+            }
+            showQrResolvedError(resolved, () => { window.generateNewQR(); });
+            return;
+          }
+
+          // 成功後はサーバー最新を再表示（古いimgを残さない）
+          await displayStoredQRCode();
+        } catch (error) {
+          if (error && error.liffResolved) throw error;
+          const resolved = LE
+            ? LE.mapCallableError(error, { operation: 'generate_qr' })
+            : { message: 'QRコードを更新できませんでした。しばらくしてから再度お試しください。', action: 'retry', retryLabel: '再試行' };
+          clearQrDisplay();
+          if (options.fromUserAction) {
+            const wrap = new Error('qr_generate');
+            wrap.liffResolved = resolved;
+            throw wrap;
+          }
+          showQrResolvedError(resolved, () => { window.generateNewQR(); });
+        } finally {
+          setQrSectionBusy(false);
+          regenInFlight = false;
+        }
+      }
+
+      // 注文メニュー関連関数
+
+      /** LIFF 注文タブの表示順（店舗 config の menuCategories に合わせる） */
+      const MENU_CATEGORY_TAB_ORDER = ['フード', 'ノンアルコール', 'アルコール', 'その他'];
+      /** 旧データ向け英語キー（固定順の末尾） */
+      const LEGACY_MENU_CATEGORY_TAB_ORDER = ['food', 'drink', 'dessert', 'alcohol', 'snack'];
+
+      function sortMenuCategoriesForTabs(categorySet) {
+        const ordered = [];
+        for (const cat of [...MENU_CATEGORY_TAB_ORDER, ...LEGACY_MENU_CATEGORY_TAB_ORDER]) {
+          if (categorySet.has(cat)) {
+            ordered.push(cat);
+          }
+        }
+        for (const cat of categorySet) {
+          if (cat && cat !== 'Chip' && !ordered.includes(cat)) {
+            ordered.push(cat);
+          }
+        }
+        return ordered;
+      }
+
+      // ===== Phase L3: メニュー / カート / 注文 / 履歴 =====
+      let cart = [];
+      let menuLoadGeneration = 0;
+      let historyLoadGeneration = 0;
+      let isOrderSubmitting = false;
+      /** @type {null | { clientNonce: string, fingerprint: string, items: Array<{menuItemId:string,quantity:number}>, state: 'submitting'|'result_unknown' }} */
+      let pendingOrder = null;
+
+      function isCartLocked() {
+        return isOrderSubmitting || (pendingOrder && pendingOrder.state === 'result_unknown');
+      }
+
+      function applyOrderLockUi() {
+        const locked = isCartLocked();
+        orderPageEl.classList.toggle('order-flow-busy', !!isOrderSubmitting);
+        orderPageEl.classList.toggle('order-pending-lock', !!(pendingOrder && pendingOrder.state === 'result_unknown'));
+        const orderBtn = document.getElementById('order-all-btn');
+        const closeBtn = document.querySelector('#cart-modal .modal-close-btn');
+        if (closeBtn) closeBtn.disabled = !!isOrderSubmitting;
+        if (orderBtn && !locked && cart.length > 0 && !(pendingOrder && pendingOrder.state === 'result_unknown')) {
+          // updateCartDisplay が制御
+        }
+      }
+
+      function clearPendingOrder() {
+        pendingOrder = null;
+        applyOrderLockUi();
+        updateCartDisplay();
+      }
+
+      function invalidateMenuCache() {
+        window.cachedMenuData = null;
+      }
+
+
+      async function loadCategoriesAndMenuData() {
+        const LE = window.LiffErrors;
+        const gen = ++menuLoadGeneration;
+        try {
+          const { getFunctions, httpsCallable } = await import(
+            'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js'
+          );
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || 'asia-northeast1');
+          const getMenuItems = httpsCallable(functions, 'getMenuItems');
+          const result = await getMenuItems({});
+          if (gen !== menuLoadGeneration) return null;
+
+          if (!LE.isCallableSuccessResponse(result.data)) {
+            invalidateMenuCache();
+            const categoryContainer = document.querySelector('.menu-categories');
+            if (categoryContainer) categoryContainer.innerHTML = '';
+            const menuItemsEl = document.getElementById('menu-items');
+            if (menuItemsEl) {
+              const display = LE.mapSoftFailResponse(result.data, { operation: 'get_menu_items' });
+              menuItemsEl.textContent = '';
+              const p = document.createElement('p');
+              p.className = 'error-message';
+              p.textContent = display.message;
+              menuItemsEl.appendChild(p);
+              const retryBtn = document.createElement('button');
+              retryBtn.className = 'btn secondary-btn';
+              retryBtn.textContent = LE.MESSAGES.RETRY;
+              retryBtn.onclick = () => { showOrderPage(); };
+              menuItemsEl.appendChild(retryBtn);
+            }
+            return null;
+          }
+          if (!LE.isGetMenuItemsShape(result.data)) {
+            invalidateMenuCache();
+            const categoryContainer = document.querySelector('.menu-categories');
+            if (categoryContainer) categoryContainer.innerHTML = '';
+            const menuItemsEl = document.getElementById('menu-items');
+            if (menuItemsEl) {
+              const display = LE.resolveUserFacingError({ operation: 'get_menu_items' });
+              menuItemsEl.textContent = '';
+              const p = document.createElement('p');
+              p.className = 'error-message';
+              p.textContent = display.message;
+              menuItemsEl.appendChild(p);
+              const retryBtn = document.createElement('button');
+              retryBtn.className = 'btn secondary-btn';
+              retryBtn.textContent = LE.MESSAGES.RETRY;
+              retryBtn.onclick = () => { showOrderPage(); };
+              menuItemsEl.appendChild(retryBtn);
+            }
+            return null;
+          }
+
+          const allMenuItems = result.data.data;
+          const availableCategories = new Set(
+            allMenuItems.map((item) => item.category).filter((cat) => cat && cat !== 'Chip'),
+          );
+          const categories = sortMenuCategoriesForTabs(availableCategories);
+          const categoryContainer = document.querySelector('.menu-categories');
+          if (categoryContainer) {
+            if (categories.length === 0) {
+              categoryContainer.innerHTML = '';
+            } else {
+              categoryContainer.innerHTML = categories
+                .map(
+                  (category, index) => `
+              <button class="category-btn ${index === 0 ? 'active' : ''}" onclick='showCategory(${JSON.stringify(category)}, this)'>
+                ${getCategoryDisplayName(category)}
+              </button>
+            `,
+                )
+                .join('');
+            }
+          }
+          window.cachedMenuData = allMenuItems;
+          return { categories, allMenuItems };
+        } catch (error) {
+          if (gen !== menuLoadGeneration) return null;
+          invalidateMenuCache();
+          const categoryContainer = document.querySelector('.menu-categories');
+          if (categoryContainer) categoryContainer.innerHTML = '';
+          const menuItems = document.getElementById('menu-items');
+          if (menuItems) {
+            const display = LE.mapCallableError(error, { operation: 'get_menu_items' });
+            menuItems.textContent = '';
+            const p = document.createElement('p');
+            p.className = 'error-message';
+            p.textContent = display.message;
+            menuItems.appendChild(p);
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'btn secondary-btn';
+            retryBtn.textContent = LE.MESSAGES.RETRY;
+            retryBtn.onclick = () => { showOrderPage(); };
+            menuItems.appendChild(retryBtn);
+          }
+          return null;
+        }
+      }
+
+      function getCategoryDisplayName(category) {
+        if (!category || category === 'Chip') {
+          return null;
+        }
+        const categoryNames = {
+          フード: 'フード',
+          ノンアルコール: 'ノンアルコール',
+          アルコール: 'アルコール',
+          その他: 'その他',
+          food: 'フード',
+          drink: 'ドリンク',
+          dessert: 'デザート',
+          alcohol: 'アルコール',
+          snack: 'スナック',
+        };
+        return categoryNames[category] || category;
+      }
+
+      window.showCategory = (category, buttonElement) => {
+        document.querySelectorAll('.category-btn').forEach((btn) => btn.classList.remove('active'));
+        buttonElement.classList.add('active');
+        const cachedData = window.cachedMenuData;
+        loadMenuItems(category, cachedData);
+      };
+
+      async function loadMenuItems(category, cachedMenuItems = null) {
+        const LE = window.LiffErrors;
+        const menuItems = document.getElementById('menu-items');
+        if (!menuItems) return;
+        const gen = menuLoadGeneration;
+
+        try {
+          let allMenuItems;
+          if (cachedMenuItems) {
+            allMenuItems = cachedMenuItems;
+          } else {
+            menuItems.innerHTML = '<div class="spinner"></div>';
+            try {
+              const { getFunctions, httpsCallable } = await import(
+                'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js'
+              );
+              const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || 'asia-northeast1');
+              const getMenuItems = httpsCallable(functions, 'getMenuItems');
+              const result = await getMenuItems({});
+              if (gen !== menuLoadGeneration) return;
+              if (!LE.isGetMenuItemsShape(result.data)) {
+                invalidateMenuCache();
+                const resolved = LE.mapSoftFailResponse(
+                  { success: false },
+                  { operation: 'get_menu_items' },
+                );
+                menuItems.textContent = '';
+                const p = document.createElement('p');
+                p.className = 'error-message';
+                p.textContent = resolved.message;
+                menuItems.appendChild(p);
+                return;
+              }
+              allMenuItems = result.data.data;
+              window.cachedMenuData = allMenuItems;
+            } catch (error) {
+              if (gen !== menuLoadGeneration) return;
+              invalidateMenuCache();
+              const resolved = LE.mapCallableError(error, { operation: 'get_menu_items' });
+              menuItems.textContent = '';
+              const p = document.createElement('p');
+              p.className = 'error-message';
+              p.textContent = resolved.message;
+              menuItems.appendChild(p);
+              const retryBtn = document.createElement('button');
+              retryBtn.className = 'btn secondary-btn';
+              retryBtn.textContent = LE.MESSAGES.RETRY;
+              retryBtn.onclick = () => loadMenuItems(category, null);
+              menuItems.appendChild(retryBtn);
+              return;
+            }
+          }
+
+          if (gen !== menuLoadGeneration) return;
+          if (!Array.isArray(allMenuItems)) {
+            invalidateMenuCache();
+            const resolved = LE.resolveUserFacingError({ operation: 'get_menu_items' });
+            menuItems.textContent = '';
+            const p = document.createElement('p');
+            p.className = 'error-message';
+            p.textContent = resolved.message;
+            menuItems.appendChild(p);
+            return;
+          }
+
+          const filteredItems = allMenuItems.filter(
+            (item) => item.category === category && !item.isArchive && !item.isSoldOut,
+          );
+
+          if (filteredItems.length === 0) {
+            menuItems.textContent = '';
+            const p = document.createElement('p');
+            p.textContent = LE.MESSAGES.MENU_CATEGORY_EMPTY;
+            menuItems.appendChild(p);
+            return;
+          }
+
+          menuItems.innerHTML = filteredItems
+            .map(
+              (item) => `
+            <div class="menu-item">
+              <div class="menu-item-image">
+                ${item.imageUrl ? `<img src="${item.imageUrl}" alt="" onerror="this.style.display='none'">` : ''}
+              </div>
+              <div class="menu-item-content">
+                <h3></h3>
+                <p class="description"></p>
+                <p class="price"></p>
+                <div class="quantity-selector">
+                  <button type="button" class="btn-quantity" data-qty-delta="-1" data-item-id=""></button>
+                  <span class="qty-value" data-qty-for="">1</span>
+                  <button type="button" class="btn-quantity" data-qty-delta="1" data-item-id=""></button>
+                </div>
+                <button type="button" class="btn add-to-cart-btn" data-add-cart="1">🛒 カートに追加</button>
+              </div>
+            </div>
+          `,
+            )
+            .join('');
+
+          const nodes = menuItems.querySelectorAll('.menu-item');
+          filteredItems.forEach((item, idx) => {
+            const node = nodes[idx];
+            if (!node) return;
+            node.querySelector('h3').textContent = item.name || '';
+            node.querySelector('.description').textContent = item.description || '';
+            node.querySelector('.price').textContent = `¥${item.price}`;
+            const qtySpan = node.querySelector('.qty-value');
+            qtySpan.dataset.qtyFor = item.id;
+            qtySpan.id = `quantity-${item.id}`;
+            node.querySelectorAll('.btn-quantity').forEach((btn) => {
+              btn.dataset.itemId = item.id;
+              btn.textContent = btn.dataset.qtyDelta === '-1' ? '-' : '+';
+              btn.addEventListener('click', () => {
+                changeQuantity(item.id, Number(btn.dataset.qtyDelta));
+              });
+            });
+            const addBtn = node.querySelector('[data-add-cart]');
+            addBtn.addEventListener('click', () => {
+              addToCart(item.id, item.name, item.price, item.category);
+            });
+          });
+        } catch (error) {
+          if (gen !== menuLoadGeneration) return;
+          invalidateMenuCache();
+          const resolved = LE.mapCallableError(error, { operation: 'get_menu_items' });
+          menuItems.textContent = '';
+          const p = document.createElement('p');
+          p.className = 'error-message';
+          p.textContent = resolved.message;
+          menuItems.appendChild(p);
+        }
+      }
+
+      window.changeQuantity = (itemId, change) => {
+        if (isCartLocked()) return;
+        const quantityElement = document.getElementById(`quantity-${itemId}`);
+        if (quantityElement) {
+          let currentQuantity = parseInt(quantityElement.textContent, 10) || 1;
+          currentQuantity = Math.max(1, Math.min(99, currentQuantity + change));
+          quantityElement.textContent = String(currentQuantity);
+        }
+      };
+
+      window.addToCart = (itemId, itemName, price, category) => {
+        if (isCartLocked()) return;
+        const quantityElement = document.getElementById(`quantity-${itemId}`);
+        const quantity = parseInt(quantityElement && quantityElement.textContent, 10) || 1;
+        const existingItemIndex = cart.findIndex((item) => item.menuItemId === itemId);
+        if (existingItemIndex !== -1) {
+          cart[existingItemIndex].quantity += quantity;
+        } else {
+          cart.push({
+            menuItemId: itemId,
+            name: itemName,
+            price: price,
+            category: category,
+            quantity: quantity,
+          });
+        }
+        if (quantityElement) quantityElement.textContent = '1';
+        updateCartDisplay();
+      };
+
+      function updateCartDisplay() {
+        const LE = window.LiffErrors;
+        const cartItemsEl = document.getElementById('cart-items');
+        const cartItemCountEl = document.getElementById('cart-item-count');
+        const cartBadgeCountEl = document.getElementById('cart-badge-count');
+        const cartTotalPriceEl = document.getElementById('cart-total-price');
+        const orderAllBtn = document.getElementById('order-all-btn');
+        const viewCartBtnContainer = document.getElementById('view-cart-btn-container');
+        const locked = isCartLocked();
+
+        if (cart.length === 0) {
+          cartItemsEl.textContent = '';
+          const p = document.createElement('p');
+          p.className = 'empty-cart';
+          p.textContent = (LE && LE.MESSAGES && LE.MESSAGES.CART_EMPTY) || 'カートが空です';
+          cartItemsEl.appendChild(p);
+          cartItemCountEl.textContent = '0';
+          cartBadgeCountEl.textContent = '0';
+          cartTotalPriceEl.textContent = '0';
+          orderAllBtn.disabled = true;
+          viewCartBtnContainer.style.display = 'none';
+          return;
+        }
+
+        cartItemsEl.innerHTML = cart
+          .map(
+            (item, index) => `
+          <div class="cart-item">
+            <div class="cart-item-info">
+              <h4></h4>
+              <p class="cart-item-category"></p>
+              <p class="cart-item-price"></p>
+            </div>
+            <div class="cart-item-actions">
+              <button type="button" class="btn-quantity" data-cart-qty="-1" data-index="${index}">-</button>
+              <span class="cart-item-quantity">${item.quantity}</span>
+              <button type="button" class="btn-quantity" data-cart-qty="1" data-index="${index}">+</button>
+              <button type="button" class="btn remove-btn" data-cart-remove="${index}">削除</button>
+            </div>
+          </div>
+        `,
+          )
+          .join('');
+
+        cartItemsEl.querySelectorAll('.cart-item').forEach((node, index) => {
+          const item = cart[index];
+          node.querySelector('h4').textContent = item.name || '';
+          node.querySelector('.cart-item-category').textContent = getCategoryDisplayName(item.category) || '';
+          node.querySelector('.cart-item-price').textContent = `¥${item.price} × ${item.quantity}個`;
+        });
+        cartItemsEl.querySelectorAll('[data-cart-qty]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            updateCartItemQuantity(Number(btn.dataset.index), Number(btn.dataset.cartQty));
+          });
+          if (locked) btn.disabled = true;
+        });
+        cartItemsEl.querySelectorAll('[data-cart-remove]').forEach((btn) => {
+          btn.addEventListener('click', () => removeFromCart(Number(btn.dataset.cartRemove)));
+          if (locked) btn.disabled = true;
+        });
+
+        const totalPrice = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+        cartItemCountEl.textContent = String(totalItems);
+        cartBadgeCountEl.textContent = String(totalItems);
+        cartTotalPriceEl.textContent = totalPrice.toLocaleString();
+
+        // busy / pending 中は注文ボタンを再有効化しない
+        orderAllBtn.disabled = locked || cart.length === 0;
+
+        if (orderPageEl.style.display === 'block' || orderPageEl.classList.contains('active')) {
+          viewCartBtnContainer.style.display = 'block';
+        } else {
+          viewCartBtnContainer.style.display = 'none';
+        }
+
+        const clearBtn = document.querySelector('#cart-modal .secondary-btn');
+        if (clearBtn) clearBtn.disabled = locked;
+      }
+
+      window.openCartModal = () => {
+        document.getElementById('cart-modal').style.display = 'flex';
+      };
+
+      window.closeCartModal = () => {
+        if (isOrderSubmitting) return;
+        document.getElementById('cart-modal').style.display = 'none';
+      };
+
+      window.updateCartItemQuantity = (index, change) => {
+        if (isCartLocked()) return;
+        if (index >= 0 && index < cart.length) {
+          cart[index].quantity = Math.max(1, Math.min(99, cart[index].quantity + change));
+          updateCartDisplay();
+        }
+      };
+
+      window.removeFromCart = async (index) => {
+        if (isCartLocked()) return;
+        if (index >= 0 && index < cart.length) {
+          if (await window.AppDialogs.showAppConfirm(`${cart[index].name}をカートから削除しますか？`)) {
+            cart.splice(index, 1);
+            updateCartDisplay();
+          }
+        }
+      };
+
+      window.clearCart = async () => {
+        if (isCartLocked()) return;
+        if (cart.length > 0 && await window.AppDialogs.showAppConfirm('カートを空にしますか？')) {
+          cart = [];
+          updateCartDisplay();
+        }
+      };
+
+      window.orderAllItems = async () => {
+        const LE = window.LiffErrors;
+        if (isOrderSubmitting) return;
+        if (pendingOrder && pendingOrder.state === 'result_unknown') {
+          await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_RESULT_UNKNOWN);
+          return;
+        }
+        if (cart.length === 0) {
+          await window.AppDialogs.showAppAlert(LE.MESSAGES.CART_EMPTY);
+          return;
+        }
+
+        const normalized = LE.normalizeOrderItemsForRequest(
+          cart.map((c) => ({ menuItemId: c.menuItemId, quantity: c.quantity })),
+        );
+        if (!normalized.ok) {
+          const resolved = LE.resolveUserFacingError({
+            operation: 'place_order_by_user',
+            errorKey: normalized.errorKey,
+          });
+          await window.AppDialogs.showAppAlert(resolved.message);
+          return;
+        }
+
+        const totalQuantity = normalized.items.reduce((s, it) => s + it.quantity, 0);
+        const clientPreviewTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        if (
+          !await window.AppDialogs.showAppConfirm(
+            `合計 ${totalQuantity}個 (表示額 ¥${clientPreviewTotal.toLocaleString()})\n\nこの注文を確定しますか？`,
+          )
+        ) {
+          return;
+        }
+
+        const orderBtn = document.getElementById('order-all-btn');
+        isOrderSubmitting = true;
+        setCartModalOrderBusy(true, '注文送信中…');
+        if (orderBtn) orderBtn.disabled = true;
+        applyOrderLockUi();
+
+        const clientNonce = LE.createClientNonce();
+        const fingerprint = LE.buildOrderFingerprint(normalized.items);
+        pendingOrder = {
+          clientNonce,
+          fingerprint,
+          items: normalized.items,
+          state: 'submitting',
+        };
+
+        try {
+          const { auth } = window.Firebase;
+          if (!auth.currentUser) {
+            clearPendingOrder();
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_AUTH);
+            return;
+          }
+
+          const { getFunctions, httpsCallable } = await import(
+            'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js'
+          );
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || 'asia-northeast1');
+          const getUserStatus = httpsCallable(functions, 'getUserStatus');
+          const statusResult = await getUserStatus({});
+
+          if (!LE.isGetUserStatusShape(statusResult.data)) {
+            clearPendingOrder();
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_STAY_UNKNOWN);
+            return;
+          }
+          const stay = LE.normalizeStayStatus(statusResult.data.user.isStaying);
+          if (stay === false) {
+            clearPendingOrder();
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_NOT_STAYING);
+            return;
+          }
+          if (stay !== true) {
+            clearPendingOrder();
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_STAY_UNKNOWN);
+            return;
+          }
+
+          const placeOrderByUser = httpsCallable(functions, 'placeOrderByUser');
+          let resultData = null;
+          let callError = null;
+          try {
+            const result = await placeOrderByUser({
+              clientNonce,
+              items: normalized.items,
+            });
+            resultData = result.data;
+          } catch (err) {
+            callError = err;
+          }
+
+          const classified = LE.classifyPlaceOrderOutcome({
+            data: resultData,
+            error: callError,
+            expectedNonce: clientNonce,
+          });
+
+          if (classified.outcome === 'success') {
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_SUCCESS);
+            cart = [];
+            clearPendingOrder();
+            updateCartDisplay();
+            closeCartModal();
+            historyLoadGeneration += 1;
+            if (orderHistoryPageEl.classList.contains('active')) {
+              loadOrderHistory();
+            }
+            return;
+          }
+
+          if (classified.outcome === 'confirmed_failure') {
+            clearPendingOrder();
+            await window.AppDialogs.showAppAlert(classified.resolved.message);
+            updateCartDisplay();
+            return;
+          }
+
+          // result_unknown: nonce / cart 保持、編集ロック
+          pendingOrder.state = 'result_unknown';
+          await window.AppDialogs.showAppAlert(LE.MESSAGES.ORDER_RESULT_UNKNOWN);
+          updateCartDisplay();
+          applyOrderLockUi();
+        } finally {
+          isOrderSubmitting = false;
+          setCartModalOrderBusy(false);
+          // pending result_unknown 中はロック維持
+          if (!(pendingOrder && pendingOrder.state === 'result_unknown')) {
+            if (orderBtn) orderBtn.disabled = cart.length === 0;
+          } else if (orderBtn) {
+            orderBtn.disabled = true;
+          }
+          applyOrderLockUi();
+        }
+      };
+
+      function formatHistoryStatusLabel(order) {
+        const billStatus = order.status;
+        const names = {
+          open: '注文中',
+          in_progress: '注文中',
+          settling: '会計中',
+          settled: '会計済',
+          partially_refunded: '会計済',
+          refunded: '会計済',
+          voided: '取消',
+          preparing: '調理中',
+          served: '提供済み',
+          cancel: 'キャンセル',
+          cancelled: 'キャンセル',
+        };
+        if (typeof billStatus === 'string' && names[billStatus]) return names[billStatus];
+        if (typeof billStatus === 'string' && billStatus.trim()) return '受付済み';
+        return '受付済み';
+      }
+
+      function formatItemStatusLabel(item) {
+        if (item && item.voided === true) return 'キャンセル';
+        if (item && typeof item.status === 'string' && item.status.trim()) {
+          if (item.status === 'preparing') return '調理中';
+          if (item.status === 'served') return '提供済み';
+          if (item.status === 'cancel' || item.status === 'cancelled') return 'キャンセル';
+          return '受付済み';
+        }
+        return '受付済み';
+      }
+
+      async function loadOrderHistory() {
+        const LE = window.LiffErrors;
+        const historyListEl = document.getElementById('order-history-list');
+        const statsEl = document.getElementById('history-stats');
+        statsEl.style.display = 'none';
+        const gen = ++historyLoadGeneration;
+
+        try {
+          historyListEl.innerHTML = '<div class="spinner"></div>';
+          const { auth } = window.Firebase;
+          if (!auth.currentUser) {
+            throw Object.assign(new Error('unauthenticated'), { code: 'unauthenticated' });
+          }
+
+          const { getFunctions, httpsCallable } = await import(
+            'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js'
+          );
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || 'asia-northeast1');
+          const getUserOrderHistory = httpsCallable(functions, 'getUserOrderHistory');
+          const result = await getUserOrderHistory({});
+          if (gen !== historyLoadGeneration) return;
+
+          const payload = result.data;
+          if (!LE.isGetUserOrderHistoryShape(payload)) {
+            historyListEl.textContent = '';
+            const p = document.createElement('p');
+            p.className = 'error-message';
+            p.textContent = LE.MESSAGES.ORDER_HISTORY_FAIL;
+            historyListEl.appendChild(p);
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'btn secondary-btn';
+            retryBtn.textContent = LE.MESSAGES.RETRY;
+            retryBtn.onclick = () => loadOrderHistory();
+            historyListEl.appendChild(retryBtn);
+            return;
+          }
+
+          // pending nonce 照合（全商品一致時のみ成功確定）
+          if (pendingOrder && pendingOrder.state === 'result_unknown') {
+            const match = LE.matchPendingOrderInHistory(payload, pendingOrder);
+            if (match.matched) {
+              cart = [];
+              clearPendingOrder();
+            }
+          }
+
+          const orders = payload.data.orders;
+          const totalAmount = payload.data.totalAmount;
+
+          if (orders.length === 0) {
+            historyListEl.textContent = '';
+            const p = document.createElement('p');
+            p.className = 'empty-history';
+            p.textContent = LE.MESSAGES.ORDER_HISTORY_EMPTY;
+            historyListEl.appendChild(p);
+            statsEl.style.display = 'flex';
+            document.getElementById('total-orders').textContent = '0';
+            document.getElementById('total-amount').textContent = '¥0';
+            return;
+          }
+
+          document.getElementById('total-orders').textContent = String(orders.length);
+          document.getElementById('total-amount').textContent = `¥${Number(totalAmount).toLocaleString()}`;
+          statsEl.style.display = 'flex';
+
+          historyListEl.textContent = '';
+          orders.forEach((order) => {
+            const wrap = document.createElement('div');
+            wrap.className = 'order-history-item';
+            const header = document.createElement('div');
+            header.className = 'order-header';
+            const info = document.createElement('div');
+            info.className = 'order-info';
+            const statusEl = document.createElement('span');
+            statusEl.className = `order-status status-${order.status || 'open'}`;
+            statusEl.textContent = formatHistoryStatusLabel(order);
+            info.appendChild(statusEl);
+            if (order.orderDate) {
+              const timeEl = document.createElement('span');
+              timeEl.className = 'order-time';
+              timeEl.textContent = String(order.orderDate).replace('T', ' ').slice(0, 16);
+              info.appendChild(timeEl);
+            }
+            const amount = document.createElement('div');
+            amount.className = 'order-amount';
+            amount.textContent = `¥${Number(order.totalPrice || 0).toLocaleString()}`;
+            header.appendChild(info);
+            header.appendChild(amount);
+            wrap.appendChild(header);
+
+            const itemsEl = document.createElement('div');
+            itemsEl.className = 'order-items';
+            (order.items || []).forEach((item) => {
+              const row = document.createElement('div');
+              row.className = 'order-item' + (item.voided ? ' order-item-cancel' : '');
+              const name = document.createElement('span');
+              name.className = 'item-name';
+              name.textContent = item.name || '';
+              const details = document.createElement('span');
+              details.className = 'item-details';
+              details.textContent = `${item.quantity}個 × ¥${Number(item.unitPrice || 0).toLocaleString()}（${formatItemStatusLabel(item)}）`;
+              row.appendChild(name);
+              row.appendChild(details);
+              itemsEl.appendChild(row);
+            });
+            wrap.appendChild(itemsEl);
+
+            if (order.currentTable) {
+              const loc = document.createElement('div');
+              loc.className = 'order-location';
+              loc.textContent = `テーブル: ${order.currentTable}${
+                order.currentSeat != null ? ` (${order.currentSeat})` : ''
+              }`;
+              wrap.appendChild(loc);
+            }
+            historyListEl.appendChild(wrap);
+          });
+        } catch (error) {
+          if (gen !== historyLoadGeneration) return;
+          historyListEl.textContent = '';
+          const resolved = LE.mapCallableError(error, { operation: 'get_user_order_history' });
+          const p = document.createElement('p');
+          p.className = 'error-message';
+          p.textContent = resolved.message;
+          historyListEl.appendChild(p);
+          const retryBtn = document.createElement('button');
+          retryBtn.className = 'btn secondary-btn';
+          retryBtn.textContent = LE.MESSAGES.RETRY;
+          retryBtn.onclick = () => loadOrderHistory();
+          historyListEl.appendChild(retryBtn);
+        }
+      }
+
+      window.refreshOrderHistory = () => {
+        loadOrderHistory();
+      };
+
+      function getStatusDisplayName(status) {
+        return formatHistoryStatusLabel({ status: status });
+      }
+
+      // トーナメント関連関数（Phase L4-B）
+      window.liffTournamentSettings = {
+        liffRegistrationEnabled: true,
+        liffCalendarEnabled: true,
+      };
+      window.cachedTodayTournaments = null;
+      /** @type {string|null} getTodayTournaments の targetBusinessDate（yyyy-MM-dd） */
+      window.cachedTodayBusinessDate = null;
+      window.cachedUpcomingTournaments = null;
+      let activeTournamentTab = 'today';
+      let todayTournamentLoadGeneration = 0;
+      let upcomingTournamentLoadGeneration = 0;
+      let calendarTournamentLoadGeneration = 0;
+      let tournamentRegistrationBusy = false;
+      let tournamentDeadlineTimerId = null;
+      /** @type {{ tournamentId: string, clientNonce: string, state: string, startedAt: number } | null} */
+      let pendingTournamentRegistration = null;
+
+      function invalidateTournamentCaches(options) {
+        options = options || {};
+        window.cachedTodayTournaments = null;
+        window.cachedTodayBusinessDate = null;
+        if (options.upcoming !== false) {
+          window.cachedUpcomingTournaments = null;
+        }
+        if (options.calendar) {
+          allTournamentsData = null;
+        }
+      }
+
+      /** 営業日キー（yyyy-MM-dd）を「YYYY年M月D日のトーナメント」へ。無効時は null */
+      function formatTodayTournamentHeading(businessDateKey) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(businessDateKey || '').trim());
+        if (!m) return null;
+        const year = Number(m[1]);
+        const month = Number(m[2]);
+        const day = Number(m[3]);
+        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+          return null;
+        }
+        return `${year}年${month}月${day}日のトーナメント`;
+      }
+
+      function updateTodayTournamentHeading(businessDateKey) {
+        const todayDateEl = document.getElementById('today-date');
+        if (!todayDateEl) return;
+        const heading = formatTodayTournamentHeading(businessDateKey);
+        if (heading) {
+          todayDateEl.textContent = heading;
+        }
+      }
+
+      function isTournamentRegistrationPendingUnknown() {
+        return !!(
+          pendingTournamentRegistration &&
+          pendingTournamentRegistration.state === 'result_unknown'
+        );
+      }
+
+      function clearPendingTournamentRegistration() {
+        pendingTournamentRegistration = null;
+      }
+
+      function applyLiffTournamentSettings(liffSettings) {
+        if (!liffSettings || typeof liffSettings !== 'object') return;
+        window.liffTournamentSettings = {
+          liffRegistrationEnabled: liffSettings.liffRegistrationEnabled === true,
+          liffCalendarEnabled: liffSettings.liffCalendarEnabled === true,
+        };
+        const calendarTab = document.getElementById('tournament-calendar-tab');
+        if (calendarTab) {
+          calendarTab.style.display = window.liffTournamentSettings.liffCalendarEnabled ? '' : 'none';
+        }
+      }
+
+      function renderTournamentListError(container, onRetry, resolvedOrMessage) {
+        const LE = window.LiffErrors;
+        let msg =
+          (LE && LE.MESSAGES.TOUR_LIST_LOAD_FAILED) ||
+          'トーナメント情報を取得できませんでした。再試行してください。';
+        if (resolvedOrMessage && typeof resolvedOrMessage === 'object' && resolvedOrMessage.message) {
+          msg = resolvedOrMessage.message;
+        } else if (typeof resolvedOrMessage === 'string' && resolvedOrMessage) {
+          msg = resolvedOrMessage;
+        }
+        const retryLabel = (LE && LE.MESSAGES.RETRY) || '再試行';
+        if (!container) return;
+        container.innerHTML =
+          '<p class="error-message"></p><button type="button" class="btn tour-list-retry-btn"></button>';
+        const p = container.querySelector('.error-message');
+        const btn = container.querySelector('.tour-list-retry-btn');
+        if (p) p.textContent = msg;
+        if (btn) {
+          btn.textContent = retryLabel;
+          btn.onclick = function () {
+            if (typeof onRetry === 'function') onRetry();
+          };
+        }
+      }
+
+      function resolveTournamentListError(operation, error) {
+        const LE = window.LiffErrors;
+        if (!LE) {
+          return {
+            message: 'トーナメント情報を取得できませんでした。再試行してください。',
+          };
+        }
+        if (error) {
+          return LE.resolveUserFacingError({ operation: operation, error: error });
+        }
+        return LE.resolveUserFacingError({
+          operation: operation,
+          errorKey: 'TOURNAMENT_INTERNAL_ERROR',
+        });
+      }
+
+      function startTournamentDeadlineTimer() {
+        if (tournamentDeadlineTimerId != null) return;
+        tournamentDeadlineTimerId = setInterval(function () {
+          if (activeTournamentTab === 'today' && window.cachedTodayTournaments) {
+            renderTodayTournamentList(window.cachedTodayTournaments);
+          }
+        }, 30000);
+      }
+
+      window.refreshTodayTournamentCardsIfCached = function () {
+        if (window.cachedTodayTournaments) {
+          renderTodayTournamentList(window.cachedTodayTournaments);
+        }
+      };
+
+      window.showTournament = () => {
+        showPage(tournamentPageEl);
+        startTournamentDeadlineTimer();
+        switchTournamentTab('today');
+      };
+
+      window.switchTournamentTab = (tabName) => {
+        activeTournamentTab = tabName;
+        const panels = {
+          today: document.getElementById('tournament-tab-today'),
+          upcoming: document.getElementById('tournament-tab-upcoming'),
+          calendar: document.getElementById('tournament-tab-calendar'),
+        };
+        Object.entries(panels).forEach(([key, panel]) => {
+          if (panel) panel.style.display = key === tabName ? 'block' : 'none';
+        });
+        document.querySelectorAll('.tournament-tab-btn').forEach((btn) => {
+          btn.classList.toggle('active', btn.dataset.tab === tabName);
+        });
+        if (tabName === 'today') {
+          loadTodayTournaments({ force: true });
+        } else if (tabName === 'upcoming') {
+          loadUpcomingTournaments({ force: true });
+        } else if (tabName === 'calendar') {
+          loadCalendarTabData({ force: false });
+        }
+      };
+
+      function formatDateWithDayFromIso(isoString) {
+        if (!isoString) return '日付不明';
+        return formatDateWithDay(isoString);
+      }
+
+      function formatRegEndAtDisplay(isoString) {
+        if (!isoString) return '不明';
+        return formatTime(isoString);
+      }
+
+      function getRegistrationBlockReason(tournament) {
+        const LE = window.LiffErrors;
+        if (LE && typeof LE.getTournamentRegistrationBlockReason === 'function') {
+          return LE.getTournamentRegistrationBlockReason(
+            tournament,
+            window.userStayingStatus,
+            {
+              liffRegistrationEnabled:
+                window.liffTournamentSettings &&
+                window.liffTournamentSettings.liffRegistrationEnabled === true,
+            },
+          );
+        }
+        return null;
+      }
+
+      async function showRegistrationBlockReasonDialog(message) {
+        await window.AppDialogs.showAppAlert(message);
+      }
+
+      function renderTournamentCard(tournament, options) {
+        const LE = window.LiffErrors;
+        const cardKey = options.cardKey;
+        const showRegisterButton = options.showRegisterButton === true;
+        const showDate = options.showDate === true;
+        const timeLabel = showDate
+          ? `${formatDate(tournament.startAt)} ${formatTime(tournament.startAt)}`
+          : formatTime(tournament.startAt);
+
+        let registerHtml = '';
+        if (showRegisterButton) {
+          const blockReason = getRegistrationBlockReason(tournament);
+          const submitting =
+            tournamentRegistrationBusy &&
+            pendingTournamentRegistration &&
+            pendingTournamentRegistration.tournamentId === tournament.id &&
+            pendingTournamentRegistration.state === 'submitting';
+          const shortLabel =
+            LE && typeof LE.getTournamentRegisterButtonShortLabel === 'function'
+              ? LE.getTournamentRegisterButtonShortLabel(tournament, {
+                  submitting: !!submitting,
+                })
+              : '参加登録';
+          const disabledVisual =
+            !!blockReason ||
+            !!submitting ||
+            isTournamentRegistrationPendingUnknown() ||
+            tournamentRegistrationBusy;
+          const btnClass = disabledVisual
+            ? 'btn btn-disabled btn-register'
+            : 'btn btn-register';
+          const ariaDisabled = disabledVisual ? ' aria-disabled="true"' : '';
+          registerHtml = `<button type="button" class="${btnClass}"${ariaDisabled} onclick="showTournamentRegistration('${tournament.id}')"></button>`;
+        }
+
+        const entryFeeText = `¥${(tournament.entryFee || 0).toLocaleString()}`;
+        const stackText = `${(tournament.startStack || 0).toLocaleString()}`;
+
+        const actionsRowHtml = showRegisterButton
+          ? `<div class="tournament-card-actions-row">
+                <div class="tournament-card-actions-buttons">
+                  ${registerHtml}
+                </div>
+              </div>`
+          : '';
+
+        return `
+          <div class="tournament-card" data-tournament-id="${tournament.id}">
+            <div class="tournament-card-summary">
+              <div class="tournament-card-main">
+                <h3 class="tournament-card-title"></h3>
+                <div class="tournament-card-brief">
+                  <p><span class="tournament-card-brief-label">開始時刻:</span> <span class="tournament-card-brief-value">${timeLabel}</span></p>
+                  <p><span class="tournament-card-brief-label">参加費:</span> <span class="tournament-card-brief-value">${entryFeeText}</span></p>
+                  <p><span class="tournament-card-brief-label">初期スタック:</span> <span class="tournament-card-brief-value">${stackText}</span></p>
+                </div>
+                ${actionsRowHtml}
+              </div>
+              <button
+                type="button"
+                class="tournament-detail-toggle"
+                id="${cardKey}-toggle"
+                aria-expanded="false"
+                onclick="toggleTournamentDetails('${cardKey}')"
+              >詳細 <span class="tournament-detail-toggle-icon" aria-hidden="true">▼</span></button>
+            </div>
+            <div class="tournament-card-details" id="${cardKey}-details" style="display: none;">
+              <div class="detail-row">
+                <span class="detail-label">レジスト締切:</span>
+                <span class="detail-value">${formatRegEndAtDisplay(tournament.regEndAt)}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">リエントリー:</span>
+                <span class="detail-value" data-detail="reentry"></span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">アドオン:</span>
+                <span class="detail-value" data-detail="addon"></span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">ブラインド時間:</span>
+                <span class="detail-value" data-detail="blind"></span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      function hydrateTournamentCardDom(container, tournaments) {
+        if (!container) return;
+        const cards = container.querySelectorAll('.tournament-card');
+        cards.forEach((card, index) => {
+          const tournament = tournaments[index];
+          if (!tournament) return;
+          const title = card.querySelector('.tournament-card-title');
+          if (title) title.textContent = tournament.name || '';
+          const registerBtn = card.querySelector('.btn-register');
+          if (registerBtn) {
+            const LE = window.LiffErrors;
+            const submitting =
+              tournamentRegistrationBusy &&
+              pendingTournamentRegistration &&
+              pendingTournamentRegistration.tournamentId === tournament.id &&
+              pendingTournamentRegistration.state === 'submitting';
+            registerBtn.textContent =
+              LE && typeof LE.getTournamentRegisterButtonShortLabel === 'function'
+                ? LE.getTournamentRegisterButtonShortLabel(tournament, {
+                    submitting: !!submitting,
+                  })
+                : '参加登録';
+          }
+          const reentryEl = card.querySelector('[data-detail="reentry"]');
+          const addonEl = card.querySelector('[data-detail="addon"]');
+          const blindEl = card.querySelector('[data-detail="blind"]');
+          if (reentryEl) reentryEl.textContent = window.formatLiffReentryDisplay(tournament);
+          if (addonEl) addonEl.textContent = window.formatLiffAddonDisplay(tournament);
+          if (blindEl) blindEl.textContent = tournament.blindLevelDurationText || '—';
+        });
+      }
+
+      async function loadTodayTournaments(opts) {
+        opts = opts || {};
+        const LE = window.LiffErrors;
+        const todayTournamentList = document.getElementById('today-tournament-list');
+        if (!todayTournamentList) return;
+
+        if (!opts.force && window.cachedTodayTournaments) {
+          updateTodayTournamentHeading(window.cachedTodayBusinessDate);
+          renderTodayTournamentList(window.cachedTodayTournaments);
+          return;
+        }
+
+        const generation = ++todayTournamentLoadGeneration;
+        todayTournamentList.innerHTML = '<div class="spinner"></div>';
+
+        try {
+          const { getFunctions, httpsCallable } = await import(
+            'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js'
+          );
+          const functions = getFunctions(
+            window.Firebase.app,
+            window.FunctionsRegion || 'asia-northeast1',
+          );
+          const getTodayTournaments = httpsCallable(functions, 'getTodayTournaments');
+          const result = await getTodayTournaments({});
+          if (generation !== todayTournamentLoadGeneration) return;
+
+          if (!LE || !LE.isGetTodayTournamentsShape(result.data)) {
+            window.cachedTodayTournaments = null;
+            window.cachedTodayBusinessDate = null;
+            renderTournamentListError(
+              todayTournamentList,
+              () => loadTodayTournaments({ force: true }),
+              resolveTournamentListError('get_today_tournaments', null),
+            );
+            return;
+          }
+
+          applyLiffTournamentSettings(result.data.liffSettings);
+          const tournaments = result.data.data;
+          window.cachedTodayTournaments = tournaments;
+          window.cachedTodayBusinessDate = result.data.targetBusinessDate;
+          updateTodayTournamentHeading(result.data.targetBusinessDate);
+          maybeClearPendingTournamentFromFreshList(tournaments);
+          renderTodayTournamentList(tournaments);
+        } catch (error) {
+          if (generation !== todayTournamentLoadGeneration) return;
+          window.cachedTodayTournaments = null;
+          window.cachedTodayBusinessDate = null;
+          renderTournamentListError(
+            todayTournamentList,
+            () => loadTodayTournaments({ force: true }),
+            resolveTournamentListError('get_today_tournaments', error),
+          );
+        }
+      }
+
+      function renderTodayTournamentList(tournaments) {
+        const LE = window.LiffErrors;
+        const todayTournamentList = document.getElementById('today-tournament-list');
+        if (!todayTournamentList) return;
+
+        if (!tournaments || tournaments.length === 0) {
+          const empty =
+            (LE && LE.MESSAGES.TOUR_TODAY_EMPTY) ||
+            '本日のトーナメント予定はありません。';
+          todayTournamentList.innerHTML = '<p class="empty-message"></p>';
+          const p = todayTournamentList.querySelector('.empty-message');
+          if (p) p.textContent = empty;
+          return;
+        }
+
+        const showRegister =
+          window.liffTournamentSettings.liffRegistrationEnabled === true;
+        todayTournamentList.innerHTML = tournaments
+          .map((tournament, index) =>
+            renderTournamentCard(tournament, {
+              cardKey: `today-${index}`,
+              showRegisterButton: showRegister,
+              showDate: false,
+            }),
+          )
+          .join('');
+        hydrateTournamentCardDom(todayTournamentList, tournaments);
+      }
+
+      async function loadUpcomingTournaments(opts) {
+        opts = opts || {};
+        const LE = window.LiffErrors;
+        const upcomingTournamentList = document.getElementById('upcoming-tournament-list');
+        if (!upcomingTournamentList) return;
+
+        if (!opts.force && window.cachedUpcomingTournaments) {
+          renderUpcomingTournamentList(window.cachedUpcomingTournaments);
+          return;
+        }
+
+        const generation = ++upcomingTournamentLoadGeneration;
+        upcomingTournamentList.innerHTML = '<div class="spinner"></div>';
+
+        try {
+          const { getFunctions, httpsCallable } = await import(
+            'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js'
+          );
+          const functions = getFunctions(
+            window.Firebase.app,
+            window.FunctionsRegion || 'asia-northeast1',
+          );
+          const getUpcomingTournaments = httpsCallable(functions, 'getUpcomingTournaments');
+          const result = await getUpcomingTournaments({});
+          if (generation !== upcomingTournamentLoadGeneration) return;
+
+          if (!LE || !LE.isGetUpcomingTournamentsShape(result.data)) {
+            window.cachedUpcomingTournaments = null;
+            renderTournamentListError(
+              upcomingTournamentList,
+              () => loadUpcomingTournaments({ force: true }),
+              resolveTournamentListError('get_upcoming_tournaments', null),
+            );
+            return;
+          }
+
+          applyLiffTournamentSettings(result.data.liffSettings);
+          const tournaments = result.data.tournaments;
+          window.cachedUpcomingTournaments = tournaments;
+          renderUpcomingTournamentList(tournaments);
+        } catch (error) {
+          if (generation !== upcomingTournamentLoadGeneration) return;
+          window.cachedUpcomingTournaments = null;
+          renderTournamentListError(
+            upcomingTournamentList,
+            () => loadUpcomingTournaments({ force: true }),
+            resolveTournamentListError('get_upcoming_tournaments', error),
+          );
+        }
+      }
+
+      function renderUpcomingTournamentList(tournaments) {
+        const LE = window.LiffErrors;
+        const upcomingTournamentList = document.getElementById('upcoming-tournament-list');
+        if (!upcomingTournamentList) return;
+
+        if (!tournaments || tournaments.length === 0) {
+          const empty =
+            (LE && LE.MESSAGES.TOUR_UPCOMING_EMPTY) ||
+            '今後のトーナメントはありません。';
+          upcomingTournamentList.innerHTML = '<p class="empty-message"></p>';
+          const p = upcomingTournamentList.querySelector('.empty-message');
+          if (p) p.textContent = empty;
+          return;
+        }
+
+        upcomingTournamentList.innerHTML = tournaments
+          .map((tournament, index) =>
+            renderTournamentCard(tournament, {
+              cardKey: `upcoming-${index}`,
+              showRegisterButton: false,
+              showDate: true,
+            }),
+          )
+          .join('');
+        hydrateTournamentCardDom(upcomingTournamentList, tournaments);
+      }
+
+      function maybeClearPendingTournamentFromFreshList(tournaments) {
+        const LE = window.LiffErrors;
+        if (!LE || typeof LE.resolveTournamentPendingFromFreshList !== 'function') return;
+        const resolved = LE.resolveTournamentPendingFromFreshList(
+          pendingTournamentRegistration,
+          tournaments,
+          { fromStaleCache: false },
+        );
+        pendingTournamentRegistration = resolved.pending;
+      }
+
+      // フォーマット関数
+      function formatDate(timestamp) {
+        if (!timestamp) return '日付不明';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return `${date.getMonth() + 1}/${date.getDate()}`;
+      }
+
+      function formatDateWithDay(timestamp) {
+        if (!timestamp) return '日付不明';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+        const dayOfWeek = weekdays[date.getDay()];
+        return `${date.getMonth() + 1}/${date.getDate()} (${dayOfWeek})`;
+      }
+
+      function formatTime(timestamp) {
+        if (!timestamp) return '時間不明';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+      }
+
+      function formatRegistrationTime(regEndAt, startAt) {
+        if (!regEndAt || !startAt) return '不明';
+
+        const regEndDate = regEndAt.toDate ? regEndAt.toDate() : new Date(regEndAt);
+        const startDate = startAt.toDate ? startAt.toDate() : new Date(startAt);
+
+        const regEndTime = `${regEndDate.getHours().toString().padStart(2, '0')}:${regEndDate.getMinutes().toString().padStart(2, '0')}`;
+
+        const diffMs = startDate.getTime() - regEndDate.getTime();
+        const diffMinutes = Math.round(diffMs / (1000 * 60));
+
+        if (diffMinutes > 0) {
+          return `${regEndTime}まで（開始${diffMinutes}分前）`;
+        } else if (diffMinutes === 0) {
+          return `${regEndTime}（開始時刻と同じ）`;
+        } else {
+          return `${regEndTime}`;
+        }
+      }
+
+      function getTournamentStatusDisplay(status) {
+        const statusMap = {
+          scheduled: '開催予定',
+          active: '開催中',
+          completed: '終了',
+          cancelled: '中止',
+        };
+        return statusMap[status] || status || '不明';
+      }
+
+      // トーナメント参加登録
+      window.showTournamentRegistration = async (tournamentId) => {
+        const LE = window.LiffErrors;
+        if (!LE) {
+          await window.AppDialogs.showAppAlert('処理に失敗しました。時間をおいてもう一度お試しください。');
+          return;
+        }
+
+        const guard = LE.getTournamentRegistrationGuard(
+          pendingTournamentRegistration,
+          tournamentRegistrationBusy,
+        );
+        if (guard.blockReason === 'pending_lock') {
+          await window.AppDialogs.showAppAlert(LE.MESSAGES.TOUR_PENDING_LOCK);
+          return;
+        }
+        if (guard.blockReason === 'busy') {
+          return;
+        }
+
+        const tournament = (window.cachedTodayTournaments || []).find(
+          (t) => t.id === tournamentId,
+        );
+        if (tournament) {
+          const blockReason = getRegistrationBlockReason(tournament);
+          if (blockReason) {
+            await showRegistrationBlockReasonDialog(blockReason);
+            return;
+          }
+        } else {
+          const stay = LE.normalizeStayStatus(window.userStayingStatus);
+          if (stay === false) {
+            await showRegistrationBlockReasonDialog(LE.MESSAGES.TOUR_NOT_STAYING);
+            return;
+          }
+          if (stay === 'unknown') {
+            await showRegistrationBlockReasonDialog(LE.MESSAGES.TOUR_STAY_UNKNOWN);
+            return;
+          }
+        }
+
+        if (window.liffTournamentSettings.liffRegistrationEnabled !== true) {
+          await showRegistrationBlockReasonDialog(LE.MESSAGES.TOUR_LIFF_REGISTRATION_DISABLED);
+          return;
+        }
+
+        const tournamentName = (tournament && tournament.name) || 'このトーナメント';
+        if (!await window.AppDialogs.showAppConfirm(`${tournamentName}に参加登録しますか？`)) {
+          return;
+        }
+
+        const clientNonce = LE.createClientNonce();
+        tournamentRegistrationBusy = true;
+        pendingTournamentRegistration = LE.createTournamentRegistrationPending(
+          tournamentId,
+          clientNonce,
+        );
+        if (window.cachedTodayTournaments) {
+          renderTodayTournamentList(window.cachedTodayTournaments);
+        }
+
+        try {
+          await executeWithGlobalLoading(async () => {
+            const { getFunctions, httpsCallable } = await import(
+              'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js'
+            );
+            const functions = getFunctions(
+              window.Firebase.app,
+              window.FunctionsRegion || 'asia-northeast1',
+            );
+            const registerForTournament = httpsCallable(
+              functions,
+              'registerForTournament',
+            );
+
+            let resultData = null;
+            let callError = null;
+            try {
+              const result = await registerForTournament({
+                tournamentId,
+                clientNonce,
+              });
+              resultData = result.data;
+            } catch (err) {
+              callError = err;
+            }
+
+            const classified = LE.classifyRegisterForTournamentOutcome({
+              data: resultData,
+              error: callError,
+              expectedTournamentId: tournamentId,
+              expectedNonce: clientNonce,
+            });
+
+            const next = LE.transitionTournamentRegistrationPending(
+              pendingTournamentRegistration,
+              classified.outcome,
+            );
+            pendingTournamentRegistration = next.pending;
+
+            if (classified.outcome === 'success') {
+              await window.AppDialogs.showAppAlert(LE.MESSAGES.TOUR_REGISTRATION_SUCCESS);
+              invalidateTournamentCaches({ upcoming: true, calendar: true });
+              try {
+                await loadTodayTournaments({ force: true });
+              } catch (_e) {
+                // 登録成功は覆さない
+              }
+              return;
+            }
+
+            if (classified.outcome === 'confirmed_failure') {
+              await window.AppDialogs.showAppAlert(classified.resolved.message);
+              if (
+                classified.resolved.message === LE.MESSAGES.TOUR_ALREADY_REGISTERED
+              ) {
+                invalidateTournamentCaches({ upcoming: false });
+                await loadTodayTournaments({ force: true });
+              }
+              return;
+            }
+
+            // result_unknown: busy は finally で解除、pending/nonce は保持
+            await window.AppDialogs.showAppAlert(LE.MESSAGES.TOUR_REGISTRATION_RESULT_UNKNOWN);
+          }, LE.MESSAGES.TOUR_BTN_SUBMITTING);
+        } finally {
+          tournamentRegistrationBusy = false;
+          if (window.cachedTodayTournaments) {
+            renderTodayTournamentList(window.cachedTodayTournaments);
+          }
+        }
+      };
+
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState !== 'visible') return;
+        if (activeTournamentTab === 'today' && window.cachedTodayTournaments) {
+          renderTodayTournamentList(window.cachedTodayTournaments);
+        }
+      });
+
+      // プロフィール関連関数
+      window.showProfile = () => {
+        showPage(profilePageEl);
+        loadProfile();
+      };
+
+      /** A-7: 有効残高のみを項目ごとに表示（プロフィール用・控えめ） */
+      async function buildProfileBalancesHtml(userData) {
+        const LE = window.LiffErrors;
+        try {
+          const { db } = window.Firebase;
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const configSnap = await getDoc(doc(db, 'storeMeta', 'config'));
+          const cfg = configSnap.exists() ? (configSnap.data() || {}) : {};
+          const pointSettings = cfg.pointSettings || {};
+          const chipSettings = cfg.sideGameChipSettings || {};
+          const currencyIds = ['pointA', 'pointB', 'pointC', 'pointD', 'pointE'];
+          const rows = [];
+          for (const id of currencyIds) {
+            const slot = pointSettings[id];
+            if (!slot || slot.enabled !== true) continue;
+            const name = (typeof slot.displayName === 'string' && slot.displayName.trim())
+              ? slot.displayName.trim()
+              : `${id}（名称未設定）`;
+            rows.push({ id, name });
+          }
+          if (chipSettings && chipSettings.enabled === true) {
+            const name = (typeof chipSettings.displayName === 'string' && chipSettings.displayName.trim())
+              ? chipSettings.displayName.trim()
+              : 'sideGameChip（名称未設定）';
+            rows.push({ id: 'sideGameChip', name });
+          }
+          const corruptLabel = (LE && LE.MESSAGES.BALANCE_CORRUPT) || 'データ不整合';
+          const formatBal = (raw) => {
+            if (raw === undefined) return '0';
+            if (raw === null) return corruptLabel;
+            if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0) {
+              return raw.toLocaleString('ja-JP');
+            }
+            return corruptLabel;
+          };
+          if (rows.length === 0) {
+            return '';
+          }
+          return `
+            <div class="profile-balances" style="margin-top:12px;">
+              ${rows.map((r) =>
+                `<p style="margin:4px 0;"><strong>${r.name}:</strong> ${formatBal(userData?.[r.id])}</p>`
+              ).join('')}
+            </div>
+          `;
+        } catch (e) {
+          const msg = (LE && LE.MESSAGES.BALANCE_CONFIG) || '残高の表示設定を取得できませんでした。';
+          return `<p style="margin-top:12px;color:#c62828;font-size:0.9rem;">${msg}</p>`;
+        }
+      }
+
+      function showProfileResolved(resolved, onRetry) {
+        const profileInfo = document.getElementById('profile-info');
+        if (!profileInfo) return;
+        profileInfo.innerHTML = '';
+        const p = document.createElement('p');
+        p.textContent = resolved.message;
+        profileInfo.appendChild(p);
+        if (resolved.action !== null && typeof onRetry === 'function') {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn primary-btn';
+          btn.textContent = resolved.retryLabel || '再試行';
+          btn.style.marginTop = '15px';
+          btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            onRetry();
+          });
+          profileInfo.appendChild(btn);
+        }
+      }
+
+      let profileLoadInFlight = false;
+      async function loadProfile() {
+        if (profileLoadInFlight) return;
+        profileLoadInFlight = true;
+        const LE = window.LiffErrors;
+        const profileInfo = document.getElementById('profile-info');
+        profileInfo.innerHTML = '<div class="spinner"></div>';
+
+        try {
+          if (!window.LiffFirebase || !window.LiffFirebase.user) {
+            showProfileResolved(
+              LE
+                ? { message: LE.MESSAGES.QR_AUTH, action: 'retry', retryLabel: LE.MESSAGES.RETRY, kind: 'auth' }
+                : { message: 'ログイン情報を確認できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' },
+              () => loadProfile()
+            );
+            return;
+          }
+
+          const { db } = window.Firebase;
+          const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+          const userDoc = await getDoc(doc(db, 'users', window.LiffFirebase.user.uid));
+
+          if (!userDoc.exists()) {
+            showProfileResolved(
+              LE
+                ? { message: LE.MESSAGES.PROFILE_MISSING, action: 'retry', retryLabel: LE.MESSAGES.RETRY, kind: 'unknown' }
+                : { message: 'ユーザー情報が見つかりません。登録が完了しているか確認してください。', action: 'retry', retryLabel: '再試行' },
+              () => loadProfile()
+            );
+            return;
+          }
+
+          const userData = userDoc.data();
+          const balancesHtml = await buildProfileBalancesHtml(userData);
+          profileInfo.innerHTML = `
+            <div class="profile-details">
+              <h3>基本情報</h3>
+              <p><strong>pokerName:</strong> ${userData.pokerName || '未設定'}</p>
+              <p><strong>メール:</strong> ${userData.email || '未設定'}</p>
+              <p><strong>誕生日:</strong> ${userData.birthMonthDay || '未設定'}</p>
+              ${balancesHtml}
+            </div>
+          `;
+        } catch (error) {
+          showProfileResolved(
+            LE
+              ? LE.resolveUserFacingError({ operation: 'profile_load' })
+              : { message: 'プロフィール情報を取得できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行' },
+            () => loadProfile()
+          );
+        } finally {
+          profileLoadInFlight = false;
+        }
+      }
+
+      // 初期化処理（再試行時は isRetry=true で signOut を先に実行）
+      async function runUserInitialization(isRetry = false) {
+        if (isRetry) {
+          try {
+            const { auth } = window.Firebase || {};
+            if (auth) await auth.signOut();
+          } catch (e) { /* サインアウト失敗は無視 */ }
+        }
+
+        if (window._debugLog) window._debugLog(isRetry ? '3-RETRY. 再試行開始（signOut済み）' : '3. DOMContentLoaded発火');
+        errorEl.style.display = 'none';
+        loadingEl.style.display = 'block';
+        const loadingRetryContainer = document.getElementById('loading-retry-container');
+        if (loadingRetryContainer) { loadingRetryContainer.innerHTML = ''; loadingRetryContainer.style.display = 'none'; }
+        if (typeof window.updateInitProgress === 'function') window.updateInitProgress(0);
+        let initTimedOut = false;
+        const slowWarnId = setTimeout(() => {
+          if (initTimedOut) return;
+          const retryContainer = document.getElementById('loading-retry-container');
+          if (retryContainer) {
+            retryContainer.innerHTML = '';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn primary-btn';
+            btn.textContent = '再試行';
+            btn.onclick = makeInitRetryHandler();
+            retryContainer.appendChild(btn);
+            retryContainer.style.display = 'block';
+          }
+        }, INIT_SLOW_WARN_MS);
+        const timeoutId = setTimeout(() => {
+          initTimedOut = true;
+          loadingEl.style.display = 'none';
+          showErrorWithRetry(resolveInitTimeout(), null, makeInitRetryHandler());
+        }, INIT_TIMEOUT_MS);
+        const clearInitTimers = () => { clearTimeout(slowWarnId); clearTimeout(timeoutId); };
+          homePageEl.style.display = 'none';
+          registrationPageEl.style.display = 'none';
+          qrPageEl.style.display = 'none';
+          orderPageEl.style.display = 'none';
+          orderHistoryPageEl.style.display = 'none';
+          tournamentPageEl.style.display = 'none';
+          profilePageEl.style.display = 'none';
+          
+        try {
+          if (window._debugLog) window._debugLog('3a. generateBirthdayOptions実行');
+          generateBirthdayOptions();
+          
+          if (window._debugLog) window._debugLog('3b. initLiffAndFirebaseAuth呼び出し');
+          try {
+          await window.initLiffAndFirebaseAuth();
+            if (window.__LIFF_LOGIN_REDIRECTING__) {
+              // liff.login() リダイレクト開始済み。後続の登録確認へ進まない
+              clearInitTimers();
+              return;
+            }
+            if (window._debugLog) window._debugLog('3c. initLiffAndFirebaseAuth完了');
+          } catch (liffError) {
+            clearInitTimers();
+            if (initTimedOut) return;
+            loadingEl.style.display = 'none';
+            const LE = window.LiffErrors;
+            const resolved = LE
+              ? LE.resolveUserFacingError({ error: liffError, operation: 'liff_init' })
+              : { message: 'アプリの起動に失敗しました。再試行してください。', action: 'retry', retryLabel: '再試行', kind: 'liff' };
+            const canRetry = resolved.action !== null;
+            showErrorWithRetry(resolved, liffError, canRetry ? makeInitRetryHandler() : null);
+            return;
+          }
+
+          if (window._debugLog) window._debugLog('3d. checkStoreRegistration呼び出し');
+          try {
+          await checkStoreRegistration();
+            if (window._debugLog) window._debugLog('3e. checkStoreRegistration完了');
+          } catch (checkError) {
+            clearInitTimers();
+            if (initTimedOut) return;
+            loadingEl.style.display = 'none';
+            const LE = window.LiffErrors;
+            const showRegCheckError = (err) => {
+              const resolved = LE
+                ? LE.resolveUserFacingError({
+                    error: err,
+                    operation: 'user_registration_check',
+                  })
+                : { message: '登録状態を確認できませんでした。再試行してください。', action: 'retry', retryLabel: '再試行', kind: 'unknown' };
+              showErrorWithRetry(resolved, null, () => {
+                errorEl.style.display = 'none';
+                loadingEl.style.display = 'block';
+                checkStoreRegistration()
+                  .then(() => {
+                    loadingEl.style.display = 'none';
+                    errorEl.style.display = 'none';
+                  })
+                  .catch((retryErr) => {
+                    loadingEl.style.display = 'none';
+                    showRegCheckError(retryErr);
+                  });
+              });
+            };
+            showRegCheckError(checkError);
+            return;
+          }
+
+          clearInitTimers();
+          if (initTimedOut) return;
+          loadingEl.style.display = 'none';
+          errorEl.style.display = 'none';
+          if (typeof window.updateInitProgress === 'function') window.updateInitProgress(100);
+        } catch (error) {
+          clearInitTimers();
+          if (initTimedOut) return;
+          if (window._debugLog) window._debugLog('3-ERR. 初期化エラー', true);
+          loadingEl.style.display = 'none';
+          const LE = window.LiffErrors;
+          const resolved = LE
+            ? LE.resolveUserFacingError({ error, operation: 'liff_init' })
+            : { message: 'アプリの起動に失敗しました。再試行してください。', action: 'retry', retryLabel: '再試行', kind: 'unknown' };
+          showErrorWithRetry(resolved, error, makeInitRetryHandler());
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', () => runUserInitialization(false));
+
+      // 誕生日ドロップダウン生成関数
+      function generateBirthdayOptions() {
+        const monthSelect = document.getElementById('birthMonth');
+        const daySelect = document.getElementById('birthDay');
+        
+        // 月のオプションを生成
+        for (let i = 1; i <= 12; i++) {
+          const option = document.createElement('option');
+          option.value = i.toString().padStart(2, '0');
+          option.textContent = i + '月';
+          monthSelect.appendChild(option);
+        }
+        
+        // 日のオプションを生成
+        for (let i = 1; i <= 31; i++) {
+          const option = document.createElement('option');
+          option.value = i.toString().padStart(2, '0');
+          option.textContent = i + '日';
+          daySelect.appendChild(option);
+        }
+      }
+
+      // メールアドレスフォーマット関数
+      function formatEmail(email) {
+        if (!email || email === '未設定') {
+          return email;
+        }
+        
+        // @の前後で分割して改行を挿入
+        const parts = email.split('@');
+        if (parts.length === 2) {
+          return `${parts[0]}<br>@${parts[1]}`;
+        }
+        
+        return email;
+      }
+
+      // ==================================================
+      // カレンダー関連の関数
+      // ==================================================
+
+      // カレンダータブのデータ読み込み
+      async function loadCalendarTabData(opts) {
+        opts = opts || {};
+        const LE = window.LiffErrors;
+        const tournamentCalEl = document.getElementById('tournament-calendar');
+        const generation = ++calendarTournamentLoadGeneration;
+
+        try {
+          if (tournamentCalEl) {
+            tournamentCalEl.innerHTML = '<div class="spinner"></div>';
+          }
+
+          if (!opts.force && allTournamentsData !== null) {
+            calendarCurrentMonth = calendarCurrentMonth || new Date();
+            clampCalendarCurrentMonthToMinimum();
+            renderTournamentCalendar();
+            return;
+          }
+
+          const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js");
+          const functions = getFunctions(window.Firebase.app, window.FunctionsRegion || "asia-northeast1");
+          const getUpcomingTournaments = httpsCallable(functions, 'getUpcomingTournaments');
+          const result = await getUpcomingTournaments({ includeAll: true });
+          if (generation !== calendarTournamentLoadGeneration) return;
+
+          if (!LE || !LE.isGetUpcomingTournamentsShape(result.data)) {
+            allTournamentsData = null;
+            if (tournamentCalEl) {
+              renderTournamentListError(
+                tournamentCalEl,
+                () => loadCalendarTabData({ force: true }),
+                resolveTournamentListError('get_upcoming_tournaments_calendar', null),
+              );
+            }
+            return;
+          }
+
+          applyLiffTournamentSettings(result.data.liffSettings);
+          allTournamentsData = result.data.tournaments;
+          calendarCurrentMonth = calendarCurrentMonth || new Date();
+          clampCalendarCurrentMonthToMinimum();
+          renderTournamentCalendar();
+        } catch (error) {
+          if (generation !== calendarTournamentLoadGeneration) return;
+          allTournamentsData = null;
+          if (tournamentCalEl) {
+            renderTournamentListError(
+              tournamentCalEl,
+              () => loadCalendarTabData({ force: true }),
+              resolveTournamentListError('get_upcoming_tournaments_calendar', error),
+            );
+          }
+        }
+      }
+
+      // 後方互換（旧ページ遷移からの呼び出し）
+      window.showAllTournamentsCalendar = loadCalendarTabData;
+
+      function formatTournamentCalendarDateStr(year, month, day) {
+        return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+
+      /** カレンダー表示の下限: 当月（当月内の過去日付は表示可）。 */
+      function isBeforeCurrentCalendarMonth(date) {
+        const now = new Date();
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
+        return year < currentYear || (year === currentYear && month < currentMonth);
+      }
+
+      function isCurrentCalendarMonth(date) {
+        const now = new Date();
+        return date.getFullYear() === now.getFullYear()
+          && date.getMonth() === now.getMonth();
+      }
+
+      function clampCalendarCurrentMonthToMinimum() {
+        if (isBeforeCurrentCalendarMonth(calendarCurrentMonth)) {
+          const now = new Date();
+          calendarCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+      }
+
+      function updateCalendarMonthNavButtons() {
+        const prevBtn = document.getElementById('calendar-prev-month-btn');
+        if (!prevBtn) return;
+        const atMinimum = isCurrentCalendarMonth(calendarCurrentMonth);
+        prevBtn.disabled = atMinimum;
+        prevBtn.style.opacity = atMinimum ? '0.5' : '1';
+        prevBtn.style.cursor = atMinimum ? 'not-allowed' : 'pointer';
+      }
+
+      function isJapaneseHoliday(date) {
+        try {
+          if (typeof window !== 'undefined' &&
+              typeof window.JapaneseHolidays !== 'undefined' &&
+              window.JapaneseHolidays &&
+              typeof window.JapaneseHolidays.isHoliday === 'function') {
+            const result = window.JapaneseHolidays.isHoliday(date);
+            return result !== undefined && result !== null;
+          }
+        } catch (error) {
+          console.warn('祝日判定ライブラリの呼び出しに失敗:', error);
+        }
+
+        const month = date.getMonth() + 1;
+        const day = date.getDate();
+        const weekday = date.getDay();
+        const fixedHolidays = [
+          { month: 1, day: 1 },
+          { month: 2, day: 11 },
+          { month: 2, day: 23 },
+          { month: 4, day: 29 },
+          { month: 5, day: 3 },
+          { month: 5, day: 4 },
+          { month: 5, day: 5 },
+          { month: 8, day: 11 },
+          { month: 11, day: 3 },
+          { month: 11, day: 23 },
+        ];
+
+        for (const holiday of fixedHolidays) {
+          if (holiday.month === month && holiday.day === day) {
+            return true;
+          }
+        }
+
+        if (month === 3 && (day === 20 || day === 21)) return true;
+        if (month === 9 && (day === 22 || day === 23)) return true;
+
+        if (month === 7 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 14 && day < firstMonday + 21) return true;
+        }
+        if (month === 9 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 14 && day < firstMonday + 21) return true;
+        }
+        if (month === 10 && weekday === 1) {
+          const firstMonday = day - ((day - 1) % 7);
+          if (day >= firstMonday + 7 && day < firstMonday + 14) return true;
+        }
+
+        return false;
+      }
+
+      function getTournamentCalendarDayColor(currentDate, isToday) {
+        const weekday = currentDate.getDay();
+        const isHoliday = isJapaneseHoliday(currentDate);
+        if (isToday) return '#0000ff';
+        if (weekday === 6) return isHoliday ? '#ff0000' : '#0000ff';
+        if (weekday === 0 || isHoliday) return '#ff0000';
+        return '#000000';
+      }
+
+      // トーナメントカレンダーを描画
+      function renderTournamentCalendar() {
+        const calendar = document.getElementById('tournament-calendar');
+        const monthDisplay = document.getElementById('calendar-current-month');
+        
+        if (!calendar || !monthDisplay) {
+          return;
+        }
+
+        clampCalendarCurrentMonthToMinimum();
+        updateCalendarMonthNavButtons();
+
+        const year = calendarCurrentMonth.getFullYear();
+        const month = calendarCurrentMonth.getMonth();
+        
+        monthDisplay.textContent = `${year}年${month + 1}月`;
+        
+        // トーナメントを日付ごとにグループ化
+        const tournamentsByDate = groupTournamentsByDate(allTournamentsData || [], year, month);
+        
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const firstDayOfMonth = firstDay.getDay();
+        const daysInMonth = lastDay.getDate();
+        
+        let calendarHTML = '<div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
+        const weekdayColors = [
+          { day: '日', color: '#ff0000' },
+          { day: '月', color: '#000000' },
+          { day: '火', color: '#000000' },
+          { day: '水', color: '#000000' },
+          { day: '木', color: '#000000' },
+          { day: '金', color: '#000000' },
+          { day: '土', color: '#0000ff' },
+        ];
+        weekdayColors.forEach(({ day, color }) => {
+          calendarHTML += `<div class="weekday" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 4px 2px; text-align: center; font-size: 0.8rem; font-weight: bold; color: ${color};">${day}</div>`;
+        });
+        calendarHTML += '</div>';
+        
+        calendarHTML += '<div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 100%;">';
+        
+        for (let i = 0; i < firstDayOfMonth; i++) {
+          calendarHTML += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
+        }
+        
+        for (let day = 1; day <= daysInMonth; day++) {
+          const currentDate = new Date(year, month, day);
+          const dateStr = formatTournamentCalendarDateStr(year, month, day);
+          const isToday = currentDate.toDateString() === new Date().toDateString();
+          const dayColor = getTournamentCalendarDayColor(currentDate, isToday);
+          
+          const tournamentInfo = tournamentsByDate[dateStr] || { regular: 0, oneTime: 0 };
+          const hasRegular = tournamentInfo.regular > 0;
+          const hasOneTime = tournamentInfo.oneTime > 0;
+          const hasTournament = hasRegular || hasOneTime;
+          
+          let dayClass = 'calendar-day';
+          if (isToday) dayClass += ' today';
+          if (hasTournament) dayClass += ' has-tournament';
+          if (calendarSelectedDateStr === dateStr) dayClass += ' selected';
+          
+          calendarHTML += `<div class="${dayClass}" data-date="${dateStr}" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem; position: relative;">`;
+          calendarHTML += `<span class="day-number" style="font-weight: bold; color: ${dayColor};">${day}</span>`;
+          
+          if (hasRegular || hasOneTime) {
+            calendarHTML += '<div class="tournament-markers">';
+            
+            for (let j = 0; j < tournamentInfo.regular; j++) {
+              calendarHTML += '<span class="tournament-dot regular"></span>';
+            }
+            
+            for (let j = 0; j < tournamentInfo.oneTime; j++) {
+              calendarHTML += '<span class="tournament-dot one-time"></span>';
+            }
+            
+            calendarHTML += '</div>';
+          }
+          
+          calendarHTML += '</div>';
+        }
+        
+        const totalDays = firstDayOfMonth + daysInMonth;
+        for (let i = totalDays; i < 42; i++) {
+          calendarHTML += '<div class="calendar-day empty" style="min-width: 0; width: 100%; box-sizing: border-box; padding: 2px; text-align: center; font-size: 0.9rem;"></div>';
+        }
+        
+        calendarHTML += '</div>';
+        calendar.innerHTML = calendarHTML;
+        
+        // 日付クリックイベントを設定
+        setupCalendarClickEvents();
+      }
+
+      // トーナメントを日付ごとにグループ化（種類別）
+      function groupTournamentsByDate(tournaments, year, month) {
+        const grouped = {};
+        
+        tournaments.forEach(tournament => {
+          if (!tournament.startAt) return;
+          
+          // startAtは既にISO文字列なのでnew Date()で変換
+          const startDate = typeof tournament.startAt === 'string' 
+            ? new Date(tournament.startAt)
+            : tournament.startAt.toDate(); // Firestore Timestampの場合も考慮
+          
+          const tournamentYear = startDate.getFullYear();
+          const tournamentMonth = startDate.getMonth();
+          
+          // 指定された月のトーナメントのみカウント
+          if (tournamentYear === year && tournamentMonth === month) {
+            const dateStr = formatTournamentCalendarDateStr(
+              tournamentYear,
+              tournamentMonth,
+              startDate.getDate()
+            );
+            
+            if (!grouped[dateStr]) {
+              grouped[dateStr] = { regular: 0, oneTime: 0 };
+            }
+            grouped[dateStr].oneTime += 1;
+          }
+        });
+        
+        return grouped;
+      }
+
+      function clearCalendarDateSelection() {
+        calendarSelectedDateStr = null;
+        const selectedDateTournamentsEl = document.getElementById('selected-date-tournaments');
+        if (selectedDateTournamentsEl) {
+          selectedDateTournamentsEl.style.display = 'none';
+        }
+      }
+
+      function getTournamentsForCalendarDate(dateStr) {
+        return (allTournamentsData || []).filter(tournament => {
+          if (!tournament.startAt) return false;
+          const startDate = typeof tournament.startAt === 'string'
+            ? new Date(tournament.startAt)
+            : tournament.startAt.toDate();
+          return formatTournamentCalendarDateStr(
+            startDate.getFullYear(),
+            startDate.getMonth(),
+            startDate.getDate()
+          ) === dateStr;
+        });
+      }
+
+      // カレンダーの日付クリックイベント（#tournament-calendar に1回だけバインド）
+      function setupCalendarClickEvents() {
+        const calendar = document.getElementById('tournament-calendar');
+        if (!calendar || calendarClickEventsBound) return;
+        calendarClickEventsBound = true;
+
+        calendar.addEventListener('click', (e) => {
+          const dayCell = e.target.closest('.calendar-day');
+          if (!dayCell || dayCell.classList.contains('empty')) return;
+
+          const dateStr = dayCell.dataset.date;
+          if (!dateStr) return;
+
+          calendarSelectedDateStr = dateStr;
+          renderTournamentCalendar();
+
+          const tournamentsForDate = getTournamentsForCalendarDate(dateStr);
+          if (tournamentsForDate.length > 0) {
+            showTournamentsForDate(dateStr, tournamentsForDate);
+          } else {
+            showEmptyTournamentsForDate(dateStr);
+          }
+        });
+      }
+
+      // 指定日のトーナメント一覧を表示
+      function showTournamentsForDate(dateStr, tournamentsForDate) {
+        const selectedDateTournamentsEl = document.getElementById('selected-date-tournaments');
+        const selectedDateTitleEl = document.getElementById('selected-date-title');
+        const selectedDateTournamentListEl = document.getElementById('selected-date-tournament-list');
+        
+        if (!selectedDateTournamentsEl || !selectedDateTitleEl || !selectedDateTournamentListEl) return;
+        
+        const tournaments = tournamentsForDate || getTournamentsForCalendarDate(dateStr);
+        const date = new Date(dateStr + 'T00:00:00');
+        
+        selectedDateTitleEl.textContent =
+          `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日のトーナメント`;
+        
+        selectedDateTournamentListEl.innerHTML = tournaments.map((tournament, index) =>
+          renderTournamentCard(tournament, {
+            cardKey: `calendar-${dateStr}-${index}`,
+            showRegisterButton: false,
+            showDate: true,
+          })
+        ).join('');
+        hydrateTournamentCardDom(selectedDateTournamentListEl, tournaments);
+
+        selectedDateTournamentsEl.style.display = 'block';
+        selectedDateTournamentsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      function showEmptyTournamentsForDate(dateStr) {
+        const selectedDateTournamentsEl = document.getElementById('selected-date-tournaments');
+        const selectedDateTitleEl = document.getElementById('selected-date-title');
+        const selectedDateTournamentListEl = document.getElementById('selected-date-tournament-list');
+
+        if (!selectedDateTournamentsEl || !selectedDateTitleEl || !selectedDateTournamentListEl) return;
+
+        const date = new Date(dateStr + 'T00:00:00');
+        selectedDateTitleEl.textContent =
+          `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日のトーナメント`;
+        const emptyMsg = (window.LiffErrors && window.LiffErrors.MESSAGES.TOUR_CALENDAR_DATE_EMPTY) ||
+          '選択した日のトーナメント予定はありません。';
+        selectedDateTournamentListEl.innerHTML =
+          '<p class="calendar-no-tournaments-msg" style="margin: 12px 0; color: #666; font-size: 0.95rem; text-align: center;"></p>';
+        const emptyEl = selectedDateTournamentListEl.querySelector('.calendar-no-tournaments-msg');
+        if (emptyEl) emptyEl.textContent = emptyMsg;
+
+        selectedDateTournamentsEl.style.display = 'block';
+        selectedDateTournamentsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      // 前月へ移動（当月より前には戻れない）
+      window.previousMonth = function() {
+        if (isCurrentCalendarMonth(calendarCurrentMonth)) {
+          return;
+        }
+        calendarCurrentMonth.setMonth(calendarCurrentMonth.getMonth() - 1);
+        clampCalendarCurrentMonthToMinimum();
+        renderTournamentCalendar();
+        clearCalendarDateSelection();
+      };
+
+      // 次月へ移動
+      window.nextMonth = function() {
+        calendarCurrentMonth.setMonth(calendarCurrentMonth.getMonth() + 1);
+        clampCalendarCurrentMonthToMinimum();
+        renderTournamentCalendar();
+        clearCalendarDateSelection();
+      };
+
+      // トーナメント詳細の表示切り替え
+      window.toggleTournamentDetails = function(cardKey) {
+        const detailsEl = document.getElementById(`${cardKey}-details`);
+        const toggleEl = document.getElementById(`${cardKey}-toggle`);
+        if (!detailsEl) return;
+        const isVisible = detailsEl.style.display !== 'none';
+        const willExpand = !isVisible;
+        detailsEl.style.display = willExpand ? 'block' : 'none';
+        if (toggleEl) {
+          toggleEl.setAttribute('aria-expanded', String(willExpand));
+          const iconEl = toggleEl.querySelector('.tournament-detail-toggle-icon');
+          if (iconEl) {
+            iconEl.textContent = willExpand ? '▲' : '▼';
+          }
+        }
+      };
+
+
+    </script>
+  </body>
+</html> 

@@ -1,0 +1,95 @@
+import {onRequest} from "firebase-functions/v2/https";
+import * as logger from "firebase-functions/logger";
+import * as admin from "firebase-admin";
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+import { verifyLineIdToken } from "../services/lineAuth";
+
+/**
+ * LIFFのIDトークンを検証し、Firebaseカスタムトークンを発行するエンドポイント
+ *
+ * リクエスト:
+ * - POST /getFirebaseCustomToken
+ * - Authorization: Bearer {liff_id_token}
+ *
+ * レスポンス:
+ * - 成功: { firebaseToken: string }
+ * - 失敗: { error: string }
+ */
+export const getFirebaseCustomToken = onRequest(async (request, response) => {
+  // CORS設定
+  response.set("Access-Control-Allow-Origin", "*");
+  response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // OPTIONSリクエスト（プリフライト）の処理
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  // POSTメソッドのみ許可
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed"});
+    return;
+  }
+
+  try {
+    // AuthorizationヘッダーからIDトークンを取得
+    const authHeader = request.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      response.status(401).json({error: "Authorization header is required"});
+      return;
+    }
+
+    const idToken = authHeader.substring(7); // "Bearer "を除去
+    logger.info("Received LIFF ID token", {tokenLength: idToken.length});
+
+    // LINE Login APIでIDトークンを検証
+    const lineUserInfo = await verifyLineIdToken(idToken);
+    logger.info("LINE ID token verified", {userId: lineUserInfo.sub});
+
+    // Firebaseカスタムトークンを生成
+    const customToken = await admin.auth().createCustomToken(lineUserInfo.sub, {
+      provider: "line",
+      lineUserId: lineUserInfo.sub,
+      name: lineUserInfo.name,
+      picture: lineUserInfo.picture,
+    });
+
+    logOpsSuccess({
+      message: "getFirebaseCustomToken 成功",
+      functionEntry: "getFirebaseCustomToken",
+      context: {
+        userId: lineUserInfo.sub,
+        tokenLength: customToken.length,
+      },
+    });
+
+    // レスポンスを返す
+    response.status(200).json({
+      firebaseToken: customToken,
+      user: {
+        id: lineUserInfo.sub,
+        name: lineUserInfo.name,
+        picture: lineUserInfo.picture,
+      },
+    });
+  } catch (error) {
+    const authHeader = request.headers.authorization;
+    const idTokenLen =
+      authHeader && authHeader.startsWith("Bearer ") ? authHeader.length - 7 : undefined;
+    logOpsError({
+      message: "Error in getFirebaseCustomToken",
+      functionEntry: "getFirebaseCustomToken",
+      cause: error,
+      errorKey: "USER_AUTH_CUSTOM_TOKEN_FAILED",
+      context: { idTokenLength: idTokenLen },
+    });
+
+    if (error instanceof Error) {
+      response.status(400).json({error: error.message});
+    } else {
+      response.status(500).json({error: "Internal server error"});
+    }
+  }
+});

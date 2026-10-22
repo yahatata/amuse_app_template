@@ -1,0 +1,121 @@
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { logOpsError, logOpsSuccess } from "../../../shared/logging/logOpsError";
+
+export interface UndoAssignSeatToPlayerParams {
+  tournamentId: string;
+  playerUid: string;
+  playerName: string;
+  tableId: string;
+  seatNumber: number;
+  rollBackBy: string;
+}
+
+/**
+ * プレイヤーへのシート割当操作を巻き戻す
+ */
+export async function undoAssignSeatToPlayer(params: UndoAssignSeatToPlayerParams): Promise<void> {
+  const db = getFirestore();
+  const now = Timestamp.now();
+  
+  try {
+    await db.runTransaction(async (transaction) => {
+      const mainViewRef = db
+        .collection('scheduledTournaments')
+        .doc(params.tournamentId)
+        .collection('views')
+        .doc('main');
+      const seatRef = db
+        .collection('scheduledTournaments')
+        .doc(params.tournamentId)
+        .collection('tablesSeat')
+        .doc(params.tableId);
+      const waitingRef = db
+        .collection('scheduledTournaments')
+        .doc(params.tournamentId)
+        .collection('tablesSeat')
+        .doc('waiting');
+
+      const [mainViewDoc, seatDoc, waitingDoc] = await Promise.all([
+        transaction.get(mainViewRef),
+        transaction.get(seatRef),
+        transaction.get(waitingRef),
+      ]);
+
+      if (!mainViewDoc.exists) {
+        throw new Error('Main view not found');
+      }
+      const mainViewData = mainViewDoc.data()!;
+      const currentWaitingCount = mainViewData.waitingCount || 0;
+
+      // seatedCount は forward（assignSeatToPlayer）で増えないため、undo で減算しない
+      transaction.update(mainViewRef, {
+        waitingCount: currentWaitingCount + 1,
+        updatedAt: now,
+      });
+
+      if (seatDoc.exists) {
+        const seatData = seatDoc.data()!;
+        const seats = seatData.seats || {};
+        const seatNumStr = String(params.seatNumber).padStart(2, '0');
+        const seatKey = `seat${seatNumStr}UserId`;
+        const nameKey = `seat${seatNumStr}PokerName`;
+        const okibakeEntryIdKey = `seat${seatNumStr}OkibakeEntryId`;
+        if (
+          seats[seatKey] !== undefined ||
+          seats[nameKey] !== undefined ||
+          seats[okibakeEntryIdKey] !== undefined
+        ) {
+          const updatedSeats = { ...seats };
+          updatedSeats[seatKey] = null;
+          updatedSeats[nameKey] = null;
+          updatedSeats[okibakeEntryIdKey] = null;
+          transaction.update(seatRef, {
+            seats: updatedSeats,
+            updatedAt: now,
+          });
+        }
+      }
+
+      const currentWaiting = waitingDoc.exists ? (waitingDoc.data()!.waiting || {}) : {};
+      const updatedWaiting = { ...currentWaiting };
+      const maxOrder = Object.values(updatedWaiting)
+        .filter((v): v is { order?: number } => typeof v === 'object' && v !== null)
+        .reduce((max, v) => Math.max(max, v.order ?? 0), 0);
+      updatedWaiting[params.playerUid] = {
+        pokerName: params.playerName,
+        joinedAt: now,
+        order: maxOrder + 1,
+        updatedAt: now,
+      };
+      transaction.set(waitingRef, {
+        waiting: updatedWaiting,
+        count: Object.keys(updatedWaiting).length,
+        updatedAt: now,
+      });
+    });
+
+    logOpsSuccess({
+      message: 'undoAssignSeatToPlayer 成功',
+      functionEntry: 'undoAssignSeatToPlayer',
+      context: {
+        tournamentId: params.tournamentId,
+        playerUid: params.playerUid,
+        tableId: params.tableId,
+        seatNumber: params.seatNumber,
+      },
+    });
+  } catch (error) {
+    logOpsError({
+      message: 'Error undoing assign seat to player operation:',
+      functionEntry: 'undoAssignSeatToPlayer',
+      cause: error,
+      context: {
+        tournamentId: params.tournamentId,
+        playerUid: params.playerUid,
+        tableId: params.tableId,
+        seatNumber: params.seatNumber,
+      },
+    });
+    throw error;
+  }
+}

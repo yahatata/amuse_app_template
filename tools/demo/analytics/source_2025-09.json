@@ -1,0 +1,772 @@
+{
+  "sourceId": "analyticsMonthly/2025-09",
+  "exportedAt": "2026-09-11T03:01:41.036Z",
+  "projectId": "amuse-app-template",
+  "note": "Demo reuse source. No byUser/byTemplate/markers. No PII. Timestamps informational only; writer must regenerate.",
+  "monthly": {
+    "grossSales": 4520000,
+    "orderCount": 1250,
+    "avgOrderValue": 3616,
+    "itemsSales": 1250000,
+    "sideGameChipSales": 850000,
+    "tournamentsSales": 2100000,
+    "extraCostSales": 320000,
+    "dailySales": {
+      "2025-09-01": 145000,
+      "2025-09-02": 152000,
+      "2025-09-03": 138000,
+      "2025-09-04": 167000,
+      "2025-09-05": 189000,
+      "2025-09-06": 201000,
+      "2025-09-07": 195000,
+      "2025-09-08": 143000,
+      "2025-09-09": 156000,
+      "2025-09-10": 174000,
+      "2025-09-11": 182000,
+      "2025-09-12": 198000,
+      "2025-09-13": 215000,
+      "2025-09-14": 203000,
+      "2025-09-15": 179000,
+      "2025-09-16": 186000,
+      "2025-09-17": 192000,
+      "2025-09-18": 208000,
+      "2025-09-19": 221000,
+      "2025-09-20": 234000,
+      "2025-09-21": 198000,
+      "2025-09-22": 187000,
+      "2025-09-23": 201000,
+      "2025-09-24": 213000,
+      "2025-09-25": 226000,
+      "2025-09-26": 245000,
+      "2025-09-27": 238000,
+      "2025-09-28": 192000,
+      "2025-09-29": 178000,
+      "2025-09-30": 165000
+    },
+    "paymentTotals": {
+      "cash": 1800000,
+      "credit_card": 1200000,
+      "electronic_money": 850000,
+      "pointA": 450000,
+      "pointB": 220000,
+      "sideGameTip": 0,
+      "sideGameChip": 0
+    },
+    "createdAt": {
+      "__type": "Timestamp",
+      "iso": "2025-10-23T08:24:37.138Z"
+    },
+    "updatedAt": {
+      "__type": "Timestamp",
+      "iso": "2025-10-23T08:24:37.138Z"
+    }
+  },
+  "days": [
+    {
+      "date": "2025-09-01",
+      "grossSales": 181098,
+      "orderCount": 32,
+      "itemsSales": 50707,
+      "sideGameChipSales": 34408,
+      "tournamentsSales": 83305,
+      "extraCostSales": 12676,
+      "byCategory": {
+        "items": 50707,
+        "sideGameChip": 34408,
+        "extraCost": 12676,
+        "tournaments": 83305
+      },
+      "byPaymentMethod": {
+        "cash": 72439,
+        "credit_card": 48896,
+        "electronic_money": 34408,
+        "pointA": 18109,
+        "pointB": 7243
+      }
+    },
+    {
+      "date": "2025-09-02",
+      "grossSales": 132501,
+      "orderCount": 29,
+      "itemsSales": 37100,
+      "sideGameChipSales": 25175,
+      "tournamentsSales": 60950,
+      "extraCostSales": 9275,
+      "byCategory": {
+        "items": 37100,
+        "sideGameChip": 25175,
+        "extraCost": 9275,
+        "tournaments": 60950
+      },
+      "byPaymentMethod": {
+        "cash": 53000,
+        "credit_card": 35775,
+        "electronic_money": 25175,
+        "pointA": 13250,
+        "pointB": 5300
+      }
+    },
+    {
+      "date": "2025-09-03",
+      "grossSales": 153839,
+      "orderCount": 18,
+      "itemsSales": 43074,
+      "sideGameChipSales": 29229,
+      "tournamentsSales": 70765,
+      "extraCostSales": 10768,
+      "byCategory": {
+        "items": 43074,
+        "sideGameChip": 29229,
+        "extraCost": 10768,
+        "tournaments": 70765
+      },
+      "byPaymentMethod": {
+        "cash": 61535,
+        "credit_card": 41536,
+        "electronic_money": 29229,
+        "pointA": 15383,
+        "pointB": 6153
+      }
+    },
+    {
+      "date": "2025-09-04",
+      "grossSales": 147922,
+      "orderCount": 20,
+      "itemsSales": 41418,
+      "sideGameChipSales": 28105,
+      "tournamentsSales": 68044,
+      "extraCostSales": 10354,
+      "byCategory": {
+        "items": 41418,
+        "sideGameChip": 28105,
+        "extraCost": 10354,
+        "tournaments": 68044
+      },
+      "byPaymentMethod": {
+        "cash": 59168,
+        "credit_card": 39938,
+        "electronic_money": 28105,
+        "pointA": 14792,
+        "pointB": 5916
+      }
+    },
+    {
+      "date": "2025-09-05",
+      "grossSales": 183623,
+      "orderCount": 19,
+      "itemsSales": 51414,
+      "sideGameChipSales": 34888,
+      "tournamentsSales": 84466,
+      "extraCostSales": 12853,
+      "byCategory": {
+        "items": 51414,
+        "sideGameChip": 34888,
+        "extraCost": 12853,
+        "tournaments": 84466
+      },
+      "byPaymentMethod": {
+        "cash": 73449,
+        "credit_card": 49578,
+        "electronic_money": 34888,
+        "pointA": 18362,
+        "pointB": 7344
+      }
+    },
+    {
+      "date": "2025-09-06",
+      "grossSales": 153107,
+      "orderCount": 27,
+      "itemsSales": 42869,
+      "sideGameChipSales": 29090,
+      "tournamentsSales": 70429,
+      "extraCostSales": 10717,
+      "byCategory": {
+        "items": 42869,
+        "sideGameChip": 29090,
+        "extraCost": 10717,
+        "tournaments": 70429
+      },
+      "byPaymentMethod": {
+        "cash": 61242,
+        "credit_card": 41338,
+        "electronic_money": 29090,
+        "pointA": 15310,
+        "pointB": 6124
+      }
+    },
+    {
+      "date": "2025-09-07",
+      "grossSales": 189334,
+      "orderCount": 15,
+      "itemsSales": 53013,
+      "sideGameChipSales": 35973,
+      "tournamentsSales": 87093,
+      "extraCostSales": 13253,
+      "byCategory": {
+        "items": 53013,
+        "sideGameChip": 35973,
+        "extraCost": 13253,
+        "tournaments": 87093
+      },
+      "byPaymentMethod": {
+        "cash": 75733,
+        "credit_card": 51120,
+        "electronic_money": 35973,
+        "pointA": 18933,
+        "pointB": 7573
+      }
+    },
+    {
+      "date": "2025-09-08",
+      "grossSales": 198727,
+      "orderCount": 36,
+      "itemsSales": 55643,
+      "sideGameChipSales": 37758,
+      "tournamentsSales": 91414,
+      "extraCostSales": 13910,
+      "byCategory": {
+        "items": 55643,
+        "sideGameChip": 37758,
+        "extraCost": 13910,
+        "tournaments": 91414
+      },
+      "byPaymentMethod": {
+        "cash": 79490,
+        "credit_card": 53656,
+        "electronic_money": 37758,
+        "pointA": 19872,
+        "pointB": 7949
+      }
+    },
+    {
+      "date": "2025-09-09",
+      "grossSales": 136052,
+      "orderCount": 22,
+      "itemsSales": 38094,
+      "sideGameChipSales": 25849,
+      "tournamentsSales": 62583,
+      "extraCostSales": 9523,
+      "byCategory": {
+        "items": 38094,
+        "sideGameChip": 25849,
+        "extraCost": 9523,
+        "tournaments": 62583
+      },
+      "byPaymentMethod": {
+        "cash": 54420,
+        "credit_card": 36734,
+        "electronic_money": 25849,
+        "pointA": 13605,
+        "pointB": 5442
+      }
+    },
+    {
+      "date": "2025-09-10",
+      "grossSales": 153636,
+      "orderCount": 37,
+      "itemsSales": 43018,
+      "sideGameChipSales": 29190,
+      "tournamentsSales": 70672,
+      "extraCostSales": 10754,
+      "byCategory": {
+        "items": 43018,
+        "sideGameChip": 29190,
+        "extraCost": 10754,
+        "tournaments": 70672
+      },
+      "byPaymentMethod": {
+        "cash": 61454,
+        "credit_card": 41481,
+        "electronic_money": 29190,
+        "pointA": 15363,
+        "pointB": 6145
+      }
+    },
+    {
+      "date": "2025-09-11",
+      "grossSales": 199776,
+      "orderCount": 33,
+      "itemsSales": 55937,
+      "sideGameChipSales": 37957,
+      "tournamentsSales": 91896,
+      "extraCostSales": 13984,
+      "byCategory": {
+        "items": 55937,
+        "sideGameChip": 37957,
+        "extraCost": 13984,
+        "tournaments": 91896
+      },
+      "byPaymentMethod": {
+        "cash": 79910,
+        "credit_card": 53939,
+        "electronic_money": 37957,
+        "pointA": 19977,
+        "pointB": 7991
+      }
+    },
+    {
+      "date": "2025-09-12",
+      "grossSales": 125708,
+      "orderCount": 18,
+      "itemsSales": 35198,
+      "sideGameChipSales": 23884,
+      "tournamentsSales": 57825,
+      "extraCostSales": 8799,
+      "byCategory": {
+        "items": 35198,
+        "sideGameChip": 23884,
+        "extraCost": 8799,
+        "tournaments": 57825
+      },
+      "byPaymentMethod": {
+        "cash": 50283,
+        "credit_card": 33941,
+        "electronic_money": 23884,
+        "pointA": 12570,
+        "pointB": 5028
+      }
+    },
+    {
+      "date": "2025-09-13",
+      "grossSales": 152876,
+      "orderCount": 26,
+      "itemsSales": 42805,
+      "sideGameChipSales": 29046,
+      "tournamentsSales": 70322,
+      "extraCostSales": 10701,
+      "byCategory": {
+        "items": 42805,
+        "sideGameChip": 29046,
+        "extraCost": 10701,
+        "tournaments": 70322
+      },
+      "byPaymentMethod": {
+        "cash": 61150,
+        "credit_card": 41276,
+        "electronic_money": 29046,
+        "pointA": 15287,
+        "pointB": 6115
+      }
+    },
+    {
+      "date": "2025-09-14",
+      "grossSales": 155603,
+      "orderCount": 30,
+      "itemsSales": 43568,
+      "sideGameChipSales": 29564,
+      "tournamentsSales": 71577,
+      "extraCostSales": 10892,
+      "byCategory": {
+        "items": 43568,
+        "sideGameChip": 29564,
+        "extraCost": 10892,
+        "tournaments": 71577
+      },
+      "byPaymentMethod": {
+        "cash": 62241,
+        "credit_card": 42012,
+        "electronic_money": 29564,
+        "pointA": 15560,
+        "pointB": 6224
+      }
+    },
+    {
+      "date": "2025-09-15",
+      "grossSales": 175179,
+      "orderCount": 15,
+      "itemsSales": 49050,
+      "sideGameChipSales": 33284,
+      "tournamentsSales": 80582,
+      "extraCostSales": 12262,
+      "byCategory": {
+        "items": 49050,
+        "sideGameChip": 33284,
+        "extraCost": 12262,
+        "tournaments": 80582
+      },
+      "byPaymentMethod": {
+        "cash": 70071,
+        "credit_card": 47298,
+        "electronic_money": 33284,
+        "pointA": 17517,
+        "pointB": 7007
+      }
+    },
+    {
+      "date": "2025-09-16",
+      "grossSales": 197651,
+      "orderCount": 38,
+      "itemsSales": 55342,
+      "sideGameChipSales": 37553,
+      "tournamentsSales": 90919,
+      "extraCostSales": 13835,
+      "byCategory": {
+        "items": 55342,
+        "sideGameChip": 37553,
+        "extraCost": 13835,
+        "tournaments": 90919
+      },
+      "byPaymentMethod": {
+        "cash": 79060,
+        "credit_card": 53365,
+        "electronic_money": 37553,
+        "pointA": 19765,
+        "pointB": 7906
+      }
+    },
+    {
+      "date": "2025-09-17",
+      "grossSales": 139085,
+      "orderCount": 22,
+      "itemsSales": 38943,
+      "sideGameChipSales": 26426,
+      "tournamentsSales": 63979,
+      "extraCostSales": 9735,
+      "byCategory": {
+        "items": 38943,
+        "sideGameChip": 26426,
+        "extraCost": 9735,
+        "tournaments": 63979
+      },
+      "byPaymentMethod": {
+        "cash": 55634,
+        "credit_card": 37552,
+        "electronic_money": 26426,
+        "pointA": 13908,
+        "pointB": 5563
+      }
+    },
+    {
+      "date": "2025-09-18",
+      "grossSales": 189623,
+      "orderCount": 36,
+      "itemsSales": 53094,
+      "sideGameChipSales": 36028,
+      "tournamentsSales": 87226,
+      "extraCostSales": 13273,
+      "byCategory": {
+        "items": 53094,
+        "sideGameChip": 36028,
+        "extraCost": 13273,
+        "tournaments": 87226
+      },
+      "byPaymentMethod": {
+        "cash": 75849,
+        "credit_card": 51198,
+        "electronic_money": 36028,
+        "pointA": 18962,
+        "pointB": 7584
+      }
+    },
+    {
+      "date": "2025-09-19",
+      "grossSales": 166309,
+      "orderCount": 15,
+      "itemsSales": 46566,
+      "sideGameChipSales": 31598,
+      "tournamentsSales": 76502,
+      "extraCostSales": 11641,
+      "byCategory": {
+        "items": 46566,
+        "sideGameChip": 31598,
+        "extraCost": 11641,
+        "tournaments": 76502
+      },
+      "byPaymentMethod": {
+        "cash": 66523,
+        "credit_card": 44903,
+        "electronic_money": 31598,
+        "pointA": 16630,
+        "pointB": 6652
+      }
+    },
+    {
+      "date": "2025-09-20",
+      "grossSales": 178719,
+      "orderCount": 15,
+      "itemsSales": 50041,
+      "sideGameChipSales": 33956,
+      "tournamentsSales": 82210,
+      "extraCostSales": 12510,
+      "byCategory": {
+        "items": 50041,
+        "sideGameChip": 33956,
+        "extraCost": 12510,
+        "tournaments": 82210
+      },
+      "byPaymentMethod": {
+        "cash": 71487,
+        "credit_card": 48254,
+        "electronic_money": 33956,
+        "pointA": 17871,
+        "pointB": 7148
+      }
+    },
+    {
+      "date": "2025-09-21",
+      "grossSales": 139360,
+      "orderCount": 22,
+      "itemsSales": 39020,
+      "sideGameChipSales": 26478,
+      "tournamentsSales": 64105,
+      "extraCostSales": 9755,
+      "byCategory": {
+        "items": 39020,
+        "sideGameChip": 26478,
+        "extraCost": 9755,
+        "tournaments": 64105
+      },
+      "byPaymentMethod": {
+        "cash": 55744,
+        "credit_card": 37627,
+        "electronic_money": 26478,
+        "pointA": 13936,
+        "pointB": 5574
+      }
+    },
+    {
+      "date": "2025-09-22",
+      "grossSales": 131948,
+      "orderCount": 35,
+      "itemsSales": 36945,
+      "sideGameChipSales": 25070,
+      "tournamentsSales": 60696,
+      "extraCostSales": 9236,
+      "byCategory": {
+        "items": 36945,
+        "sideGameChip": 25070,
+        "extraCost": 9236,
+        "tournaments": 60696
+      },
+      "byPaymentMethod": {
+        "cash": 52779,
+        "credit_card": 35625,
+        "electronic_money": 25070,
+        "pointA": 13194,
+        "pointB": 5277
+      }
+    },
+    {
+      "date": "2025-09-23",
+      "grossSales": 151846,
+      "orderCount": 20,
+      "itemsSales": 42516,
+      "sideGameChipSales": 28850,
+      "tournamentsSales": 69849,
+      "extraCostSales": 10629,
+      "byCategory": {
+        "items": 42516,
+        "sideGameChip": 28850,
+        "extraCost": 10629,
+        "tournaments": 69849
+      },
+      "byPaymentMethod": {
+        "cash": 60738,
+        "credit_card": 40998,
+        "electronic_money": 28850,
+        "pointA": 15184,
+        "pointB": 6073
+      }
+    },
+    {
+      "date": "2025-09-24",
+      "grossSales": 164672,
+      "orderCount": 19,
+      "itemsSales": 46108,
+      "sideGameChipSales": 31287,
+      "tournamentsSales": 75749,
+      "extraCostSales": 11527,
+      "byCategory": {
+        "items": 46108,
+        "sideGameChip": 31287,
+        "extraCost": 11527,
+        "tournaments": 75749
+      },
+      "byPaymentMethod": {
+        "cash": 65868,
+        "credit_card": 44461,
+        "electronic_money": 31287,
+        "pointA": 16467,
+        "pointB": 6586
+      }
+    },
+    {
+      "date": "2025-09-25",
+      "grossSales": 192465,
+      "orderCount": 36,
+      "itemsSales": 53890,
+      "sideGameChipSales": 36568,
+      "tournamentsSales": 88533,
+      "extraCostSales": 13472,
+      "byCategory": {
+        "items": 53890,
+        "sideGameChip": 36568,
+        "extraCost": 13472,
+        "tournaments": 88533
+      },
+      "byPaymentMethod": {
+        "cash": 76986,
+        "credit_card": 51965,
+        "electronic_money": 36568,
+        "pointA": 19246,
+        "pointB": 7698
+      }
+    },
+    {
+      "date": "2025-09-26",
+      "grossSales": 122082,
+      "orderCount": 21,
+      "itemsSales": 34182,
+      "sideGameChipSales": 23195,
+      "tournamentsSales": 56157,
+      "extraCostSales": 8545,
+      "byCategory": {
+        "items": 34182,
+        "sideGameChip": 23195,
+        "extraCost": 8545,
+        "tournaments": 56157
+      },
+      "byPaymentMethod": {
+        "cash": 48832,
+        "credit_card": 32962,
+        "electronic_money": 23195,
+        "pointA": 12208,
+        "pointB": 4883
+      }
+    },
+    {
+      "date": "2025-09-27",
+      "grossSales": 145311,
+      "orderCount": 17,
+      "itemsSales": 40687,
+      "sideGameChipSales": 27609,
+      "tournamentsSales": 66843,
+      "extraCostSales": 10171,
+      "byCategory": {
+        "items": 40687,
+        "sideGameChip": 27609,
+        "extraCost": 10171,
+        "tournaments": 66843
+      },
+      "byPaymentMethod": {
+        "cash": 58124,
+        "credit_card": 39233,
+        "electronic_money": 27609,
+        "pointA": 14531,
+        "pointB": 5812
+      }
+    },
+    {
+      "date": "2025-09-28",
+      "grossSales": 155837,
+      "orderCount": 28,
+      "itemsSales": 43634,
+      "sideGameChipSales": 29609,
+      "tournamentsSales": 71685,
+      "extraCostSales": 10908,
+      "byCategory": {
+        "items": 43634,
+        "sideGameChip": 29609,
+        "extraCost": 10908,
+        "tournaments": 71685
+      },
+      "byPaymentMethod": {
+        "cash": 62334,
+        "credit_card": 42075,
+        "electronic_money": 29609,
+        "pointA": 15583,
+        "pointB": 6233
+      }
+    },
+    {
+      "date": "2025-09-29",
+      "grossSales": 179243,
+      "orderCount": 18,
+      "itemsSales": 50188,
+      "sideGameChipSales": 34056,
+      "tournamentsSales": 82451,
+      "extraCostSales": 12547,
+      "byCategory": {
+        "items": 50188,
+        "sideGameChip": 34056,
+        "extraCost": 12547,
+        "tournaments": 82451
+      },
+      "byPaymentMethod": {
+        "cash": 71697,
+        "credit_card": 48395,
+        "electronic_money": 34056,
+        "pointA": 17924,
+        "pointB": 7169
+      }
+    },
+    {
+      "date": "2025-09-30",
+      "grossSales": 187126,
+      "orderCount": 39,
+      "itemsSales": 52395,
+      "sideGameChipSales": 35553,
+      "tournamentsSales": 86077,
+      "extraCostSales": 13098,
+      "byCategory": {
+        "items": 52395,
+        "sideGameChip": 35553,
+        "extraCost": 13098,
+        "tournaments": 86077
+      },
+      "byPaymentMethod": {
+        "cash": 74850,
+        "credit_card": 50524,
+        "electronic_money": 35553,
+        "pointA": 18712,
+        "pointB": 7485
+      }
+    }
+  ],
+  "byCategory": {
+    "totals": {
+      "items": 1250000,
+      "sideGameChip": 850000,
+      "extraCost": 320000,
+      "tournaments": 2100000
+    },
+    "orderCounts": {
+      "items": 850,
+      "sideGameChip": 420,
+      "extraCost": 180,
+      "tournaments": 320
+    },
+    "itemSales": {
+      "menu001": {
+        "qty": 45,
+        "sales": 67500,
+        "name": "ビール",
+        "category": "items"
+      },
+      "menu002": {
+        "qty": 32,
+        "sales": 48000,
+        "name": "ハイボール",
+        "category": "items"
+      },
+      "menu003": {
+        "qty": 28,
+        "sales": 42000,
+        "name": "ウイスキー",
+        "category": "items"
+      },
+      "menu004": {
+        "qty": 55,
+        "sales": 82500,
+        "name": "チップス",
+        "category": "items"
+      },
+      "menu005": {
+        "qty": 38,
+        "sales": 57000,
+        "name": "ナッツ",
+        "category": "items"
+      }
+    }
+  }
+}

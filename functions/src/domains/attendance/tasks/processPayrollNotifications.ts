@@ -1,0 +1,276 @@
+/**
+ * processPayrollNotifications — onTaskDispatched
+ *
+ * 1日1回実行。対象期間の monthlyPayroll を読み取り、
+ * 4種のスケジューラー経由通知の条件を評価・作成する。
+ * （payroll_hold_reminder は registerPaymentStatus でイベント駆動）
+ *
+ * 参照: 07_NOTIFICATION_SCHEDULER_SPEC §3-3
+ */
+
+import { onTaskDispatched } from 'firebase-functions/v2/tasks';
+import { getFirestore } from 'firebase-admin/firestore';
+import { logOpsInfo, logOpsSuccess } from '../../../shared/logging/logOpsError';
+import { extractSchedulerChildExecutionMetadata } from '../../scheduler/supervisor/schedulerCorrelation';
+
+import { getPayrollConfig } from '../../../shared/config/payrollConfigLoader';
+import { getStoreConfig } from '../../../shared/config/configLoader';
+import {
+  computeActualPaymentDate,
+  getPayrollPeriodRange,
+} from '../helpers/payrollPeriodUtils';
+import {
+  createPayrollNotification,
+  buildSchedulerIdempotencyKey,
+} from '../helpers/payrollNotificationHelper';
+import {
+  DEFAULT_PAYROLL_START_DAY,
+  DEFAULT_PAYROLL_END_DAY,
+} from '../../../shared/config/defaults';
+
+interface ProcessPayrollNotificationsTaskPayload {
+  targetDate?: string;
+  schedulerParentJobKey?: string;
+  schedulerParentPlanningDate?: string;
+  schedulerParentPlannedRunAt?: string;
+  schedulerParentIdempotencyKey?: string;
+  schedulerParentSupervisorRunId?: string;
+  schedulerChildUnitKey?: string;
+  schedulerChildFunctionEntry?: string;
+}
+
+// ─── Pure types & helpers (Firestore-independent, unit-testable) ───
+
+export interface PeriodInfo {
+  paymentPeriodKey: string;
+  periodStart: string;
+  periodEnd: string;
+  monthlyPayrollStatus: string | null;
+  latestRunId: string | null;
+}
+
+export interface NotificationAction {
+  triggerType: string;
+  params: Record<string, string>;
+  docId: string;
+  typeOverride?: string;
+}
+
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${dd}`;
+}
+
+/** payroll_calc_remind: 支払日の N 日前から strong_warning に昇格（A-5 確定: 7日前） */
+const CALC_REMIND_STRONG_WARNING_DAYS_BEFORE_PAYMENT = 7;
+
+/**
+ * 4種のスケジューラー通知条件を純粋に評価する（Firestore 非依存）。
+ */
+export function evaluateScheduledNotifications(
+  todayStr: string,
+  recentPeriod: PeriodInfo,
+  paymentDayOfMonth: string | null,
+  paymentMonthOffset: 0 | 1 | 2,
+  reminderStartDays: number
+): NotificationAction[] {
+  const actions: NotificationAction[] = [];
+
+  const dayAfterPeriodEnd = addDays(recentPeriod.periodEnd, 1);
+  const reminderStartDate = addDays(recentPeriod.periodEnd, reminderStartDays);
+  const actualPaymentDate = computeActualPaymentDate(
+    recentPeriod.periodEnd,
+    paymentDayOfMonth,
+    paymentMonthOffset
+  );
+
+  // 1. payroll_period_start: periodEnd+1 == today, まだ計算未実行
+  if (
+    todayStr === dayAfterPeriodEnd &&
+    (!recentPeriod.monthlyPayrollStatus || !recentPeriod.latestRunId)
+  ) {
+    actions.push({
+      triggerType: 'payroll_period_start',
+      params: {
+        periodStart: recentPeriod.periodStart,
+        periodEnd: recentPeriod.periodEnd,
+      },
+      docId: buildSchedulerIdempotencyKey(
+        'payroll_period_start',
+        recentPeriod.paymentPeriodKey,
+        todayStr
+      ),
+    });
+  }
+
+  // 2. payroll_calc_remind: periodEnd+N <= today, 計算未実行（支払日7日前から strong_warning）
+  if (todayStr >= reminderStartDate && !recentPeriod.latestRunId) {
+    let typeOverride: string | undefined;
+    if (actualPaymentDate) {
+      const strongWarningStartDate = addDays(
+        actualPaymentDate,
+        -CALC_REMIND_STRONG_WARNING_DAYS_BEFORE_PAYMENT
+      );
+      if (todayStr >= strongWarningStartDate) {
+        typeOverride = 'strong_warning';
+      }
+    }
+
+    actions.push({
+      triggerType: 'payroll_calc_remind',
+      params: {
+        periodStart: recentPeriod.periodStart,
+        periodEnd: recentPeriod.periodEnd,
+        paymentDate: actualPaymentDate || '未設定',
+      },
+      docId: buildSchedulerIdempotencyKey(
+        'payroll_calc_remind',
+        recentPeriod.paymentPeriodKey,
+        todayStr
+      ),
+      typeOverride,
+    });
+  }
+
+  // 3. payroll_confirm_remind: 計算済み + draft
+  if (
+    todayStr >= reminderStartDate &&
+    recentPeriod.latestRunId &&
+    recentPeriod.monthlyPayrollStatus === 'draft'
+  ) {
+    actions.push({
+      triggerType: 'payroll_confirm_remind',
+      params: {
+        periodStart: recentPeriod.periodStart,
+        periodEnd: recentPeriod.periodEnd,
+      },
+      docId: buildSchedulerIdempotencyKey(
+        'payroll_confirm_remind',
+        recentPeriod.paymentPeriodKey,
+        todayStr
+      ),
+    });
+  }
+
+  // 4. payroll_payment_overdue: 支払日超過 + confirmed
+  if (
+    actualPaymentDate &&
+    todayStr > actualPaymentDate &&
+    recentPeriod.monthlyPayrollStatus === 'confirmed'
+  ) {
+    actions.push({
+      triggerType: 'payroll_payment_overdue',
+      params: {
+        periodStart: recentPeriod.periodStart,
+        periodEnd: recentPeriod.periodEnd,
+      },
+      docId: buildSchedulerIdempotencyKey(
+        'payroll_payment_overdue',
+        recentPeriod.paymentPeriodKey,
+        todayStr
+      ),
+    });
+  }
+
+  return actions;
+}
+
+// ─── Cloud Task handler ───
+
+export const processPayrollNotifications = onTaskDispatched(
+  {
+    retryConfig: { maxAttempts: 3, minBackoffSeconds: 10, maxBackoffSeconds: 60 },
+  },
+  async (request) => {
+    const payload = (request.data ?? {}) as ProcessPayrollNotificationsTaskPayload;
+    const schedulerMetadata = extractSchedulerChildExecutionMetadata(payload);
+    const todayStr = payload.targetDate && /^\d{4}-\d{2}-\d{2}$/.test(payload.targetDate) ?
+      payload.targetDate :
+      (() => {
+        const now = new Date();
+        const jstOffsetMs = 9 * 60 * 60 * 1000;
+        const jstDate = new Date(
+          now.getTime() + now.getTimezoneOffset() * 60000 + jstOffsetMs
+        );
+        return [
+          jstDate.getFullYear(),
+          String(jstDate.getMonth() + 1).padStart(2, '0'),
+          String(jstDate.getDate()).padStart(2, '0'),
+        ].join('-');
+      })();
+
+    logOpsInfo({
+      message: 'processPayrollNotifications start',
+      functionEntry: 'processPayrollNotifications',
+      operation: 'start',
+      context: {
+        todayStr,
+        ...schedulerMetadata,
+      },
+    });
+
+    const db = getFirestore();
+
+    const [payrollConfig, storeConfig] = await Promise.all([
+      getPayrollConfig(db),
+      getStoreConfig(db),
+    ]);
+
+    const startDay = storeConfig.payroll?.startDay ?? DEFAULT_PAYROLL_START_DAY;
+    const endDay = storeConfig.payroll?.endDay ?? DEFAULT_PAYROLL_END_DAY;
+    const paymentDayOfMonth = payrollConfig.paymentDayOfMonth;
+    const paymentMonthOffset = payrollConfig.paymentMonthOffset;
+    const reminderStartDays = payrollConfig.reminderStartDaysAfterPeriodEnd;
+
+    // 対象期間: today が属する期間 → その直前の期間
+    const activePeriod = getPayrollPeriodRange(todayStr, startDay, endDay);
+    const recentPeriodRange = getPayrollPeriodRange(
+      addDays(activePeriod.periodStart, -1),
+      startDay,
+      endDay
+    );
+    const recentPeriodKey = `${recentPeriodRange.periodStart}_${recentPeriodRange.periodEnd}`;
+
+    // monthlyPayroll 読み取り
+    const mpDoc = await db.collection('monthlyPayroll').doc(recentPeriodKey).get();
+    const mpData = mpDoc.exists ? mpDoc.data()! : null;
+
+    const recentPeriodInfo: PeriodInfo = {
+      paymentPeriodKey: recentPeriodKey,
+      periodStart: recentPeriodRange.periodStart,
+      periodEnd: recentPeriodRange.periodEnd,
+      monthlyPayrollStatus: mpData?.status ?? null,
+      latestRunId: mpData?.latestRunId ?? null,
+    };
+
+    const actions = evaluateScheduledNotifications(
+      todayStr,
+      recentPeriodInfo,
+      paymentDayOfMonth,
+      paymentMonthOffset,
+      reminderStartDays
+    );
+
+    for (const action of actions) {
+      await createPayrollNotification(db, action.triggerType, action.params, {
+        docId: action.docId,
+        typeOverride: action.typeOverride,
+      });
+    }
+
+    logOpsSuccess({
+      message: 'processPayrollNotifications 成功',
+      functionEntry: 'processPayrollNotifications',
+      context: {
+        todayStr,
+        recentPeriodKey,
+        actionsCount: actions.length,
+        triggerTypes: actions.map((a) => a.triggerType),
+        ...schedulerMetadata,
+      },
+    });
+  }
+);

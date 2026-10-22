@@ -1,0 +1,31 @@
+// Attendance domain: callables and scheduler
+// determineAttendanceMode: Phase4 01 で unused_function_lib に移動（clockIn/clockOut に分離）
+// createClockInRecord, updateClockOutRecord: Phase4.1 で unused_function_lib に移動（clockIn/clockOut に統合済み）
+export { clockIn } from "./callables/clockIn";
+export { clockOut } from "./callables/clockOut";
+export { startBreak } from "./callables/startBreak";
+export { endBreak } from "./callables/endBreak";
+export { getStaffListForAttendance } from "./callables/getStaffListForAttendance";
+export { createManualClockInRecord } from "./callables/createManualClockInRecord";
+export { createAttendance } from "./callables/createAttendance";
+export { updateAttendance } from "./callables/updateAttendance";
+export { updateManualClockOutRecord } from "./callables/updateManualClockOutRecord";
+export { getAllStaffAttendance } from "./callables/getAllStaffAttendance";
+export { getStaffAttendance } from "./callables/getStaffAttendance";
+export { createAttendanceCorrectionRequest } from "./callables/createAttendanceCorrectionRequest";
+export { checkExistingCorrectionRequest } from "./callables/checkExistingCorrectionRequest";
+export { getAttendanceCorrectionRequests } from "./callables/getAttendanceCorrectionRequests";
+export { approveAttendanceCorrectionRequest } from "./callables/approveAttendanceCorrectionRequest";
+export { rejectAttendanceCorrectionRequest } from "./callables/rejectAttendanceCorrectionRequest";
+export { getPayrollData } from "./callables/getPayrollData";
+export { getPayrollCandidates } from "./callables/getPayrollCandidates";
+export { getPayrollCalcDisplayContext } from "./callables/getPayrollCalcDisplayContext";
+export { executeMonthlyPayroll } from "./callables/executeMonthlyPayroll";
+export { confirmPayrollRun } from "./callables/confirmPayrollRun";
+export { retryFailedStaffTasks } from "./callables/retryFailedStaffTasks";
+export { cancelPayrollRun } from "./callables/cancelPayrollRun";
+export { registerPaymentStatus } from "./callables/registerPaymentStatus";
+export { processStaffPayroll } from "./tasks/processStaffPayroll";
+export { finalizePayrollRun } from "./tasks/finalizePayrollRun";
+export { processPayrollNotifications } from "./tasks/processPayrollNotifications";
+export { attendanceOnWrite } from "./triggers/attendanceOnWrite";
